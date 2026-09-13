@@ -183,22 +183,24 @@ Open questions:
 
 Commanders remain indestructible and untargetable regardless of the answer.
 
-## 13. Commander vertical limits and speed
+## 13. Commander vertical limits and speed — PARTIALLY RESOLVED
 
-Locked:
+Locked behavior:
 
-- authoritative Z is integer/discrete
-- rendering interpolates between Z levels
-- horizontal and vertical movement can happen simultaneously
-- holding Space raises the commander and releasing it causes descent
+- Authoritative altitude uses the original ZX Spectrum integer altitude units directly.
+- Minimum altitude is **0**.
+- Default maximum altitude is **48**.
+- The maximum altitude is an engine constant/configurable game-rule value, not a magic number spread through movement code.
+- Rendering may interpolate between authoritative altitude values, but simulation altitude remains integer/discrete.
+- Horizontal and vertical movement may happen simultaneously.
+- Holding Space raises the commander and releasing Space causes descent.
+- Original ascent behavior changes altitude by **2 units per elevation update**; this should be preserved as the default behavior unless later timing analysis shows a different authoritative update cadence.
 
-Open questions:
+Still open:
 
-- Minimum Z
-- Maximum Z
-- Number of simulation ticks per Z-level transition
-- Whether ascent and descent use the same speed
-- Whether there is any special ceiling or altitude rule near map objects
+- Exact simulation-tick cadence of ascent/descent updates at the locked 20 Hz engine rate.
+- Whether descent uses exactly the same cadence/step as ascent.
+- Whether there are any special local ceiling/altitude rules around map objects beyond normal collision clearance.
 
 ## 14. Landing on an enemy robot
 
