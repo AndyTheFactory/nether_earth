@@ -202,24 +202,34 @@ Locked behavior:
 - If vertically separated with no overlap, both may occupy the same X/Y.
 - Commanders remain indestructible, untargetable, and immune to damage; this rule affects collision only.
 
-## 13. Commander vertical limits and speed — PARTIALLY RESOLVED
+## 13. Commander vertical limits and speed — RESOLVED
 
 Locked behavior:
 
 - Authoritative altitude uses the original ZX Spectrum integer altitude units directly.
 - Minimum altitude is **0**.
 - Default maximum altitude is **48**.
-- The maximum altitude is an engine constant/configurable game-rule value, not a magic number spread through movement code.
-- Rendering may interpolate between authoritative altitude values, but simulation altitude remains integer/discrete.
+- At the locked 20 Hz simulation rate, commander vertical physics updates every **4 simulation ticks** (5 updates per real second), matching the original game's maximum 5 Hz game-cycle cadence.
+- On an elevation update, ascent changes altitude by **+2** units.
+- On a gravity update, descent changes altitude by **-1** unit.
+- Ascent and descent are intentionally asymmetric, matching the Spectrum implementation.
+- Holding Space raises the commander; releasing Space applies gravity/descent.
 - Horizontal and vertical movement may happen simultaneously.
-- Holding Space raises the commander and releasing Space causes descent.
-- Original ascent behavior changes altitude by **2 units per elevation update**; this should be preserved as the default behavior unless later timing analysis shows a different authoritative update cadence.
+- Rendering may interpolate between authoritative altitude values, but simulation altitude remains integer/discrete.
+- The Spectrum defaults imply approximately **4.8 seconds** from altitude 0 to 48 and **9.6 seconds** from 48 to 0 when unobstructed.
+- Automatic elevation used when exiting a robot/war base uses the same +2 elevation step semantics.
 
-Still open:
+Configuration requirement:
 
-- Exact simulation-tick cadence of ascent/descent updates at the locked 20 Hz engine rate.
-- Whether descent uses exactly the same cadence/step as ascent.
-- Whether there are any special local ceiling/altitude rules around map objects beyond normal collision clearance.
+- `commander_min_altitude` default **0**
+- `commander_max_altitude` default **48**
+- `commander_vertical_update_ticks` default **4**
+- `commander_ascent_step` default **2**
+- `commander_descent_step` default **1**
+
+These values must live in centralized engine game-rule/configuration data rather than as magic numbers in commander movement code. Spectrum values are the canonical defaults.
+
+Any special local ceiling behavior beyond ordinary collision clearance remains an implementation/research detail only if later Spectrum evidence establishes one; it is not a blocker for the default vertical timing model.
 
 ## 14. Landing on an enemy robot — RESOLVED
 
