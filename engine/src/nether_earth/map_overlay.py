@@ -60,7 +60,10 @@ def apply_overlay(world_map: "WorldMap", overlay: ScenarioOverlay) -> "WorldMap"
     Raises :class:`OverlayValidationError` if any ``overlay.ownership`` key
     does not reference a real war-base or factory id on ``world_map``.
     Blockers have no ``owner`` field, so an overlay referencing a blocker id
-    is an unknown-reference error like any other unknown id.
+    is an unknown-reference error like any other unknown id. Also raises
+    :class:`OverlayValidationError` if any ``overlay.spawn_positions`` cell
+    falls outside ``[0, world_map.width)`` x ``[0, world_map.height)``, using
+    the same in-bounds check ``terrain.py`` applies to its own cells.
     """
     ownable: tuple[WarBase | Factory, ...] = (*world_map.war_bases, *world_map.factories)
     known_structure_ids = {structure.id for structure in ownable}
@@ -71,6 +74,18 @@ def apply_overlay(world_map: "WorldMap", overlay: ScenarioOverlay) -> "WorldMap"
         unknown_values = ", ".join(repr(entity_id.value) for entity_id in unknown)
         raise OverlayValidationError(
             f"overlay {overlay.id!r} references unknown structure id(s): {unknown_values}"
+        )
+
+    out_of_bounds = [
+        (name, cell)
+        for name, cell in overlay.spawn_positions.items()
+        if not (0 <= cell[0] < world_map.width and 0 <= cell[1] < world_map.height)
+    ]
+    if out_of_bounds:
+        described = ", ".join(f"{name!r}={cell!r}" for name, cell in out_of_bounds)
+        raise OverlayValidationError(
+            f"overlay {overlay.id!r} spawn_positions outside the "
+            f"{world_map.width}x{world_map.height} grid: {described}"
         )
 
     new_war_bases = tuple(

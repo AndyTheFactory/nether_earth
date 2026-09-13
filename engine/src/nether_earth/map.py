@@ -74,7 +74,9 @@ def load_bootstrap_map(path: str | Path) -> BootstrapMap:
     )
 
 
-def _parse_spawn_positions(raw: "dict[str, Any] | None") -> dict[str, tuple[int, int]]:
+def _parse_spawn_positions(
+    raw: "dict[str, Any] | None", width: int, height: int
+) -> dict[str, tuple[int, int]]:
     if raw is None:
         raw = {}
     if not isinstance(raw, dict):
@@ -92,6 +94,11 @@ def _parse_spawn_positions(raw: "dict[str, Any] | None") -> dict[str, tuple[int,
             raise MapValidationError(f"spawn_positions[{name!r}].x must be an integer")
         if not isinstance(y, int) or isinstance(y, bool):
             raise MapValidationError(f"spawn_positions[{name!r}].y must be an integer")
+        if not (0 <= x < width and 0 <= y < height):
+            raise MapValidationError(
+                f"spawn_positions[{name!r}]: cell ({x}, {y}) is outside the "
+                f"{width}x{height} grid"
+            )
         spawn_positions[name] = (x, y)
 
     return spawn_positions
@@ -213,7 +220,7 @@ def load_world_map(path: str | Path) -> WorldMap:
         width=width,
         height=height,
     )
-    spawn_positions = _parse_spawn_positions(raw.get("spawn_positions"))
+    spawn_positions = _parse_spawn_positions(raw.get("spawn_positions"), width, height)
 
     return WorldMap(
         map_id=map_id,
