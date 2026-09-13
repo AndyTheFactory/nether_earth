@@ -178,21 +178,17 @@ Open questions:
 - Whether a module requires both general and specific resources or either/or
 - What happens to spent/selected resources when construction is scrapped
 
-## 11. Simultaneous destination-cell claims
+## 11. Simultaneous destination-cell claims — RESOLVED
 
-Movement can span multiple ticks while authoritative positions remain grid based.
+Locked behavior:
 
-Open question:
-
-If two robots begin transitions toward the same currently-empty destination cell, what is the deterministic rule?
-
-Possible models include:
-
-- reserve the destination when movement begins
-- resolve competing claims by tick/order/player/entity ID
-- allow both to move until completion and resolve at the final tick
-
-This must be deterministic and replay-safe.
+- A robot reserves its destination cell when a move is accepted/started.
+- While reserved, that destination is unavailable to other robots until the move completes or the reservation is released/cancelled.
+- If two or more robots contend for the same destination in the same authoritative simulation tick, the winner is chosen by a **50/50 coin flip** for a two-robot claim.
+- Random contention resolution must use the match-local seeded deterministic RNG owned by the engine, never wall-clock/process randomness.
+- Therefore the outcome is random from the players' perspective but fully replay-safe: identical seed + commands + state produce the same winner.
+- For more than two simultaneous claimants, use the same seeded RNG to choose uniformly among the valid contenders.
+- Losing contenders do not enter the cell and may retry/replan according to their control/navigation policy.
 
 ## 12. Commander-versus-commander collision
 
