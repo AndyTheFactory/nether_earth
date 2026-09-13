@@ -79,16 +79,19 @@ Open questions:
 - Does electronics change only path selection, or also replanning frequency and target selection?
 - Which autonomous behaviors are explicitly visible in the ZX Spectrum version and which would be modern interpretation?
 
-## 6. War-base capture mechanics
+## 6. War-base capture mechanics — RESOLVED
 
-Factory capture is locked at 12 continuous in-game hours.
+Locked behavior:
 
-Open questions:
+- War bases are capturable by qualifying enemy robots.
+- War-base capture uses the same continuous-occupation rule as factory capture by default.
+- Default capture duration is **12 in-game hours = 1,440 simulation ticks = 72 real seconds** at 20 Hz.
+- Capture progress resets to zero if qualifying occupation is interrupted.
+- Ownership transfers immediately when the configured capture duration completes.
+- Victory is evaluated in that same authoritative simulation step after the ownership change.
+- The capture duration must be easy to configure as game-rule/scenario data rather than being hard-coded separately into war-base logic.
 
-- Can war bases be captured in exactly the same way as factories?
-- If yes, is the required occupation time also 12 in-game hours?
-- Are there extra prerequisites for capturing a war base?
-- Does capture immediately transfer ownership and therefore affect victory in the same tick?
+The default preserves the original building-capture behavior while allowing scenario-specific tuning without changing engine code.
 
 ## 7. Capture interruption semantics — RESOLVED
 
