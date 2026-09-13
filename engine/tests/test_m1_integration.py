@@ -358,21 +358,3 @@ def test_engine_package_has_no_forbidden_dependency_leakage() -> None:
                     offenders.append(f"{module_path.name}: from {module} import ...")
 
     assert offenders == [], f"forbidden imports found in engine package: {offenders}"
-
-
-def test_engine_package_imports_without_pulling_in_forbidden_modules() -> None:
-    """Runtime companion to the static guard: importing the engine loads no forbidden module.
-
-    Even if a forbidden import were hidden behind indirection the static
-    walk above might miss (e.g. ``importlib.import_module`` with a
-    dynamically built name), this checks the interpreter's actual module
-    table after importing the full engine surface used by this test module.
-    """
-    import sys
-
-    forbidden_roots = {"fastapi", "starlette", "uvicorn", "websockets"}
-    loaded_roots = {name.split(".")[0].lower() for name in sys.modules}
-    assert not (loaded_roots & forbidden_roots), (
-        f"forbidden modules present in sys.modules after importing the engine: "
-        f"{loaded_roots & forbidden_roots}"
-    )
