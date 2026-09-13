@@ -15,13 +15,15 @@ minimal ``with_added``/``with_removed`` API is deliberately shaped so that
 hardening does not require a signature change.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from nether_earth.ids import EntityId
+from nether_earth.structures import occupied_cells
 
 if TYPE_CHECKING:
-    from nether_earth.structures import Footprint, Structure
+    from nether_earth.structures import Blocker, Factory, Footprint, WarBase
 
 
 class OccupancyConflictError(ValueError):
@@ -40,19 +42,29 @@ class OccupancyGrid:
     _occupants: "dict[tuple[int, int], EntityId]" = field(default_factory=dict)
 
     @classmethod
-    def from_structures(cls, structures: "tuple[Structure, ...]") -> "OccupancyGrid":
-        """Build an occupancy grid from a map's static structures.
+    def from_structures(
+        cls,
+        war_bases: "Iterable[WarBase]",
+        factories: "Iterable[Factory]",
+        blockers: "Iterable[Blocker]",
+    ) -> "OccupancyGrid":
+        """Build an occupancy grid from a map's war bases, factories, and blockers.
 
         Structures are walked in a stable, deterministic order (sorted by
         ``id.value``) regardless of the order they were parsed/supplied in,
         so the resulting conflict error (if any) and grid contents never
         depend on incidental list ordering. Raises :class:`OccupancyConflictError`
-        naming both conflicting entity ids if two structures' footprints
+        naming both conflicting entity ids if two structures' occupied cells
         share a cell.
         """
+        all_structures: list[WarBase | Factory | Blocker] = [
+            *war_bases,
+            *factories,
+            *blockers,
+        ]
         occupants: dict[tuple[int, int], EntityId] = {}
-        for structure in sorted(structures, key=lambda structure: structure.id.value):
-            for cell in sorted(structure.footprint.cells):
+        for structure in sorted(all_structures, key=lambda structure: structure.id.value):
+            for cell in sorted(occupied_cells(structure)):
                 existing = occupants.get(cell)
                 if existing is not None:
                     raise OccupancyConflictError(

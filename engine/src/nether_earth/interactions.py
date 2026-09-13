@@ -16,13 +16,10 @@ requiring one, so it does not silently answer that question.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from nether_earth.ids import EntityId
 from nether_earth.structures import Footprint, parse_footprint
-
-if TYPE_CHECKING:
-    from nether_earth.structures import Structure
 
 
 class InteractionKind(Enum):
@@ -61,23 +58,23 @@ def _interaction_kind_from_raw(value: Any, *, context: str) -> InteractionKind:
 
 
 def parse_interaction_points(
-    raw: "list[Any] | None", structures: "tuple[Structure, ...]"
+    raw: "list[Any] | None", known_structure_ids: "set[str]"
 ) -> tuple[InteractionPoint, ...]:
     """Parse a YAML ``interaction_points`` list into a tuple of :class:`InteractionPoint`.
 
-    Each entry has ``id``, ``kind``, ``structure_id`` (must reference a real
-    entry in ``structures``), and ``footprint`` (single-cell shorthand or
-    explicit multi-cell list, see ``structures.parse_footprint``).
-    Validates duplicate ids, unknown kind strings, and dangling
-    ``structure_id`` references. ``WARBASE_CAPTURE`` entries are optional and
-    may be absent entirely — see the module docstring.
+    Each entry has ``id``, ``kind``, ``structure_id`` (must be a member of
+    ``known_structure_ids`` — the ids of structures that can host an
+    interaction point, i.e. war bases and factories; blockers cannot), and
+    ``footprint`` (single-cell shorthand or explicit multi-cell list, see
+    ``structures.parse_footprint``). Validates duplicate ids, unknown kind
+    strings, and dangling ``structure_id`` references. ``WARBASE_CAPTURE``
+    entries are optional and may be absent entirely — see the module
+    docstring.
     """
     if raw is None:
         raw = []
     if not isinstance(raw, list):
         raise InteractionValidationError("interaction_points section must be a list")
-
-    known_structure_ids = {structure.id.value for structure in structures}
 
     seen_ids: set[str] = set()
     points: list[InteractionPoint] = []

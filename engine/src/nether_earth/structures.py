@@ -1,19 +1,30 @@
-"""Static structure data model and YAML parsing.
+"""Compositional static structure data model and YAML parsing.
 
-Per `_specs/technical-spec.md` §10 and `_specs/functional-spec.md` §9,
-factories and war bases are physical, owned, height-bearing structures.
-`_specs/open-questions.md` §15 ("static-object footprints") is explicitly
-open: it is unresolved whether every structure occupies exactly one cell or
-can span multiple cells. :class:`Footprint` is the one canonical multi-cell
-representation shared by this module and the later interaction-metadata
-(`interactions.py`) and occupancy (`occupancy.py`) modules specifically so
-that question can be answered later (per-map, even) without every consumer
-inventing its own "what cells does this occupy" shape.
+Per `_specs/open-questions.md` §15 (RESOLVED) and
+`_specs/milestones/02-map-world-model.md` ("Locked structure-composition
+model"), static geometry is not modeled as one generic rectangular
+"building footprint". War bases and factories are distinct semantic world
+entities, each composed from an explicit list of physical
+:class:`Component` cells. Height is per-component, not one scalar for the
+whole structure. Generic scenery/blockers (:class:`Blocker`) use the same
+per-component shape for consistency, even though they carry no ownership or
+production semantics.
+
+This supersedes the earlier generic ``Structure``/``StructureKind`` model
+(issue #19): that model used one uniform ``footprint``/``height`` pair per
+structure, which the resolved open question explicitly rules out.
+
+Interaction zones (heli-pad, exit, capture) remain independent semantic
+metadata — see `interactions.py` — and are *not* derived from a structure's
+physical composition. :class:`Footprint` and :func:`parse_footprint` are
+kept unchanged here purely because `interactions.py` still uses them for
+that independent interaction-zone geometry.
 
 This module validates only that a single structure's own data is
-well-formed (ids, kind, footprint shape, height, ownership, factory type
-consistency). Footprint overlap *between* structures is deliberately left to
-`occupancy.py` (issue #23's job) — see that module's docstring.
+well-formed (ids within its own kind, component shape, per-component
+height, ownership, factory type). Cross-kind id-uniqueness and footprint
+overlap *between* structures are left to `map.py` and `occupancy.py`
+respectively.
 """
 
 from dataclasses import dataclass
@@ -21,14 +32,6 @@ from enum import Enum
 from typing import Any
 
 from nether_earth.ids import EntityId, PlayerId
-
-
-class StructureKind(Enum):
-    """Kinds of static, ground-solid structures the map can represent."""
-
-    FACTORY = "factory"
-    WARBASE = "warbase"
-    BLOCKER = "blocker"
 
 
 class FactoryType(Enum):
@@ -43,17 +46,17 @@ class FactoryType(Enum):
 
 
 class StructureValidationError(ValueError):
-    """Raised when a YAML ``structures`` entry is structurally or semantically invalid."""
+    """Raised when a YAML structure entry is structurally or semantically invalid."""
 
 
 @dataclass(frozen=True, slots=True)
 class Footprint:
-    """The set of absolute grid cells a structure or interaction point occupies.
+    """The set of absolute grid cells an interaction point occupies.
 
     Cells are stored as absolute ``(x, y)`` grid coordinates, not offsets
-    from an origin — this is the single representation later milestones and
-    modules (`interactions.py`, `occupancy.py`) build on, so there is only
-    ever one "what cells does this occupy" shape in the codebase.
+    from an origin. This remains the shape `interactions.py` uses for
+    interaction-zone geometry, which is intentionally independent of a
+    structure's physical composition (see the module docstring).
     """
 
     cells: frozenset[tuple[int, int]]
@@ -68,8 +71,8 @@ def parse_footprint(raw: Any, *, context: str) -> Footprint:
 
     Accepts ``{x: 1, y: 2}`` (single-cell shorthand) or
     ``[{x: 1, y: 2}, {x: 2, y: 2}]`` (explicit multi-cell list) so callers
-    never need two code paths depending on whether a structure is one cell
-    or many.
+    never need two code paths depending on whether an interaction zone is
+    one cell or many.
     """
     entries: list[Any]
     if isinstance(raw, dict):
@@ -101,40 +104,77 @@ def parse_footprint(raw: Any, *, context: str) -> Footprint:
 
 
 @dataclass(frozen=True, slots=True)
-class Structure:
-    """A single static, ground-solid, height-bearing structure on the map.
+class Component:
+    """A single physical map cell belonging to a structure's composition.
 
-    ``factory_type`` must be set if and only if ``kind`` is
-    ``StructureKind.FACTORY`` — a factory always has a production type
-    (`_specs/functional-spec.md` §9.1) and non-factory structures never do.
+    ``height`` is per-component, not a uniform value for the whole
+    structure — this is the crux of the resolved open-questions.md §15
+    model. It must be a positive integer.
     """
 
-    id: EntityId
-    kind: StructureKind
-    footprint: Footprint
+    x: int
+    y: int
     height: int
-    owner: PlayerId | None = None
-    factory_type: FactoryType | None = None
 
     def __post_init__(self) -> None:
         if self.height <= 0:
-            raise ValueError("Structure height must be a positive integer")
-        if self.kind is StructureKind.FACTORY and self.factory_type is None:
-            raise ValueError("factory structures must specify factory_type")
-        if self.kind is not StructureKind.FACTORY and self.factory_type is not None:
-            raise ValueError("only factory structures may specify factory_type")
+            raise ValueError("Component height must be a positive integer")
 
 
-def _structure_kind_from_raw(value: Any, *, context: str) -> StructureKind:
-    if not isinstance(value, str):
-        raise StructureValidationError(f"{context}: kind must be a string")
-    try:
-        return StructureKind(value)
-    except ValueError as exc:
-        valid = ", ".join(member.value for member in StructureKind)
-        raise StructureValidationError(
-            f"{context}: unknown structure kind {value!r} (expected one of: {valid})"
-        ) from exc
+def _validate_components(components: tuple[Component, ...], *, context: str) -> None:
+    if not components:
+        raise ValueError(f"{context}: components must not be empty")
+    seen: set[tuple[int, int]] = set()
+    for component in components:
+        key = (component.x, component.y)
+        if key in seen:
+            raise ValueError(f"{context}: duplicate component cell {key}")
+        seen.add(key)
+
+
+@dataclass(frozen=True, slots=True)
+class WarBase:
+    """A war base: composed from explicit physical components, owned by a player."""
+
+    id: EntityId
+    components: tuple[Component, ...]
+    owner: PlayerId | None = None
+
+    def __post_init__(self) -> None:
+        _validate_components(self.components, context="WarBase")
+
+
+@dataclass(frozen=True, slots=True)
+class Factory:
+    """A factory: composed from explicit physical components, with a production type."""
+
+    id: EntityId
+    components: tuple[Component, ...]
+    factory_type: FactoryType
+    owner: PlayerId | None = None
+
+    def __post_init__(self) -> None:
+        _validate_components(self.components, context="Factory")
+
+
+@dataclass(frozen=True, slots=True)
+class Blocker:
+    """Generic unowned static scenery (cubes/boxes/other blockers)."""
+
+    id: EntityId
+    components: tuple[Component, ...]
+
+    def __post_init__(self) -> None:
+        _validate_components(self.components, context="Blocker")
+
+
+def occupied_cells(structure: "WarBase | Factory | Blocker") -> frozenset[tuple[int, int]]:
+    """Return the ``(x, y)`` cells occupied by ``structure``'s components.
+
+    For occupancy/validation code that only cares about footprint, not
+    per-component height.
+    """
+    return frozenset((component.x, component.y) for component in structure.components)
 
 
 def _factory_type_from_raw(value: Any, *, context: str) -> FactoryType:
@@ -149,69 +189,161 @@ def _factory_type_from_raw(value: Any, *, context: str) -> FactoryType:
         ) from exc
 
 
-def parse_structures(raw: "list[Any] | None") -> tuple[Structure, ...]:
-    """Parse a YAML ``structures`` list into a tuple of :class:`Structure`.
+def _parse_components(raw: Any, *, context: str) -> tuple[Component, ...]:
+    if not isinstance(raw, list):
+        raise StructureValidationError(f"{context}: components must be a list")
+    if not raw:
+        raise StructureValidationError(f"{context}: components must not be empty")
 
-    Each entry has ``id``, ``kind``, ``footprint`` (single-cell shorthand or
-    explicit multi-cell list, see :func:`parse_footprint`), ``height``,
-    optional ``owner``, and optional ``factory_type`` (required exactly when
-    ``kind`` is ``factory``). Validates duplicate structure ids, unknown
-    kind/factory_type strings, and malformed footprints. Does not check
-    footprint overlap between structures — see the module docstring.
+    seen: set[tuple[int, int]] = set()
+    components: list[Component] = []
+    for index, entry in enumerate(raw):
+        component_context = f"{context}.components[{index}]"
+        if not isinstance(entry, dict):
+            raise StructureValidationError(f"{component_context}: must be a mapping")
+
+        x = entry.get("x")
+        y = entry.get("y")
+        height = entry.get("height")
+        if not isinstance(x, int) or isinstance(x, bool):
+            raise StructureValidationError(f"{component_context}: x must be an integer")
+        if not isinstance(y, int) or isinstance(y, bool):
+            raise StructureValidationError(f"{component_context}: y must be an integer")
+        if not isinstance(height, int) or isinstance(height, bool) or height <= 0:
+            raise StructureValidationError(
+                f"{component_context}: height must be a positive integer"
+            )
+
+        key = (x, y)
+        if key in seen:
+            raise StructureValidationError(f"{component_context}: duplicate component cell {key}")
+        seen.add(key)
+
+        components.append(Component(x=x, y=y, height=height))
+
+    return tuple(components)
+
+
+def _parse_owner(raw: Any, *, context: str) -> PlayerId | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise StructureValidationError(f"{context}: owner must be a non-empty string")
+    return PlayerId(raw)
+
+
+def _parse_id(raw: Any, *, context: str) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        raise StructureValidationError(f"{context}: id must be a non-empty string")
+    return raw
+
+
+def parse_war_bases(raw: "list[Any] | None") -> tuple[WarBase, ...]:
+    """Parse a YAML ``war_bases`` list into a tuple of :class:`WarBase`.
+
+    Each entry has ``id``, ``components`` (explicit list of
+    ``{x, y, height}``), and optional ``owner``. Validates duplicate ids
+    (within war bases), malformed/empty ``components``, non-integer
+    ``x``/``y``/``height``, and duplicate ``(x, y)`` within one structure's
+    components.
     """
     if raw is None:
         raw = []
     if not isinstance(raw, list):
-        raise StructureValidationError("structures section must be a list")
+        raise StructureValidationError("war_bases section must be a list")
 
     seen_ids: set[str] = set()
-    structures: list[Structure] = []
+    war_bases: list[WarBase] = []
     for index, entry in enumerate(raw):
-        context = f"structures[{index}]"
+        context = f"war_bases[{index}]"
         if not isinstance(entry, dict):
             raise StructureValidationError(f"{context}: must be a mapping")
 
-        raw_id = entry.get("id")
-        if not isinstance(raw_id, str) or not raw_id.strip():
-            raise StructureValidationError(f"{context}: id must be a non-empty string")
+        raw_id = _parse_id(entry.get("id"), context=context)
         if raw_id in seen_ids:
-            raise StructureValidationError(f"{context}: duplicate structure id {raw_id!r}")
+            raise StructureValidationError(f"{context}: duplicate war base id {raw_id!r}")
         seen_ids.add(raw_id)
 
-        kind = _structure_kind_from_raw(entry.get("kind"), context=context)
-        footprint = parse_footprint(entry.get("footprint"), context=context)
+        components = _parse_components(entry.get("components"), context=context)
+        owner = _parse_owner(entry.get("owner"), context=context)
 
-        height = entry.get("height")
-        if not isinstance(height, int) or isinstance(height, bool) or height <= 0:
-            raise StructureValidationError(f"{context}: height must be a positive integer")
+        war_bases.append(WarBase(id=EntityId(raw_id), components=components, owner=owner))
 
-        owner_raw = entry.get("owner")
-        owner: PlayerId | None = None
-        if owner_raw is not None:
-            if not isinstance(owner_raw, str) or not owner_raw.strip():
-                raise StructureValidationError(f"{context}: owner must be a non-empty string")
-            owner = PlayerId(owner_raw)
+    return tuple(war_bases)
+
+
+def parse_factories(raw: "list[Any] | None") -> tuple[Factory, ...]:
+    """Parse a YAML ``factories`` list into a tuple of :class:`Factory`.
+
+    Each entry has ``id``, ``components``, required ``factory_type``, and
+    optional ``owner``. Validates the same component shape as
+    :func:`parse_war_bases`, plus that ``factory_type`` is present and a
+    known value.
+    """
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise StructureValidationError("factories section must be a list")
+
+    seen_ids: set[str] = set()
+    factories: list[Factory] = []
+    for index, entry in enumerate(raw):
+        context = f"factories[{index}]"
+        if not isinstance(entry, dict):
+            raise StructureValidationError(f"{context}: must be a mapping")
+
+        raw_id = _parse_id(entry.get("id"), context=context)
+        if raw_id in seen_ids:
+            raise StructureValidationError(f"{context}: duplicate factory id {raw_id!r}")
+        seen_ids.add(raw_id)
+
+        components = _parse_components(entry.get("components"), context=context)
 
         factory_type_raw = entry.get("factory_type")
-        factory_type: FactoryType | None = None
-        if kind is StructureKind.FACTORY:
-            if factory_type_raw is None:
-                raise StructureValidationError(f"{context}: factory structures require factory_type")
-            factory_type = _factory_type_from_raw(factory_type_raw, context=context)
-        elif factory_type_raw is not None:
-            raise StructureValidationError(
-                f"{context}: factory_type is only valid for kind=factory"
-            )
+        if factory_type_raw is None:
+            raise StructureValidationError(f"{context}: factories require factory_type")
+        factory_type = _factory_type_from_raw(factory_type_raw, context=context)
 
-        structures.append(
-            Structure(
+        owner = _parse_owner(entry.get("owner"), context=context)
+
+        factories.append(
+            Factory(
                 id=EntityId(raw_id),
-                kind=kind,
-                footprint=footprint,
-                height=height,
-                owner=owner,
+                components=components,
                 factory_type=factory_type,
+                owner=owner,
             )
         )
 
-    return tuple(structures)
+    return tuple(factories)
+
+
+def parse_blockers(raw: "list[Any] | None") -> tuple[Blocker, ...]:
+    """Parse a YAML ``blockers`` list into a tuple of :class:`Blocker`.
+
+    Each entry has ``id`` and ``components``. Blockers are unowned generic
+    scenery and never carry ``owner``/``factory_type``. Validates the same
+    component shape as :func:`parse_war_bases`.
+    """
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise StructureValidationError("blockers section must be a list")
+
+    seen_ids: set[str] = set()
+    blockers: list[Blocker] = []
+    for index, entry in enumerate(raw):
+        context = f"blockers[{index}]"
+        if not isinstance(entry, dict):
+            raise StructureValidationError(f"{context}: must be a mapping")
+
+        raw_id = _parse_id(entry.get("id"), context=context)
+        if raw_id in seen_ids:
+            raise StructureValidationError(f"{context}: duplicate blocker id {raw_id!r}")
+        seen_ids.add(raw_id)
+
+        components = _parse_components(entry.get("components"), context=context)
+
+        blockers.append(Blocker(id=EntityId(raw_id), components=components))
+
+    return tuple(blockers)

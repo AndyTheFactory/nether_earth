@@ -21,6 +21,7 @@ from nether_earth.ids import EntityId, PlayerId
 
 if TYPE_CHECKING:
     from nether_earth.map import WorldMap
+    from nether_earth.structures import Factory, WarBase
 
 
 class OverlayValidationError(ValueError):
@@ -57,9 +58,12 @@ def apply_overlay(world_map: "WorldMap", overlay: ScenarioOverlay) -> "WorldMap"
     returns a new value.
 
     Raises :class:`OverlayValidationError` if any ``overlay.ownership`` key
-    does not reference a real structure id on ``world_map``.
+    does not reference a real war-base or factory id on ``world_map``.
+    Blockers have no ``owner`` field, so an overlay referencing a blocker id
+    is an unknown-reference error like any other unknown id.
     """
-    known_structure_ids = {structure.id for structure in world_map.structures}
+    ownable: tuple[WarBase | Factory, ...] = (*world_map.war_bases, *world_map.factories)
+    known_structure_ids = {structure.id for structure in ownable}
     unknown = [
         entity_id for entity_id in overlay.ownership if entity_id not in known_structure_ids
     ]
@@ -69,17 +73,24 @@ def apply_overlay(world_map: "WorldMap", overlay: ScenarioOverlay) -> "WorldMap"
             f"overlay {overlay.id!r} references unknown structure id(s): {unknown_values}"
         )
 
-    new_structures = tuple(
-        replace(structure, owner=overlay.ownership[structure.id])
-        if structure.id in overlay.ownership
-        else structure
-        for structure in world_map.structures
+    new_war_bases = tuple(
+        replace(war_base, owner=overlay.ownership[war_base.id])
+        if war_base.id in overlay.ownership
+        else war_base
+        for war_base in world_map.war_bases
+    )
+    new_factories = tuple(
+        replace(factory, owner=overlay.ownership[factory.id])
+        if factory.id in overlay.ownership
+        else factory
+        for factory in world_map.factories
     )
 
     merged_spawn_positions = {**world_map.spawn_positions, **overlay.spawn_positions}
 
     return replace(
         world_map,
-        structures=new_structures,
+        war_bases=new_war_bases,
+        factories=new_factories,
         spawn_positions=merged_spawn_positions,
     )

@@ -1,7 +1,8 @@
 """Tests for the M2 versioned world-map loader and its constituent modules.
 
 Spec references: `_specs/technical-spec.md` §§7-8, 10;
-`_specs/functional-spec.md` §§7, 9; `_specs/milestones/02-map-world-model.md`.
+`_specs/functional-spec.md` §§7, 9; `_specs/milestones/02-map-world-model.md`;
+`_specs/open-questions.md` §15 (resolved compositional structure model).
 """
 
 from pathlib import Path
@@ -18,12 +19,17 @@ from nether_earth.map import MapValidationError, WorldMap, load_world_map
 from nether_earth.map_overlay import OverlayValidationError, ScenarioOverlay, apply_overlay
 from nether_earth.occupancy import OccupancyConflictError, OccupancyGrid
 from nether_earth.structures import (
+    Blocker,
+    Component,
+    Factory,
     FactoryType,
     Footprint,
-    Structure,
-    StructureKind,
     StructureValidationError,
-    parse_structures,
+    WarBase,
+    occupied_cells,
+    parse_blockers,
+    parse_factories,
+    parse_war_bases,
 )
 from nether_earth.terrain import TerrainType, TerrainValidationError, parse_terrain_grid
 
@@ -63,16 +69,30 @@ def test_fixture_terrain_query() -> None:
 def test_fixture_structure_query() -> None:
     world_map = load_world_map(FIXTURE_PATH)
     box = world_map.structure_by_id(EntityId("box-1"))
-    assert box is not None
-    assert box.kind is StructureKind.BLOCKER
-    assert box.footprint.cells == frozenset({(0, 0)})
+    assert isinstance(box, Blocker)
+    assert occupied_cells(box) == frozenset({(0, 0)})
 
     warbase = world_map.structure_by_id(EntityId("warbase-p1"))
-    assert warbase is not None
-    assert warbase.footprint.cells == frozenset({(4, 0), (5, 0)})
+    assert isinstance(warbase, WarBase)
+    assert occupied_cells(warbase) == frozenset({(4, 0), (5, 0)})
     assert warbase.owner == PlayerId("p1")
 
     assert world_map.structure_by_id(EntityId("does-not-exist")) is None
+
+
+def test_fixture_war_base_components_can_have_different_heights() -> None:
+    world_map = load_world_map(FIXTURE_PATH)
+    warbase = world_map.structure_by_id(EntityId("warbase-p1"))
+    assert isinstance(warbase, WarBase)
+    heights = {(component.x, component.y): component.height for component in warbase.components}
+    assert heights == {(4, 0): 3, (5, 0): 2}
+
+
+def test_fixture_factory_has_production_type() -> None:
+    world_map = load_world_map(FIXTURE_PATH)
+    factory = world_map.structure_by_id(EntityId("factory-1"))
+    assert isinstance(factory, Factory)
+    assert factory.factory_type is FactoryType.CHASSIS
 
 
 def test_fixture_interaction_points_query() -> None:
@@ -163,9 +183,28 @@ def test_duplicate_structure_id_raises(tmp_path: Path) -> None:
         version: 1
         width: 3
         height: 3
-        structures:
-          - {id: dupe, kind: blocker, footprint: {x: 0, y: 0}, height: 1}
-          - {id: dupe, kind: blocker, footprint: {x: 1, y: 1}, height: 1}
+        blockers:
+          - {id: dupe, components: [{x: 0, y: 0, height: 1}]}
+          - {id: dupe, components: [{x: 1, y: 1, height: 1}]}
+        """,
+    )
+    with pytest.raises(StructureValidationError):
+        load_world_map(path)
+
+
+def test_duplicate_id_across_kinds_raises(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        "dup_cross_kind.yaml",
+        """
+        id: dup-cross-kind
+        version: 1
+        width: 3
+        height: 3
+        war_bases:
+          - {id: shared, components: [{x: 0, y: 0, height: 1}]}
+        factories:
+          - {id: shared, components: [{x: 1, y: 1, height: 1}], factory_type: chassis}
         """,
     )
     with pytest.raises(StructureValidationError):
@@ -181,9 +220,9 @@ def test_overlapping_structure_footprints_raise(tmp_path: Path) -> None:
         version: 1
         width: 3
         height: 3
-        structures:
-          - {id: a, kind: blocker, footprint: {x: 1, y: 1}, height: 1}
-          - {id: b, kind: blocker, footprint: {x: 1, y: 1}, height: 1}
+        blockers:
+          - {id: a, components: [{x: 1, y: 1, height: 1}]}
+          - {id: b, components: [{x: 1, y: 1, height: 1}]}
         """,
     )
     world_map = load_world_map(path)
@@ -200,12 +239,34 @@ def test_dangling_interaction_point_structure_reference_raises(tmp_path: Path) -
         version: 1
         width: 3
         height: 3
-        structures:
-          - {id: only-structure, kind: blocker, footprint: {x: 0, y: 0}, height: 1}
+        blockers:
+          - {id: only-structure, components: [{x: 0, y: 0, height: 1}]}
         interaction_points:
           - id: p1
             kind: exit
             structure_id: does-not-exist
+            footprint: {x: 0, y: 0}
+        """,
+    )
+    with pytest.raises(InteractionValidationError):
+        load_world_map(path)
+
+
+def test_interaction_point_cannot_reference_blocker(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        "blocker_interaction.yaml",
+        """
+        id: blocker-interaction
+        version: 1
+        width: 3
+        height: 3
+        blockers:
+          - {id: box-1, components: [{x: 0, y: 0, height: 1}]}
+        interaction_points:
+          - id: p1
+            kind: exit
+            structure_id: box-1
             footprint: {x: 0, y: 0}
         """,
     )
@@ -231,45 +292,82 @@ def test_map_level_fields_still_validated(tmp_path: Path) -> None:
 # --- Focused unit tests ---------------------------------------------------------
 
 
-def test_footprint_rejects_empty_cell_set() -> None:
+def test_component_rejects_non_positive_height() -> None:
     with pytest.raises(ValueError):
-        Footprint(cells=frozenset())
+        Component(x=0, y=0, height=0)
+    with pytest.raises(ValueError):
+        Component(x=0, y=0, height=-1)
 
 
-def test_structure_requires_factory_type_iff_factory_kind() -> None:
+def test_war_base_rejects_empty_components() -> None:
     with pytest.raises(ValueError):
-        Structure(
-            id=EntityId("f1"),
-            kind=StructureKind.FACTORY,
-            footprint=Footprint(cells=frozenset({(0, 0)})),
-            height=1,
-            factory_type=None,
+        WarBase(id=EntityId("w1"), components=())
+
+
+def test_war_base_rejects_duplicate_component_cells() -> None:
+    with pytest.raises(ValueError):
+        WarBase(
+            id=EntityId("w1"),
+            components=(
+                Component(x=0, y=0, height=1),
+                Component(x=0, y=0, height=2),
+            ),
         )
+
+
+def test_factory_rejects_empty_components() -> None:
     with pytest.raises(ValueError):
-        Structure(
+        Factory(id=EntityId("f1"), components=(), factory_type=FactoryType.CANNON)
+
+
+def test_blocker_rejects_duplicate_component_cells() -> None:
+    with pytest.raises(ValueError):
+        Blocker(
             id=EntityId("b1"),
-            kind=StructureKind.BLOCKER,
-            footprint=Footprint(cells=frozenset({(0, 0)})),
-            height=1,
-            factory_type=FactoryType.CANNON,
+            components=(
+                Component(x=1, y=1, height=1),
+                Component(x=1, y=1, height=1),
+            ),
         )
+
+
+def test_war_base_components_may_have_different_heights() -> None:
+    war_base = WarBase(
+        id=EntityId("w1"),
+        components=(
+            Component(x=0, y=0, height=3),
+            Component(x=1, y=0, height=1),
+        ),
+    )
+    heights = {(component.x, component.y): component.height for component in war_base.components}
+    assert heights == {(0, 0): 3, (1, 0): 1}
+
+
+def test_occupied_cells_returns_component_coordinates() -> None:
+    blocker = Blocker(id=EntityId("b1"), components=(Component(x=2, y=3, height=1),))
+    assert occupied_cells(blocker) == frozenset({(2, 3)})
 
 
 def test_occupancy_from_structures_raises_on_overlap() -> None:
-    a = Structure(
-        id=EntityId("a"),
-        kind=StructureKind.BLOCKER,
-        footprint=Footprint(cells=frozenset({(1, 1)})),
-        height=1,
-    )
-    b = Structure(
-        id=EntityId("b"),
-        kind=StructureKind.BLOCKER,
-        footprint=Footprint(cells=frozenset({(1, 1)})),
-        height=1,
-    )
+    a = Blocker(id=EntityId("a"), components=(Component(x=1, y=1, height=1),))
+    b = Blocker(id=EntityId("b"), components=(Component(x=1, y=1, height=1),))
     with pytest.raises(OccupancyConflictError):
-        OccupancyGrid.from_structures((a, b))
+        OccupancyGrid.from_structures((), (), (a, b))
+
+
+def test_occupancy_from_structures_combines_all_three_kinds() -> None:
+    war_base = WarBase(id=EntityId("w1"), components=(Component(x=0, y=0, height=1),))
+    factory = Factory(
+        id=EntityId("f1"),
+        components=(Component(x=1, y=0, height=1),),
+        factory_type=FactoryType.CANNON,
+    )
+    blocker = Blocker(id=EntityId("b1"), components=(Component(x=2, y=0, height=1),))
+
+    grid = OccupancyGrid.from_structures((war_base,), (factory,), (blocker,))
+    assert grid.occupant_at(0, 0) == EntityId("w1")
+    assert grid.occupant_at(1, 0) == EntityId("f1")
+    assert grid.occupant_at(2, 0) == EntityId("b1")
 
 
 def test_occupancy_with_added_and_with_removed_round_trip() -> None:
@@ -291,9 +389,44 @@ def test_occupancy_with_removed_missing_entity_raises() -> None:
         grid.with_removed(EntityId("nobody"))
 
 
-def test_parse_structures_rejects_unknown_kind() -> None:
+def test_parse_war_bases_rejects_malformed_components() -> None:
     with pytest.raises(StructureValidationError):
-        parse_structures([{"id": "x", "kind": "spaceship", "footprint": {"x": 0, "y": 0}, "height": 1}])
+        parse_war_bases([{"id": "w1", "components": []}])
+    with pytest.raises(StructureValidationError):
+        parse_war_bases([{"id": "w1", "components": [{"x": 0, "y": 0}]}])  # missing height
+
+
+def test_parse_factories_requires_factory_type() -> None:
+    with pytest.raises(StructureValidationError):
+        parse_factories([{"id": "f1", "components": [{"x": 0, "y": 0, "height": 1}]}])
+
+
+def test_parse_factories_rejects_unknown_factory_type() -> None:
+    with pytest.raises(StructureValidationError):
+        parse_factories(
+            [
+                {
+                    "id": "f1",
+                    "components": [{"x": 0, "y": 0, "height": 1}],
+                    "factory_type": "spaceship",
+                }
+            ]
+        )
+
+
+def test_parse_blockers_rejects_duplicate_component_cells() -> None:
+    with pytest.raises(StructureValidationError):
+        parse_blockers(
+            [
+                {
+                    "id": "b1",
+                    "components": [
+                        {"x": 0, "y": 0, "height": 1},
+                        {"x": 0, "y": 0, "height": 2},
+                    ],
+                }
+            ]
+        )
 
 
 def test_parse_terrain_grid_rejects_duplicate_cells() -> None:
@@ -306,9 +439,6 @@ def test_parse_terrain_grid_rejects_duplicate_cells() -> None:
 
 
 def test_parse_interaction_points_rejects_unknown_kind() -> None:
-    structures = parse_structures(
-        [{"id": "s1", "kind": "blocker", "footprint": {"x": 0, "y": 0}, "height": 1}]
-    )
     with pytest.raises(InteractionValidationError):
         parse_interaction_points(
             [
@@ -319,13 +449,13 @@ def test_parse_interaction_points_rejects_unknown_kind() -> None:
                     "footprint": {"x": 0, "y": 0},
                 }
             ],
-            structures,
+            {"s1"},
         )
 
 
 def test_apply_overlay_replaces_ownership_and_merges_spawns_without_mutating_input() -> None:
     world_map = load_world_map(FIXTURE_PATH)
-    original_structures = world_map.structures
+    original_war_bases = world_map.war_bases
     original_spawns = dict(world_map.spawn_positions)
 
     overlay = ScenarioOverlay(
@@ -337,12 +467,16 @@ def test_apply_overlay_replaces_ownership_and_merges_spawns_without_mutating_inp
     overlaid = apply_overlay(world_map, overlay)
 
     # Input map is untouched.
-    assert world_map.structures is original_structures
+    assert world_map.war_bases is original_war_bases
     assert world_map.spawn_positions == original_spawns
-    assert world_map.structure_by_id(EntityId("warbase-p2")).owner == PlayerId("p2")  # type: ignore[union-attr]
+    original_warbase_p2 = world_map.structure_by_id(EntityId("warbase-p2"))
+    assert isinstance(original_warbase_p2, WarBase)
+    assert original_warbase_p2.owner == PlayerId("p2")
 
     # New map reflects the overlay.
-    assert overlaid.structure_by_id(EntityId("warbase-p2")).owner == PlayerId("p1")  # type: ignore[union-attr]
+    new_warbase_p2 = overlaid.structure_by_id(EntityId("warbase-p2"))
+    assert isinstance(new_warbase_p2, WarBase)
+    assert new_warbase_p2.owner == PlayerId("p1")
     assert overlaid.spawn_positions["p1_commander"] == (0, 0)
     assert overlaid.spawn_positions["p2_commander"] == (4, 2)  # untouched entry is preserved
 
@@ -352,6 +486,17 @@ def test_apply_overlay_rejects_unknown_structure_id() -> None:
     overlay = ScenarioOverlay(
         id="bad-overlay",
         ownership={EntityId("does-not-exist"): PlayerId("p1")},
+        spawn_positions={},
+    )
+    with pytest.raises(OverlayValidationError):
+        apply_overlay(world_map, overlay)
+
+
+def test_apply_overlay_rejects_blocker_id() -> None:
+    world_map = load_world_map(FIXTURE_PATH)
+    overlay = ScenarioOverlay(
+        id="blocker-overlay",
+        ownership={EntityId("box-1"): PlayerId("p1")},
         spawn_positions={},
     )
     with pytest.raises(OverlayValidationError):
