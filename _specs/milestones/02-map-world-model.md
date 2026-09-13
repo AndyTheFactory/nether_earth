@@ -11,7 +11,7 @@ Implement the authoritative battlefield representation, versioned YAML map loadi
 - `_specs/technical-spec.md` §7 — grid and movement model
 - `_specs/technical-spec.md` §8 — world state and occupancy
 - `_specs/technical-spec.md` §10 — factories and war bases
-- `_specs/open-questions.md` §2 and resolved §15
+- resolved `_specs/open-questions.md` §2 and §15
 
 ## Start dependencies
 
@@ -30,7 +30,7 @@ The map/world contract must also expose canonical structure interaction metadata
 - war-base heli-pad location/footprint;
 - war-base exit location/footprint;
 - factory capture location/footprint;
-- war-base capture location/footprint if the resolved game rules require one;
+- war-base capture location/footprint;
 - structure/component height and physical occupied cells;
 - scenario spawn/reference positions.
 
@@ -50,6 +50,16 @@ Static geometry is not modeled as one generic rectangular `building footprint`.
 
 Robot geometry is a separate robot-model concern and must not be inferred from this static-structure representation.
 
+## Locked v1 PvP scenario overlay
+
+The original four-war-base map remains intact. Starting ownership is applied by scenario overlay:
+
+- Player 1 owns the **extreme-left war base**.
+- Player 2 owns the **extreme-right war base**.
+- The two war bases between them start **neutral**.
+- Neutral war bases remain active and capturable under the normal war-base capture rules.
+- The overlay changes ownership/spawn state only and must not mutate raw map geometry.
+
 ## Workstreams and candidate tasks
 
 ### Map schema and loader
@@ -68,7 +78,7 @@ Provide one canonical representation for structure interaction locations/footpri
 Provide deterministic queries and updates for ground-level solid occupancy. Enforce at most one ground solid per occupied cell while keeping terrain separate. Multi-cell structures reserve every occupied physical cell in their component layout.
 
 ### Scenario overlay
-Allow PvP scenario ownership/spawn information to be layered over the base map without mutating the source map definition.
+Allow PvP scenario ownership/spawn information to be layered over the base map without mutating the source map definition. For the default v1 PvP scenario, bind the extreme-left and extreme-right war bases to the two players and initialize the two interior war bases as neutral.
 
 ### Original map ingestion
 Create or validate `data/maps/zx-spectrum-original.yaml` from the authoritative project references. Reconstruct war-base and factory compositions explicitly from evidence, including component cells, heights, and semantic interaction locations where verifiable.
@@ -88,11 +98,12 @@ Map schema/loader, terrain model, generic structure models, and interaction-poin
 - Factory production type and war-base metadata can be represented.
 - Canonical heli-pad, exit, and capture interaction points can be represented and queried by later engine systems independently of physical geometry.
 - Scenario-specific ownership can be applied independently of raw geometry.
+- The default v1 scenario assigns the extreme-left war base to Player 1, the extreme-right war base to Player 2, and both interior war bases to neutral ownership.
 - Loading the same map produces canonical-equivalent world state.
 
 ## Milestone integration scenario
 
-Load a compact deterministic fixture map containing all terrain types, generic blockers, a composed factory, and two composed war bases. Verify occupancy/terrain queries, component/cell heights, canonical heli-pad/exit/capture interaction points, and invalid overlaps. Then load the current original-map YAML and prove it validates and initializes reproducibly.
+Load a compact deterministic fixture map containing all terrain types, generic blockers, a composed factory, and two composed war bases. Verify occupancy/terrain queries, component/cell heights, canonical heli-pad/exit/capture interaction points, and invalid overlaps. Then load the current original-map YAML and prove it validates and initializes reproducibly. Verify the default PvP overlay applies opposite-end starting ownership and leaves the two interior war bases neutral without mutating base geometry.
 
 ## Out of scope
 
@@ -105,7 +116,7 @@ Load a compact deterministic fixture map containing all terrain types, generic b
 
 ## Open questions / blockers
 
-The exact treatment of the two remaining war bases in the PvP scenario (`open-questions.md` §2) must be resolved before the final PvP scenario is considered locked; the map model itself must support all candidate answers.
+The v1 PvP treatment of the four original war bases is resolved: players start at the extreme-left and extreme-right war bases, while the two interior war bases are neutral and capturable. M2 owns representation and deterministic scenario initialization; capture behavior itself remains implemented in the later owning gameplay milestone.
 
 Static-object representation (`open-questions.md` §15) is resolved at the model level: war bases and factories use separate semantic entities composed from explicit physical cells/components. What remains for M2 research is the exact evidence-backed composition of each original-map structure, not the representation strategy itself.
 
@@ -118,4 +129,5 @@ If exact capture footprint or interaction geometry is not yet verified, the sche
 - Original-map data has traceable evidence or clearly marked unresolved fields.
 - Canonical war-base and factory compositions are represented separately.
 - Canonical structure interaction points are part of the world contract.
+- Default PvP war-base ownership/spawns are represented in the scenario overlay as locked above.
 - No renderer-specific representation leaks into the engine map contract.
