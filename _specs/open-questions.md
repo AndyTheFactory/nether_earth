@@ -249,21 +249,20 @@ Locked model:
 
 Robot footprint is a separate robot-model concern and must not be inferred from the static-structure representation.
 
-## 16. Disconnect and reconnect rules
+## 16. Disconnect and reconnect rules — RESOLVED
 
-The technical architecture supports reconnect snapshots, but gameplay policy is not locked.
+Locked v1 behavior:
 
-Open questions:
-
-- Does the match continue when one player disconnects?
-- Does it pause?
-- How long is the reconnect grace period?
-- When is a disconnected player considered to have abandoned the match?
-- Does abandonment immediately award victory?
-- Is there an explicit surrender action?
-- What happens if both players disconnect?
-
-These rules should be simple for v1 and should not require persistent accounts or database state.
+- The match pauses immediately when either player disconnects.
+- Simulation ticks and all gameplay timers stop while the match is paused for disconnection.
+- The disconnected player receives a default **60-second reconnect grace period**.
+- The grace duration must be configurable in match/server configuration rather than hard-coded in reconnect logic.
+- If the disconnected player reconnects within the grace period, the server restores/sends the current authoritative match snapshot and the match resumes once both players are connected.
+- If the grace period expires, the disconnected player forfeits and the connected opponent wins.
+- If both players are disconnected, the match remains paused. Each disconnected player has their own grace deadline; the match resumes only when both are connected again.
+- If one player's grace period expires while both are disconnected, that player forfeits. If both grace periods expire without either player reconnecting, the match ends without continuing simulation and may be recorded as abandoned/no-contest rather than inventing a gameplay winner.
+- There is no manual pause in v1.
+- Reconnect state and deadlines belong to the match/runtime layer; they must not mutate deterministic game-engine state while the engine is paused.
 
 ## Resolution process
 
