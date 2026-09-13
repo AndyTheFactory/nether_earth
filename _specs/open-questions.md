@@ -90,15 +90,15 @@ Open questions:
 - Are there extra prerequisites for capturing a war base?
 - Does capture immediately transfer ownership and therefore affect victory in the same tick?
 
-## 7. Capture interruption semantics
+## 7. Capture interruption semantics — RESOLVED
 
-The current specs assume that enemy-factory capture requires continuous occupation and that progress resets if occupation is interrupted.
+Locked behavior:
 
-Open question:
+- Capture requires continuous qualifying occupation.
+- If the qualifying robot stops occupying the capture location before capture completes, capture progress resets immediately to zero.
+- Partial capture progress is not preserved across an interruption.
 
-- Does the ZX Spectrum game fully reset capture progress when occupation is broken, or is partial progress preserved?
-
-This should be verified rather than inferred.
+This matches the original ZX Spectrum building-capture timer path, which clears the building timer when the qualifying occupation condition is no longer satisfied.
 
 ## 8. Exact projectile mechanics
 
