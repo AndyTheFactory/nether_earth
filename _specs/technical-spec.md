@@ -84,8 +84,6 @@ No React or other frontend framework in v1.
 
 ## 3. Repository layout
 
-Recommended monorepo layout:
-
 ```text
 nether_earth/
 ├── frontend/
@@ -116,10 +114,14 @@ nether_earth/
 │   │   ├── state.py
 │   │   ├── commands.py
 │   │   ├── simulation.py
+│   │   ├── clock.py
+│   │   ├── economy.py
+│   │   ├── ownership.py
 │   │   ├── map.py
 │   │   ├── terrain.py
 │   │   ├── commander.py
 │   │   ├── robots/
+│   │   ├── orders/
 │   │   ├── weapons/
 │   │   ├── projectiles/
 │   │   ├── collision.py
@@ -167,7 +169,7 @@ It must not import or depend on:
 Conceptually:
 
 ```python
-state = engine.new_game(map_data, players, seed)
+state = engine.new_game(map_data, scenario, players, seed)
 state, events = engine.step(state, commands)
 ```
 
@@ -198,7 +200,7 @@ FastAPI owns transport and lightweight session APIs only:
 - WebSocket endpoint
 - health endpoint
 
-FastAPI forwards validated player commands to the appropriate `Match`.
+FastAPI forwards validated commands to the appropriate `Match`.
 
 ### 4.4 Frontend
 
@@ -210,43 +212,94 @@ The frontend owns:
 - menus and overlays
 - connection state
 
-The frontend must not decide whether movement, firing, docking, collisions, or damage are legal.
+The frontend must not decide movement legality, production, capture progress, firing legality, docking, damage, ownership, or victory.
 
-## 5. Simulation timing
+## 5. Simulation timing and game clock
 
 ### 5.1 Tick rate
 
 Authoritative simulation runs at **20 Hz**.
 
 ```text
-1 tick = 50 ms of game time
+1 tick = 50 ms real time
 ```
 
-Game mechanics use tick counts rather than measured wall-clock deltas.
+### 5.2 In-game time scale
 
-The server uses real time only to schedule when simulation ticks are executed.
+Locked conversion:
 
-### 5.2 Determinism
+```text
+1 real minute = 10 in-game hours
+1 in-game hour = 6 real seconds = 120 ticks
+12 in-game hours = 72 real seconds = 1,440 ticks
+1 in-game day = 144 real seconds = 2,880 ticks
+```
 
-The engine should aim for:
+The game clock is derived from the authoritative tick number.
+
+No gameplay system should schedule independent wall-clock timers for production, capture, orders, or combat.
+
+Recommended helpers:
+
+```python
+TICKS_PER_GAME_HOUR = 120
+TICKS_PER_GAME_DAY = 2880
+FACTORY_CAPTURE_TICKS = 1440
+
+def game_hours_elapsed(tick: int) -> float:
+    return tick / TICKS_PER_GAME_HOUR
+```
+
+Core rule checks should use integer tick thresholds rather than floating-point hours.
+
+### 5.3 Determinism
+
+The engine should satisfy:
 
 ```text
 same initial state
-+ same map/version
++ same scenario/map/version
 + same RNG seed
 + same accepted command stream
 = same resulting state
 ```
 
-Avoid using wall-clock time inside game rules.
-
-Avoid non-deterministic iteration/order where game outcomes could change.
+Avoid wall-clock time and non-deterministic iteration where outcomes could change.
 
 If randomness is required, use a match-local seeded RNG owned by the engine.
 
-## 6. Grid and movement model
+## 6. Scenario and victory model
 
-### 6.1 Authoritative coordinates
+PvP v1 uses a scenario definition separate from raw map geometry.
+
+Recommended scenario fields:
+
+```python
+Scenario:
+    id
+    player_starting_warbases
+    starting_general_resources
+    factory_initial_ownership
+    victory_rule
+```
+
+Locked v1 values:
+
+```text
+player 1 starting war bases = 1
+player 2 starting war bases = 1
+starting general resources = 30 per player
+factories = neutral unless overridden
+victory = opponent owns zero war bases
+```
+
+The original single-player asymmetric campaign can later be represented as another scenario without changing engine rules.
+
+Victory should be checked after any event capable of changing war-base ownership or destruction.
+
+## 7. Grid and movement model
+
+### 7.1 Authoritative coordinates
 
 - X: integer
 - Y: integer
@@ -254,11 +307,9 @@ If randomness is required, use a match-local seeded RNG owned by the engine.
 
 Robots do not have intermediate authoritative X/Y positions.
 
-### 6.2 Horizontal transition
+### 7.2 Horizontal transition
 
-A move from one square to another may require multiple ticks.
-
-Represent a pending move explicitly, for example:
+A move may require multiple ticks.
 
 ```python
 GridTransition(
@@ -271,33 +322,17 @@ GridTransition(
 )
 ```
 
-Until completion, authoritative occupancy remains on the source cell unless the final engine design requires a reserved-target state to prevent simultaneous claims.
+Until completion, authoritative occupancy remains on the source cell unless target reservation is required to resolve simultaneous claims deterministically.
 
 At completion, occupancy changes atomically.
 
-The client interpolates visually during the transition.
+The frontend interpolates visually.
 
-### 6.3 Terrain movement cost
+### 7.3 Terrain movement
 
-Movement speed should resolve to an integer tick duration per cell.
+Terrain is data-driven.
 
-Examples are data-driven rather than hard-coded into renderer/network code.
-
-The exact values must be matched to ZX Spectrum behavior.
-
-## 7. World state model
-
-A grid cell contains terrain plus optional solid occupancy.
-
-Conceptually:
-
-```python
-Cell:
-    terrain: TerrainType
-    solid_entity_id: EntityId | None
-```
-
-Terrain types include:
+Required terrain types:
 
 ```python
 NORMAL
@@ -305,16 +340,39 @@ ROUGH
 DITCH
 ```
 
+Locked capability rules:
+
+```text
+Bipod:     normal yes; rough yes with severe penalty; ditch no
+Tracks:    normal yes; rough yes with smaller penalty; ditch no
+Anti-grav: normal yes; rough yes; ditch yes
+```
+
+Exact speed/tick values must be derived from verified ZX Spectrum behavior.
+
+## 8. World state and occupancy
+
+Conceptual cell model:
+
+```python
+Cell:
+    terrain: TerrainType
+    solid_entity_id: EntityId | None
+```
+
 Solid entities include:
 
 - robots
 - factories/buildings
+- war bases
 - cubes/boxes
-- other static blockers
+- other blockers
 
-Commander occupancy is tracked separately because commanders may share X/Y with solids when vertically clear.
+Commander occupancy is tracked separately because commanders may share X/Y with ground solids when vertically clear.
 
-## 8. Commander model
+Only one ground-level solid entity may occupy a cell.
+
+## 9. Commander model
 
 Recommended authoritative model:
 
@@ -330,11 +388,9 @@ Commander:
     vertical_transition: VerticalTransition | None
 ```
 
-When `DOCKED`, effective position is derived from the robot rather than independently updated.
+When docked, effective X/Y and vertical placement are derived from the robot.
 
-### 8.1 Vertical transition
-
-Example:
+### 9.1 Vertical transition
 
 ```python
 VerticalTransition(
@@ -345,23 +401,29 @@ VerticalTransition(
 )
 ```
 
-Authoritative `z` remains at the committed value until the transition completes.
-
-The client interpolates the visible vertical position.
+Authoritative Z remains at the committed value until completion.
 
 Horizontal and vertical transitions may be active simultaneously.
 
-### 8.2 Collision
+### 9.2 Collision
 
 Commander collision is height-aware.
 
-A destination X/Y occupied by a solid object is allowed only if vertical ranges do not overlap.
+A destination occupied by a solid is allowed only if vertical ranges do not overlap.
 
-The commander itself can block robots if its current vertical range overlaps the robot's required movement volume.
+The commander can block robots if its current vertical range overlaps the robot's movement volume.
 
-### 8.3 Docking
+The commander is physically collidable but:
 
-Docking is automatic when a descending free commander reaches the top of a robot at the same X/Y.
+```text
+can_be_targeted = false
+can_take_damage = false
+can_be_destroyed = false
+```
+
+### 9.3 Docking
+
+Docking is automatic when a descending free commander reaches the top of a friendly robot at the same X/Y.
 
 On docking:
 
@@ -369,11 +431,103 @@ On docking:
 FREE -> DOCKED(robot_id)
 ```
 
-Direct input routing then switches from commander movement to robot direct-control movement/actions.
+The commander then follows the robot and gains access to robot control/order/combat menus.
 
-## 9. Robot model
+### 9.4 War-base heli-pad interaction
 
-Recommended build representation:
+Landing on the player's war-base heli-pad opens construction unless construction is blocked by game rules.
+
+## 10. Factories and war bases
+
+Recommended structure model:
+
+```python
+Structure:
+    id
+    kind: FACTORY | WARBASE
+    owner: PlayerId | None
+    x
+    y
+    height
+    destroyed: bool
+```
+
+Factory-specific fields:
+
+```python
+Factory:
+    production_type: FactoryType
+    capture_state: CaptureState | None
+```
+
+Factory types:
+
+```python
+CHASSIS
+ELECTRONICS
+NUCLEAR
+MISSILE
+PHASER
+CANNON
+```
+
+War-base-specific fields should include heli-pad/exit metadata and ownership.
+
+## 11. Factory capture
+
+Enemy factory capture requires continuous occupation for **1,440 ticks**.
+
+Recommended state:
+
+```python
+CaptureProgress:
+    capturing_player_id
+    robot_id
+    started_tick
+    required_ticks = 1440
+```
+
+On each tick, the engine verifies that the same qualifying robot still occupies the capture location.
+
+If continuous occupation is broken, reset progress unless later verified ZX Spectrum behavior dictates otherwise.
+
+Neutral-factory acquisition should use the verified original behavior; the first qualifying robot to reach the site activates ownership/production for its player.
+
+Ownership change should emit an engine event and update snapshot/delta state.
+
+## 12. Economy model
+
+Recommended player resource state:
+
+```python
+ResourcePool:
+    general: int
+    chassis: int
+    electronics: int
+    cannon: int
+    missile: int
+    phaser: int
+    nuclear: int
+```
+
+Starting value:
+
+```text
+general = 30
+```
+
+Every 2,880 ticks:
+
+- each owned factory adds 2 units to its production category
+- each owned war base adds 5 general units
+
+Economy processing belongs in the engine.
+
+Exact spending precedence between type-specific resources and general resources should be represented by one engine rule once verified, not spread across UI/backend code.
+
+## 13. Robot build model
+
+Recommended representation:
 
 ```python
 RobotBuild:
@@ -385,38 +539,20 @@ RobotBuild:
     electronics: bool
 ```
 
+Validation rules:
+
+```text
+exactly 1 chassis
+1 <= weapon_count <= 3
+at most 1 of each weapon
+at most 1 electronics module
+```
+
 Do not persist arbitrary component order.
 
-Generate physical stack order from one canonical function/table.
+### 13.1 Canonical stack
 
-### 9.1 Chassis
-
-```python
-LEGS
-TRACKS
-ANTIGRAV
-```
-
-### 9.2 Terrain capability
-
-The engine should expose rules through capability functions, for example:
-
-```python
-can_enter(robot, cell) -> bool
-movement_duration_ticks(robot, cell) -> int
-```
-
-Expected rules:
-
-- legs: normal yes; rough no; ditch no
-- tracks: normal yes; rough yes with penalty; ditch no
-- anti-gravity: normal yes; rough yes; ditch yes
-
-### 9.3 Component stack
-
-One engine-level function must derive stack and total height.
-
-Conceptually:
+One engine-level function derives stack and height:
 
 ```python
 def build_component_stack(build: RobotBuild) -> list[Component]:
@@ -426,19 +562,39 @@ def build_component_stack(build: RobotBuild) -> list[Component]:
 Order:
 
 1. chassis
-2. cannon/missile/phaser according to verified ZX Spectrum canonical order
-3. nuke if present
-4. electronics if present
+2. cannon/missile/phaser in verified canonical Spectrum order
+3. nuke if present, always topmost weapon
+4. electronics if present, always topmost robot component
 
-The docked commander is rendered/positioned above the resulting robot stack.
+A docked commander is positioned above the resulting stack.
 
-The same component metadata should drive both rendering identifiers and simulation heights.
+The same component metadata drives renderer identifiers and simulation heights.
 
-## 10. Navigation architecture
+## 14. Robot construction service inside the engine
 
-Movement execution and route/decision logic must be separated.
+Construction may begin only when the commander is correctly landed on the player's war-base heli-pad.
 
-Low-level movement should be shared by all control sources:
+A build cannot be started/launched when:
+
+- player robot count is already 24
+- war-base exit is blocked
+- build violates module constraints
+- required resources are unavailable
+
+Recommended engine commands:
+
+```text
+construction_select_module
+construction_deselect_module
+construction_start_robot
+construction_exit
+```
+
+Construction legality and resource deduction belong in the engine; the frontend only presents the menu.
+
+## 15. Robot orders and control architecture
+
+Low-level movement execution must be shared by all control sources:
 
 ```python
 try_move_robot(robot_id, direction, state) -> MoveResult
@@ -447,44 +603,134 @@ try_move_robot(robot_id, direction, state) -> MoveResult
 Control sources include:
 
 - direct human control
-- basic autonomous controller
-- electronic autonomous controller
-- future AI player commands at the Match layer
+- autonomous robot orders
+- future AI player controller at Match layer
 
-### 10.1 Basic navigation
+### 15.1 Robot order types
 
-Non-electronic robots use deliberately limited original-style movement logic.
+Recommended engine model:
 
-### 10.2 Electronic navigation
-
-Electronic robots use improved route planning and combat decisions while respecting exactly the same physical movement rules.
-
-Do not make the pathfinder itself own chassis rules; query movement capabilities/costs from the robot/game rules.
-
-## 11. Direct robot control
-
-When the commander is docked, player directional input may control the robot.
-
-Direct movement uses exactly the same movement validation as autonomous movement.
-
-The protocol should support explicit robot actions such as:
-
-```text
-move/input direction
-fire cannon
-fire missiles
-fire phaser
-fire nuke
-stop combat
+```python
+RobotOrder = (
+    StopAndDefend
+    | Advance
+    | Retreat
+    | SearchCapture
+    | SearchDestroy
+)
 ```
 
-Input routing belongs to Match/player-session state; legality belongs to the engine.
+Fields:
 
-## 12. Weapons and projectiles
+```python
+Advance(distance_miles: int)
+Retreat(distance_miles: int)
+SearchCapture(target_type: CaptureTargetType)
+SearchDestroy(target_type: DestroyTargetType)
+```
 
-A robot has one active projectile/fire channel.
+Distance input for Advance/Retreat is constrained to 0–50 miles.
 
-Recommended state:
+### 15.2 Order semantics
+
+`STOP_AND_DEFEND`
+- hold position
+- engage enemy robots in range
+
+`ADVANCE`
+- move East requested distance
+- then switch to Stop & Defend
+
+`RETREAT`
+- move West requested distance
+- then switch to Stop & Defend
+
+`SEARCH_CAPTURE`
+- valid targets: neutral factories, enemy factories, war bases
+- choose nearest valid target under original rules
+- move and attempt capture
+
+`SEARCH_DESTROY`
+- valid targets: robots, factories, war bases
+- choose nearest valid target under original rules
+- factories/war bases require nuclear capability for destruction
+
+If an order is impossible, the robot reverts to Stop & Defend.
+
+## 16. Electronics and autonomous intelligence
+
+Navigation and physical movement capability are separate.
+
+### 16.1 Non-electronic robot
+
+Uses deliberately limited original-style navigation/combat decision logic.
+
+### 16.2 Electronic robot
+
+Electronics may improve:
+
+- routing/path selection
+- obstacle avoidance
+- engagement decisions
+- weapon accuracy/effective range by nominal +3 miles
+- resistance to incoming damage
+
+Electronics does not alter terrain traversal permissions.
+
+The exact ZX Spectrum algorithms should be reproduced where practical rather than replaced by generic modern pathfinding if that changes gameplay character.
+
+## 17. Direct control and combat-control state
+
+Recommended player/robot interaction state:
+
+```python
+RobotInteractionMode:
+    COMMAND_MENU
+    DIRECT_CONTROL
+    ORDERS_MENU
+    COMBAT_CONTROL
+```
+
+In Direct Control:
+
+- directional input moves the robot
+- Fire/confirm stops direct movement and returns to menu selection
+
+In Combat Control:
+
+- the player chooses a fitted weapon
+- fire command is submitted explicitly
+- Move Robot enters the same movement behavior as Direct Control
+
+## 18. Weapon data
+
+Weapon rules should be data-driven:
+
+```python
+WeaponSpec:
+    type
+    range_miles
+    lethality
+    resource_cost
+    behavior
+```
+
+Locked source values:
+
+```text
+Cannon:   range 10, lethality 2, cost 8
+Missiles: range 14, lethality 3, cost 4
+Phasers:  range 10, lethality 4, cost 4
+Nuclear:  radius 8, special lethality, cost 20
+```
+
+Miles-to-grid conversion must be one shared engine/map-scale rule.
+
+## 19. Projectiles and normal firing
+
+Cannon, missile, and phaser use the normal projectile/fire-channel model.
+
+Recommended robot state:
 
 ```python
 Robot:
@@ -492,9 +738,7 @@ Robot:
     active_projectile_id: EntityId | None
 ```
 
-A fire command is rejected while `active_projectile_id` is not `None`.
-
-The reference is cleared when the projectile ends its lifecycle.
+A normal fire command is rejected while `active_projectile_id` is not `None`.
 
 Projectile state should include at least:
 
@@ -510,11 +754,54 @@ Projectile:
     direction
 ```
 
+The projectile reference is cleared when the projectile:
+
+- hits something
+- crashes
+- hits a robot
+- exits its valid world/screen lifetime area according to original rules
+
 Exact movement and collision behavior must follow ZX Spectrum mechanics.
 
-## 13. Match runtime architecture
+## 20. Nuclear detonation
 
-### 13.1 MatchManager
+Nuclear is not modeled as a travelling projectile.
+
+Recommended engine command:
+
+```text
+DetonateNuke(robot_id)
+```
+
+Resolution:
+
+1. validate that robot contains a nuke
+2. compute entities/structures within the 8-mile effect radius
+3. destroy eligible robots
+4. destroy eligible factories
+5. destroy eligible war bases
+6. destroy the carrying robot
+7. update ownership and victory state
+8. emit deterministic destruction/victory events
+
+Factories and war bases are destroyable only by nuclear weapons.
+
+## 21. Damage and strength
+
+Robot state should expose strength/damage information required by the original UI.
+
+Damage formulas should be isolated in engine combat code and use:
+
+- weapon lethality
+- hit/accuracy mechanics
+- electronics range/accuracy benefit
+- electronics defensive/resistance benefit
+
+Do not encode combat formulas in frontend state or protocol handlers.
+
+## 22. Match runtime architecture
+
+### 22.1 MatchManager
 
 One FastAPI process hosts many active matches.
 
@@ -527,7 +814,7 @@ MatchManager
 
 No process/container is created per match.
 
-### 13.2 Match object
+### 22.2 Match object
 
 Recommended responsibilities:
 
@@ -544,17 +831,15 @@ class Match:
 
 Each match runs an independent 20 Hz scheduler.
 
-### 13.3 Failure model
+### 22.3 Failure model
 
 Active state is in memory.
 
 If the backend process dies or restarts, active matches are lost in v1.
 
-This is accepted for the initial low-user deployment.
+Replay data should be append-only so partial logs survive where possible.
 
-Replay data should be append-only so partial logs survive process failure where possible.
-
-## 14. Guest identity
+## 23. Guest identity
 
 No accounts are used.
 
@@ -564,76 +849,72 @@ A player has:
 - match-local player slot
 - random opaque session/reconnect token
 
-The token must not encode trust-sensitive game state.
+The server remains authoritative over slot and match membership.
 
-The server remains authoritative over player slot and match membership.
+## 24. WebSocket protocol
 
-## 15. WebSocket protocol
-
-### 15.1 Transport
+### 24.1 Transport
 
 - WSS in production through Nginx
 - plain JSON messages
 
-### 15.2 Shared schema
+### 24.2 Shared schema
 
 JSON Schema under `/protocol/schemas` is the source of truth.
 
 Generate TypeScript types from the shared schemas.
 
-Backend payload models must remain compatible with the same schema definitions.
+Backend payload models must remain compatible with the same definitions.
 
-### 15.3 Client message envelope
+### 24.3 Client messages
 
-Example:
+Protocol must support, at minimum:
 
-```json
-{
-  "type": "move_input",
-  "seq": 1842,
-  "payload": {
-    "direction": "left"
-  }
-}
-```
+- commander directional input
+- commander rise/descend state
+- robot direct directional input
+- enter/exit robot interaction modes
+- select autonomous order
+- order parameters/target category
+- fire cannon
+- fire missiles
+- fire phaser
+- detonate nuke
+- construction module select/deselect
+- start robot
+- exit construction
 
-`seq` is a client-issued monotonic sequence number used for diagnostics, ordering checks, and possible duplicate handling.
+All command messages carry a monotonic client sequence number.
 
-### 15.4 Server message envelope
+### 24.4 Server messages
 
-Example:
+Authoritative messages carry the relevant server tick.
 
-```json
-{
-  "type": "state_delta",
-  "tick": 912,
-  "payload": {}
-}
-```
+State deltas must be sufficient for a non-simulating client to render:
 
-All authoritative state-changing messages should carry the relevant server tick.
+- movement/transitions
+- ownership
+- capture progress
+- resources
+- construction state where player-visible
+- robot order/mode
+- strength/damage
+- projectiles
+- destruction
+- victory
+- game clock
 
-## 16. State synchronization
+## 25. State synchronization
 
 The client does not reconstruct the simulation from commands.
 
 Use:
 
 - state delta every simulation tick
-- full snapshot every 20 ticks (initially once per second)
+- full snapshot every 20 ticks (once per second initially)
 - immediate full snapshot on join/reconnect
 
-Example lifecycle:
-
-```text
-tick 100 -> full snapshot
-tick 101 -> delta
-...
-tick 119 -> delta
-tick 120 -> full snapshot
-```
-
-A snapshot should contain at least:
+Snapshots include at least:
 
 ```json
 {
@@ -641,15 +922,16 @@ A snapshot should contain at least:
   "protocol_version": 1,
   "tick": 500,
   "map_id": "zx-spectrum-original",
+  "scenario_id": "pvp-v1",
   "payload": {}
 }
 ```
 
-A delta should identify spawned, changed/moved, and removed entities without requiring the client to execute game rules.
+Deltas identify spawned, changed/moved, ownership-changed, and removed entities without requiring client-side rule execution.
 
-## 17. Frontend rendering
+## 26. Frontend rendering
 
-PixiJS renders the authoritative state using original-style 2.5D sprites.
+PixiJS renders authoritative state using original-style 2.5D sprites.
 
 The renderer may interpolate:
 
@@ -657,21 +939,33 @@ The renderer may interpolate:
 - commander vertical movement between Z levels
 - sprite transitions/effects
 
-Interpolation must never feed back into game-rule decisions.
+Interpolation never feeds back into game-rule decisions.
 
-Use nearest-neighbor/pixel-appropriate rendering rules where required to preserve the original visual style.
+Use pixel-appropriate/nearest-neighbor rendering where required to preserve the original visual character.
 
 No client-side physics engine is needed.
 
-## 18. Map format
+## 27. Map and scenario format
 
-Store the map at:
+Map geometry is stored at:
 
 ```text
 data/maps/zx-spectrum-original.yaml
 ```
 
-The YAML format must begin with a version field:
+The YAML file must be versioned and should define:
+
+- dimensions
+- terrain cells/regions
+- static blockers
+- object heights
+- factories and production types
+- war bases
+- heli-pad cells
+- war-base exit cells
+- any verified display/map metadata
+
+Example shape:
 
 ```yaml
 format_version: 1
@@ -679,49 +973,44 @@ id: zx-spectrum-original
 name: Nether Earth Original Map
 width: <integer>
 height: <integer>
+
+terrain: {}
+objects: []
+factories: []
+warbases: []
 ```
 
-The file should define:
+PvP-specific starting ownership should preferably live in scenario data rather than mutating the canonical map definition.
 
-- terrain cells/regions
-- static solid objects
-- object type/variant
-- object height where applicable
-- factories and other game-relevant metadata
-- match spawn/setup points if useful
-
-Do not embed map layout in Python source code.
-
-## 19. Replay/debug format
+## 28. Replay/debug format
 
 Use filesystem persistence only.
 
 Preferred format: JSONL, one append-only record per line.
 
-Example:
-
-```json
-{"type":"match_start","format_version":1,"match_id":"A7K4","map":"zx-spectrum-original","seed":238194}
-{"type":"command","tick":12,"player":1,"command":{"type":"move_input","direction":"left"}}
-{"type":"command","tick":17,"player":2,"command":{"type":"fire_weapon","weapon":"cannon"}}
-{"type":"match_end","tick":8123,"winner":1}
-```
-
 Minimum deterministic replay data:
 
 - replay format version
 - engine/game version
+- protocol version if useful
 - map identifier/version
+- scenario identifier/version
 - initial state or deterministic setup inputs
 - seed
 - accepted command stream and ticks
-- result
+- match result
 
-Development builds may additionally write selected engine events/state hashes for debugging determinism.
+Development builds may additionally log:
 
-Mount the replay directory as a Docker volume so logs survive container replacement.
+- game-clock events
+- production events
+- ownership changes
+- capture start/reset/complete events
+- state hashes
 
-## 20. AI extension point for v1.5
+Mount replay directory as a Docker volume.
+
+## 29. AI extension point for v1.5
 
 AI is not implemented in v1.
 
@@ -730,107 +1019,72 @@ Reserve a controller boundary at the Match layer:
 ```text
 HumanController --\
                   +--> commands --> Match --> GameEngine
-AIController -----/       (v1.5)
+AIController -----/   (v1.5)
 ```
 
-An AI controller must:
+AI receives only allowed state and submits the same legal commands as a human player. It must not mutate game state directly.
 
-- observe only state it is allowed to observe
-- emit the same command types as a human player
-- never directly mutate `GameState`
+## 30. Deployment
 
-No AI-specific hooks should be added inside core rules unless required to expose legal observations/actions generically.
-
-## 21. Docker deployment
-
-Recommended v1 Compose services:
+Locked deployment:
 
 ```text
-nginx
-frontend
-backend
+VPS
+└── Docker Compose
+    ├── nginx
+    ├── frontend
+    └── backend
 ```
 
-No database service.
+Nginx terminates HTTPS/WSS and proxies WebSocket traffic correctly.
 
-### Nginx responsibilities
+No database or Redis service is required for v1.
 
-- TLS termination
-- serve or proxy frontend assets
-- proxy HTTP API requests to FastAPI
-- proxy WebSocket upgrade requests to FastAPI
+## 31. Required engine tests
 
-### Backend volume
+At minimum, add deterministic tests for:
 
-Mount a persistent host volume for:
+- same seed + same commands => same result
+- game-hour/day tick conversion
+- production every 2,880 ticks
+- enemy factory capture after exactly 1,440 continuous ticks
+- capture reset when occupation breaks
+- one-solid-per-cell occupancy
+- commander height collision and robot blocking
+- automatic commander docking
+- bipod/tracks/anti-grav terrain capability
+- build validation: 1 chassis, 1–3 weapons, no duplicate modules
+- 24-robot construction cap
+- blocked war-base exit prevents launch
+- autonomous order transitions and invalid-order fallback
+- Advance/Retreat completion returns to Stop & Defend
+- normal one-active-projectile firing rule
+- nuclear AoE includes carrying robot
+- nuclear destruction of factories/war bases
+- non-nuclear attacks cannot destroy factories/war bases
+- electronics range/resistance modifier behavior
+- victory when opponent war-base count reaches zero
 
-```text
-/replays
-```
+## 32. Locked v1 architecture decisions
 
-## 22. Testing strategy
-
-### Engine tests
-
-Prioritize exhaustive deterministic unit tests for:
-
-- grid occupancy
-- legs/tracks/anti-gravity terrain rules
-- movement duration
-- collision
-- commander height clearance
-- commander blocking
-- docking/undocking
-- component stack ordering
-- derived robot height
-- weapon gating while projectile exists
-- projectile collision/lifecycle
-- basic vs electronic navigation behavior
-
-### Determinism tests
-
-Given a fixed initial state, seed, and command stream:
-
-- run the match twice
-- compare final state
-- optionally compare per-tick state hashes
-
-### Protocol tests
-
-- schema validation
-- generated TypeScript compatibility
-- invalid command rejection
-- sequence/tick handling
-
-### Match integration tests
-
-- two guest players join
-- readiness/start lifecycle
-- command routing
-- WebSocket state delta delivery
-- periodic snapshot delivery
-- disconnect/reconnect snapshot
-- replay output
-
-## 23. v1 non-goals and deferred infrastructure
-
-Do not add the following until a demonstrated need exists:
-
-- PostgreSQL
-- Redis
-- RabbitMQ/Kafka
-- Kubernetes
-- per-match worker/container processes
-- binary network protocol
-- server-side horizontal scaling
-- durable active-match recovery
-- accounts/authentication system
-- AI opponent
-
-The current architecture must expose seams that allow these to be added later without coupling them into the core engine.
-
-## 24. Reference-fidelity rule
-
-When implementation details are uncertain, prioritize the ZX Spectrum version.
-
-Game data and rule constants should be externalized or centralized wherever practical so they can be corrected after comparison with the reference game/disassembly without rewriting architecture.
+- Browser client.
+- TypeScript + Vite + PixiJS + plain HTML/CSS.
+- Python + FastAPI backend.
+- Pure Python deterministic engine.
+- 20 Hz authoritative simulation.
+- Integer X/Y; integer commander Z.
+- Plain JSON over WebSockets.
+- Shared JSON Schema protocol.
+- State deltas every tick; snapshot every 20 ticks.
+- Many matches per backend process.
+- Active state in memory.
+- JSONL replay/debug files on disk.
+- YAML canonical map plus scenario configuration.
+- Nginx + Docker Compose on VPS.
+- No accounts.
+- No database.
+- No Redis.
+- PvP: one starting war base each.
+- Victory: opponent owns zero war bases.
+- Game time: 1 real minute = 10 game hours.
+- AI planned for v1.5 only.
