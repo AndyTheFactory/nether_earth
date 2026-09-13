@@ -1,6 +1,7 @@
 # M2 test fixture: a small deterministic map exercising all terrain types,
-# a one-cell structure, a multi-cell structure, interaction points, and
-# spawn positions. Not gameplay data - see test_world_map.py.
+# a generic blocker, a composed factory, composed war bases (one with
+# components at different heights), interaction points, and spawn
+# positions. Not gameplay data - see test_world_map.py.
 id: fixture-basic
 version: 1
 width: 6
@@ -12,32 +13,28 @@ terrain:
     - {x: 1, y: 1, type: rough}
     - {x: 3, y: 3, type: ditch}
 
-structures:
+blockers:
   - id: box-1
-    kind: blocker
-    footprint: {x: 0, y: 0}
-    height: 1
+    components:
+      - {x: 0, y: 0, height: 1}
 
+factories:
   - id: factory-1
-    kind: factory
-    footprint: {x: 2, y: 2}
-    height: 2
+    components:
+      - {x: 2, y: 2, height: 2}
     factory_type: chassis
 
+war_bases:
   - id: warbase-p1
-    kind: warbase
-    footprint:
-      - {x: 4, y: 0}
-      - {x: 5, y: 0}
-    height: 3
+    components:
+      - {x: 4, y: 0, height: 3}
+      - {x: 5, y: 0, height: 2}
     owner: p1
 
   - id: warbase-p2
-    kind: warbase
-    footprint:
-      - {x: 4, y: 3}
-      - {x: 5, y: 3}
-    height: 3
+    components:
+      - {x: 4, y: 3, height: 3}
+      - {x: 5, y: 3, height: 3}
     owner: p2
 
 interaction_points:

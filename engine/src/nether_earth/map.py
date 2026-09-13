@@ -26,7 +26,15 @@ import yaml
 from nether_earth.ids import EntityId
 from nether_earth.interactions import InteractionKind, InteractionPoint, parse_interaction_points
 from nether_earth.occupancy import OccupancyGrid
-from nether_earth.structures import Structure, parse_structures
+from nether_earth.structures import (
+    Blocker,
+    Factory,
+    StructureValidationError,
+    WarBase,
+    parse_blockers,
+    parse_factories,
+    parse_war_bases,
+)
 from nether_earth.terrain import TerrainGrid, parse_terrain_grid
 
 
@@ -106,13 +114,20 @@ class WorldMap:
     width: int
     height: int
     terrain: TerrainGrid
-    structures: tuple[Structure, ...]
+    war_bases: tuple[WarBase, ...]
+    factories: tuple[Factory, ...]
+    blockers: tuple[Blocker, ...]
     interaction_points: tuple[InteractionPoint, ...]
     spawn_positions: Mapping[str, tuple[int, int]]
 
-    def structure_by_id(self, entity_id: EntityId) -> Structure | None:
-        """Return the structure with ``entity_id``, or ``None`` if absent."""
-        for structure in self.structures:
+    def structure_by_id(self, entity_id: EntityId) -> "WarBase | Factory | Blocker | None":
+        """Return the war base, factory, or blocker with ``entity_id``, or ``None``."""
+        all_structures: tuple[WarBase | Factory | Blocker, ...] = (
+            *self.war_bases,
+            *self.factories,
+            *self.blockers,
+        )
+        for structure in all_structures:
             if structure.id == entity_id:
                 return structure
         return None
@@ -133,10 +148,11 @@ class WorldMap:
     def occupancy(self) -> OccupancyGrid:
         """Compute the ground-solid occupancy grid for this map's structures.
 
-        Always recomputed from ``structures`` rather than cached, so
-        ``WorldMap`` remains a plain immutable value type.
+        Always recomputed from ``war_bases``/``factories``/``blockers``
+        rather than cached, so ``WorldMap`` remains a plain immutable value
+        type.
         """
-        return OccupancyGrid.from_structures(self.structures)
+        return OccupancyGrid.from_structures(self.war_bases, self.factories, self.blockers)
 
 
 def load_world_map(path: str | Path) -> WorldMap:
@@ -148,17 +164,26 @@ def load_world_map(path: str | Path) -> WorldMap:
         version: <positive int>
         width: <positive int>
         height: <positive int>
-        terrain: {default: normal, cells: [...]}      # optional
-        structures: [...]                              # optional
-        interaction_points: [...]                      # optional
-        spawn_positions: {name: {x: .., y: ..}, ...}   # optional
+        terrain: {default: normal, cells: [...]}       # optional
+        war_bases: [...]                                # optional
+        factories: [...]                                # optional
+        blockers: [...]                                 # optional
+        interaction_points: [...]                       # optional
+        spawn_positions: {name: {x: .., y: ..}, ...}    # optional
+
+    ``war_bases``, ``factories``, and ``blockers`` each hold entries shaped
+    like ``{id: <str>, components: [{x, y, height}, ...], ...}`` — see
+    ``structures.parse_war_bases``/``parse_factories``/``parse_blockers``.
 
     Section parsing is delegated to ``terrain.parse_terrain_grid``,
-    ``structures.parse_structures``, and
-    ``interactions.parse_interaction_points`` (in that order, since
+    ``structures.parse_war_bases``/``parse_factories``/``parse_blockers``,
+    and ``interactions.parse_interaction_points`` (in that order, since
     interaction points validate references against parsed structures);
     their validation errors propagate unchanged rather than being wrapped or
-    swallowed.
+    swallowed. This function additionally checks that ids are unique across
+    war bases, factories, and blockers combined, since the per-kind parsers
+    cannot see across kinds but occupancy/interaction lookups key on a
+    single global id space.
     """
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
@@ -173,8 +198,17 @@ def load_world_map(path: str | Path) -> WorldMap:
     height = _positive_int(raw.get("height"), "height")
 
     terrain = parse_terrain_grid(raw.get("terrain"), width, height)
-    structures = parse_structures(raw.get("structures"))
-    interaction_points = parse_interaction_points(raw.get("interaction_points"), structures)
+    war_bases = parse_war_bases(raw.get("war_bases"))
+    factories = parse_factories(raw.get("factories"))
+    blockers = parse_blockers(raw.get("blockers"))
+
+    _validate_globally_unique_ids(war_bases, factories, blockers)
+
+    ownable_structures: tuple[WarBase | Factory, ...] = (*war_bases, *factories)
+    known_structure_ids = {structure.id.value for structure in ownable_structures}
+    interaction_points = parse_interaction_points(
+        raw.get("interaction_points"), known_structure_ids
+    )
     spawn_positions = _parse_spawn_positions(raw.get("spawn_positions"))
 
     return WorldMap(
@@ -183,7 +217,37 @@ def load_world_map(path: str | Path) -> WorldMap:
         width=width,
         height=height,
         terrain=terrain,
-        structures=structures,
+        war_bases=war_bases,
+        factories=factories,
+        blockers=blockers,
         interaction_points=interaction_points,
         spawn_positions=spawn_positions,
     )
+
+
+def _validate_globally_unique_ids(
+    war_bases: tuple[WarBase, ...],
+    factories: tuple[Factory, ...],
+    blockers: tuple[Blocker, ...],
+) -> None:
+    """Raise if any id is reused across war bases, factories, and blockers.
+
+    Each of ``structures.parse_war_bases``/``parse_factories``/``parse_blockers``
+    only rejects duplicates *within* its own kind; ids must be globally
+    unique across everything the occupancy/interaction system looks up by
+    id, so this cross-kind check lives here in the loader.
+    """
+    seen: dict[str, str] = {}
+    for kind, structures in (
+        ("war_bases", war_bases),
+        ("factories", factories),
+        ("blockers", blockers),
+    ):
+        for structure in structures:
+            entity_id = structure.id.value
+            if entity_id in seen:
+                raise StructureValidationError(
+                    f"duplicate structure id {entity_id!r} used by both "
+                    f"{seen[entity_id]!r} and {kind!r}"
+                )
+            seen[entity_id] = kind
