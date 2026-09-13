@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime files
+replays/*
+!replays/.gitkeep
+
+# Local configuration
+.env
+.env.*
+!.env.example

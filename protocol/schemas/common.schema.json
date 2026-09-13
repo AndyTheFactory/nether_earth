@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nether-earth.local/protocol/common.schema.json",
+  "title": "ProtocolCommon",
+  "type": "object",
+  "properties": {
+    "protocolVersion": { "type": "integer", "const": 1 }
+  },
+  "required": ["protocolVersion"],
+  "additionalProperties": false
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nether-earth.local/protocol/snapshot.schema.json",
+  "title": "BootstrapSnapshot",
+  "type": "object",
+  "properties": {
+    "protocolVersion": { "type": "integer", "const": 1 },
+    "tick": { "type": "integer", "minimum": 0 }
+  },
+  "required": ["protocolVersion", "tick"],
+  "additionalProperties": false
+}

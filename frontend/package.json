@@ -1,0 +1,22 @@
+{
+  "name": "nether-earth-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "protocol:validate": "node scripts/validate-protocol.mjs",
+    "protocol:generate": "node scripts/generate-protocol.mjs"
+  },
+  "dependencies": {
+    "pixi.js": "8.8.1"
+  },
+  "devDependencies": {
+    "ajv": "8.17.1",
+    "json-schema-to-typescript": "15.0.4",
+    "typescript": "5.7.3",
+    "vite": "6.1.0"
+  }
+}

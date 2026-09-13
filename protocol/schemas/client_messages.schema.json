@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nether-earth.local/protocol/client_messages.schema.json",
+  "title": "ClientMessage",
+  "type": "object",
+  "properties": {
+    "protocolVersion": { "type": "integer", "const": 1 },
+    "type": { "type": "string", "const": "ping" }
+  },
+  "required": ["protocolVersion", "type"],
+  "additionalProperties": false
+}
