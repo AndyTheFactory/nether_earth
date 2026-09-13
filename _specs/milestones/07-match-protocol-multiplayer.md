@@ -11,11 +11,17 @@ Connect the deterministic engine to the runtime/backend layer through a versione
 - `_specs/technical-spec.md` protocol, match/runtime, snapshot and replay sections
 - `_specs/open-questions.md` §16 — disconnect/reconnect rules
 
-## Dependencies
+## Start dependencies
 
-- Milestone 1 deterministic engine contract.
-- Milestones 2–6 sufficient to expose the v1 engine command/state surface.
-- Milestone 0 protocol/backend skeleton.
+- Milestone 0 backend/protocol skeleton.
+- Milestone 1 deterministic engine command/state/snapshot contract.
+
+Protocol/lifecycle/runtime infrastructure may begin before all gameplay milestones are complete by using stable engine fixtures and versioned contracts.
+
+## Completion dependencies
+
+- Milestones 2–6 complete for the full v1 engine command/state/event surface consumed by multiplayer.
+- Disconnect/reconnect semantics required for v1 resolved and reflected in the authoritative specs.
 
 ## Deliverable
 
@@ -25,6 +31,8 @@ A single-process FastAPI backend hosting multiple in-memory matches, with create
 
 ### Shared protocol schemas
 Define versioned JSON Schema for common identifiers, client commands, server events, snapshots, lifecycle messages, and errors. Generated TypeScript types and Python/Pydantic validation must derive from the shared contract.
+
+The protocol may evolve incrementally as Milestones 2–6 add stable engine commands/events, but each schema revision must remain synchronized across generated consumers.
 
 ### Match manager and lifecycle
 Implement create, join by code/link, nickname/session token, readiness, start, active, finished, and disposal states. Active game state remains in memory.
@@ -46,7 +54,7 @@ Implement only after the policy is verified/approved: continuation or pause, gra
 
 ## Parallelization
 
-Protocol schema and MatchManager lifecycle may proceed in parallel once the engine command/snapshot surface is stable. WebSocket transport and replay logging can follow those contracts. Reconnect behavior is a separate policy-dependent task.
+Protocol schema, MatchManager lifecycle, tick orchestration, and replay infrastructure may proceed against Milestone 1 contracts while later gameplay milestones are under development. Gameplay-specific protocol messages can be added as their engine contracts stabilize. WebSocket transport can proceed against fixture commands/snapshots. Reconnect behavior remains a separate policy-dependent task.
 
 ## Acceptance criteria
 
@@ -57,12 +65,15 @@ Protocol schema and MatchManager lifecycle may proceed in parallel once the engi
 - Backend does not reimplement movement, combat, economy, capture, or victory legality.
 - Tick scheduling invokes the deterministic engine at 20 Hz while gameplay timing remains tick-derived.
 - Clients receive authoritative snapshots/events sufficient to render and recover state.
+- Protocol schemas cover the complete v1 command/state/event surface by milestone completion.
 - Replay/debug files can reproduce the engine command stream and result.
 - Match ends and in-memory state is disposed according to the spec.
 
 ## Milestone integration scenario
 
-Start the backend, create a match with client A, join with client B, ready both, exchange representative commands over WebSockets, verify both receive consistent authoritative state, disconnect/reconnect one client under the resolved policy, finish the match, and replay the stored command stream to the same final engine state/result.
+After Milestones 2–6 are available, start the backend, create a match with client A, join with client B, ready both, exchange representative commands spanning the v1 engine surface over WebSockets, verify both receive consistent authoritative state, disconnect/reconnect one client under the resolved policy, finish the match, and replay the stored command stream to the same final engine state/result.
+
+Earlier task-level integration may use deterministic fixture snapshots/commands before the full gameplay surface exists.
 
 ## Out of scope
 
@@ -81,7 +92,7 @@ Human review is required for any proposal that changes the single-process/in-mem
 ## Definition of done
 
 - All milestone issues are closed by merged PRs.
-- End-to-end two-client integration scenario passes.
+- End-to-end two-client integration scenario passes against the complete v1 engine surface.
 - Protocol generation/validation is reproducible.
 - Replay reproduces the completed match state/result.
 - Transport and engine responsibilities remain cleanly separated.
