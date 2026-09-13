@@ -14,6 +14,7 @@ robot enter it".
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import Any
 
 
@@ -62,6 +63,12 @@ class TerrainGrid:
             raise ValueError("TerrainGrid width must be a positive integer")
         if self.height <= 0:
             raise ValueError("TerrainGrid height must be a positive integer")
+        # Defensively copy+freeze `cells` so a caller's mutable dict (or a
+        # MappingProxyType wrapping one) cannot be mutated out from under an
+        # already-constructed grid, which would otherwise let terrain
+        # queries silently change over time and break the "loading the same
+        # map produces canonical-equivalent world state" guarantee.
+        object.__setattr__(self, "cells", MappingProxyType(dict(self.cells)))
 
     def terrain_at(self, x: int, y: int) -> TerrainType:
         """Return the terrain type at ``(x, y)``.
