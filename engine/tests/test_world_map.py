@@ -450,6 +450,9 @@ def test_parse_interaction_points_rejects_unknown_kind() -> None:
                 }
             ],
             {"s1"},
+            set(),
+            width=10,
+            height=10,
         )
 
 

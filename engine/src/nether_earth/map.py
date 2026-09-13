@@ -204,10 +204,14 @@ def load_world_map(path: str | Path) -> WorldMap:
 
     _validate_globally_unique_ids(war_bases, factories, blockers)
 
-    ownable_structures: tuple[WarBase | Factory, ...] = (*war_bases, *factories)
-    known_structure_ids = {structure.id.value for structure in ownable_structures}
+    war_base_ids = {war_base.id.value for war_base in war_bases}
+    factory_ids = {factory.id.value for factory in factories}
     interaction_points = parse_interaction_points(
-        raw.get("interaction_points"), known_structure_ids
+        raw.get("interaction_points"),
+        war_base_ids,
+        factory_ids,
+        width=width,
+        height=height,
     )
     spawn_positions = _parse_spawn_positions(raw.get("spawn_positions"))
 

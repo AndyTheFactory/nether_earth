@@ -57,24 +57,50 @@ def _interaction_kind_from_raw(value: Any, *, context: str) -> InteractionKind:
         ) from exc
 
 
+# Which structure kind each interaction kind is semantically allowed to
+# attach to, per `_specs/functional-spec.md` §8.6/§9.3/§9.4: heli-pads and
+# exits are war-base concepts, factory capture applies to factories, and
+# war-base capture (optional, `_specs/open-questions.md` §6) applies only to
+# war bases.
+_WAR_BASE_ONLY_KINDS = frozenset(
+    {InteractionKind.HELI_PAD, InteractionKind.EXIT, InteractionKind.WARBASE_CAPTURE}
+)
+_FACTORY_ONLY_KINDS = frozenset({InteractionKind.FACTORY_CAPTURE})
+
+
 def parse_interaction_points(
-    raw: "list[Any] | None", known_structure_ids: "set[str]"
+    raw: "list[Any] | None",
+    war_base_ids: "set[str]",
+    factory_ids: "set[str]",
+    *,
+    width: int,
+    height: int,
 ) -> tuple[InteractionPoint, ...]:
     """Parse a YAML ``interaction_points`` list into a tuple of :class:`InteractionPoint`.
 
-    Each entry has ``id``, ``kind``, ``structure_id`` (must be a member of
-    ``known_structure_ids`` — the ids of structures that can host an
-    interaction point, i.e. war bases and factories; blockers cannot), and
-    ``footprint`` (single-cell shorthand or explicit multi-cell list, see
-    ``structures.parse_footprint``). Validates duplicate ids, unknown kind
-    strings, and dangling ``structure_id`` references. ``WARBASE_CAPTURE``
-    entries are optional and may be absent entirely — see the module
-    docstring.
+    Each entry has ``id``, ``kind``, ``structure_id``, and ``footprint``
+    (single-cell shorthand or explicit multi-cell list, see
+    ``structures.parse_footprint``). ``structure_id`` must reference a known
+    war base or factory (blockers cannot host an interaction point) — passed
+    as two separate id sets, ``war_base_ids`` and ``factory_ids``, rather
+    than one combined set, so this function can also enforce that each
+    ``kind`` attaches only to the structure kind it is semantically valid
+    for: ``HELI_PAD``/``EXIT``/``WARBASE_CAPTURE`` require a war base id,
+    ``FACTORY_CAPTURE`` requires a factory id (`_specs/functional-spec.md`
+    §8.6/§9.3/§9.4). ``width``/``height`` bound-check every footprint cell
+    against the map dimensions, mirroring ``terrain.parse_terrain_grid``.
+
+    Validates duplicate ids, unknown kind strings, dangling ``structure_id``
+    references, kind-vs-structure-type mismatches, and out-of-bounds
+    footprint cells. ``WARBASE_CAPTURE`` entries are optional and may be
+    absent entirely — see the module docstring.
     """
     if raw is None:
         raw = []
     if not isinstance(raw, list):
         raise InteractionValidationError("interaction_points section must be a list")
+
+    known_structure_ids = war_base_ids | factory_ids
 
     seen_ids: set[str] = set()
     points: list[InteractionPoint] = []
@@ -100,7 +126,23 @@ def parse_interaction_points(
                 f"{context}: structure_id {structure_id_raw!r} does not reference a known structure"
             )
 
+        if kind in _WAR_BASE_ONLY_KINDS and structure_id_raw not in war_base_ids:
+            raise InteractionValidationError(
+                f"{context}: kind {kind.value!r} requires structure_id {structure_id_raw!r} "
+                "to be a war base"
+            )
+        if kind in _FACTORY_ONLY_KINDS and structure_id_raw not in factory_ids:
+            raise InteractionValidationError(
+                f"{context}: kind {kind.value!r} requires structure_id {structure_id_raw!r} "
+                "to be a factory"
+            )
+
         footprint = parse_footprint(entry.get("footprint"), context=context)
+        for x, y in footprint.cells:
+            if not (0 <= x < width and 0 <= y < height):
+                raise InteractionValidationError(
+                    f"{context}: footprint cell ({x}, {y}) is outside the {width}x{height} grid"
+                )
 
         points.append(
             InteractionPoint(
