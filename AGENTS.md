@@ -15,6 +15,7 @@ Read these files before planning or implementing work:
 3. `_specs/open-questions.md` — unresolved decisions that must not be guessed
 4. `_specs/references.md` — authoritative reference material
 5. `_specs/agentic-programming-prd.md` — agentic development workflow
+6. `_specs/milestones/` — milestone specifications and acceptance gates
 
 When documents conflict, stop and surface the conflict rather than silently choosing an interpretation.
 
@@ -53,12 +54,26 @@ It is acceptable to build interfaces, data structures, fixtures, or placeholders
 
 ## Task workflow
 
+Milestone specifications are planning documents. When implementation of a milestone begins, its candidate tasks are turned into GitHub issues.
+
+Every implementation task must follow this lifecycle:
+
+1. Create or use a GitHub issue for the task.
+2. The issue must identify the milestone, goal, relevant spec references, dependencies, acceptance criteria, required verification, and any known open questions.
+3. Implement the issue on a dedicated branch/worktree where practical.
+4. Open a pull request that references the issue and explains how the acceptance criteria were satisfied.
+5. Run the required tests/checks and review the diff against the specifications.
+6. Merge the PR only when the task is verified and no blocking findings remain.
+7. The GitHub issue is considered complete only when it is closed by the merged PR. Prefer GitHub closing syntax such as `Closes #<issue>` in the PR description when appropriate.
+
+Do not mark an implementation issue complete based only on local code, a commit, or a passing test run. The merged PR is the task completion boundary.
+
 For each implementation task:
 
-1. Read the relevant specification sections.
+1. Read the relevant specification and milestone sections.
 2. Identify dependencies and open questions.
 3. State the acceptance criteria before editing code.
-4. Make the smallest coherent implementation that satisfies the task.
+4. Make the smallest coherent implementation that satisfies the issue.
 5. Add or update tests for the behavior.
 6. Run the relevant test/lint/type-check commands.
 7. Review the diff against the specification, not just against the tests.
@@ -66,11 +81,25 @@ For each implementation task:
 
 Prefer independent tasks that can be developed in separate branches/worktrees and integrated only after their contracts are stable.
 
+## Human review and autonomous execution
+
+Agents should proceed autonomously on routine implementation choices that are clearly inside the locked specifications and architecture.
+
+Human review is mandatory when an agent encounters:
+
+- an unresolved product/gameplay decision;
+- conflicting authoritative evidence or specifications;
+- a semantic merge/integration conflict where either resolution changes behavior;
+- a required architecture or scope change;
+- a blocker for which proceeding would require inventing behavior.
+
+Do not interrupt the project owner for ordinary implementation choices, naming, local refactors, or tool usage when those choices preserve the specification and task scope.
+
 ## Spec traceability
 
 Every substantial feature should be traceable to one or more specification sections.
 
-When practical, include the relevant spec section in the task, PR description, test name, or implementation notes. Do not add noisy comments to every line of code merely for traceability.
+When practical, include the relevant spec section in the GitHub issue, PR description, test name, or implementation notes. Do not add noisy comments to every line of code merely for traceability.
 
 If implementation reveals that a specification is incomplete or contradictory, update the specification only when the new decision has been explicitly resolved. Otherwise update `_specs/open-questions.md` instead.
 
@@ -103,16 +132,20 @@ For frontend work, do not duplicate engine rule logic merely to make UI tests pa
 
 ## Git and integration
 
-- One task should produce one coherent change set.
+- One GitHub issue should normally map to one coherent implementation PR.
 - Prefer a dedicated branch/worktree for parallel tasks.
-- Do not mix unrelated fixes into the same commit.
+- Do not mix unrelated fixes into the same commit or PR.
+- Every task PR must reference its GitHub issue.
+- Task issues are closed by merged PRs, not manually before merge.
 - Never overwrite another agent's work to resolve a conflict; reconcile both changes explicitly.
 - Integration should happen only after the task's acceptance criteria and tests pass.
+- Milestone completion requires all milestone task issues to be closed by merged PRs plus the milestone integration verification to pass.
 
 ## Completion report
 
 When finishing a task, provide a concise report containing:
 
+- GitHub issue and PR reference;
 - specification sections implemented;
 - files changed;
 - tests/checks run and their result;
