@@ -7,17 +7,20 @@ provides the mechanism for layering scenario-time ownership and named
 spawn/reference positions over a base :class:`map.WorldMap` without mutating
 the source map definition.
 
-This module does not resolve `_specs/open-questions.md` §2 (what happens to
-the war bases the PvP scenario does not assign to a player) — it only
-provides the generic mechanism. No PvP-specific default assignment lives
-here.
+`_specs/open-questions.md` §2 (PvP treatment of the remaining war bases) is
+now RESOLVED: Player 1 starts owning the extreme-left war base, Player 2
+starts owning the extreme-right war base, and the two war bases between
+them start neutral. :func:`default_pvp_overlay` encodes exactly that locked
+decision as overlay data — it does not touch base-map geometry, and a
+"neutral" war base is simply one this overlay's ``ownership`` mapping does
+not mention (see :class:`WarBase`'s ``owner: PlayerId | None`` default).
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from nether_earth.ids import EntityId, PlayerId
+from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 
 if TYPE_CHECKING:
     from nether_earth.map import WorldMap
@@ -60,7 +63,10 @@ def apply_overlay(world_map: "WorldMap", overlay: ScenarioOverlay) -> "WorldMap"
     Raises :class:`OverlayValidationError` if any ``overlay.ownership`` key
     does not reference a real war-base or factory id on ``world_map``.
     Blockers have no ``owner`` field, so an overlay referencing a blocker id
-    is an unknown-reference error like any other unknown id.
+    is an unknown-reference error like any other unknown id. Also raises
+    :class:`OverlayValidationError` if any ``overlay.spawn_positions`` cell
+    falls outside ``[0, world_map.width)`` x ``[0, world_map.height)``, using
+    the same in-bounds check ``terrain.py`` applies to its own cells.
     """
     ownable: tuple[WarBase | Factory, ...] = (*world_map.war_bases, *world_map.factories)
     known_structure_ids = {structure.id for structure in ownable}
@@ -71,6 +77,18 @@ def apply_overlay(world_map: "WorldMap", overlay: ScenarioOverlay) -> "WorldMap"
         unknown_values = ", ".join(repr(entity_id.value) for entity_id in unknown)
         raise OverlayValidationError(
             f"overlay {overlay.id!r} references unknown structure id(s): {unknown_values}"
+        )
+
+    out_of_bounds = [
+        (name, cell)
+        for name, cell in overlay.spawn_positions.items()
+        if not (0 <= cell[0] < world_map.width and 0 <= cell[1] < world_map.height)
+    ]
+    if out_of_bounds:
+        described = ", ".join(f"{name!r}={cell!r}" for name, cell in out_of_bounds)
+        raise OverlayValidationError(
+            f"overlay {overlay.id!r} spawn_positions outside the "
+            f"{world_map.width}x{world_map.height} grid: {described}"
         )
 
     new_war_bases = tuple(
@@ -93,4 +111,79 @@ def apply_overlay(world_map: "WorldMap", overlay: ScenarioOverlay) -> "WorldMap"
         war_bases=new_war_bases,
         factories=new_factories,
         spawn_positions=merged_spawn_positions,
+    )
+
+
+#: Stable id for the overlay :func:`default_pvp_overlay` returns.
+STANDARD_PVP_OVERLAY_ID = "standard-pvp"
+
+
+def default_pvp_overlay(world_map: "WorldMap") -> ScenarioOverlay:
+    """Return the locked v1 standard-PvP :class:`ScenarioOverlay` for ``world_map``.
+
+    Encodes `_specs/open-questions.md` §2 (RESOLVED) /
+    `_specs/milestones/02-map-world-model.md`'s "Locked v1 PvP scenario
+    overlay": Player 1 (``ids.PLAYER_ONE``) owns the extreme-left war base,
+    Player 2 (``ids.PLAYER_TWO``) owns the extreme-right war base, and every
+    other war base is left out of ``ownership`` entirely — since a war
+    base's ``owner`` already defaults to ``None`` (neutral), simply not
+    mentioning a war base here *is* "starts neutral". This never mutates
+    ``world_map``; apply the returned overlay with :func:`apply_overlay` as
+    usual.
+
+    Defining "extreme-left"/"extreme-right":
+
+    - Each war base's horizontal extent is the min/max ``x`` across its own
+      ``components`` (a war base can span multiple cells).
+      "Extreme-left" is the war base with the smallest min-``x``;
+      "extreme-right" is the war base with the largest max-``x``.
+    - Ties (two war bases sharing the same extreme min-``x`` or max-``x``)
+      are broken by war-base id, ascending for the left pick and descending
+      for the right pick, so the result is deterministic for a given map
+      even though it is an arbitrary tie-break rather than a gameplay rule.
+      The real fixture/original map is expected to have exactly four
+      war bases at unambiguous distinct x-positions, so this tie-break
+      should not matter in practice.
+    - This function does not require exactly four war bases: with more than
+      four, every war base that is not the extreme-left/-right pick starts
+      neutral (same "absent from ``ownership``" rule); with fewer than two,
+      or if the extreme-left and extreme-right pick resolve to the same war
+      base (e.g. only one war base on the map), it raises
+      :class:`OverlayValidationError` since a standard PvP assignment needs
+      two distinct starting war bases.
+    """
+    if len(world_map.war_bases) < 2:
+        raise OverlayValidationError(
+            "default_pvp_overlay requires at least two war bases on the map, "
+            f"found {len(world_map.war_bases)}"
+        )
+
+    leftmost = min(
+        world_map.war_bases,
+        key=lambda war_base: (
+            min(component.x for component in war_base.components),
+            war_base.id.value,
+        ),
+    )
+    rightmost = max(
+        world_map.war_bases,
+        key=lambda war_base: (
+            max(component.x for component in war_base.components),
+            war_base.id.value,
+        ),
+    )
+
+    if leftmost.id == rightmost.id:
+        raise OverlayValidationError(
+            "default_pvp_overlay could not find two distinct extreme-left/"
+            f"extreme-right war bases on the map (both resolved to {leftmost.id.value!r})"
+        )
+
+    return ScenarioOverlay(
+        id=STANDARD_PVP_OVERLAY_ID,
+        ownership={
+            leftmost.id: PLAYER_ONE,
+            rightmost.id: PLAYER_TWO,
+        },
+        spawn_positions={},
     )
