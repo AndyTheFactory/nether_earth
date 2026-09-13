@@ -4,6 +4,8 @@
 
 Integrate all v1 gameplay and client/runtime systems into one complete two-player match that exercises the real map, economy, construction, movement, orders, combat, capture, victory, replay, and browser UX as one coherent product.
 
+This milestone is an integration and product-acceptance milestone. It must not be used as a catch-all for unfinished prerequisite subsystem work.
+
 ## Spec references
 
 - `_specs/functional-spec.md` — complete v1 gameplay scope and match flow
@@ -11,9 +13,15 @@ Integrate all v1 gameplay and client/runtime systems into one complete two-playe
 - all prior milestone specifications
 - `_specs/open-questions.md` — all questions required by the playable v1 path
 
-## Dependencies
+## Start dependencies
 
-- Milestones 0–8 complete to the degree required by the v1 flow.
+- Milestones 2–8 complete.
+- Milestones 0 and 1 are transitively complete through those dependencies.
+
+## Completion dependencies
+
+- All behavior required for the standard v1 PvP path must already be implemented in its owning milestone.
+- Any open question that affects the standard v1 completion path must be resolved in the authoritative specs before final acceptance.
 
 ## Deliverable
 
@@ -25,7 +33,7 @@ A locally runnable, end-to-end playable two-player PvP game using the intended o
 Lock the v1 PvP scenario data, including starting war bases, treatment of remaining war bases, starting resources, factory ownership, spawn positions, and victory rule.
 
 ### Original-map fidelity pass
-Validate the map, collision geometry, terrain, structures, capture points, heli-pads, exits, and ownership presentation against authoritative references.
+Validate the map, collision geometry, terrain, structures, interaction points, capture points, heli-pads, exits, and ownership presentation against authoritative references.
 
 ### End-to-end gameplay flow
 Verify the complete loop:
@@ -50,10 +58,13 @@ Resolve critical usability issues in match creation, controls, menus, game state
 
 ## Parallelization
 
-Fidelity review, end-to-end scenario testing, and UX polish can proceed in parallel against an integration branch. Cross-system bugs must be assigned back to the subsystem that owns the rule rather than patched in the wrong layer.
+Fidelity review, end-to-end scenario testing, replay validation, and UX polish can proceed in parallel against an integration branch. Cross-system bugs must be assigned back to the subsystem that owns the rule rather than patched in the wrong layer.
+
+If testing reveals genuinely missing prerequisite behavior, create/fix the task under the owning milestone/subsystem instead of redefining M9 scope.
 
 ## Acceptance criteria
 
+- Milestones 2–8 meet their own definitions of done before M9 final acceptance.
 - Two fresh browser clients can create and complete a full PvP match without developer intervention.
 - Both players begin with the locked scenario state.
 - The full gameplay loop is reachable and consistent with the functional spec.
@@ -69,6 +80,7 @@ Run at least one scripted/replayable deterministic full-match scenario plus one 
 
 ## Out of scope
 
+- Finishing known incomplete M2–M8 features that should have been completed in their owning milestone.
 - AI opponent.
 - Accounts/profiles/rankings.
 - Horizontal scaling.
@@ -87,6 +99,7 @@ Any unresolved source conflict that changes gameplay remains a mandatory owner-r
 ## Definition of done
 
 - All milestone issues are closed by merged PRs.
+- All prerequisite milestones required for the v1 path are complete, not merely partially implemented.
 - Full scripted and human-driven acceptance matches pass.
 - Deterministic replay reproduces representative complete matches.
 - No known blocker prevents a normal v1 PvP match from starting, progressing, and ending correctly.
