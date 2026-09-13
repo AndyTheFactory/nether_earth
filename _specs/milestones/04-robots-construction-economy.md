@@ -10,16 +10,25 @@ Implement robot composition, canonical height/stack derivation, factory/war-base
 - `_specs/technical-spec.md` §10–§14 — structures, capture state model, economy, robot build, construction
 - `_specs/open-questions.md` §1 and §10
 
-## Dependencies
+## Start dependencies
 
-- Milestone 2 world/structures.
-- Milestone 3 heli-pad/commander interaction.
+- Milestone 2 world/structures contract.
+- Milestone 3 heli-pad/commander interaction contract.
+
+## Completion dependencies
+
+- Milestones 2 and 3 complete for the interaction/world behavior consumed by construction.
 
 ## Deliverable
 
 An engine subsystem that represents valid robot builds, derives one canonical physical component stack and height, tracks player resources, processes production on game-day boundaries, validates construction eligibility, deducts resources according to the resolved spending policy, and launches a robot when the war-base exit is available.
 
+This milestone owns the canonical robot component/module catalog for construction concerns. Later combat systems consume and extend this catalog with combat-specific metadata rather than defining a second weapon catalog.
+
 ## Workstreams and candidate tasks
+
+### Canonical component/module catalog
+Define the canonical chassis, weapon, and electronics module identities and construction-facing metadata. Construction costs and resource-category requirements belong here once resolved. Combat-specific properties such as range, lethality, and projectile behavior are added/consumed by Milestone 6 without duplicating module identity or construction cost.
 
 ### Robot build model
 Implement chassis, weapon, and electronics module types and validation:
@@ -39,18 +48,19 @@ Track general and type-specific resources. Every 2,880 ticks, owned factories pr
 Implement entering/exiting construction from a valid heli-pad state, selecting/deselecting modules, validation, scrap/cancel semantics where verified, and build launch.
 
 ### Robot count and war-base exit constraints
-Enforce the 24-robot sector cap and blocked-exit rule.
+Enforce the 24-robot sector cap and blocked-exit rule using the canonical war-base exit metadata from Milestone 2.
 
 ### Initial robot entity
 Create the authoritative robot entity fields needed by later movement/orders/combat without prematurely adding those behaviors.
 
 ## Parallelization
 
-Robot build/stack, economy, and construction-state work may proceed in parallel once shared module/resource types are agreed. The launch integration task owns resource deduction + robot creation + exit occupancy behavior.
+Component catalog/build/stack, economy, and construction-state work may proceed in parallel once shared module/resource types are agreed. The launch integration task owns resource deduction + robot creation + exit occupancy behavior.
 
 ## Acceptance criteria
 
 - Invalid robot configurations are rejected deterministically.
+- Canonical module identity and construction metadata have one engine source of truth.
 - Canonical stack/height has one engine source of truth.
 - Nuke/electronics top-placement rules are respected.
 - Resource production is driven solely by authoritative ticks and ownership.
@@ -58,6 +68,7 @@ Robot build/stack, economy, and construction-state work may proceed in parallel 
 - Robot cap and blocked exit prevent launch.
 - Launch creates exactly one valid robot and applies the resolved resource rule atomically.
 - Construction behavior can be replayed deterministically.
+- Milestone 6 can attach/consume combat metadata without redefining weapon identities or construction costs.
 
 ## Milestone integration scenario
 
@@ -69,6 +80,7 @@ Initialize a player with a war base, factories, and known resources. Advance exa
 - Factory/war-base capture.
 - Direct robot control.
 - Weapon firing/damage.
+- Combat-specific weapon properties such as projectile behavior and damage formulas.
 - Frontend construction UI.
 
 ## Open questions / blockers
@@ -85,4 +97,5 @@ These are explicit research/decision dependencies. Agents may build the data mod
 - All milestone issues are closed by merged PRs.
 - Economy/construction integration scenario passes deterministically.
 - Canonical stack and resource policies are backed by resolved specs.
+- One canonical component/module catalog exists for later systems to consume.
 - Later movement/combat can consume robot state without restructuring the build model.
