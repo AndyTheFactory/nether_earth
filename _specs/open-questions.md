@@ -2,17 +2,22 @@
 
 This file tracks gameplay and implementation details that are **not yet locked**. It should be resolved before the functional specification is considered fully implementation-ready.
 
-## 1. Exact normal-weapon stack order
+## 1. Exact normal-weapon stack order — RESOLVED
 
-We know that weapon placement is canonical and not player-defined, that the nuke is always the topmost weapon, and that electronics is always above the weapons.
+Locked bottom-to-top weapon order:
 
-What is still unresolved is the exact bottom-to-top order of:
+1. cannon
+2. missile
+3. phaser
+4. nuke
 
-- cannon
-- missiles
-- phaser
+Rules:
 
-The conversation contained contradictory wording around this order, so this must be verified directly against ZX Spectrum behavior/disassembly before implementation.
+- Weapon placement is canonical and not player-defined.
+- If a lower-order weapon is absent, remaining fitted weapons keep their relative order.
+- The nuke, when fitted, is always the topmost weapon.
+- Electronics, when fitted, is always above all weapons.
+- The canonical stack must be defined once in engine code and reused for rendering, robot height, collision height, projectile interaction, commander docking height, and construction preview.
 
 ## 2. PvP treatment of the remaining war bases
 
