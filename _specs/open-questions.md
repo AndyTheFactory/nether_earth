@@ -103,21 +103,24 @@ Locked behavior:
 
 This matches the original ZX Spectrum building-capture timer path, which clears the building timer when the qualifying occupation condition is no longer satisfied.
 
-## 8. Exact projectile mechanics
+## 8. Exact projectile mechanics — PARTIALLY RESOLVED
 
-The normal-weapon firing gate is locked: a robot cannot fire another normal weapon while its current projectile is active.
+Locked behavior:
 
-Open questions:
+- The normal-weapon firing gate remains: a robot cannot fire another normal weapon while its current projectile is active.
+- Cannon, missiles, and phasers all use the original ZX Spectrum projectile flight altitude of **10** authoritative altitude units.
+- Flight altitude does not vary by normal weapon type and is independent of robot height.
+- This original value should be preserved as the default authoritative rule. It may be exposed as one clear engine constant/configurable rule value, but gameplay should use the original value by default.
 
-- Projectile speed for cannon, missiles, and phasers
-- Projectile movement granularity in simulation ticks
-- Exact projectile flight height
-- Whether flight height differs by weapon
-- Collision footprint/profile
-- Interaction with robot/component height
-- Interaction with buildings/boxes/static objects
-- What exactly terminates a projectile in the Spectrum game
-- How the original notion of a projectile leaving the visible screen should translate to a browser client whose viewport may differ from the original Spectrum view
+Still open:
+
+- Projectile speed for cannon, missiles, and phasers.
+- Projectile movement granularity in simulation ticks.
+- Collision footprint/profile.
+- Interaction with robot/component height.
+- Interaction with buildings/boxes/static objects.
+- What exactly terminates a projectile in the Spectrum game.
+- How the original notion of a projectile leaving the visible screen should translate to a browser client whose viewport may differ from the original Spectrum view.
 
 Projectile lifetime must ultimately be defined by authoritative world/game rules, not browser viewport size.
 
