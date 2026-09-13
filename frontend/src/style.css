@@ -1,0 +1,17 @@
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: #10151d;
+  font-family: system-ui, sans-serif;
+}
+
+canvas {
+  display: block;
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nether-earth.local/protocol/server_messages.schema.json",
+  "title": "ServerMessage",
+  "type": "object",
+  "properties": {
+    "protocolVersion": { "type": "integer", "const": 1 },
+    "type": { "type": "string", "const": "pong" }
+  },
+  "required": ["protocolVersion", "type"],
+  "additionalProperties": false
+}
