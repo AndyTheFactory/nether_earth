@@ -10,11 +10,18 @@ Implement the browser client that renders authoritative game state, interpolates
 - `_specs/technical-spec.md` §2–§4 — locked frontend stack and responsibility boundary
 - `_specs/technical-spec.md` frontend interpolation/networking guidance
 
-## Dependencies
+## Start dependencies
 
 - Milestone 0 frontend/protocol bootstrap.
-- Milestone 7 stable protocol and snapshots/events.
-- Engine behavior from Milestones 2–6 sufficiently complete for fixtures and integration.
+- Stable snapshot/protocol fixtures from Milestone 1/Milestone 7 groundwork.
+- Milestone 2 world/map contract for real-map rendering work.
+
+Renderer and UI development may begin against deterministic recorded fixtures before live multiplayer is complete.
+
+## Completion dependencies
+
+- Milestone 7 stable live protocol/snapshot/event transport.
+- Engine behavior from Milestones 2–6 complete for every v1 action exposed by the UI.
 
 ## Deliverable
 
@@ -45,7 +52,7 @@ Create the original-style 2.5D presentation using project reference material and
 
 ## Parallelization
 
-Renderer work can proceed against deterministic recorded snapshots while network/client UI work proceeds against the protocol. Commander, construction, and robot-control UI tasks can run in parallel once their command/state contracts are stable. Final integration connects all fixture-driven screens to a live match.
+Renderer work can proceed against deterministic recorded snapshots while network/client UI work proceeds against the evolving versioned protocol. Commander, construction, robot-control, combat UI, and HUD tasks can run in parallel once their command/state contracts are stable. Final M8 integration connects fixture-driven screens to representative live-match flows without requiring a complete game from start to victory.
 
 ## Acceptance criteria
 
@@ -55,16 +62,20 @@ Renderer work can proceed against deterministic recorded snapshots while network
 - Authoritative X/Y/Z and transitions render correctly with visual interpolation only.
 - Input produces explicit protocol commands.
 - Construction, orders, direct control, and combat controls expose all v1 actions supported by the engine.
-- Ownership, strength, resources, game time, match state, and victory/result are visible.
+- Ownership, strength, resources, game time, match state, and victory/result states can be rendered correctly.
 - Snapshot/reconnect replaces or resynchronizes client state safely.
-- Production build succeeds and major screens can be exercised from deterministic fixtures.
+- Production build succeeds and major screens/states can be exercised from deterministic fixtures.
+- Representative live interactions work through the real backend/protocol.
 
 ## Milestone integration scenario
 
-Run a live two-client match locally. Both clients join/ready, move commanders, dock, build robots, issue orders, enter direct/combat control, observe authoritative movement/combat, and see the final result. Artificially reconnect one client and verify that its rendered state converges to the server snapshot without local gameplay divergence.
+Use deterministic recorded fixtures to exercise all major rendered states and interaction surfaces: commander movement, docking, construction, robot movement/orders, combat/projectiles, ownership changes, resources, reconnect snapshot, and victory/result rendering.
+
+Then run a shorter live two-client integration flow through the real backend that proves create/join/ready, representative commander input, at least one construction/robot-control interaction, authoritative updates, and reconnect/resynchronization. A complete real match from creation through victory is intentionally reserved for Milestone 9.
 
 ## Out of scope
 
+- Full end-to-end PvP acceptance match; owned by Milestone 9.
 - New gameplay rules or client-side prediction that alters authority.
 - Accounts/social features.
 - Mobile-specific control redesign unless later explicitly added.
@@ -79,6 +90,7 @@ Asset/reference conflicts or a visual interpretation that materially changes gam
 ## Definition of done
 
 - All milestone issues are closed by merged PRs.
-- Live frontend/backend integration scenario passes.
-- Fixture-driven rendering tests or documented visual verification cover key game states.
+- Fixture-driven rendering/interaction verification covers the full v1 client surface.
+- Representative live frontend/backend interactions and reconnect pass.
+- Complete full-match acceptance remains unclaimed and is deferred to Milestone 9.
 - No gameplay authority has leaked into the browser.
