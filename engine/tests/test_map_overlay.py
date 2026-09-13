@@ -1,9 +1,10 @@
 """Standalone tests for `nether_earth.map_overlay`.
 
 Spec references: `_specs/milestones/02-map-world-model.md` ("Scenario
-overlay" workstream); `_specs/open-questions.md` §2 (PvP treatment of the
-remaining war bases — intentionally untouched by this module and these
-tests: no test here asserts a default assignment for unowned war bases).
+overlay" workstream, "Locked v1 PvP scenario overlay"); `_specs/open-
+questions.md` §2 (PvP treatment of the remaining war bases — RESOLVED:
+Player 1 owns the extreme-left war base, Player 2 owns the extreme-right
+war base, the two war bases between them start neutral).
 
 `engine/tests/test_world_map.py` already covers `apply_overlay` as part of
 the broader `WorldMap` integration surface (ownership replacement, unknown
@@ -12,19 +13,61 @@ focuses on `map_overlay.py` in isolation and adds the coverage issue #24
 calls out specifically: `ScenarioOverlay` construction/validation, factory
 ownership (the existing suite only exercises war bases), multi-scenario
 reuse of one base map, determinism across independently-loaded-but-equal
-maps, and the spawn-position bounds check.
+maps, the spawn-position bounds check, and `default_pvp_overlay`'s
+extreme-left/extreme-right/neutral-middle assignment.
 """
 
 from pathlib import Path
 
 import pytest
 
-from nether_earth.ids import EntityId, PlayerId
-from nether_earth.map import load_world_map
-from nether_earth.map_overlay import OverlayValidationError, ScenarioOverlay, apply_overlay
-from nether_earth.structures import Factory, WarBase
+from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
+from nether_earth.map import WorldMap, load_world_map
+from nether_earth.map_overlay import (
+    OverlayValidationError,
+    ScenarioOverlay,
+    apply_overlay,
+    default_pvp_overlay,
+)
+from nether_earth.structures import Component, Factory, WarBase
+from nether_earth.terrain import TerrainGrid
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "world_map_basic.yaml"
+
+
+def _war_base(entity_id: str, *xs: int) -> WarBase:
+    """Build a minimal WarBase spanning the given x-coordinates at y=0."""
+    return WarBase(
+        id=EntityId(entity_id),
+        components=tuple(Component(x=x, y=0, height=1) for x in xs),
+    )
+
+
+def _four_war_base_map() -> WorldMap:
+    """An ownership-neutral WorldMap with four war bases at distinct x-extents.
+
+    Used to test `default_pvp_overlay`'s extreme-left/extreme-right/neutral-
+    middle assignment: the fixture YAML (`world_map_basic.yaml`) only has
+    two war bases, so this builds a `WorldMap` directly instead of adding a
+    second fixture file just for this one test's shape.
+    """
+    return WorldMap(
+        map_id="four-war-base-fixture",
+        version=1,
+        width=20,
+        height=5,
+        terrain=TerrainGrid(width=20, height=5, cells={}),
+        war_bases=(
+            _war_base("warbase-left", 0, 1),
+            _war_base("warbase-mid-a", 5),
+            _war_base("warbase-mid-b", 10),
+            _war_base("warbase-right", 18, 19),
+        ),
+        factories=(),
+        blockers=(),
+        interaction_points=(),
+        spawn_positions={},
+    )
 
 
 # --- ScenarioOverlay construction/validation -----------------------------------
@@ -326,3 +369,109 @@ def test_apply_overlay_is_deterministic_across_independent_equal_loads() -> None
     result_two = apply_overlay(map_two, overlay_two)
 
     assert result_one == result_two
+
+
+# --- default_pvp_overlay: locked v1 standard PvP scenario -----------------------
+#
+# `_specs/open-questions.md` §2 is RESOLVED: Player 1 owns the extreme-left
+# war base, Player 2 owns the extreme-right war base, the two war bases
+# between them start neutral. These tests assert exactly that, applied
+# through the overlay mechanism (not baked into map geometry).
+
+
+def test_default_pvp_overlay_assigns_extreme_left_and_right_leaves_middle_neutral() -> None:
+    base_map = _four_war_base_map()
+
+    overlay = default_pvp_overlay(base_map)
+    overlaid = apply_overlay(base_map, overlay)
+
+    left = overlaid.structure_by_id(EntityId("warbase-left"))
+    mid_a = overlaid.structure_by_id(EntityId("warbase-mid-a"))
+    mid_b = overlaid.structure_by_id(EntityId("warbase-mid-b"))
+    right = overlaid.structure_by_id(EntityId("warbase-right"))
+    assert isinstance(left, WarBase)
+    assert isinstance(mid_a, WarBase)
+    assert isinstance(mid_b, WarBase)
+    assert isinstance(right, WarBase)
+
+    assert left.owner == PLAYER_ONE
+    assert right.owner == PLAYER_TWO
+    assert mid_a.owner is None
+    assert mid_b.owner is None
+
+    # Base map itself is untouched.
+    untouched_left = base_map.structure_by_id(EntityId("warbase-left"))
+    assert isinstance(untouched_left, WarBase)
+    assert untouched_left.owner is None
+
+
+def test_default_pvp_overlay_ownership_only_names_the_two_extremes() -> None:
+    base_map = _four_war_base_map()
+    overlay = default_pvp_overlay(base_map)
+
+    assert dict(overlay.ownership) == {
+        EntityId("warbase-left"): PLAYER_ONE,
+        EntityId("warbase-right"): PLAYER_TWO,
+    }
+    assert overlay.spawn_positions == {}
+
+
+def test_default_pvp_overlay_works_with_exactly_two_war_bases() -> None:
+    base_map = WorldMap(
+        map_id="two-war-base-fixture",
+        version=1,
+        width=10,
+        height=3,
+        terrain=TerrainGrid(width=10, height=3, cells={}),
+        war_bases=(_war_base("warbase-a", 0), _war_base("warbase-b", 9)),
+        factories=(),
+        blockers=(),
+        interaction_points=(),
+        spawn_positions={},
+    )
+
+    overlay = default_pvp_overlay(base_map)
+    overlaid = apply_overlay(base_map, overlay)
+
+    a = overlaid.structure_by_id(EntityId("warbase-a"))
+    b = overlaid.structure_by_id(EntityId("warbase-b"))
+    assert isinstance(a, WarBase)
+    assert isinstance(b, WarBase)
+    assert a.owner == PLAYER_ONE
+    assert b.owner == PLAYER_TWO
+
+
+def test_default_pvp_overlay_rejects_single_war_base_map() -> None:
+    base_map = WorldMap(
+        map_id="one-war-base-fixture",
+        version=1,
+        width=5,
+        height=3,
+        terrain=TerrainGrid(width=5, height=3, cells={}),
+        war_bases=(_war_base("only-warbase", 2),),
+        factories=(),
+        blockers=(),
+        interaction_points=(),
+        spawn_positions={},
+    )
+
+    with pytest.raises(OverlayValidationError, match="at least two war bases"):
+        default_pvp_overlay(base_map)
+
+
+def test_default_pvp_overlay_rejects_map_with_no_war_bases() -> None:
+    base_map = WorldMap(
+        map_id="no-war-base-fixture",
+        version=1,
+        width=5,
+        height=3,
+        terrain=TerrainGrid(width=5, height=3, cells={}),
+        war_bases=(),
+        factories=(),
+        blockers=(),
+        interaction_points=(),
+        spawn_positions={},
+    )
+
+    with pytest.raises(OverlayValidationError, match="at least two war bases"):
+        default_pvp_overlay(base_map)
