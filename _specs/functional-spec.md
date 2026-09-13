@@ -2,19 +2,21 @@
 
 ## 1. Purpose
 
-Build a browser-based multiplayer clone of the ZX Spectrum release of **Nether Earth**, preserving the original mechanics, map, visual feeling, robot construction rules, commander behavior, terrain interaction, and direct-control model.
+Build a browser-based multiplayer clone of the ZX Spectrum release of **Nether Earth**, preserving the original mechanics, map, visual feeling, robot construction rules, commander behavior, terrain interaction, factory economy, autonomous robot orders, direct-control model, and combat rules.
 
-Version 1 focuses on **human vs human PvP**. The architecture must allow an AI player to be added in v1.5 without changing the game engine contract, but AI is explicitly out of scope for v1.
+Version 1 focuses on **human vs human PvP**. The architecture must allow an AI player to be added in v1.5 without changing the game-engine contract, but AI is explicitly out of scope for v1.
 
-## 2. Product goals
+## 2. Fidelity principles
 
-- Preserve the feel and mechanics of the ZX Spectrum version rather than modernizing it into a conventional RTS.
-- Support two human players over the network.
-- Keep the original long rectangular battlefield and grid-based movement model.
-- Keep the commander as a physical in-world entity with height and collision behavior.
-- Keep robot construction modular and faithful to the original component stack.
-- Keep direct robot control and autonomous robot behavior as distinct gameplay modes.
-- Make the authoritative simulation deterministic and replayable.
+When a rule is uncertain, use this priority:
+
+1. observed ZX Spectrum release behavior
+2. ZX Spectrum disassembly/code evidence
+3. original ZX Spectrum instructions/manual
+4. observed gameplay recordings
+5. other ports/remakes only as secondary references
+
+The goal is faithful behavior, not modernization into a conventional RTS.
 
 ## 3. v1 scope
 
@@ -22,14 +24,17 @@ Version 1 focuses on **human vs human PvP**. The architecture must allow an AI p
 
 - Browser game.
 - Two-player PvP.
-- Original ZX Spectrum-inspired map and terrain layout.
-- Original-style 2.5D presentation.
+- One starting war base per player.
+- Original long rectangular ZX Spectrum battlefield and map layout.
+- Original-style 2.5D sprite presentation.
 - Commander movement, vertical movement, collision, blocking, docking, and undocking.
-- Robot construction from chassis, weapons, nuke, and electronics.
+- Robot construction from chassis, 1–3 weapons, and optional electronics.
+- Factory ownership and production.
+- Resource economy and game clock.
 - Terrain-dependent robot movement.
 - Direct robot control using keyboard input.
-- Weapon firing and projectile lifecycle rules.
-- Autonomous robot navigation and engagement rules required by the original game mechanics.
+- Original robot autonomous orders.
+- Weapon firing, projectile lifecycle, and nuclear detonation rules.
 - Guest-only play with nickname and join code/link.
 - In-memory active matches.
 - Replay/debug logging to files.
@@ -38,58 +43,98 @@ Version 1 focuses on **human vs human PvP**. The architecture must allow an AI p
 
 - Accounts.
 - Persistent player profiles.
-- PostgreSQL or other database.
+- Database.
 - Redis.
 - AI opponent implementation.
 - Horizontal scaling across multiple backend processes or servers.
 - 3D rendering or 3D models.
 - Modern RTS control redesign.
 
-## 4. Match flow
+## 4. PvP match setup and victory
+
+### 4.1 Starting state
+
+- Player 1 starts with one war base.
+- Player 2 starts with one war base.
+- Factories are initially neutral unless the map definition explicitly specifies otherwise.
+- Each player starts with the same initial resource rules.
+
+This is a multiplayer scenario adaptation. The original single-player campaign's asymmetric Kerberus-vs-three-bases setup remains reference material but is not the v1 PvP starting condition.
+
+### 4.2 Victory condition
+
+A player wins when the opponent owns **zero war bases**.
+
+This rule applies regardless of whether the opponent's final war base was destroyed or captured.
+
+The victory rule therefore remains valid if future scenarios start players with more than one war base.
+
+## 5. Match flow
 
 1. Player creates a match and chooses a nickname.
 2. Server creates an in-memory match and returns a join code/link.
 3. Second player joins with a nickname.
 4. Both players become ready.
-5. Server starts the authoritative simulation.
-6. Players control commanders, build robots, dock onto robots, and fight.
-7. Match ends according to the original game victory conditions.
+5. Server initializes the map, starting war bases, resources, commanders, factories, and game clock.
+6. Players capture factories, accumulate resources, build robots, issue orders, dock onto robots, and fight.
+7. The match ends when one player owns zero war bases.
 8. Result is shown to both players.
 9. Match replay/debug data is finalized on disk.
 10. Active in-memory match state is discarded.
 
 No account is required at any point.
 
-## 5. World model
+## 6. Game clock
 
-### 5.1 Grid
+The game has a deterministic in-game clock derived exclusively from simulation ticks.
 
-The battlefield is a long rectangular grid.
+Locked time scale:
+
+- 1 real minute = 10 in-game hours
+- 1 real second = 1/6 in-game hour
+- 6 real seconds = 1 in-game hour
+- 1 in-game day = 24 hours = 144 real seconds = 2 minutes 24 seconds
+
+At the locked 20 Hz simulation rate:
+
+- 1 in-game hour = 120 simulation ticks
+- 10 in-game hours = 1,200 ticks
+- 12 in-game hours = 1,440 ticks
+- 1 in-game day = 2,880 ticks
+
+Game rules must derive time from the authoritative match tick counter rather than wall-clock timers.
+
+## 7. World model
+
+### 7.1 Grid
+
+The battlefield is a very long rectangular grid.
 
 Authoritative X and Y coordinates are integers. Robots and commanders move from one square to another; there are no authoritative intermediate horizontal positions.
 
-The client may render smooth movement between squares, but that interpolation is visual only.
+The client may render smooth movement between squares, but interpolation is visual only.
 
-### 5.2 Terrain
+### 7.2 Terrain
 
-Terrain is a property of a grid cell and is not considered a solid occupant.
+Terrain is a property of a grid cell and is not a solid occupant.
 
 Required terrain types include:
 
 - normal terrain
 - rough terrain
-- ditch
+- ditch/ravine
 
 Terrain has no elevation. The playing field itself is flat.
 
-Elevated or tall elements are physical objects such as boxes, cubes, robots, factories, and the commander.
+Tall/elevated elements are physical objects such as boxes, cubes, robots, factories, war bases, and the commander.
 
-### 5.3 Solid occupancy
+### 7.3 Solid occupancy
 
 A grid cell may have at most one ground-level solid occupant, such as:
 
 - robot
-- building/factory
+- factory/building
+- war base
 - cube/box
 - other solid map object
 
@@ -99,13 +144,13 @@ A robot and a building cannot occupy the same cell.
 
 Rough terrain may overlap with a robot because terrain is a cell property, not a solid occupant.
 
-The commander is handled separately because it can fly above occupied cells if its height allows clearance.
+The commander is handled separately because it can fly above occupied cells if its current height permits clearance.
 
-## 6. Commander
+## 8. Commander / anti-grav command vehicle
 
-### 6.1 Role
+### 8.1 Role
 
-The commander is a physical, indestructible entity in the game world.
+Each player controls one indestructible anti-grav command vehicle ("commander").
 
 The commander:
 
@@ -114,20 +159,22 @@ The commander:
 - cannot take damage
 - can physically block robot movement
 - can fly over robots and obstacles if high enough
-- can dock onto robots
-- can directly control a docked robot
+- can perform reconnaissance by flying over the map
+- can dock automatically onto friendly robots
+- is used to pass orders and directly control docked robots
+- is used to enter robot construction by landing on the player's war-base heli-pad
 
-The commander is not merely a cursor or camera proxy.
+The commander is a physical in-world entity, not merely a cursor or camera proxy.
 
-### 6.2 Horizontal movement
+### 8.2 Horizontal movement
 
 The commander moves on integer grid coordinates using arrow keys or WASD.
 
 Horizontal movement is authoritative square-to-square movement.
 
-The browser may animate the movement smoothly between cells.
+The browser may animate movement smoothly between cells.
 
-### 6.3 Vertical movement
+### 8.3 Vertical movement
 
 Holding Space makes the commander rise.
 
@@ -135,307 +182,482 @@ Releasing Space makes the commander descend.
 
 Vertical position is represented as discrete integer Z levels in the authoritative simulation.
 
-A vertical step from Z to Z+1 is animated smoothly on the client, but the authoritative Z value changes only when the vertical step completes.
+A vertical step from Z to Z+1 is animated smoothly on the client, but authoritative Z changes only when the step completes.
 
-Horizontal and vertical movement may happen simultaneously, matching the original game behavior.
+Horizontal and vertical movement may happen simultaneously.
 
-### 6.4 Height collision
+### 8.4 Height collision
 
-The commander may share X/Y coordinates with a ground solid only when its vertical position clears the solid object's height.
+The commander may share X/Y coordinates with a ground solid only when its vertical range clears that object's height.
 
-When the commander attempts horizontal movement, the engine checks whether the destination cell contains a solid object that intersects the commander's current authoritative vertical range.
-
-If it does, movement is rejected.
+When the commander attempts horizontal movement, the engine checks whether a destination solid intersects the commander's current authoritative vertical range. If so, movement is rejected.
 
 A low-flying commander can therefore block robot movement.
 
-### 6.5 Blocking robots
+### 8.5 Blocking robots
 
 A commander can deliberately hinder or block enemy robots by occupying a square at an intersecting height.
 
-Because the commander is untargetable and indestructible, robots cannot solve this by attacking it.
+Because the commander is untargetable and indestructible, robots cannot remove it by attacking.
 
-Smarter robot navigation may route around a blocking commander where the original mechanics allow it.
+Autonomous navigation may route around a blocking commander where its intelligence and movement capabilities allow it.
 
-### 6.6 Docking
+### 8.6 Docking and undocking
 
 Docking is automatic and physical, not menu-driven.
 
-When a descending commander is directly above a robot and reaches the robot's top, it docks automatically.
+When a descending commander is directly above a friendly robot and reaches the robot's top, it docks automatically.
 
 When docked:
 
 - commander X/Y is derived from the robot X/Y
 - the commander moves with the robot
-- independent commander horizontal movement is disabled
-- direct-control keyboard input is routed to the robot
-- the commander's displayed vertical position is derived from the robot's assembled height
+- independent commander movement is disabled
+- robot control/order/combat menus become available
+- direct-control keyboard input can be routed to the robot
+- displayed commander height is derived from the robot's assembled height
 
 Undocking happens by rising away from the robot.
 
-## 7. Robots
+## 9. Factories, war bases, and ownership
 
-### 7.1 Robot composition
+### 9.1 Factory types
 
-A robot is composed from a chassis plus optional components.
+There are six production categories:
 
-#### Chassis — exactly one
+- chassis modules
+- electronic support modules
+- nuclear weapons
+- missile weapons
+- phaser weapons
+- cannon weapons
 
-- legs / bipod
+The map stores each factory's production type.
+
+### 9.2 Neutral factories
+
+Factories begin neutral in the standard PvP scenario unless explicitly overridden by scenario data.
+
+The first robot to reach/capture a neutral factory activates it for that player's production economy.
+
+### 9.3 Capturing enemy factories
+
+To capture an enemy-controlled factory, a robot must occupy the factory capture location continuously for **12 in-game hours**.
+
+At 20 Hz this is:
+
+- 1,440 simulation ticks
+- 72 real seconds
+
+If continuous occupation is broken before completion, capture progress resets unless later ZX Spectrum evidence establishes another behavior.
+
+Ownership must be visibly distinguishable in the renderer.
+
+### 9.4 War bases
+
+War bases are player-owned strategic structures.
+
+War bases:
+
+- contribute general resource units
+- provide the heli-pad used to enter robot construction
+- have an exit that can be blocked by another object
+- may be captured or destroyed according to game rules
+- determine victory through current ownership count
+
+A player loses immediately when their owned war-base count becomes zero.
+
+## 10. Resource economy
+
+### 10.1 Initial resources
+
+Each player begins with **30 general resource units** unless a scenario overrides this value.
+
+### 10.2 Production
+
+Every in-game day:
+
+- each owned factory contributes 2 resource units related to its factory type
+- each owned war base contributes 5 general resource units
+
+At 20 Hz, one production day occurs every 2,880 ticks.
+
+### 10.3 Resource categories
+
+The engine must distinguish:
+
+- general resources
+- chassis resources
+- electronics resources
+- cannon resources
+- missile resources
+- phaser resources
+- nuclear resources
+
+The exact consumption precedence between type-specific resources and general resources must match verified ZX Spectrum behavior. Until implementation evidence is confirmed, this should remain data/rule driven rather than hard-coded into UI logic.
+
+## 11. Robot construction
+
+### 11.1 Access
+
+Robot construction is available when the commander lands on the player's war-base heli-pad.
+
+Construction is not available when:
+
+- the player already has 24 robots in the sector, or
+- the war-base exit is blocked, typically by another robot or solid object
+
+### 11.2 Construction constraints
+
+Every robot must contain:
+
+- exactly one chassis module
+- between one and three weapon modules total
+- zero or one electronic support module
+
+No robot can contain two of the same module.
+
+A construction may be scrapped before launch, returning to the battle sector according to original behavior.
+
+Starting/launching a robot sends the completed robot into the sector to await orders.
+
+### 11.3 Chassis — exactly one
+
+- bipod / legs
 - tracks
 - anti-gravity
 
-#### Weapons
+### 11.4 Weapons — one to three total
 
-The robot may contain one of each supported weapon type. Weapon components are not freely reorderable by the player; the game derives a canonical physical stack order.
-
-Supported weapons:
+Available weapon modules:
 
 - cannon
 - missiles
 - phaser
 - nuke
 
-The nuke is always the topmost weapon component and may be the only weapon on the robot.
+Each weapon type may appear at most once.
 
-#### Electronics
+The nuke may be the robot's only weapon.
 
-Electronics is optional and visually represented as a small antenna.
+### 11.5 Electronics
 
-Electronics is always the last visible component at the top of the robot stack.
+Electronics is optional and may appear at most once.
 
-### 7.2 Canonical stack
+It is visually represented by a small antenna and is always the final visible component at the top of the robot stack.
 
-Physical rendering and robot height are derived from a canonical component stack:
+## 12. Canonical robot stack and height
+
+Weapon/components are not freely reorderable by the player.
+
+Physical rendering and robot height are derived from one canonical stack function:
 
 1. chassis
-2. normal weapon components in the original ZX Spectrum order
-3. nuke, if present
-4. electronics antenna, if present
+2. cannon/missile/phaser in verified ZX Spectrum canonical order
+3. nuke, if present; always topmost weapon
+4. electronics antenna, if present; always topmost visible robot component
 5. commander, when docked
 
-The exact canonical order of cannon/missile/phaser must match the ZX Spectrum reference behavior.
-
-The stack order is not stored as arbitrary player data; it is derived from selected components.
-
-### 7.3 Robot height
-
-Robot total height is derived from the assembled component stack.
+The exact cannon/missile/phaser bottom-to-top order must be encoded once from verified ZX Spectrum behavior and reused everywhere.
 
 The same stack definition must drive:
 
 - visual rendering
+- total robot height
 - collision height
 - projectile interaction
-- docking height
-- factory preview
+- commander docking height
+- construction preview
 
-## 8. Chassis and terrain behavior
+## 13. Chassis and terrain behavior
 
-Terrain interaction depends on chassis.
+### Bipod
 
-### Legs / bipod
-
-- can traverse normal terrain
-- cannot traverse rough terrain
-- cannot traverse ditches
+- normal terrain: traversable
+- rough terrain: traversable, but poorly/slowly ("at a pinch")
+- ditch/ravine: not traversable
+- intended primarily for flat ground
 
 ### Tracks
 
-- can traverse normal terrain
-- can traverse rough terrain with a speed penalty
-- cannot traverse ditches
+- normal terrain: traversable
+- rough terrain: traversable and handled better than bipods
+- ditch/ravine: not traversable
 
 ### Anti-gravity
 
-- can traverse normal terrain
-- can traverse rough terrain
-- can cross ditches
+- normal terrain: traversable
+- rough terrain: traversable
+- ditch/ravine: traversable
+- only chassis able to span ravines/ditches
 
-Movement speed and terrain penalties are game-rule data and should be tuned to match the ZX Spectrum behavior.
+Exact movement speeds and penalties are game-rule data and must be tuned from ZX Spectrum behavior.
 
-## 9. Robot movement
+## 14. Robot movement
 
 Robots move from one grid square to another with no authoritative intermediate X/Y position.
 
 Movement duration is represented as an integer number of simulation ticks.
 
-Different chassis and terrain combinations may require different numbers of ticks per square.
-
-The client visually interpolates the robot between source and target cells during that time.
-
 A robot cannot enter a cell if:
 
-- the terrain is not traversable for its chassis
+- terrain is not traversable for its chassis
 - the cell already has a solid occupant
 - a commander occupies the destination at a colliding height
 
-## 10. Robot navigation and intelligence
+The client interpolates visually between source and target cells during the move duration.
 
-There are two navigation/behavior classes based on electronics.
+## 15. Robot control states
 
-### 10.1 Robot without electronics
+Robot interaction distinguishes three user-facing modes:
 
-Uses deliberately limited, original-style navigation and combat behavior.
+### 15.1 Robot command menu
 
-Characteristics may include:
+Available after the commander docks onto a friendly robot.
 
-- simple local movement decisions
-- poor routing around obstacles
+The player can choose between direct control, autonomous orders, and combat control.
+
+### 15.2 Direct Control
+
+Direction keys / WASD move the robot directly according to chassis, terrain, occupancy, and collision rules.
+
+The Fire/confirm control stops direct movement and returns to menu selection.
+
+### 15.3 Combat Control
+
+Combat Control allows the player to select any fitted weapon and fire it independently.
+
+The Move Robot option uses the same movement behavior as Direct Control.
+
+The combat UI includes the robot's strength indicator.
+
+## 16. Autonomous robot orders
+
+Autonomous orders are first-class engine state, not UI-only behavior.
+
+Supported orders:
+
+### 16.1 Stop & Defend
+
+- robot remains at its current position
+- robot fires on enemy robots within range according to its combat intelligence and weapon rules
+
+### 16.2 Advance N miles
+
+- distance selectable from 0 to 50 miles
+- robot moves East by the requested distance
+- after completing the movement, robot reverts to Stop & Defend
+
+### 16.3 Retreat N miles
+
+- distance selectable from 0 to 50 miles
+- robot moves West by the requested distance
+- after completing the movement, robot reverts to Stop & Defend
+
+### 16.4 Search & Capture
+
+Target category is one of:
+
+- neutral factories
+- enemy factories
+- war bases
+
+The robot moves toward the nearest valid target and attempts to capture it.
+
+### 16.5 Search & Destroy
+
+Target category is one of:
+
+- robots
+- factories
+- war bases
+
+The robot moves toward the nearest valid target and attempts to destroy it.
+
+War bases can only be destroyed with nuclear weapons.
+
+### 16.6 Invalid orders
+
+If an order cannot be carried out — for example no valid target exists or the robot lacks the equipment required — the robot reverts to Stop & Defend.
+
+## 17. Robot navigation and electronics
+
+Movement execution and autonomous decision-making are separate concerns.
+
+### 17.1 Robot without electronics
+
+Uses deliberately limited original-style routing and combat behavior.
+
+Expected characteristics include:
+
+- simpler local movement decisions
+- poorer routing around obstacles
 - possibility of becoming blocked or stuck
-- simple engagement behavior
+- less effective target engagement
 
-### 10.2 Robot with electronics
+### 17.2 Robot with electronics
 
-Electronics improves both navigation and combat decision-making.
+Electronics improves robot intelligence while respecting the same physical movement rules.
 
-Expected behavior includes:
+Expected benefits include:
 
 - smarter route selection
-- terrain-aware routing
-- avoidance or rerouting around obstacles and blocking commanders
-- better enemy engagement decisions
+- better obstacle avoidance/rerouting
+- better engagement decisions
+- improved weapon accuracy/effective range equivalent to a nominal +3 miles
+- slightly increased resistance to enemy fire
 
-Electronics does not change the chassis' physical terrain capabilities. For example, an electronic bipod still cannot enter rough terrain or a ditch.
+Electronics never changes chassis terrain capability. For example, it cannot make a bipod or tracked chassis cross a ravine.
 
-## 11. Direct robot control
+## 18. Weapon data and combat
 
-A player can dock the commander onto a robot and control that robot directly.
+### 18.1 Base weapon data
 
-The direct-control interface preserves the original menu concept and exposes actions including:
+| Weapon | Base range | Lethality | Resource cost |
+| --- | ---: | ---: | ---: |
+| Cannon | 10 miles | 2 | 8 |
+| Missiles | 14 miles | 3 | 4 |
+| Phasers | 10 miles | 4 | 4 |
+| Nuclear | 8-mile effect radius | special | 20 |
 
-- Nuclear Bomb
-- Fire Phasers
-- Fire Missiles
-- Fire Cannon
-- Move Robot
-- Stop Combat
-- Strength indicator
+The miles-to-grid-cell conversion must match the ZX Spectrum map scale and must be represented as game-rule data.
 
-When Move Robot/direct movement is active, arrow keys or WASD control the robot one grid square at a time.
+### 18.2 Normal weapon firing
 
-Direct control uses the same low-level movement validation as autonomous movement.
+Cannon, missiles, and phasers use the projectile/fire-channel rules.
 
-Terrain, occupancy, commander blocking, and chassis restrictions still apply.
+A robot may fire only one normal weapon at a time.
 
-## 12. Weapons and projectiles
+Once a robot fires, it cannot fire another normal weapon until its active projectile finishes its lifecycle.
 
-Weapons are fired one at a time.
-
-Once a robot fires a weapon, that robot cannot fire another weapon until its active projectile has finished its lifecycle.
-
-The active projectile is cleared when it:
+The active projectile ends when it:
 
 - hits something
 - crashes into an obstacle
 - hits a robot
-- otherwise exits its valid play/screen area according to the original mechanics
+- exits its valid play/screen area according to the original mechanics
 
-There are no independent per-weapon cooldowns in v1 unless required by the original Spectrum rules.
+There are no independent per-weapon cooldowns unless required by verified Spectrum behavior.
 
-A robot with multiple weapons may only have one active projectile/fire channel at a time.
+Projectiles have height/flight rules and use height-aware collision against physical objects.
 
-Projectiles have their own height/flight rules and use height-aware collision against physical objects.
+### 18.3 Nuclear weapon
 
-## 13. Visual presentation
+The nuke is a special detonation, not a normal travelling projectile.
+
+On detonation:
+
+- all destroyable robots within an 8-mile radius are destroyed
+- all destroyable factories within an 8-mile radius are destroyed
+- eligible war bases within the radius are destroyed
+- the robot carrying the nuke is destroyed
+
+Nuclear weapons are the only way to destroy factories and war bases.
+
+## 19. Damage and strength
+
+Robots expose a strength value in the control/combat UI.
+
+Damage resolution must use the original weapon lethality and robot resistance rules.
+
+Electronics provides a slight defensive benefit against enemy fire.
+
+Exact formulas must be verified against ZX Spectrum behavior/disassembly and implemented in the game engine, not the frontend.
+
+## 20. Visual presentation
 
 The game uses 2.5D sprite-based rendering only.
 
 No 3D modeling or 3D physics engine is required.
 
-The goal is to preserve the original Nether Earth feeling, map layout, silhouettes, stacking, palette/style, and interface character while allowing modern smooth animation and browser scaling.
+The goal is to preserve the original Nether Earth feeling, map layout, silhouettes, component stacking, palette/style, menu character, and direct-control presentation while allowing modern browser scaling and smooth interpolation.
 
 Smooth animation is presentation only; authoritative game state remains discrete.
 
-## 14. Map
+## 21. Map
 
-The reference map is the ZX Spectrum map.
+The reference map is the ZX Spectrum map and is stored as pre-saved YAML in the repository.
 
-The map is stored as a pre-saved YAML data file in the repository.
+The map file contains:
 
-The map file contains terrain and static object placement.
-
-Dynamic entities such as player commanders and robots are created by match setup unless required by a specific scenario.
+- dimensions
+- normal/rough/ditch-ravine terrain
+- static blockers/boxes/cubes
+- factories and their production categories
+- war bases
+- heli-pads and exits
+- ownership/start metadata required by the PvP scenario
+- object heights where relevant
 
 The map format must be versioned.
 
-Example concept:
+Dynamic robots and commanders are created by match setup.
 
-```yaml
-format_version: 1
-id: zx-spectrum-original
-name: Nether Earth Original Map
-width: <integer>
-height: <integer>
-
-terrain:
-  default: normal
-  cells: []
-
-objects: []
-```
-
-## 15. Multiplayer behavior
+## 22. Multiplayer authority
 
 The server is authoritative.
 
-Players send commands/input; clients do not determine legal game outcomes.
+Players send commands/input; clients do not determine legal outcomes.
 
 The server decides:
 
-- whether movement is legal
-- when a grid transition completes
-- collisions
+- movement legality
+- movement completion
+- collision
 - docking
+- game-clock progression
+- resource production
+- factory capture progress
+- robot construction legality
+- autonomous orders/navigation
 - projectile movement
+- nuclear effects
 - damage
 - weapon availability
-- robot navigation decisions
+- ownership changes
 - victory conditions
 
-The browser only displays authoritative state and interpolates visual transitions.
+The browser renders authoritative state and visually interpolates transitions.
 
-## 16. AI roadmap
+## 23. AI roadmap
 
 AI is planned for v1.5.
 
 No AI opponent is implemented in v1.
 
-The architecture must allow an AI controller to observe the allowed authoritative state and submit the same commands available to a human player.
+The architecture must allow an AI controller at the Match layer to observe allowed authoritative state and submit the same commands available to a human player.
 
-AI must not bypass normal game rules or directly mutate engine state.
+AI must not bypass normal rules or mutate engine state directly.
 
-This enables:
+## 24. Replay requirements
 
-- human vs human in v1
-- human vs AI in v1.5
-- possible AI vs AI testing later
-
-## 17. Replay requirements
-
-Every match should produce an append-only replay/debug log on disk.
+Every match produces an append-only replay/debug log on disk.
 
 At minimum, deterministic replay requires:
 
 - format version
+- engine/game version
 - map identifier/version
+- scenario identifier/version
 - initial state
 - random seed, if randomness exists
 - accepted commands with tick numbers
+- ownership/resource transitions needed for diagnostics
 - match result
 
-During development, additional engine events may also be logged for debugging.
+Additional engine events/state hashes may be logged during development.
 
-Replays do not require PostgreSQL.
+## 25. Locked v1 rule summary
 
-## 18. Fidelity reference
-
-When resolving uncertain game rules, use this priority:
-
-1. ZX Spectrum release behavior
-2. ZX Spectrum disassembly/code evidence
-3. original Spectrum documentation/manual
-4. observed Spectrum gameplay
-5. other ports or remakes only as secondary references
-
-The goal is faithful behavior, not modernization of the mechanics.
+- 20 Hz authoritative simulation.
+- 1 real minute = 10 game hours.
+- 1 game hour = 120 ticks.
+- Enemy factory capture = 12 game hours = 1,440 ticks = 72 real seconds.
+- Resource production = once per game day = every 2,880 ticks.
+- Two-player PvP.
+- One starting war base per player.
+- Win when opponent owns zero war bases.
+- No accounts/database/Redis in v1.
+- Active matches in memory.
+- Replay/debug persistence on filesystem.
+- AI planned for v1.5, not implemented in v1.
