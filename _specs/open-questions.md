@@ -19,21 +19,19 @@ Rules:
 - Electronics, when fitted, is always above all weapons.
 - The canonical stack must be defined once in engine code and reused for rendering, robot height, collision height, projectile interaction, commander docking height, and construction preview.
 
-## 2. PvP treatment of the remaining war bases
+## 2. PvP treatment of the remaining war bases — RESOLVED
 
-The original map contains four named war bases, while the v1 PvP scenario currently locks in:
+Locked v1 PvP scenario:
 
-- Player 1 starts with one war base
-- Player 2 starts with one war base
-- victory occurs when the opponent owns zero war bases
+- The original four-war-base map is retained.
+- Player 1 starts owning the **extreme-left war base**.
+- Player 2 starts owning the **extreme-right war base**.
+- The two war bases between them start **neutral**.
+- Neutral war bases are capturable using the normal war-base capture rules.
+- Starting ownership is scenario-overlay data; the underlying map geometry remains unchanged.
+- Victory remains: a player loses when they own zero war bases.
 
-Open question:
-
-- What happens to the two remaining war bases on the original four-base map?
-  - neutral and capturable?
-  - removed/disabled for the PvP scenario?
-  - allocated to one of the players?
-  - handled by a dedicated PvP map variant?
+This gives both players symmetric starting positions at opposite ends of the battlefield while keeping all four original war bases active in the scenario.
 
 ## 3. Miles-to-grid-cell conversion
 
