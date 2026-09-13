@@ -124,19 +124,33 @@ Still open:
 
 Projectile lifetime must ultimately be defined by authoritative world/game rules, not browser viewport size.
 
-## 9. Damage, accuracy, and resistance formulas
+## 9. Damage, accuracy, and resistance formulas — PARTIALLY RESOLVED
 
-Known data includes weapon lethality values and the fact that electronics improves weapon accuracy/effective range and gives slightly increased resistance to damage.
+Locked damage behavior:
 
-Open questions:
+- Preserve the original ZX Spectrum normal-weapon damage formula.
+- Compute base damage as:
 
-- Exact hit-probability or accuracy formula
-- How range affects hit probability
-- How weapon lethality is converted to damage
-- How robot strength is reduced
-- Whether individual components can be damaged/destroyed separately
-- Exact electronics damage-resistance modifier
-- Whether electronics changes accuracy, maximum range, or both
+  `base_damage = (60 - (robot_height + ground_height)) / 4`
+
+- Apply a weapon-specific multiplier:
+  - cannon: **2**
+  - missiles: **3**
+  - phaser: **4**
+- The damage calculation must be isolated behind one clearly named engine function so the formula can be changed without touching firing/projectile code.
+- Weapon multipliers must live in configuration/game-rule data rather than being hard-coded inside the damage function.
+- The original values above are the default configuration.
+- Integer rounding/truncation must reproduce verified ZX Spectrum behavior once the exact arithmetic path is implemented.
+
+Still open:
+
+- Exact hit-probability or accuracy formula.
+- How range affects hit probability.
+- Exact integer rounding/truncation semantics of the base-damage expression if not already evident from the implementation trace.
+- How robot strength is reduced/represented after damage.
+- Whether individual components can be damaged/destroyed separately.
+- Exact electronics damage-resistance modifier.
+- Whether electronics changes accuracy, maximum range, or both.
 
 ## 10. Resource spending rules
 
