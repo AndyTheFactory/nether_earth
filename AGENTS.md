@@ -56,30 +56,14 @@ It is acceptable to build interfaces, data structures, fixtures, or placeholders
 
 Milestone specifications are planning documents. When implementation of a milestone begins, its candidate tasks are turned into GitHub issues.
 
-Every implementation task must follow this lifecycle:
+If milestone tasks are created, try to implement them in a parallel (if possible) and incremental manner, ensuring that each task can be independently verified and integrated.
 
-1. Create or use a GitHub issue for the task.
-2. The issue must identify the milestone, goal, relevant spec references, dependencies, acceptance criteria, required verification, and any known open questions.
-3. Implement the issue on a dedicated branch/worktree where practical.
-4. Open a pull request that references the issue and explains how the acceptance criteria were satisfied.
-5. Run the required tests/checks and review the diff against the specifications.
-6. Merge the PR only when the task is verified and no blocking findings remain.
-7. The GitHub issue is considered complete only when it is closed by the merged PR. Prefer GitHub closing syntax such as `Closes #<issue>` in the PR description when appropriate.
+Milestone planning should result in clear GitHub issues tagged with the relevant milestone and any necessary context.
 
-Do not mark an implementation issue complete based only on local code, a commit, or a passing test run. The merged PR is the task completion boundary.
+Implement the issue on a dedicated branch/worktree where practical.
+Create commits after relevant changes have been made and tested.
 
-For each implementation task:
-
-1. Read the relevant specification and milestone sections.
-2. Identify dependencies and open questions.
-3. State the acceptance criteria before editing code.
-4. Make the smallest coherent implementation that satisfies the issue.
-5. Add or update tests for the behavior.
-6. Run the relevant test/lint/type-check commands.
-7. Review the diff against the specification, not just against the tests.
-8. Report what changed, tests run, remaining risks, and any blocked decisions.
-
-Prefer independent tasks that can be developed in separate branches/worktrees and integrated only after their contracts are stable.
+When finishing a task open a pull request that references the issue and explains how the acceptance criteria were satisfied. Merge the PR only when the task is verified and no blocking findings remain.
 
 ## Human review and autonomous execution
 
@@ -94,12 +78,6 @@ Human review is mandatory when an agent encounters:
 - a blocker for which proceeding would require inventing behavior.
 
 Do not interrupt the project owner for ordinary implementation choices, naming, local refactors, or tool usage when those choices preserve the specification and task scope.
-
-## Spec traceability
-
-Every substantial feature should be traceable to one or more specification sections.
-
-When practical, include the relevant spec section in the GitHub issue, PR description, test name, or implementation notes. Do not add noisy comments to every line of code merely for traceability.
 
 If implementation reveals that a specification is incomplete or contradictory, update the specification only when the new decision has been explicitly resolved. Otherwise update `_specs/open-questions.md` instead.
 
@@ -128,28 +106,3 @@ For frontend work, do not duplicate engine rule logic merely to make UI tests pa
 - Avoid floating-point gameplay state when integer ticks/grid values can express the rule.
 - Keep changes scoped; do not perform unrelated refactors during feature work.
 - Do not introduce PostgreSQL, Redis, message brokers, Kubernetes, React, or other out-of-scope infrastructure for v1 unless the specifications are changed first.
-- Do not add AI-opponent implementation to v1. The architecture may support a future AI controller without altering the engine contract.
-
-## Git and integration
-
-- One GitHub issue should normally map to one coherent implementation PR.
-- Prefer a dedicated branch/worktree for parallel tasks.
-- Do not mix unrelated fixes into the same commit or PR.
-- Every task PR must reference its GitHub issue.
-- Task issues are closed by merged PRs, not manually before merge.
-- Never overwrite another agent's work to resolve a conflict; reconcile both changes explicitly.
-- Integration should happen only after the task's acceptance criteria and tests pass.
-- Milestone completion requires all milestone task issues to be closed by merged PRs plus the milestone integration verification to pass.
-
-## Completion report
-
-When finishing a task, provide a concise report containing:
-
-- GitHub issue and PR reference;
-- specification sections implemented;
-- files changed;
-- tests/checks run and their result;
-- unresolved decisions or assumptions;
-- follow-up work, if any.
-
-A task that depends on an unresolved product decision is not complete merely because the code compiles.
