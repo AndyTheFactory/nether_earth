@@ -52,22 +52,25 @@ Derived defaults:
 
 This conversion must be represented in one shared game-rule/helper layer and reused consistently by movement/orders, combat, nuclear effects, UI, and replays rather than duplicating conversion arithmetic across systems.
 
-## 4. Exact movement speeds and terrain penalties
+## 4. Exact movement speeds and terrain penalties — PARTIALLY RESOLVED
 
-The relative chassis behavior is locked:
+Locked behavior:
 
-- bipod: normal terrain; rough terrain with poor/slow performance; no ditch/ravine crossing
-- tracks: normal terrain; better rough-terrain handling; no ditch/ravine crossing
-- anti-grav: traverses all terrain and can cross ditches/ravines
+- Relative chassis speed on ordinary traversable terrain is **bipod slowest, tracks faster, anti-grav fastest**.
+- Bipod can traverse rough terrain but with a severe slowdown.
+- Tracks can traverse rough terrain with a smaller slowdown than bipod.
+- Bipod and tracks cannot cross ditches/ravines.
+- Anti-grav can traverse all terrain, including ditches/ravines.
+- Exact movement timing is represented as integer simulation ticks per tile/cell at the locked 20 Hz engine rate.
+- Exact ticks-per-tile values and terrain multipliers/penalties must be isolated in configuration/game-rule constants so they can be tuned without changing movement logic.
+- Until the exact Spectrum timing is established, implementation should preserve only the locked relative ordering/capabilities and use clearly marked configurable defaults.
 
-Open questions:
+Still open:
 
-- How many simulation ticks per cell for each chassis on normal terrain?
-- What is the bipod rough-terrain penalty?
-- What is the tracked rough-terrain penalty?
-- Does anti-grav have the same speed on all terrain?
-
-All movement durations should resolve to integer tick counts at the locked 20 Hz simulation rate.
+- Exact default ticks per tile for bipod, tracks, and anti-grav.
+- Exact bipod rough-terrain penalty.
+- Exact tracked rough-terrain penalty.
+- Whether anti-grav uses exactly the same speed on every traversable terrain type.
 
 ## 5. Exact dumb vs electronic navigation behavior
 
