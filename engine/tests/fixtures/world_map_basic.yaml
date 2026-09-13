@@ -1,0 +1,71 @@
+# M2 test fixture: a small deterministic map exercising all terrain types,
+# a one-cell structure, a multi-cell structure, interaction points, and
+# spawn positions. Not gameplay data - see test_world_map.py.
+id: fixture-basic
+version: 1
+width: 6
+height: 4
+
+terrain:
+  default: normal
+  cells:
+    - {x: 1, y: 1, type: rough}
+    - {x: 3, y: 3, type: ditch}
+
+structures:
+  - id: box-1
+    kind: blocker
+    footprint: {x: 0, y: 0}
+    height: 1
+
+  - id: factory-1
+    kind: factory
+    footprint: {x: 2, y: 2}
+    height: 2
+    factory_type: chassis
+
+  - id: warbase-p1
+    kind: warbase
+    footprint:
+      - {x: 4, y: 0}
+      - {x: 5, y: 0}
+    height: 3
+    owner: p1
+
+  - id: warbase-p2
+    kind: warbase
+    footprint:
+      - {x: 4, y: 3}
+      - {x: 5, y: 3}
+    height: 3
+    owner: p2
+
+interaction_points:
+  - id: warbase-p1-helipad
+    kind: heli_pad
+    structure_id: warbase-p1
+    footprint: {x: 4, y: 0}
+
+  - id: warbase-p1-exit
+    kind: exit
+    structure_id: warbase-p1
+    footprint: {x: 5, y: 0}
+
+  - id: factory-1-capture
+    kind: factory_capture
+    structure_id: factory-1
+    footprint: {x: 2, y: 2}
+
+  - id: warbase-p2-helipad
+    kind: heli_pad
+    structure_id: warbase-p2
+    footprint: {x: 4, y: 3}
+
+  - id: warbase-p2-exit
+    kind: exit
+    structure_id: warbase-p2
+    footprint: {x: 5, y: 3}
+
+spawn_positions:
+  p1_commander: {x: 4, y: 1}
+  p2_commander: {x: 4, y: 2}

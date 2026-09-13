@@ -1,0 +1,142 @@
+"""Terrain grid data model and YAML parsing.
+
+Per `_specs/technical-spec.md` §7.3 and `_specs/functional-spec.md` §7.2,
+terrain is a property of a grid cell, not a solid occupant. This module
+represents terrain purely as data: a per-cell :class:`TerrainType` lookup.
+
+Movement legality/penalties (bipod/tracks/anti-grav capability rules) are a
+later milestone's concern (M5, per `_specs/technical-spec.md` §7.3's "exact
+speed/tick values must be derived from verified ZX Spectrum behavior"). This
+module intentionally stops at "what terrain is this cell", not "can this
+robot enter it".
+"""
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+
+class TerrainType(Enum):
+    """The terrain types required by `_specs/technical-spec.md` §7.3.
+
+    Values are lowercase strings so the enum round-trips directly against the
+    YAML map format without a separate string<->enum lookup table.
+    """
+
+    NORMAL = "normal"
+    ROUGH = "rough"
+    DITCH = "ditch"
+
+
+class TerrainValidationError(ValueError):
+    """Raised when a YAML terrain section is structurally or semantically invalid.
+
+    Kept distinct from ``map.MapValidationError`` because terrain parsing is
+    owned by this module; ``map.load_world_map`` propagates this error type
+    unchanged rather than wrapping/renaming it, so callers that only care
+    about "map loading failed" can catch ``ValueError`` while callers that
+    care about the specific section can catch this type.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class TerrainGrid:
+    """Deterministic per-cell terrain lookup for a map of ``width`` x ``height``.
+
+    ``cells`` holds only the explicitly-specified overrides (sparse); any
+    in-bounds cell not present in ``cells`` resolves to ``default``. This
+    keeps the common case (a mostly-``NORMAL`` battlefield with a handful of
+    rough/ditch cells) cheap to represent and keeps two loads of the same
+    YAML document trivially equal (``cells`` is an immutable mapping built
+    from the same input regardless of any incidental YAML list ordering).
+    """
+
+    width: int
+    height: int
+    cells: Mapping[tuple[int, int], TerrainType]
+    default: TerrainType = TerrainType.NORMAL
+
+    def __post_init__(self) -> None:
+        if self.width <= 0:
+            raise ValueError("TerrainGrid width must be a positive integer")
+        if self.height <= 0:
+            raise ValueError("TerrainGrid height must be a positive integer")
+
+    def terrain_at(self, x: int, y: int) -> TerrainType:
+        """Return the terrain type at ``(x, y)``.
+
+        Raises ``ValueError`` for coordinates outside ``[0, width)`` x
+        ``[0, height)`` so callers cannot silently read terrain for a cell
+        that is not part of the battlefield.
+        """
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            raise ValueError(f"({x}, {y}) is outside the {self.width}x{self.height} grid")
+        return self.cells.get((x, y), self.default)
+
+
+def _terrain_type_from_raw(value: Any, *, context: str) -> TerrainType:
+    if not isinstance(value, str):
+        raise TerrainValidationError(f"{context}: terrain type must be a string")
+    try:
+        return TerrainType(value)
+    except ValueError as exc:
+        valid = ", ".join(member.value for member in TerrainType)
+        raise TerrainValidationError(
+            f"{context}: unknown terrain type {value!r} (expected one of: {valid})"
+        ) from exc
+
+
+def parse_terrain_grid(raw: "dict[str, Any] | None", width: int, height: int) -> TerrainGrid:
+    """Parse a YAML ``terrain`` section into a :class:`TerrainGrid`.
+
+    Expected shape (all keys optional; ``raw`` itself may be ``None``/absent,
+    yielding an all-``NORMAL`` grid)::
+
+        terrain:
+          default: normal
+          cells:
+            - {x: 1, y: 2, type: rough}
+            - {x: 3, y: 0, type: ditch}
+
+    Validates: unknown ``default``/cell terrain type strings, cells outside
+    ``[0, width)`` x ``[0, height)``, and duplicate ``(x, y)`` cell entries.
+    Validation order is deterministic (input list order) so the same invalid
+    document always raises the same error.
+    """
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise TerrainValidationError("terrain section must be a mapping")
+
+    default_raw = raw.get("default", TerrainType.NORMAL.value)
+    default = _terrain_type_from_raw(default_raw, context="terrain.default")
+
+    cells_raw = raw.get("cells", [])
+    if not isinstance(cells_raw, list):
+        raise TerrainValidationError("terrain.cells must be a list")
+
+    cells: dict[tuple[int, int], TerrainType] = {}
+    for index, entry in enumerate(cells_raw):
+        context = f"terrain.cells[{index}]"
+        if not isinstance(entry, dict):
+            raise TerrainValidationError(f"{context}: must be a mapping")
+
+        x = entry.get("x")
+        y = entry.get("y")
+        if not isinstance(x, int) or isinstance(x, bool):
+            raise TerrainValidationError(f"{context}: x must be an integer")
+        if not isinstance(y, int) or isinstance(y, bool):
+            raise TerrainValidationError(f"{context}: y must be an integer")
+        if not (0 <= x < width and 0 <= y < height):
+            raise TerrainValidationError(
+                f"{context}: cell ({x}, {y}) is outside the {width}x{height} grid"
+            )
+
+        key = (x, y)
+        if key in cells:
+            raise TerrainValidationError(f"{context}: duplicate terrain cell {key}")
+
+        cells[key] = _terrain_type_from_raw(entry.get("type"), context=context)
+
+    return TerrainGrid(width=width, height=height, cells=cells, default=default)
