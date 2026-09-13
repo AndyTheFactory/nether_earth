@@ -72,20 +72,19 @@ Still open:
 - Exact tracked rough-terrain penalty.
 - Whether anti-grav uses exactly the same speed on every traversable terrain type.
 
-## 5. Exact dumb vs electronic navigation behavior
+## 5. Exact dumb vs electronic navigation behavior — RESOLVED
 
-The distinction is locked conceptually:
+Locked behavior:
 
-- non-electronic robots use poorer/original-style autonomous navigation and combat decisions
-- electronic robots use smarter routing, obstacle handling, and engagement decisions
+- Robots **without electronics** deliberately use limited/original-style local navigation rather than a globally optimal pathfinder.
+- Non-electronic robots may fail to route around obstacles and may become blocked or stuck even when a longer valid path exists.
+- Robots **with electronics** use a proper pathfinding/replanning layer and should actively route around obstacles when a valid chassis-compatible path exists.
+- Electronics improves route selection and obstacle handling, not the robot's underlying terrain capability.
+- A bipod or tracked robot with electronics still cannot traverse terrain forbidden to that chassis.
+- Replanning/pathfinding behavior must remain deterministic and server-authoritative.
+- Navigation strategy should be isolated behind a clear engine interface so original/dumb and electronic/smart routing are separate policies rather than scattered conditionals.
 
-Open questions:
-
-- What exact algorithm reproduces the original non-electronic routing behavior?
-- What situations can make a dumb robot become stuck?
-- How much better should electronic routing be?
-- Does electronics change only path selection, or also replanning frequency and target selection?
-- Which autonomous behaviors are explicitly visible in the ZX Spectrum version and which would be modern interpretation?
+Implementation detail remains open only where needed to reproduce the exact original local-routing quirks; this is no longer a product decision.
 
 ## 6. War-base capture mechanics — RESOLVED
 
