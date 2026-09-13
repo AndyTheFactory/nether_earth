@@ -54,12 +54,14 @@ The goal is faithful behavior, not modernization into a conventional RTS.
 
 ### 4.1 Starting state
 
-- Player 1 starts with one war base.
-- Player 2 starts with one war base.
+- The original four-war-base map is retained.
+- Player 1 starts with the **extreme-left war base**.
+- Player 2 starts with the **extreme-right war base**.
+- The two war bases between them start **neutral and capturable**.
 - Factories are initially neutral unless the map definition explicitly specifies otherwise.
 - Each player starts with the same initial resource rules.
 
-This is a multiplayer scenario adaptation. The original single-player campaign's asymmetric Kerberus-vs-three-bases setup remains reference material but is not the v1 PvP starting condition.
+Starting ownership is scenario data layered over the original map geometry. The original single-player campaign's asymmetric Kerberus-vs-three-bases setup remains reference material but is not the v1 PvP starting condition.
 
 ### 4.2 Victory condition
 
@@ -255,11 +257,17 @@ Ownership must be visibly distinguishable in the renderer.
 
 ### 9.4 War bases
 
-War bases are player-owned strategic structures.
+War bases are strategic structures and may be player-owned or neutral depending on the scenario.
+
+In the default v1 PvP scenario:
+
+- the extreme-left war base belongs to Player 1;
+- the extreme-right war base belongs to Player 2;
+- the two interior war bases are neutral and capturable.
 
 War bases:
 
-- contribute general resource units
+- contribute general resource units when owned
 - provide the heli-pad used to enter robot construction
 - have an exit that can be blocked by another object
 - may be captured or destroyed according to game rules
@@ -353,12 +361,14 @@ Weapon/components are not freely reorderable by the player.
 Physical rendering and robot height are derived from one canonical stack function:
 
 1. chassis
-2. cannon/missile/phaser in verified ZX Spectrum canonical order
-3. nuke, if present; always topmost weapon
-4. electronics antenna, if present; always topmost visible robot component
-5. commander, when docked
+2. cannon, if fitted
+3. missile, if fitted
+4. phaser, if fitted
+5. nuke, if fitted; always topmost weapon
+6. electronics antenna, if fitted; always topmost visible robot component
+7. commander, when docked
 
-The exact cannon/missile/phaser bottom-to-top order must be encoded once from verified ZX Spectrum behavior and reused everywhere.
+If an intermediate weapon is absent, the remaining fitted weapons retain this relative bottom-to-top order.
 
 The same stack definition must drive:
 
@@ -556,108 +566,14 @@ Nuclear weapons are the only way to destroy factories and war bases.
 
 ## 19. Damage and strength
 
-Robots expose a strength value in the control/combat UI.
+Normal weapon damage preserves the original ZX Spectrum formula through one isolated engine rule function:
 
-Damage resolution must use the original weapon lethality and robot resistance rules.
+`base_damage = (60 - (robot_height + ground_height)) / 4`
 
-Electronics provides a slight defensive benefit against enemy fire.
+Configured default multipliers are:
 
-Exact formulas must be verified against ZX Spectrum behavior/disassembly and implemented in the game engine, not the frontend.
+- cannon: 2
+- missile: 3
+- phaser: 4
 
-## 20. Visual presentation
-
-The game uses 2.5D sprite-based rendering only.
-
-No 3D modeling or 3D physics engine is required.
-
-The goal is to preserve the original Nether Earth feeling, map layout, silhouettes, component stacking, palette/style, menu character, and direct-control presentation while allowing modern browser scaling and smooth interpolation.
-
-Smooth animation is presentation only; authoritative game state remains discrete.
-
-## 21. Map
-
-The reference map is the ZX Spectrum map and is stored as pre-saved YAML in the repository.
-
-The map file contains:
-
-- dimensions
-- normal/rough/ditch-ravine terrain
-- static blockers/boxes/cubes
-- factories and their production categories
-- war bases
-- heli-pads and exits
-- ownership/start metadata required by the PvP scenario
-- object heights where relevant
-
-The map format must be versioned.
-
-Dynamic robots and commanders are created by match setup.
-
-## 22. Multiplayer authority
-
-The server is authoritative.
-
-Players send commands/input; clients do not determine legal outcomes.
-
-The server decides:
-
-- movement legality
-- movement completion
-- collision
-- docking
-- game-clock progression
-- resource production
-- factory capture progress
-- robot construction legality
-- autonomous orders/navigation
-- projectile movement
-- nuclear effects
-- damage
-- weapon availability
-- ownership changes
-- victory conditions
-
-The browser renders authoritative state and visually interpolates transitions.
-
-## 23. AI roadmap
-
-AI is planned for v1.5.
-
-No AI opponent is implemented in v1.
-
-The architecture must allow an AI controller at the Match layer to observe allowed authoritative state and submit the same commands available to a human player.
-
-AI must not bypass normal rules or mutate engine state directly.
-
-## 24. Replay requirements
-
-Every match produces an append-only replay/debug log on disk.
-
-At minimum, deterministic replay requires:
-
-- format version
-- engine/game version
-- map identifier/version
-- scenario identifier/version
-- initial state
-- random seed, if randomness exists
-- accepted commands with tick numbers
-- ownership/resource transitions needed for diagnostics
-- match result
-
-Additional engine events/state hashes may be logged during development.
-
-## 25. Locked v1 rule summary
-
-- 20 Hz authoritative simulation.
-- 1 real minute = 10 game hours.
-- 1 game hour = 120 ticks.
-- Enemy factory capture = 12 game hours = 1,440 ticks = 72 real seconds.
-- Resource production = once per game day = every 2,880 ticks.
-- Two-player PvP.
-- One starting war base per player.
-- Win when opponent owns zero war bases.
-- No accounts/database/Redis in v1.
-- Active matches in memory.
-- Replay/debug persistence on filesystem.
-- AI planned for v1.5, not implemented in v1.
+The multipliers are game-rule configuration, not literals embedded in projectile/firing code. Exact integer truncation and remaining accuracy/electronics-resistance behavior follow verified original semantics.
