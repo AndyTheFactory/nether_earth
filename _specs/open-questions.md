@@ -1,282 +1,242 @@
 # Nether Earth Clone — Open Questions
 
-This file tracks gameplay and implementation details that are **not yet locked**. It should be resolved before the functional specification is considered fully implementation-ready.
+This file tracks gameplay/implementation details that are still unresolved after the current design and ZX Spectrum disassembly review. Resolved items remain listed so their locked outcome is easy to find.
 
 ## 1. Exact normal-weapon stack order — RESOLVED
 
-Locked bottom-to-top weapon order:
+Locked bottom-to-top order:
 
-1. cannon
-2. missile
-3. phaser
-4. nuke
+1. chassis
+2. cannon, if fitted
+3. missile, if fitted
+4. phaser, if fitted
+5. nuke, if fitted
+6. electronics, if fitted
+7. commander, when docked
 
-Rules:
-
-- Weapon placement is canonical and not player-defined.
-- If a lower-order weapon is absent, remaining fitted weapons keep their relative order.
-- The nuke, when fitted, is always the topmost weapon.
-- Electronics, when fitted, is always above all weapons.
-- The canonical stack must be defined once in engine code and reused for rendering, robot height, collision height, projectile interaction, commander docking height, and construction preview.
+Missing components are simply omitted; relative order is preserved.
 
 ## 2. PvP treatment of the remaining war bases — RESOLVED
 
-Locked v1 PvP scenario:
-
-- The original four-war-base map is retained.
-- Player 1 starts owning the **extreme-left war base**.
-- Player 2 starts owning the **extreme-right war base**.
-- The two war bases between them start **neutral**.
-- Neutral war bases are capturable using the normal war-base capture rules.
-- Starting ownership is scenario-overlay data; the underlying map geometry remains unchanged.
-- Victory remains: a player loses when they own zero war bases.
-
-This gives both players symmetric starting positions at opposite ends of the battlefield while keeping all four original war bases active in the scenario.
+- Original four-war-base map retained.
+- Player 1 owns the extreme-left war base.
+- Player 2 owns the extreme-right war base.
+- Two interior war bases start neutral and capturable.
+- Starting ownership belongs to scenario overlay data, not raw map geometry.
+- Victory: opponent owns zero war bases.
 
 ## 3. Miles-to-grid-cell conversion — RESOLVED
 
-Locked conversion:
+- 1 mile = 2 map tiles/cells.
+- 1 tile = 0.5 miles.
+- Cannon 10 miles = 20 tiles.
+- Missile 14 miles = 28 tiles.
+- Phaser 10 miles = 20 tiles.
+- Electronics +3 miles = +6 tiles.
+- Nuclear radius 8 miles = 16 tiles.
+- Advance/Retreat 0–50 miles = 0–100 tiles.
 
-- **1 mile = 2 map tiles/cells**.
-- Equivalently, **1 tile = 0.5 miles**.
-- A robot is two tiles wide, so one robot width corresponds to one mile.
-
-Derived defaults:
-
-- cannon range 10 miles = **20 tiles**
-- missile range 14 miles = **28 tiles**
-- phaser range 10 miles = **20 tiles**
-- electronics +3 miles = **+6 tiles**
-- nuclear effect radius 8 miles = **16 tiles**
-- Advance/Retreat 0–50 miles = **0–100 tiles**
-
-This conversion must be represented in one shared game-rule/helper layer and reused consistently by movement/orders, combat, nuclear effects, UI, and replays rather than duplicating conversion arithmetic across systems.
+The conversion must exist once in shared game-rule/helper code.
 
 ## 4. Exact movement speeds and terrain penalties — PARTIALLY RESOLVED
 
-Locked behavior:
+Locked:
 
-- Relative chassis speed on ordinary traversable terrain is **bipod slowest, tracks faster, anti-grav fastest**.
-- Bipod can traverse rough terrain but with a severe slowdown.
-- Tracks can traverse rough terrain with a smaller slowdown than bipod.
-- Bipod and tracks cannot cross ditches/ravines.
-- Anti-grav can traverse all terrain, including ditches/ravines.
-- Exact movement timing is represented as integer simulation ticks per tile/cell at the locked 20 Hz engine rate.
-- Exact ticks-per-tile values and terrain multipliers/penalties must be isolated in configuration/game-rule constants so they can be tuned without changing movement logic.
-- Until the exact Spectrum timing is established, implementation should preserve only the locked relative ordering/capabilities and use clearly marked configurable defaults.
+- bipod is slowest, tracks faster, anti-grav fastest on ordinary terrain;
+- bipod crosses rough terrain with severe slowdown;
+- tracks cross rough terrain with a smaller slowdown;
+- bipod and tracks cannot cross ditches/ravines;
+- anti-grav can traverse every terrain type including ditches/ravines;
+- authoritative movement timing is integer ticks-per-tile at 20 Hz;
+- values live in centralized game-rule configuration.
 
 Still open:
 
-- Exact default ticks per tile for bipod, tracks, and anti-grav.
-- Exact bipod rough-terrain penalty.
-- Exact tracked rough-terrain penalty.
-- Whether anti-grav uses exactly the same speed on every traversable terrain type.
+- exact default ticks per tile for each chassis;
+- exact bipod rough-terrain penalty;
+- exact tracked rough-terrain penalty;
+- whether anti-grav speed is identical on every traversable terrain type.
 
-## 5. Exact dumb vs electronic navigation behavior — RESOLVED
+## 5. Dumb vs electronic navigation — RESOLVED
 
-Locked behavior:
+- Non-electronic robots use deliberately limited/original-style local routing and may become blocked even if a longer route exists.
+- Electronic robots use proper deterministic pathfinding/replanning around obstacles.
+- Electronics improves routing only; it does not change chassis terrain permissions.
+- Navigation strategies must be isolated behind an engine policy/interface.
 
-- Robots **without electronics** deliberately use limited/original-style local navigation rather than a globally optimal pathfinder.
-- Non-electronic robots may fail to route around obstacles and may become blocked or stuck even when a longer valid path exists.
-- Robots **with electronics** use a proper pathfinding/replanning layer and should actively route around obstacles when a valid chassis-compatible path exists.
-- Electronics improves route selection and obstacle handling, not the robot's underlying terrain capability.
-- A bipod or tracked robot with electronics still cannot traverse terrain forbidden to that chassis.
-- Replanning/pathfinding behavior must remain deterministic and server-authoritative.
-- Navigation strategy should be isolated behind a clear engine interface so original/dumb and electronic/smart routing are separate policies rather than scattered conditionals.
-
-Implementation detail remains open only where needed to reproduce the exact original local-routing quirks; this is no longer a product decision.
+Exact historical quirks of the dumb algorithm remain research detail, not a product decision.
 
 ## 6. War-base capture mechanics — RESOLVED
 
-Locked behavior:
-
-- War bases are capturable by qualifying enemy robots.
+- Enemy robots can capture war bases.
 - War-base capture uses the same continuous-occupation rule as factory capture by default.
-- Default capture duration is **12 in-game hours = 1,440 simulation ticks = 72 real seconds** at 20 Hz.
-- Capture progress resets to zero if qualifying occupation is interrupted.
-- Ownership transfers immediately when the configured capture duration completes.
-- Victory is evaluated in that same authoritative simulation step after the ownership change.
-- The capture duration must be easy to configure as game-rule/scenario data rather than being hard-coded separately into war-base logic.
-
-The default preserves the original building-capture behavior while allowing scenario-specific tuning without changing engine code.
+- Default duration: 12 in-game hours = 1,440 simulation ticks = 72 real seconds at 20 Hz.
+- Ownership changes immediately when the duration completes.
+- Victory is evaluated in the same authoritative simulation step.
+- Capture duration is configurable game-rule/scenario data.
 
 ## 7. Capture interruption semantics — RESOLVED
 
-Locked behavior:
-
-- Capture requires continuous qualifying occupation.
-- If the qualifying robot stops occupying the capture location before capture completes, capture progress resets immediately to zero.
-- Partial capture progress is not preserved across an interruption.
-
-This matches the original ZX Spectrum building-capture timer path, which clears the building timer when the qualifying occupation condition is no longer satisfied.
+If qualifying occupation breaks before capture completes, progress resets immediately to zero. Partial progress is not retained.
 
 ## 8. Exact projectile mechanics — PARTIALLY RESOLVED
 
-Locked behavior:
-
-- The normal-weapon firing gate remains: a robot cannot fire another normal weapon while its current projectile is active.
-- Cannon, missiles, and phasers all use the original ZX Spectrum projectile flight altitude of **10** authoritative altitude units.
-- Flight altitude does not vary by normal weapon type and is independent of robot height.
-- This original value should be preserved as the default authoritative rule. It may be exposed as one clear engine constant/configurable rule value, but gameplay should use the original value by default.
-
-Still open:
-
-- Projectile speed for cannon, missiles, and phasers.
-- Projectile movement granularity in simulation ticks.
-- Collision footprint/profile.
-- Interaction with robot/component height.
-- Interaction with buildings/boxes/static objects.
-- What exactly terminates a projectile in the Spectrum game.
-- How the original notion of a projectile leaving the visible screen should translate to a browser client whose viewport may differ from the original Spectrum view.
-
-Projectile lifetime must ultimately be defined by authoritative world/game rules, not browser viewport size.
-
-## 9. Damage, accuracy, and resistance formulas — PARTIALLY RESOLVED
-
-Locked damage behavior:
-
-- Preserve the original ZX Spectrum normal-weapon damage formula.
-- Compute base damage as:
-
-  `base_damage = (60 - (robot_height + ground_height)) / 4`
-
-- Apply a weapon-specific multiplier:
-  - cannon: **2**
-  - missiles: **3**
-  - phaser: **4**
-- The damage calculation must be isolated behind one clearly named engine function so the formula can be changed without touching firing/projectile code.
-- Weapon multipliers must live in configuration/game-rule data rather than being hard-coded inside the damage function.
-- The original values above are the default configuration.
-- Integer rounding/truncation must reproduce verified ZX Spectrum behavior once the exact arithmetic path is implemented.
-
-Still open:
-
-- Exact hit-probability or accuracy formula.
-- How range affects hit probability.
-- Exact integer rounding/truncation semantics of the base-damage expression if not already evident from the implementation trace.
-- How robot strength is reduced/represented after damage.
-- Whether individual components can be damaged/destroyed separately.
-- Exact electronics damage-resistance modifier.
-- Whether electronics changes accuracy, maximum range, or both.
-
-## 10. Resource spending rules
-
 Locked:
 
-- general resources exist
-- type-specific resources exist
-- factories produce type-specific resources
-- war bases produce general resources
-- weapon costs are known
+- a robot cannot fire another normal weapon while its current normal projectile is active;
+- cannon, missile, and phaser projectile flight altitude defaults to the Spectrum value 10;
+- projectile altitude is independent of robot height;
+- projectile gameplay is authoritative world/game logic, not browser viewport logic.
 
-Open questions:
+Still open:
 
-- Exact costs for chassis modules
-- Exact cost for electronics
-- How general resources substitute for type-specific resources
-- Whether spending prefers type-specific resources first or general resources first
-- Whether a module requires both general and specific resources or either/or
-- What happens to spent/selected resources when construction is scrapped
+- exact projectile speed/cadence;
+- collision footprint/profile;
+- exact component/height collision semantics;
+- interaction with buildings/static objects;
+- exact lifecycle termination rules from the Spectrum implementation.
+
+## 9. Damage, accuracy, and electronics effects — PARTIALLY RESOLVED
+
+Locked normal-weapon damage:
+
+`base_damage = (60 - (robot_height + ground_height)) / 4`
+
+Default multipliers:
+
+- cannon = 2
+- missile = 3
+- phaser = 4
+
+The damage formula is isolated behind one engine function; multipliers are centralized game-rule configuration.
+
+Still open:
+
+- exact integer truncation/rounding path;
+- exact hit-probability/accuracy formula;
+- exact range effect on accuracy;
+- exact strength representation/reduction;
+- whether individual components can be damaged separately;
+- exact electronics resistance modifier;
+- exact electronics accuracy/range behavior.
+
+## 10. Resource spending rules — RESOLVED
+
+Preserve the original Spectrum construction economy, with all tunable numeric values in centralized game configuration.
+
+Canonical defaults from the disassembly:
+
+- starting general resources: 20
+- bipod cost: 3
+- tracks cost: 5
+- anti-grav cost: 10
+- cannon cost: 2
+- missile cost: 4
+- phaser cost: 4
+- nuclear cost: 20
+- electronics cost: 3
+
+Resource categories:
+
+- general
+- chassis
+- electronics
+- cannon
+- missile
+- phaser
+- nuclear
+
+Spending behavior:
+
+- spend the relevant type-specific resource pool first;
+- general resources pay only the shortfall;
+- reject the selection if specific + general resources cannot cover the cost;
+- construction editing uses a temporary resource buffer;
+- deselecting a component reverses the original mixed specific/general spending semantics;
+- actual player resources are committed atomically only when `Start Robot` succeeds;
+- leaving/canceling unlaunched construction consumes no permanent resources.
 
 ## 11. Simultaneous destination-cell claims — RESOLVED
 
-Locked behavior:
+- A destination cell is reserved when a robot move is accepted/started.
+- A reserved destination is unavailable to other robots until completion/cancellation.
+- Same-tick contention is resolved randomly using the match-local seeded deterministic RNG.
+- Two contenders are a 50/50 coin flip; more contenders are chosen uniformly.
+- Losing contenders remain out of the destination and may retry/replan.
 
-- A robot reserves its destination cell when a move is accepted/started.
-- While reserved, that destination is unavailable to other robots until the move completes or the reservation is released/cancelled.
-- If two or more robots contend for the same destination in the same authoritative simulation tick, the winner is chosen by a **50/50 coin flip** for a two-robot claim.
-- Random contention resolution must use the match-local seeded deterministic RNG owned by the engine, never wall-clock/process randomness.
-- Therefore the outcome is random from the players' perspective but fully replay-safe: identical seed + commands + state produce the same winner.
-- For more than two simultaneous claimants, use the same seeded RNG to choose uniformly among the valid contenders.
-- Losing contenders do not enter the cell and may retry/replan according to their control/navigation policy.
+This is random to players but replay-safe for identical seed + commands + state.
 
 ## 12. Commander-versus-commander collision — RESOLVED
 
-Locked behavior:
-
-- Commanders are physical/collidable with each other.
-- Opposing commanders may share the same X/Y only when their vertical collision ranges do **not** overlap.
-- If their vertical ranges overlap, they block each other's horizontal and vertical movement.
-- A commander therefore cannot pass through another commander at an overlapping height.
-- A commander may prevent the other from descending through its occupied vertical range.
-- If vertically separated with no overlap, both may occupy the same X/Y.
-- Commanders remain indestructible, untargetable, and immune to damage; this rule affects collision only.
+- Commanders physically collide with each other.
+- They may share X/Y only if their vertical collision ranges do not overlap.
+- If vertical ranges overlap, they block horizontal and vertical movement, including descent.
+- Commanders remain indestructible, untargetable, and immune to damage.
 
 ## 13. Commander vertical limits and speed — RESOLVED
 
-Locked behavior:
+Spectrum-compatible defaults at the locked 20 Hz engine rate:
 
-- Authoritative altitude uses the original ZX Spectrum integer altitude units directly.
-- Minimum altitude is **0**.
-- Default maximum altitude is **48**.
-- At the locked 20 Hz simulation rate, commander vertical physics updates every **4 simulation ticks** (5 updates per real second), matching the original game's maximum 5 Hz game-cycle cadence.
-- On an elevation update, ascent changes altitude by **+2** units.
-- On a gravity update, descent changes altitude by **-1** unit.
-- Ascent and descent are intentionally asymmetric, matching the Spectrum implementation.
-- Holding Space raises the commander; releasing Space applies gravity/descent.
-- Horizontal and vertical movement may happen simultaneously.
-- Rendering may interpolate between authoritative altitude values, but simulation altitude remains integer/discrete.
-- The Spectrum defaults imply approximately **4.8 seconds** from altitude 0 to 48 and **9.6 seconds** from 48 to 0 when unobstructed.
-- Automatic elevation used when exiting a robot/war base uses the same +2 elevation step semantics.
+- minimum altitude: 0
+- maximum altitude: 48
+- vertical update cadence: every 4 simulation ticks (5 updates/sec)
+- ascent step: +2
+- descent/gravity step: -1
 
-Configuration requirement:
+Ascent/descent are intentionally asymmetric. Approximate unobstructed times are 4.8 s from 0→48 and 9.6 s from 48→0.
 
-- `commander_min_altitude` default **0**
-- `commander_max_altitude` default **48**
-- `commander_vertical_update_ticks` default **4**
-- `commander_ascent_step` default **2**
-- `commander_descent_step` default **1**
+Configuration keys/defaults:
 
-These values must live in centralized engine game-rule/configuration data rather than as magic numbers in commander movement code. Spectrum values are the canonical defaults.
+- `commander_min_altitude = 0`
+- `commander_max_altitude = 48`
+- `commander_vertical_update_ticks = 4`
+- `commander_ascent_step = 2`
+- `commander_descent_step = 1`
 
-Any special local ceiling behavior beyond ordinary collision clearance remains an implementation/research detail only if later Spectrum evidence establishes one; it is not a blocker for the default vertical timing model.
+Horizontal and vertical movement may occur simultaneously. Automatic elevation after exiting a robot/war base uses the same +2 elevation semantics.
 
 ## 14. Landing on an enemy robot — RESOLVED
 
-Locked behavior:
-
-- Enemy robots are treated as physical collision surfaces for the commander.
-- When the commander descends onto an enemy robot, descent stops when the commander contacts the top of the robot's physical stack.
-- The commander may remain/rest on top of the enemy robot while collision geometry continues to permit it.
-- No docking occurs.
-- No control transfer occurs.
-- No damage is dealt to either the commander or the robot as a consequence of this contact.
-- The commander can leave by rising or moving away when normal collision rules permit.
-- Docking/control remains restricted to friendly robots only.
+- Enemy robots are physical collision surfaces for the commander.
+- Descending stops at the top of the enemy robot stack.
+- The commander may rest there while collision geometry permits it.
+- No docking, control transfer, or contact damage occurs.
+- Docking/control remains restricted to friendly robots.
 
 ## 15. Static-object composition and footprints — RESOLVED
 
-Locked model:
-
-- Static geometry is represented as explicit occupied map cells/components rather than by one universal building rectangle.
-- War bases and factories are distinct semantic world entities with their own canonical composition definitions.
-- A war base is composed from explicit physical components/cells; semantic metadata such as heli-pad, exit, capture zone, ownership, and resource behavior belongs to the war-base entity.
-- A factory is composed separately from explicit physical components/cells; semantic metadata such as production type and capture zone belongs to the factory entity.
-- Generic scenery/blockers use evidence-backed explicit occupied cells/components.
-- Physical height may vary by component/cell; the model must not require one uniform height for an entire war base or factory.
-- Interaction zones are semantic metadata and are not inferred from a generic footprint.
-- Exact original-map war-base and factory compositions must be reconstructed from ZX Spectrum evidence during M2 map ingestion; uncertain cells/heights must remain explicitly unresolved rather than guessed.
-
-Robot footprint is a separate robot-model concern and must not be inferred from the static-structure representation.
+- Static geometry is explicit occupied map cells/components, not one universal building rectangle.
+- War bases and factories are separate semantic entity types with their own canonical compositions.
+- War-base metadata includes heli-pad, exit, capture zone, ownership/resource behavior.
+- Factory metadata includes production type and capture zone.
+- Physical height may vary by component/cell.
+- Interaction zones are explicit semantic metadata.
+- Exact original layouts are reconstructed from Spectrum evidence during map ingestion; uncertain cells/heights must not be guessed.
+- Robot footprint is a separate robot-model concern.
 
 ## 16. Disconnect and reconnect rules — RESOLVED
 
-Locked v1 behavior:
+- Match pauses immediately when either player disconnects.
+- Simulation ticks and gameplay timers stop while paused.
+- Default reconnect grace period: 60 seconds, configurable at match/server runtime level.
+- Reconnect receives the current authoritative snapshot.
+- Match resumes only when both players are connected.
+- Grace expiry causes the disconnected player to forfeit when an opponent remains eligible to win.
+- If both are disconnected, each has an independent grace deadline; if both expire without either returning, end as abandoned/no-contest rather than inventing a gameplay winner.
+- No manual pause in v1.
+- Reconnect/deadline state belongs to the runtime layer and must not mutate deterministic engine state while paused.
 
-- The match pauses immediately when either player disconnects.
-- Simulation ticks and all gameplay timers stop while the match is paused for disconnection.
-- The disconnected player receives a default **60-second reconnect grace period**.
-- The grace duration must be configurable in match/server configuration rather than hard-coded in reconnect logic.
-- If the disconnected player reconnects within the grace period, the server restores/sends the current authoritative match snapshot and the match resumes once both players are connected.
-- If the grace period expires, the disconnected player forfeits and the connected opponent wins.
-- If both players are disconnected, the match remains paused. Each disconnected player has their own grace deadline; the match resumes only when both are connected again.
-- If one player's grace period expires while both are disconnected, that player forfeits. If both grace periods expire without either player reconnecting, the match ends without continuing simulation and may be recorded as abandoned/no-contest rather than inventing a gameplay winner.
-- There is no manual pause in v1.
-- Reconnect state and deadlines belong to the match/runtime layer; they must not mutate deterministic game-engine state while the engine is paused.
+## Remaining research
+
+Only three substantive fidelity areas remain:
+
+1. **Movement timing** — exact Spectrum chassis ticks-per-tile and rough-terrain penalties (#4).
+2. **Projectile mechanics** — exact speed/cadence/collision/lifetime behavior (#8).
+3. **Combat detail** — exact accuracy, rounding, strength, and electronics modifiers (#9).
 
 ## Resolution process
 
-When resolving an open question, use the project fidelity order:
+Use this fidelity order:
 
 1. observed ZX Spectrum behavior
 2. ZX Spectrum disassembly/code evidence
@@ -284,4 +244,4 @@ When resolving an open question, use the project fidelity order:
 4. observed gameplay recordings
 5. other ports/remakes only as secondary references
 
-Once a question is resolved, update the functional and/or technical specification and remove or mark the corresponding item as resolved here.
+When one of the remaining items is verified, update the functional/technical specs and this file in the same change.
