@@ -221,21 +221,18 @@ Still open:
 - Whether descent uses exactly the same cadence/step as ascent.
 - Whether there are any special local ceiling/altitude rules around map objects beyond normal collision clearance.
 
-## 14. Landing on an enemy robot
+## 14. Landing on an enemy robot — RESOLVED
 
-Friendly-robot docking is locked and automatic when descending onto the robot.
+Locked behavior:
 
-Open question:
-
-- What happens if the commander descends onto an enemy robot?
-
-Likely possibilities:
-
-- physical collision only; descent stops at the robot top
-- commander may rest above it without docking
-- some other original behavior
-
-Docking/control must remain restricted to friendly robots unless verified otherwise.
+- Enemy robots are treated as physical collision surfaces for the commander.
+- When the commander descends onto an enemy robot, descent stops when the commander contacts the top of the robot's physical stack.
+- The commander may remain/rest on top of the enemy robot while collision geometry continues to permit it.
+- No docking occurs.
+- No control transfer occurs.
+- No damage is dealt to either the commander or the robot as a consequence of this contact.
+- The commander can leave by rising or moving away when normal collision rules permit.
+- Docking/control remains restricted to friendly robots only.
 
 ## 15. Static-object composition and footprints — RESOLVED
 
