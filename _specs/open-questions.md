@@ -33,22 +33,24 @@ Locked v1 PvP scenario:
 
 This gives both players symmetric starting positions at opposite ends of the battlefield while keeping all four original war bases active in the scenario.
 
-## 3. Miles-to-grid-cell conversion
+## 3. Miles-to-grid-cell conversion — RESOLVED
 
-Several rules are expressed in miles:
+Locked conversion:
 
-- cannon range: 10 miles
-- missile range: 14 miles
-- phaser range: 10 miles
-- electronics: nominal +3 miles effective range/accuracy
-- nuclear effect radius: 8 miles
-- Advance/Retreat orders: 0–50 miles
+- **1 mile = 2 map tiles/cells**.
+- Equivalently, **1 tile = 0.5 miles**.
+- A robot is two tiles wide, so one robot width corresponds to one mile.
 
-Open question:
+Derived defaults:
 
-- What is the authoritative conversion between miles and grid cells on the ZX Spectrum map?
+- cannon range 10 miles = **20 tiles**
+- missile range 14 miles = **28 tiles**
+- phaser range 10 miles = **20 tiles**
+- electronics +3 miles = **+6 tiles**
+- nuclear effect radius 8 miles = **16 tiles**
+- Advance/Retreat 0–50 miles = **0–100 tiles**
 
-This conversion should be represented as game-rule data and used consistently by movement, combat, nuclear effects, orders, UI, and replays.
+This conversion must be represented in one shared game-rule/helper layer and reused consistently by movement/orders, combat, nuclear effects, UI, and replays rather than duplicating conversion arithmetic across systems.
 
 ## 4. Exact movement speeds and terrain penalties
 
