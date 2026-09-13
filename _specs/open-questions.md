@@ -190,18 +190,17 @@ Locked behavior:
 - For more than two simultaneous claimants, use the same seeded RNG to choose uniformly among the valid contenders.
 - Losing contenders do not enter the cell and may retry/replan according to their control/navigation policy.
 
-## 12. Commander-versus-commander collision
+## 12. Commander-versus-commander collision — RESOLVED
 
-Commander collision with robots and static objects is locked.
+Locked behavior:
 
-Open questions:
-
-- Can two opposing commanders occupy the same X/Y coordinate?
-- If they are at overlapping Z ranges, do they block each other?
-- Can they pass through each other?
-- Can one commander prevent the other from descending or moving?
-
-Commanders remain indestructible and untargetable regardless of the answer.
+- Commanders are physical/collidable with each other.
+- Opposing commanders may share the same X/Y only when their vertical collision ranges do **not** overlap.
+- If their vertical ranges overlap, they block each other's horizontal and vertical movement.
+- A commander therefore cannot pass through another commander at an overlapping height.
+- A commander may prevent the other from descending through its occupied vertical range.
+- If vertically separated with no overlap, both may occupy the same X/Y.
+- Commanders remain indestructible, untargetable, and immune to damage; this rule affects collision only.
 
 ## 13. Commander vertical limits and speed — PARTIALLY RESOLVED
 
