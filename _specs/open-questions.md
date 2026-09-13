@@ -213,18 +213,20 @@ Likely possibilities:
 
 Docking/control must remain restricted to friendly robots unless verified otherwise.
 
-## 15. Static-object footprints
+## 15. Static-object composition and footprints — RESOLVED
 
-We know static objects such as factories, war bases, cubes, and boxes have physical shape and height.
+Locked model:
 
-Open questions:
+- Static geometry is represented as explicit occupied map cells/components rather than by one universal building rectangle.
+- War bases and factories are distinct semantic world entities with their own canonical composition definitions.
+- A war base is composed from explicit physical components/cells; semantic metadata such as heli-pad, exit, capture zone, ownership, and resource behavior belongs to the war-base entity.
+- A factory is composed separately from explicit physical components/cells; semantic metadata such as production type and capture zone belongs to the factory entity.
+- Generic scenery/blockers use evidence-backed explicit occupied cells/components.
+- Physical height may vary by component/cell; the model must not require one uniform height for an entire war base or factory.
+- Interaction zones are semantic metadata and are not inferred from a generic footprint.
+- Exact original-map war-base and factory compositions must be reconstructed from ZX Spectrum evidence during M2 map ingestion; uncertain cells/heights must remain explicitly unresolved rather than guessed.
 
-- Does every object occupy exactly one logical grid square?
-- Can factories/war bases span multiple cells?
-- If multi-cell, how are their occupied cells and heights represented?
-- Is collision height uniform across an object footprint or composed of multiple vertical sections?
-
-The map YAML should support whichever model is required by the original geometry.
+Robot footprint is a separate robot-model concern and must not be inferred from the static-structure representation.
 
 ## 16. Disconnect and reconnect rules
 
