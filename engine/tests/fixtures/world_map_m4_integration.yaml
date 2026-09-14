@@ -1,0 +1,84 @@
+# M4 milestone integration fixture (issue #58, M4.8).
+#
+# Neither existing shared fixture fits this milestone's scenario:
+# `world_map_basic.yaml` places each war base's EXIT interaction point on
+# top of one of its own physical components (see `test_robot_launch.py`'s
+# own module docstring), which would make the exit permanently occupied and
+# unusable for the "block then clear the exit" part of the scenario.
+# `world_map_production.yaml` declares no interaction points at all (no
+# heli-pad/exit), so it cannot drive construction entry or launch either.
+# This fixture combines what both partially offer: owned factories (for
+# daily production) plus a heli-pad and a *free* exit per war base (for
+# construction entry and launch), reusing the exact same M2 YAML shape/
+# conventions as both. p1's missile factory is deliberately a *single*
+# factory (producing less than a missile module's own cost) rather than
+# zero or two+, so one game day gives p1 a missile pool that is nonzero
+# but strictly less than module_cost_missile -- the "partial type-specific
+# stock, general covers only the remaining shortfall" scenario the M4.8
+# brief's item 5 explicitly requires, distinct from the "zero stock, whole
+# cost from general" case already covered by phaser.
+id: fixture-m4-integration
+version: 1
+width: 10
+height: 6
+
+war_bases:
+  - id: warbase-p1
+    components:
+      - {x: 4, y: 0, height: 3}
+    owner: p1
+
+  - id: warbase-p2
+    components:
+      - {x: 4, y: 5, height: 3}
+    owner: p2
+
+factories:
+  - id: factory-p1-chassis-a
+    components:
+      - {x: 1, y: 0, height: 2}
+    factory_type: chassis
+    owner: p1
+
+  - id: factory-p1-chassis-b
+    components:
+      - {x: 2, y: 0, height: 2}
+    factory_type: chassis
+    owner: p1
+
+  - id: factory-p1-cannon
+    components:
+      - {x: 1, y: 1, height: 2}
+    factory_type: cannon
+    owner: p1
+
+  - id: factory-p1-missile
+    components:
+      - {x: 2, y: 1, height: 2}
+    factory_type: missile
+    owner: p1
+
+interaction_points:
+  - id: warbase-p1-helipad
+    kind: heli_pad
+    structure_id: warbase-p1
+    footprint: {x: 4, y: 0}
+
+  - id: warbase-p1-exit
+    kind: exit
+    structure_id: warbase-p1
+    footprint: {x: 7, y: 0}
+
+  - id: warbase-p2-helipad
+    kind: heli_pad
+    structure_id: warbase-p2
+    footprint: {x: 4, y: 5}
+
+  - id: warbase-p2-exit
+    kind: exit
+    structure_id: warbase-p2
+    footprint: {x: 7, y: 5}
+
+spawn_positions:
+  p1_commander: {x: 4, y: 1}
+  p2_commander: {x: 4, y: 4}
