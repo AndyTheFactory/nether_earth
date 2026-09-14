@@ -100,6 +100,18 @@ identity" convention the ``module_height_*`` fields established in Task 2
 (M4.2) rather than a dict-valued field. The spend/refund algorithm that
 consumes these fields lives in `construction_economy.py` (issue #34); this
 module owns only the numeric configuration, not the spending logic.
+
+Issue #54 (M4.4, `_specs/milestones/04-robots-construction-economy.md`,
+`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED") adds
+``factory_production_amount`` and ``war_base_production_amount``: the
+per-game-day production the original Spectrum economy grants each owned
+structure. Locked Spectrum defaults per §10: an owned factory produces
+``2`` units of its own type-specific resource category per in-game day, and
+an owned war base produces ``5`` general resources per in-game day. The
+day-length interval itself is *not* duplicated here -- it is already the
+single authoritative ``clock.TICKS_PER_GAME_DAY`` constant
+(`clock.py`) and production code (`resource_production.py`) imports it
+directly rather than this module redeclaring a second day-length value.
 """
 
 from dataclasses import dataclass
@@ -167,6 +179,12 @@ class EngineRules:
       #34). Locked Spectrum defaults, per `_specs/open-questions.md` §10:
       bipod ``3``, tracks ``5``, anti-grav ``10``, cannon ``2``, missile
       ``4``, phaser ``4``, nuclear ``20``, electronics ``3``.
+    - ``factory_production_amount``: type-specific resource units an owned
+      factory produces per in-game day (locked Spectrum default ``2``, per
+      `_specs/open-questions.md` §10).
+    - ``war_base_production_amount``: general resource units an owned war
+      base produces per in-game day (locked Spectrum default ``5``, per
+      `_specs/open-questions.md` §10).
     """
 
     commander_min_altitude: int = 0
@@ -193,6 +211,8 @@ class EngineRules:
     module_cost_phaser: int = 4
     module_cost_nuclear: int = 20
     module_cost_electronics: int = 3
+    factory_production_amount: int = 2
+    war_base_production_amount: int = 5
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -235,6 +255,10 @@ class EngineRules:
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")
+        if self.factory_production_amount <= 0:
+            raise ValueError("factory_production_amount must be a positive integer")
+        if self.war_base_production_amount <= 0:
+            raise ValueError("war_base_production_amount must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

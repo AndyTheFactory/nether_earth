@@ -1,0 +1,53 @@
+# Test fixture for daily resource production (issue #54, M4.4).
+#
+# Declares a richer structure roster than `world_map_basic.yaml` so
+# production tests can exercise multi-structure aggregation: two war bases
+# (p1, p2), two chassis factories owned by p1 (to test same-type
+# aggregation), one cannon factory owned by p1 (different-type
+# aggregation), one missile factory owned by p2, and one neutral
+# (unowned) factory that must never produce for anyone.
+id: fixture-production
+version: 1
+width: 8
+height: 6
+
+war_bases:
+  - id: warbase-p1
+    components:
+      - {x: 0, y: 0, height: 3}
+    owner: p1
+
+  - id: warbase-p2
+    components:
+      - {x: 7, y: 5, height: 3}
+    owner: p2
+
+factories:
+  - id: factory-p1-chassis-a
+    components:
+      - {x: 1, y: 1, height: 2}
+    factory_type: chassis
+    owner: p1
+
+  - id: factory-p1-chassis-b
+    components:
+      - {x: 2, y: 1, height: 2}
+    factory_type: chassis
+    owner: p1
+
+  - id: factory-p1-cannon
+    components:
+      - {x: 1, y: 2, height: 2}
+    factory_type: cannon
+    owner: p1
+
+  - id: factory-p2-missile
+    components:
+      - {x: 6, y: 4, height: 2}
+    factory_type: missile
+    owner: p2
+
+  - id: factory-neutral-phaser
+    components:
+      - {x: 4, y: 3, height: 2}
+    factory_type: phaser

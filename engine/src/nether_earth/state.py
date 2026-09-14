@@ -13,13 +13,14 @@ Ordering convention: ``players`` is exposed as a tuple in canonical order
 iteration order could depend on insertion history. This guarantees that
 serialization and any future derived output (events, snapshots) are
 independent of the order callers happen to supply players in. ``commanders``
-(added by issue #37) follows the exact same convention: a tuple sorted by
-``Commander.player_id.value``, never a plain ``dict``/``set``.
+(added by issue #37) and ``resource_pools`` (added by issue #54) follow the
+exact same convention: a tuple sorted by the owning player's
+``PlayerId.value``, never a plain ``dict``/``set``.
 
 Scope: this milestone (M1.1) intentionally excludes map/world/entities/
 robots/economy/combat. Issue #37 (M3.1) adds the first entity-shaped field,
-``commanders`` -- see below -- but robots and map/world integration remain
-out of scope for later issues.
+``commanders``; issue #54 (M4.4) adds ``resource_pools`` -- see below -- but
+robots and map/world integration remain out of scope for later issues.
 
 Seed field (added by issue #7, the simulation-step integration task): the
 engine's match-local RNG ownership contract (``rng.py``) requires "same seed
@@ -48,12 +49,24 @@ no two commanders may share a ``player_id`` (a player has at most one
 commander). Use :func:`create_game_state` or :meth:`with_commanders` rather
 than constructing this dataclass with a pre-sorted/pre-validated tuple by
 convention alone.
+
+Resource pools field (added by issue #54, M4.4): ``resource_pools`` attaches
+the authoritative per-player
+:class:`~nether_earth.resource_pool.PlayerResourcePool` state directly onto
+``GameState``, mirroring ``commanders`` exactly for the same reasons: a
+tuple in canonical (sorted by ``PlayerResourcePool.player_id.value``) order,
+never a ``dict``/``Mapping``-shaped field; every pool's ``player_id`` must
+be a participant in ``players``; no two pools may share a ``player_id`` (a
+player has at most one resource pool). Use :func:`create_game_state` or
+:meth:`with_resource_pools` rather than constructing this dataclass with a
+pre-sorted/pre-validated tuple by convention alone.
 """
 
 from dataclasses import dataclass
 
 from nether_earth.commander import Commander
 from nether_earth.ids import PlayerId
+from nether_earth.resource_pool import PlayerResourcePool
 
 
 def _canonical_commanders(commanders: "tuple[Commander, ...]") -> "tuple[Commander, ...]":
@@ -73,9 +86,29 @@ def _canonical_commanders(commanders: "tuple[Commander, ...]") -> "tuple[Command
     return tuple(sorted(commanders, key=lambda commander: commander.player_id.value))
 
 
+def _canonical_resource_pools(
+    resource_pools: "tuple[PlayerResourcePool, ...]",
+) -> "tuple[PlayerResourcePool, ...]":
+    """Return ``resource_pools`` sorted canonically, after validating them.
+
+    Shared by :func:`create_game_state` and
+    :meth:`GameState.with_resource_pools`, mirroring
+    :func:`_canonical_commanders` exactly (see issue #54, M4.4).
+    """
+    seen_players: set[PlayerId] = set()
+    for pool in resource_pools:
+        if pool.player_id in seen_players:
+            raise ValueError(
+                f"duplicate resource pool for player {pool.player_id.value!r}: "
+                "a player may have at most one resource pool"
+            )
+        seen_players.add(pool.player_id)
+    return tuple(sorted(resource_pools, key=lambda pool: pool.player_id.value))
+
+
 @dataclass(frozen=True, slots=True)
 class GameState:
-    """Minimal authoritative engine state: tick, players, and commanders.
+    """Minimal authoritative engine state: tick, players, commanders, and resource pools.
 
     ``players`` is always stored in canonical (sorted-by-id) order; use
     :func:`create_game_state` or :meth:`with_tick` rather than constructing
@@ -92,23 +125,35 @@ class GameState:
     to ``()`` so existing callers that construct ``GameState`` without
     commander state keep working unchanged. See the module docstring for the
     ownership invariants ``create_game_state``/``with_commanders`` enforce.
+
+    ``resource_pools`` is always stored in canonical (sorted by
+    ``PlayerResourcePool.player_id.value``) order, matching ``players``; it
+    defaults to ``()`` so existing callers that construct ``GameState``
+    without resource-pool state keep working unchanged. See the module
+    docstring for the ownership invariants
+    ``create_game_state``/``with_resource_pools`` enforce.
     """
 
     tick: int
     players: tuple[PlayerId, ...]
     seed: int = 0
     commanders: "tuple[Commander, ...]" = ()
+    resource_pools: "tuple[PlayerResourcePool, ...]" = ()
 
     def with_tick(self, tick: int) -> "GameState":
         """Return a new ``GameState`` with ``tick`` replaced.
 
         This is the explicit, controlled transition for advancing the
         authoritative tick counter; callers must not mutate ``tick`` in
-        place. ``players``, ``seed``, and ``commanders`` are carried over
-        unchanged.
+        place. ``players``, ``seed``, ``commanders``, and ``resource_pools``
+        are carried over unchanged.
         """
         return GameState(
-            tick=tick, players=self.players, seed=self.seed, commanders=self.commanders
+            tick=tick,
+            players=self.players,
+            seed=self.seed,
+            commanders=self.commanders,
+            resource_pools=self.resource_pools,
         )
 
     def with_commanders(self, commanders: "tuple[Commander, ...]") -> "GameState":
@@ -119,8 +164,8 @@ class GameState:
         commander's ``player_id`` must already be a participant in
         ``self.players`` and no two commanders may share a ``player_id`` --
         see the module docstring for why these invariants live here rather
-        than being left to caller discipline. ``tick``, ``players``, and
-        ``seed`` are carried over unchanged.
+        than being left to caller discipline. ``tick``, ``players``,
+        ``seed``, and ``resource_pools`` are carried over unchanged.
         """
         for commander in commanders:
             if commander.player_id not in self.players:
@@ -134,6 +179,7 @@ class GameState:
             players=self.players,
             seed=self.seed,
             commanders=canonical_commanders,
+            resource_pools=self.resource_pools,
         )
 
     def commander_for(self, player_id: PlayerId) -> "Commander | None":
@@ -143,14 +189,50 @@ class GameState:
                 return commander
         return None
 
+    def with_resource_pools(
+        self, resource_pools: "tuple[PlayerResourcePool, ...]"
+    ) -> "GameState":
+        """Return a new ``GameState`` with ``resource_pools`` replaced.
+
+        ``resource_pools`` may be supplied in any order; the result is
+        normalized to canonical (sorted by ``player_id.value``) order. Every
+        pool's ``player_id`` must already be a participant in
+        ``self.players`` and no two pools may share a ``player_id`` -- see
+        the module docstring for why these invariants live here rather than
+        being left to caller discipline. ``tick``, ``players``, ``seed``,
+        and ``commanders`` are carried over unchanged.
+        """
+        for pool in resource_pools:
+            if pool.player_id not in self.players:
+                raise ValueError(
+                    f"resource pool player_id {pool.player_id.value!r} is not a "
+                    "participant in this GameState's players"
+                )
+        canonical_resource_pools = _canonical_resource_pools(tuple(resource_pools))
+        return GameState(
+            tick=self.tick,
+            players=self.players,
+            seed=self.seed,
+            commanders=self.commanders,
+            resource_pools=canonical_resource_pools,
+        )
+
+    def resource_pool_for(self, player_id: PlayerId) -> "PlayerResourcePool | None":
+        """Return ``player_id``'s resource pool, or ``None`` if it has none."""
+        for pool in self.resource_pools:
+            if pool.player_id == player_id:
+                return pool
+        return None
+
 
 def create_game_state(
     tick: int,
     players: "tuple[PlayerId, ...] | set[PlayerId] | list[PlayerId]",
     seed: int = 0,
     commanders: "tuple[Commander, ...] | list[Commander] | None" = None,
+    resource_pools: "tuple[PlayerResourcePool, ...] | list[PlayerResourcePool] | None" = None,
 ) -> GameState:
-    """Construct a ``GameState`` with ``players``/``commanders`` normalized.
+    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools`` normalized.
 
     ``players`` may be supplied in any order or as any iterable of unique
     ``PlayerId`` values; the resulting ``GameState.players`` is always the
@@ -166,6 +248,12 @@ def create_game_state(
     set and no two commanders may share a ``player_id`` (see the module
     docstring). The resulting ``GameState.commanders`` is always sorted by
     ``player_id.value``.
+
+    ``resource_pools`` defaults to no resource pools (``()``); when
+    supplied, every pool's ``player_id`` must be a member of the resolved
+    ``players`` set and no two pools may share a ``player_id`` (see the
+    module docstring). The resulting ``GameState.resource_pools`` is always
+    sorted by ``player_id.value``.
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -178,9 +266,20 @@ def create_game_state(
                 "participant in players"
             )
     canonical_commanders = _canonical_commanders(resolved_commanders)
+
+    resolved_resource_pools = () if resource_pools is None else tuple(resource_pools)
+    for pool in resolved_resource_pools:
+        if pool.player_id not in canonical_players:
+            raise ValueError(
+                f"resource pool player_id {pool.player_id.value!r} is not a "
+                "participant in players"
+            )
+    canonical_resource_pools = _canonical_resource_pools(resolved_resource_pools)
+
     return GameState(
         tick=tick,
         players=canonical_players,
         seed=seed,
         commanders=canonical_commanders,
+        resource_pools=canonical_resource_pools,
     )
