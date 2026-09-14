@@ -68,3 +68,56 @@ def test_engine_rules_rejects_non_positive_descent_step() -> None:
     with pytest.raises(ValueError):
         EngineRules(commander_descent_step=0)
 
+
+def test_default_rules_match_documented_module_height_placeholder_defaults() -> None:
+    assert DEFAULT_RULES.module_height_bipod == 4
+    assert DEFAULT_RULES.module_height_tracks == 4
+    assert DEFAULT_RULES.module_height_anti_grav == 4
+    assert DEFAULT_RULES.module_height_cannon == 2
+    assert DEFAULT_RULES.module_height_missile == 2
+    assert DEFAULT_RULES.module_height_phaser == 2
+    assert DEFAULT_RULES.module_height_nuclear == 2
+    assert DEFAULT_RULES.module_height_electronics == 2
+
+
+def test_engine_rules_accepts_custom_module_height_overrides() -> None:
+    rules = EngineRules(
+        module_height_bipod=10,
+        module_height_tracks=11,
+        module_height_anti_grav=12,
+        module_height_cannon=13,
+        module_height_missile=14,
+        module_height_phaser=15,
+        module_height_nuclear=16,
+        module_height_electronics=17,
+    )
+
+    assert rules.module_height_bipod == 10
+    assert rules.module_height_tracks == 11
+    assert rules.module_height_anti_grav == 12
+    assert rules.module_height_cannon == 13
+    assert rules.module_height_missile == 14
+    assert rules.module_height_phaser == 15
+    assert rules.module_height_nuclear == 16
+    assert rules.module_height_electronics == 17
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "module_height_bipod",
+        "module_height_tracks",
+        "module_height_anti_grav",
+        "module_height_cannon",
+        "module_height_missile",
+        "module_height_phaser",
+        "module_height_nuclear",
+        "module_height_electronics",
+    ],
+)
+def test_engine_rules_rejects_non_positive_module_height(field_name: str) -> None:
+    with pytest.raises(ValueError):
+        EngineRules(**{field_name: 0})
+    with pytest.raises(ValueError):
+        EngineRules(**{field_name: -1})
+

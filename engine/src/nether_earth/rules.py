@@ -55,6 +55,33 @@ documented, overridable canonical default (``4``, matching the vertical
 cadence for a round, easy-to-reason-about default) rather than a bare
 literal, so later Spectrum-timing evidence can correct it in one place
 without an architecture change.
+
+Issue #53 (M4.2, `_specs/milestones/04-robots-construction-economy.md`)
+adds the eight ``module_height_*`` fields: the per-physical-vertical-extent
+of each :class:`~nether_earth.robot_build.ModuleIdentity` module, consumed
+by `robot_stack.py` to derive a robot build's total physical height as the
+sum of its stacked components' heights. `_specs/functional-spec.md` §11-13
+and `_specs/technical-spec.md` §12.1 lock the bottom-to-top *order* of the
+stack (chassis, cannon, missile, phaser, nuke, electronics) but -- like
+``commander_height`` above -- neither they nor `_specs/open-questions.md`
+give any module an explicit numeric vertical extent; no Spectrum sprite
+geometry for individual module heights is available anywhere in the locked
+specs or evidence. Height-summing cannot be implemented against zero-height
+components, so each field supplies a documented, overridable default
+following the exact same "documented default, not independently verified"
+precedent as ``commander_height``: chassis modules (``module_height_bipod``,
+``module_height_tracks``, ``module_height_anti_grav``) default to ``4``
+(matching ``commander_height``'s magnitude, since a chassis is a robot's
+main structural body), and weapon/electronics modules
+(``module_height_cannon``, ``module_height_missile``, ``module_height_phaser``,
+``module_height_nuclear``, ``module_height_electronics``) default to ``2``
+(smaller mounted add-ons stacked above the chassis). These are placeholder
+magnitudes only, chosen for internal proportion, not derived from any
+Spectrum evidence; later sprite-geometry research may correct any of them
+in this one place without an architecture change. Each module identity gets
+its own named field (rather than one dict-valued field) to match this
+module's existing flat-scalar-field convention and keep ``EngineRules``
+trivially hashable/equatable.
 """
 
 from dataclasses import dataclass
@@ -100,6 +127,16 @@ class EngineRules:
       (documented canonical default ``4``; see the module docstring for why
       this exact duration is not independently spec-verified, unlike the
       vertical envelope above).
+    - ``module_height_bipod`` / ``module_height_tracks`` /
+      ``module_height_anti_grav`` / ``module_height_cannon`` /
+      ``module_height_missile`` / ``module_height_phaser`` /
+      ``module_height_nuclear`` / ``module_height_electronics``: the
+      physical vertical extent (altitude units) of each
+      :class:`~nether_earth.robot_build.ModuleIdentity` module, used by
+      `robot_stack.py` (issue #53) to derive a robot build's total physical
+      height. Documented placeholder defaults (chassis modules ``4``,
+      weapon/electronics modules ``2``), not independently verified against
+      Spectrum sprite geometry -- see the module docstring.
     """
 
     commander_min_altitude: int = 0
@@ -109,6 +146,14 @@ class EngineRules:
     commander_descent_step: int = 1
     commander_height: int = 4
     commander_horizontal_move_ticks: int = 4
+    module_height_bipod: int = 4
+    module_height_tracks: int = 4
+    module_height_anti_grav: int = 4
+    module_height_cannon: int = 2
+    module_height_missile: int = 2
+    module_height_phaser: int = 2
+    module_height_nuclear: int = 2
+    module_height_electronics: int = 2
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -125,6 +170,18 @@ class EngineRules:
             raise ValueError("commander_height must be a positive integer")
         if self.commander_horizontal_move_ticks <= 0:
             raise ValueError("commander_horizontal_move_ticks must be a positive integer")
+        for field_name in (
+            "module_height_bipod",
+            "module_height_tracks",
+            "module_height_anti_grav",
+            "module_height_cannon",
+            "module_height_missile",
+            "module_height_phaser",
+            "module_height_nuclear",
+            "module_height_electronics",
+        ):
+            if getattr(self, field_name) <= 0:
+                raise ValueError(f"{field_name} must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should
