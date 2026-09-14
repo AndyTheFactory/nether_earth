@@ -13,14 +13,16 @@ Ordering convention: ``players`` is exposed as a tuple in canonical order
 iteration order could depend on insertion history. This guarantees that
 serialization and any future derived output (events, snapshots) are
 independent of the order callers happen to supply players in. ``commanders``
-(added by issue #37) and ``resource_pools`` (added by issue #54) follow the
-exact same convention: a tuple sorted by the owning player's
-``PlayerId.value``, never a plain ``dict``/``set``.
+(added by issue #37), ``resource_pools`` (added by issue #54), and
+``construction_sessions`` (added by issue #55) follow the exact same
+convention: a tuple sorted by the owning player's ``PlayerId.value``, never
+a plain ``dict``/``set``.
 
 Scope: this milestone (M1.1) intentionally excludes map/world/entities/
 robots/economy/combat. Issue #37 (M3.1) adds the first entity-shaped field,
-``commanders``; issue #54 (M4.4) adds ``resource_pools`` -- see below -- but
-robots and map/world integration remain out of scope for later issues.
+``commanders``; issue #54 (M4.4) adds ``resource_pools``; issue #55 (M4.5)
+adds ``construction_sessions`` -- see below -- but robots and map/world
+integration remain out of scope for later issues.
 
 Seed field (added by issue #7, the simulation-step integration task): the
 engine's match-local RNG ownership contract (``rng.py``) requires "same seed
@@ -60,16 +62,38 @@ be a participant in ``players``; no two pools may share a ``player_id`` (a
 player has at most one resource pool). Use :func:`create_game_state` or
 :meth:`with_resource_pools` rather than constructing this dataclass with a
 pre-sorted/pre-validated tuple by convention alone.
+
+Construction sessions field (added by issue #55, M4.5):
+``construction_sessions`` attaches the authoritative per-player
+:class:`~nether_earth.construction_session.ConstructionSession` state
+directly onto ``GameState``, mirroring ``commanders``/``resource_pools``
+exactly: a tuple in canonical (sorted by
+``ConstructionSession.player_id.value``) order, never a ``dict``/
+``Mapping``-shaped field; every session's ``player_id`` must be a
+participant in ``players``; no two sessions may share a ``player_id`` (a
+player has at most one active construction session -- "no session for this
+player" is represented by absence from the tuple, not a separate inactive
+value). Use :func:`create_game_state` or :meth:`with_construction_sessions`
+rather than constructing this dataclass with a pre-sorted/pre-validated
+tuple by convention alone. ``construction_session.py`` is only imported
+under ``TYPE_CHECKING`` here to avoid a circular import (that module itself
+imports ``GameState`` to type its own session-returning functions).
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from nether_earth.commander import Commander
 from nether_earth.ids import PlayerId
 from nether_earth.resource_pool import PlayerResourcePool
 
+if TYPE_CHECKING:
+    from nether_earth.construction_session import ConstructionSession
 
-def _canonical_commanders(commanders: "tuple[Commander, ...]") -> "tuple[Commander, ...]":
+
+def _canonical_commanders(commanders: tuple[Commander, ...]) -> tuple[Commander, ...]:
     """Return ``commanders`` sorted canonically, after validating them.
 
     Shared by :func:`create_game_state` and :meth:`GameState.with_commanders`
@@ -87,8 +111,8 @@ def _canonical_commanders(commanders: "tuple[Commander, ...]") -> "tuple[Command
 
 
 def _canonical_resource_pools(
-    resource_pools: "tuple[PlayerResourcePool, ...]",
-) -> "tuple[PlayerResourcePool, ...]":
+    resource_pools: tuple[PlayerResourcePool, ...],
+) -> tuple[PlayerResourcePool, ...]:
     """Return ``resource_pools`` sorted canonically, after validating them.
 
     Shared by :func:`create_game_state` and
@@ -106,9 +130,30 @@ def _canonical_resource_pools(
     return tuple(sorted(resource_pools, key=lambda pool: pool.player_id.value))
 
 
+def _canonical_construction_sessions(
+    construction_sessions: tuple[ConstructionSession, ...],
+) -> tuple[ConstructionSession, ...]:
+    """Return ``construction_sessions`` sorted canonically, after validating them.
+
+    Shared by :func:`create_game_state` and
+    :meth:`GameState.with_construction_sessions`, mirroring
+    :func:`_canonical_commanders`/:func:`_canonical_resource_pools` exactly
+    (see issue #55, M4.5).
+    """
+    seen_players: set[PlayerId] = set()
+    for session in construction_sessions:
+        if session.player_id in seen_players:
+            raise ValueError(
+                f"duplicate construction session for player {session.player_id.value!r}: "
+                "a player may have at most one active construction session"
+            )
+        seen_players.add(session.player_id)
+    return tuple(sorted(construction_sessions, key=lambda session: session.player_id.value))
+
+
 @dataclass(frozen=True, slots=True)
 class GameState:
-    """Minimal authoritative engine state: tick, players, commanders, and resource pools.
+    """Minimal authoritative engine state: tick, players, commanders, resource pools, and construction sessions.
 
     ``players`` is always stored in canonical (sorted-by-id) order; use
     :func:`create_game_state` or :meth:`with_tick` rather than constructing
@@ -132,21 +177,29 @@ class GameState:
     without resource-pool state keep working unchanged. See the module
     docstring for the ownership invariants
     ``create_game_state``/``with_resource_pools`` enforce.
+
+    ``construction_sessions`` is always stored in canonical (sorted by
+    ``ConstructionSession.player_id.value``) order, matching ``players``; it
+    defaults to ``()`` so existing callers that construct ``GameState``
+    without construction-session state keep working unchanged. See the
+    module docstring for the ownership invariants
+    ``create_game_state``/``with_construction_sessions`` enforce.
     """
 
     tick: int
     players: tuple[PlayerId, ...]
     seed: int = 0
-    commanders: "tuple[Commander, ...]" = ()
-    resource_pools: "tuple[PlayerResourcePool, ...]" = ()
+    commanders: tuple[Commander, ...] = ()
+    resource_pools: tuple[PlayerResourcePool, ...] = ()
+    construction_sessions: tuple[ConstructionSession, ...] = ()
 
-    def with_tick(self, tick: int) -> "GameState":
+    def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
 
         This is the explicit, controlled transition for advancing the
         authoritative tick counter; callers must not mutate ``tick`` in
-        place. ``players``, ``seed``, ``commanders``, and ``resource_pools``
-        are carried over unchanged.
+        place. ``players``, ``seed``, ``commanders``, ``resource_pools``,
+        and ``construction_sessions`` are carried over unchanged.
         """
         return GameState(
             tick=tick,
@@ -154,9 +207,10 @@ class GameState:
             seed=self.seed,
             commanders=self.commanders,
             resource_pools=self.resource_pools,
+            construction_sessions=self.construction_sessions,
         )
 
-    def with_commanders(self, commanders: "tuple[Commander, ...]") -> "GameState":
+    def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
         """Return a new ``GameState`` with ``commanders`` replaced.
 
         ``commanders`` may be supplied in any order; the result is
@@ -165,7 +219,8 @@ class GameState:
         ``self.players`` and no two commanders may share a ``player_id`` --
         see the module docstring for why these invariants live here rather
         than being left to caller discipline. ``tick``, ``players``,
-        ``seed``, and ``resource_pools`` are carried over unchanged.
+        ``seed``, ``resource_pools``, and ``construction_sessions`` are
+        carried over unchanged.
         """
         for commander in commanders:
             if commander.player_id not in self.players:
@@ -180,9 +235,10 @@ class GameState:
             seed=self.seed,
             commanders=canonical_commanders,
             resource_pools=self.resource_pools,
+            construction_sessions=self.construction_sessions,
         )
 
-    def commander_for(self, player_id: PlayerId) -> "Commander | None":
+    def commander_for(self, player_id: PlayerId) -> Commander | None:
         """Return ``player_id``'s commander, or ``None`` if it has none."""
         for commander in self.commanders:
             if commander.player_id == player_id:
@@ -190,8 +246,8 @@ class GameState:
         return None
 
     def with_resource_pools(
-        self, resource_pools: "tuple[PlayerResourcePool, ...]"
-    ) -> "GameState":
+        self, resource_pools: tuple[PlayerResourcePool, ...]
+    ) -> GameState:
         """Return a new ``GameState`` with ``resource_pools`` replaced.
 
         ``resource_pools`` may be supplied in any order; the result is
@@ -200,7 +256,8 @@ class GameState:
         ``self.players`` and no two pools may share a ``player_id`` -- see
         the module docstring for why these invariants live here rather than
         being left to caller discipline. ``tick``, ``players``, ``seed``,
-        and ``commanders`` are carried over unchanged.
+        ``commanders``, and ``construction_sessions`` are carried over
+        unchanged.
         """
         for pool in resource_pools:
             if pool.player_id not in self.players:
@@ -215,24 +272,65 @@ class GameState:
             seed=self.seed,
             commanders=self.commanders,
             resource_pools=canonical_resource_pools,
+            construction_sessions=self.construction_sessions,
         )
 
-    def resource_pool_for(self, player_id: PlayerId) -> "PlayerResourcePool | None":
+    def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
         """Return ``player_id``'s resource pool, or ``None`` if it has none."""
         for pool in self.resource_pools:
             if pool.player_id == player_id:
                 return pool
         return None
 
+    def with_construction_sessions(
+        self, construction_sessions: tuple[ConstructionSession, ...]
+    ) -> GameState:
+        """Return a new ``GameState`` with ``construction_sessions`` replaced.
+
+        ``construction_sessions`` may be supplied in any order; the result
+        is normalized to canonical (sorted by ``player_id.value``) order.
+        Every session's ``player_id`` must already be a participant in
+        ``self.players`` and no two sessions may share a ``player_id`` --
+        see the module docstring for why these invariants live here rather
+        than being left to caller discipline. ``tick``, ``players``,
+        ``seed``, ``commanders``, and ``resource_pools`` are carried over
+        unchanged.
+        """
+        for session in construction_sessions:
+            if session.player_id not in self.players:
+                raise ValueError(
+                    f"construction session player_id {session.player_id.value!r} is not "
+                    "a participant in this GameState's players"
+                )
+        canonical_construction_sessions = _canonical_construction_sessions(
+            tuple(construction_sessions)
+        )
+        return GameState(
+            tick=self.tick,
+            players=self.players,
+            seed=self.seed,
+            commanders=self.commanders,
+            resource_pools=self.resource_pools,
+            construction_sessions=canonical_construction_sessions,
+        )
+
+    def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
+        """Return ``player_id``'s active construction session, or ``None`` if it has none."""
+        for session in self.construction_sessions:
+            if session.player_id == player_id:
+                return session
+        return None
+
 
 def create_game_state(
     tick: int,
-    players: "tuple[PlayerId, ...] | set[PlayerId] | list[PlayerId]",
+    players: tuple[PlayerId, ...] | set[PlayerId] | list[PlayerId],
     seed: int = 0,
-    commanders: "tuple[Commander, ...] | list[Commander] | None" = None,
-    resource_pools: "tuple[PlayerResourcePool, ...] | list[PlayerResourcePool] | None" = None,
+    commanders: tuple[Commander, ...] | list[Commander] | None = None,
+    resource_pools: tuple[PlayerResourcePool, ...] | list[PlayerResourcePool] | None = None,
+    construction_sessions: tuple[ConstructionSession, ...] | list[ConstructionSession] | None = None,
 ) -> GameState:
-    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools`` normalized.
+    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions`` normalized.
 
     ``players`` may be supplied in any order or as any iterable of unique
     ``PlayerId`` values; the resulting ``GameState.players`` is always the
@@ -254,6 +352,13 @@ def create_game_state(
     ``players`` set and no two pools may share a ``player_id`` (see the
     module docstring). The resulting ``GameState.resource_pools`` is always
     sorted by ``player_id.value``.
+
+    ``construction_sessions`` defaults to no sessions (``()``); when
+    supplied, every session's ``player_id`` must be a member of the
+    resolved ``players`` set and no two sessions may share a ``player_id``
+    (see the module docstring). The resulting
+    ``GameState.construction_sessions`` is always sorted by
+    ``player_id.value``.
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -276,10 +381,24 @@ def create_game_state(
             )
     canonical_resource_pools = _canonical_resource_pools(resolved_resource_pools)
 
+    resolved_construction_sessions = (
+        () if construction_sessions is None else tuple(construction_sessions)
+    )
+    for session in resolved_construction_sessions:
+        if session.player_id not in canonical_players:
+            raise ValueError(
+                f"construction session player_id {session.player_id.value!r} is not a "
+                "participant in players"
+            )
+    canonical_construction_sessions = _canonical_construction_sessions(
+        resolved_construction_sessions
+    )
+
     return GameState(
         tick=tick,
         players=canonical_players,
         seed=seed,
         commanders=canonical_commanders,
         resource_pools=canonical_resource_pools,
+        construction_sessions=canonical_construction_sessions,
     )
