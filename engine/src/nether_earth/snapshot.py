@@ -46,7 +46,13 @@ import json
 from typing import Any
 
 from nether_earth.commander import Commander, GridTransition, VerticalTransition
+from nether_earth.construction_economy import ResourcePool
+from nether_earth.construction_session import BuildInProgress, ConstructionSession
+from nether_earth.resource_pool import PlayerResourcePool
+from nether_earth.robot import Robot
+from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.state import GameState
+from nether_earth.structures import FactoryType
 
 __all__ = [
     "snapshot_to_json_string",
@@ -106,20 +112,121 @@ def _commander_snapshot(commander: Commander) -> dict[str, Any]:
     }
 
 
+#: Deterministic declaration order for a serialized resource pool's
+#: type-specific category keys, matching ``FactoryType``'s own declaration
+#: order in ``structures.py`` -- the one place this ordering is defined for
+#: this module.
+_CATEGORY_ORDER: tuple[FactoryType, ...] = tuple(FactoryType)
+
+
+def _player_resource_pool_snapshot(pool: PlayerResourcePool) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single ``PlayerResourcePool``."""
+    return {
+        "player_id": pool.player_id.to_json(),
+        "general": pool.general,
+        "chassis": pool.chassis,
+        "electronics": pool.electronics,
+        "nuclear": pool.nuclear,
+        "missile": pool.missile,
+        "phaser": pool.phaser,
+        "cannon": pool.cannon,
+    }
+
+
+def _resource_pool_snapshot(pool: ResourcePool) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a ``construction_economy.ResourcePool``.
+
+    Used for a :class:`~nether_earth.construction_session.ConstructionSession`'s
+    session-local ``buffer``/``entry_snapshot`` fields, which are this
+    (unhashable, ``Mapping``-backed) type rather than the authoritative
+    :class:`~nether_earth.resource_pool.PlayerResourcePool` -- see
+    ``construction_session.py``'s module docstring. ``category`` is always
+    serialized in :data:`_CATEGORY_ORDER` (matching ``FactoryType``'s own
+    declaration order), independent of the pool's internal mapping's
+    iteration order.
+    """
+    return {
+        "general": pool.general,
+        "category": {category.value: pool.amount(category) for category in _CATEGORY_ORDER},
+    }
+
+
+def _module_identity_json(module: ModuleIdentity | None) -> str | None:
+    """Return ``module``'s JSON-safe value, or ``None``."""
+    return module.value if module is not None else None
+
+
+def _build_in_progress_snapshot(build: BuildInProgress) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single ``BuildInProgress``."""
+    return {
+        "chassis": _module_identity_json(build.chassis),
+        "weapons": [weapon.value for weapon in build.weapons],
+        "electronics": _module_identity_json(build.electronics),
+    }
+
+
+def _robot_build_snapshot(build: RobotBuild) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single, complete ``RobotBuild``."""
+    return {
+        "chassis": build.chassis.value,
+        "weapons": [weapon.value for weapon in build.weapons],
+        "electronics": _module_identity_json(build.electronics),
+    }
+
+
+def _construction_session_snapshot(session: ConstructionSession) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single ``ConstructionSession``."""
+    return {
+        "player_id": session.player_id.to_json(),
+        "war_base_id": session.war_base_id.to_json(),
+        "entry_tick": session.entry_tick,
+        "build": _build_in_progress_snapshot(session.build),
+        "buffer": _resource_pool_snapshot(session.buffer),
+        "entry_snapshot": _resource_pool_snapshot(session.entry_snapshot),
+    }
+
+
+def _robot_snapshot(robot: Robot) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single ``Robot``."""
+    return {
+        "entity_id": robot.entity_id.to_json(),
+        "owner": robot.owner.to_json(),
+        "x": robot.x,
+        "y": robot.y,
+        "build": _robot_build_snapshot(robot.build),
+        "stack": [module.value for module in robot.stack],
+        "height": robot.height,
+    }
+
+
 def to_snapshot(state: GameState) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of ``state``.
 
     The result contains only ``dict``/``list``/``str``/``int``/``bool``/
     ``None`` values, with a fixed key insertion order (``tick``, ``players``,
-    ``seed``, ``commanders``). Two dataclass-equal ``GameState`` instances
-    always produce an identical snapshot; two states that differ in any
-    field produce a detectably different snapshot.
+    ``seed``, ``commanders``, ``resource_pools``, ``construction_sessions``,
+    ``robots``). Two dataclass-equal ``GameState`` instances always produce
+    an identical snapshot; two states that differ in any field produce a
+    detectably different snapshot.
+
+    ``resource_pools``/``construction_sessions``/``robots`` (added by issue
+    #57, M4.7) are appended after the existing #37/#42 keys -- new keys are
+    appended after existing keys so any existing snapshot-shape test can be
+    extended additively, matching ``_commander_snapshot``'s own stated
+    precedent. Each is serialized in whatever order ``GameState`` already
+    holds it in (canonical per ``state.py``'s own ordering guarantees for
+    each field), not re-sorted by this module.
     """
     return {
         "tick": state.tick,
         "players": [player.to_json() for player in state.players],
         "seed": state.seed,
         "commanders": [_commander_snapshot(commander) for commander in state.commanders],
+        "resource_pools": [_player_resource_pool_snapshot(pool) for pool in state.resource_pools],
+        "construction_sessions": [
+            _construction_session_snapshot(session) for session in state.construction_sessions
+        ],
+        "robots": [_robot_snapshot(robot) for robot in state.robots],
     }
 
 

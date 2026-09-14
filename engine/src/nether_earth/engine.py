@@ -60,6 +60,23 @@ from nether_earth.commander_movement import (
     set_vertical_intent,
 )
 from nether_earth.commands import Command, RejectionReason, validate_command_batch
+from nether_earth.construction_commands import (
+    CancelConstructionCommand,
+    ConstructionCancelledEvent,
+    ConstructionEnteredEvent,
+    DeselectModuleCommand,
+    LaunchRobotCommand,
+    ModuleDeselectedEvent,
+    ModuleSelectedEvent,
+    RobotLaunchedEvent,
+    SelectModuleCommand,
+)
+from nether_earth.construction_session import (
+    cancel_construction,
+    deselect_module,
+    enter_construction,
+    select_module,
+)
 from nether_earth.docking import (
     apply_undock,
     auto_dock_with_event,
@@ -70,6 +87,8 @@ from nether_earth.events import Event, EventSequencer, order_events
 from nether_earth.heli_pad import detect_heli_pad_landing
 from nether_earth.ids import PlayerId
 from nether_earth.map import BootstrapMap, WorldMap
+from nether_earth.resource_production import apply_daily_production
+from nether_earth.robot_launch import launch_robot
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.scenario import Scenario, initialize_players
 from nether_earth.state import GameState, create_game_state
@@ -242,6 +261,43 @@ def step(
     ``commander_movement.py``'s functions expect (see ``collision.py``'s
     module docstring for this exact binding contract).
 
+    Extended by issue #57 (M4.7) to wire in the construction/economy
+    subsystem built by #52-#56 (robot build identity, stack/height
+    derivation, construction economy, resource pools, construction
+    sessions, robot launch):
+
+    5. Step 7 (heli-pad landing detection) additionally, in direct and
+       immediate response to a detected
+       :class:`~nether_earth.heli_pad.CommanderConstructionEntryEligible`
+       event, calls
+       :func:`~nether_earth.construction_session.enter_construction` for
+       that player (mirrors Step 5's auto-dock "detect and immediately
+       apply" style). ``enter_construction`` is itself safe to call
+       repeatedly -- a player who already has an active session (e.g. the
+       commander lingers on the pad across multiple ticks, so landing is
+       re-detected every grounded tick, not just on the transition tick)
+       simply gets an ``ALREADY_IN_SESSION`` rejection with ``state`` left
+       unchanged, so no separate "already entered" guard is needed here.
+    6. A new Step 8 applies every structurally accepted
+       :class:`~nether_earth.construction_commands.SelectModuleCommand`/
+       :class:`~nether_earth.construction_commands.DeselectModuleCommand`/
+       :class:`~nether_earth.construction_commands.CancelConstructionCommand`/
+       :class:`~nether_earth.construction_commands.LaunchRobotCommand`, in
+       canonical command order, exactly mirroring Step 1's "structural
+       accept already recorded a generic ``CommandAccepted``; a gameplay-
+       level rejection produces no additional event" contract.
+       ``LaunchRobotCommand`` additionally requires a real ``world`` (exit
+       resolution/occupancy cannot be computed without one); when
+       ``world is None`` it is a gameplay no-op, matching Step 7's own
+       world-gating.
+    7. A new Step 9 applies
+       :func:`~nether_earth.resource_production.apply_daily_production` for
+       the tick range this ``step`` call advances through
+       (``state.tick`` at entry -> the new ``tick``), using that module's
+       own exact-integer day-boundary detection. Like Step 7/Step 8's
+       launch handling, this requires a real ``world`` (factory/war-base
+       ownership) and is skipped when ``world is None``.
+
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
     always produces an identical ``(new_state, events)`` pair.
     """
@@ -262,6 +318,7 @@ def step(
                 CommandRejected(sequence=sequence, command=result.command, reason=result.reason)
             )
 
+    starting_tick = state.tick
     tick = state.tick + 1
     rules = DEFAULT_RULES
 
@@ -358,7 +415,7 @@ def step(
             continue
         state = _replace_commander(state, follow_docked_robot(commander, robot, rules))
 
-    # --- Step 7: heli-pad landing detection for every FREE commander -------
+    # --- Step 7: heli-pad landing detection + auto construction entry ------
     if world is not None:
         for commander in state.commanders:
             if commander.mode is not CommanderMode.FREE:
@@ -366,6 +423,101 @@ def step(
             landing_event = detect_heli_pad_landing(state, world, commander, tick, rules, sequencer)
             if landing_event is not None:
                 events.append(landing_event)
+                # Detect and immediately apply, mirroring Step 5's auto-dock
+                # style. See this function's docstring: enter_construction
+                # rejects (state unchanged, no event) rather than erroring
+                # if the player already has an active session, so a
+                # commander lingering on the pad across multiple ticks
+                # (re-detected every grounded tick) is handled safely
+                # without a separate guard here.
+                entry_result = enter_construction(state, landing_event, commander.player_id)
+                if entry_result.accepted:
+                    assert entry_result.state is not None
+                    state = entry_result.state
+                    events.append(
+                        ConstructionEnteredEvent(
+                            sequence=sequencer.next_sequence(),
+                            player=commander.player_id,
+                            war_base_id=landing_event.war_base_id,
+                            tick=tick,
+                        )
+                    )
+
+    # --- Step 8: apply accepted construction/economy commands --------------
+    for result in results:
+        if not result.accepted:
+            continue
+        command = result.command
+        if isinstance(command, SelectModuleCommand):
+            select_result = select_module(state, command.player, command.module, rules)
+            if select_result.accepted:
+                assert select_result.state is not None
+                state = select_result.state
+                events.append(
+                    ModuleSelectedEvent(
+                        sequence=sequencer.next_sequence(),
+                        player=command.player,
+                        module=command.module,
+                        tick=tick,
+                    )
+                )
+        elif isinstance(command, DeselectModuleCommand):
+            deselect_result = deselect_module(state, command.player, command.module, rules)
+            if deselect_result.accepted:
+                assert deselect_result.state is not None
+                state = deselect_result.state
+                events.append(
+                    ModuleDeselectedEvent(
+                        sequence=sequencer.next_sequence(),
+                        player=command.player,
+                        module=command.module,
+                        tick=tick,
+                    )
+                )
+        elif isinstance(command, CancelConstructionCommand):
+            # Only emit an event (and only touch state) on an actual
+            # transition -- cancel_construction() is itself a silent no-op
+            # for a player with no active session; checking first here keeps
+            # that no-op from producing a spurious ConstructionCancelledEvent.
+            if state.construction_session_for(command.player) is not None:
+                state = cancel_construction(state, command.player)
+                events.append(
+                    ConstructionCancelledEvent(
+                        sequence=sequencer.next_sequence(),
+                        player=command.player,
+                        tick=tick,
+                    )
+                )
+        elif isinstance(command, LaunchRobotCommand):
+            if world is None:
+                # Launch requires resolving the owning war base's EXIT
+                # interaction point and folding robot occupancy against a
+                # real WorldMap (see robot_launch.py); with no world
+                # supplied this tick there is nothing to resolve against.
+                # Gameplay-level no-op, exactly like every other unmet-
+                # precondition rejection -- no additional event, matching
+                # this module's own rejection convention.
+                continue
+            launch_result = launch_robot(state, world, command.player, rules)
+            if launch_result.accepted:
+                assert launch_result.state is not None
+                assert launch_result.robot is not None
+                state = launch_result.state
+                events.append(
+                    RobotLaunchedEvent(
+                        sequence=sequencer.next_sequence(),
+                        player=command.player,
+                        robot_id=launch_result.robot.entity_id,
+                        tick=tick,
+                    )
+                )
+
+    # --- Step 9: daily production boundary check ----------------------------
+    if world is not None:
+        state, production_events = apply_daily_production(
+            state, world, starting_tick, tick, rules, sequencer
+        )
+        events.extend(production_events)
 
     new_state = state.with_tick(tick)
     return new_state, order_events(events)
