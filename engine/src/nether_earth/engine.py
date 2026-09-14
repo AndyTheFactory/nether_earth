@@ -107,6 +107,7 @@ def new_game(
     scenario: Scenario,
     players: Iterable[PlayerId] | None = None,
     seed: int = 0,
+    commanders: tuple[Commander, ...] = (),
 ) -> GameState:
     """Construct the deterministic tick-0 ``GameState`` for a new match.
 
@@ -118,6 +119,18 @@ def new_game(
     integer ``seed`` recorded on the resulting state (see the module
     docstring for how/when it is consumed).
 
+    ``commanders`` (added by issue #43, M3.7, additive/backward-compatible
+    following the exact same optional-parameter pattern as ``seed``/
+    ``players``): already-constructed :class:`~nether_earth.commander.Commander`
+    objects to seed onto the resulting tick-0 state, forwarded unchanged to
+    :func:`nether_earth.state.create_game_state`'s own ``commanders``
+    parameter (which validates ownership/uniqueness -- see ``state.py``).
+    Defaults to ``()``, reproducing every prior call site's behavior exactly.
+    This is intentionally *not* commander-spawning logic (it does not derive
+    a starting position from ``map_data.spawn_positions`` or similar) -- that
+    remains out of scope; callers wanting spawn-derived commanders must
+    construct them explicitly before calling this function.
+
     ``map_data`` and ``scenario`` must describe the same map: this is
     validated structurally (``map_id``/``version`` must match
     ``scenario.map_id``/``scenario.map_version``) since a mismatch would make
@@ -128,8 +141,8 @@ def new_game(
     :func:`nether_earth.scenario.initialize_players` rather than
     reimplementing it, and canonical ordering/dedup to
     :func:`nether_earth.state.create_game_state`, so the same
-    ``(map_data, scenario, players, seed)`` always yields a canonical-
-    equivalent ``GameState`` at ``tick == 0``.
+    ``(map_data, scenario, players, seed, commanders)`` always yields a
+    canonical-equivalent ``GameState`` at ``tick == 0``.
     """
     if map_data.map_id != scenario.map_id:
         raise ValueError(
@@ -143,7 +156,7 @@ def new_game(
         )
 
     resolved_players = tuple(initialize_players(scenario)) if players is None else tuple(players)
-    return create_game_state(0, resolved_players, seed=seed)
+    return create_game_state(0, resolved_players, seed=seed, commanders=commanders)
 
 
 def _always_allow_horizontal(
