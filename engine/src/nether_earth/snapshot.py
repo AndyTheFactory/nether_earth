@@ -31,6 +31,13 @@ scope is canonical serialization (proving "equivalent states serialize
 identically and reproducibly"), not a full round-trip loader. ``replay.py``
 does not need one either -- fixtures reconstruct state via
 ``engine.new_game``/``engine.step``, not by deserializing a snapshot.
+
+Commanders (added by issue #37): each entry of ``GameState.commanders`` is
+serialized to a JSON-safe ``dict`` via :func:`_commander_snapshot`, in
+whatever order ``GameState.commanders`` already holds it in -- ``state.py``
+guarantees that order is canonical (sorted by ``player_id.value``) for any
+two dataclass-equal states, matching the ``players`` convention documented
+above.
 """
 
 from __future__ import annotations
@@ -38,6 +45,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from nether_earth.commander import Commander
 from nether_earth.state import GameState
 
 __all__ = [
@@ -46,19 +54,34 @@ __all__ = [
 ]
 
 
+def _commander_snapshot(commander: Commander) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single ``Commander``."""
+    return {
+        "player_id": commander.player_id.to_json(),
+        "mode": commander.mode.value,
+        "x": commander.x,
+        "y": commander.y,
+        "altitude": commander.altitude,
+        "docked_robot_id": (
+            commander.docked_robot_id.to_json() if commander.docked_robot_id is not None else None
+        ),
+    }
+
+
 def to_snapshot(state: GameState) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of ``state``.
 
     The result contains only ``dict``/``list``/``str``/``int``/``bool``/
     ``None`` values, with a fixed key insertion order (``tick``, ``players``,
-    ``seed``). Two dataclass-equal ``GameState`` instances always produce an
-    identical snapshot; two states that differ in any field produce a
-    detectably different snapshot.
+    ``seed``, ``commanders``). Two dataclass-equal ``GameState`` instances
+    always produce an identical snapshot; two states that differ in any
+    field produce a detectably different snapshot.
     """
     return {
         "tick": state.tick,
         "players": [player.to_json() for player in state.players],
         "seed": state.seed,
+        "commanders": [_commander_snapshot(commander) for commander in state.commanders],
     }
 
 
