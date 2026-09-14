@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from nether_earth import snapshot
-from nether_earth.commander import Commander, CommanderMode
+from nether_earth.commander import Commander, CommanderMode, GridTransition, VerticalTransition
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.snapshot import snapshot_to_json_string, to_snapshot
 from nether_earth.state import GameState, create_game_state
@@ -163,12 +163,57 @@ def test_commander_snapshot_round_trips_all_fields() -> None:
     assert commanders[0]["y"] == 2
     assert commanders[0]["altitude"] == 12
     assert commanders[0]["docked_robot_id"] is None
+    assert commanders[0]["rising"] is False
+    assert commanders[0]["horizontal_transition"] is None
+    assert commanders[0]["vertical_transition"] is None
     assert commanders[1]["player_id"] == "p2"
     assert commanders[1]["mode"] == "docked"
     assert commanders[1]["x"] == 5
     assert commanders[1]["y"] == 6
     assert commanders[1]["altitude"] == 0
     assert commanders[1]["docked_robot_id"] == "robot-7"
+    assert commanders[1]["rising"] is False
+    assert commanders[1]["horizontal_transition"] is None
+    assert commanders[1]["vertical_transition"] is None
+
+
+def test_commander_snapshot_includes_movement_fields() -> None:
+    transitioning = Commander(
+        player_id=PLAYER_ONE,
+        mode=CommanderMode.FREE,
+        x=1,
+        y=1,
+        altitude=4,
+        rising=True,
+        horizontal_transition=GridTransition(
+            from_x=1, from_y=1, to_x=2, to_y=1, started_tick=3, duration_ticks=4
+        ),
+        vertical_transition=VerticalTransition(
+            from_altitude=2, to_altitude=4, started_tick=2, duration_ticks=4
+        ),
+    )
+    state = create_game_state(3, [PLAYER_ONE], seed=1, commanders=[transitioning])
+
+    result = to_snapshot(state)
+    commander_snapshot = result["commanders"][0]
+
+    assert commander_snapshot["rising"] is True
+    assert commander_snapshot["horizontal_transition"] == {
+        "from_x": 1,
+        "from_y": 1,
+        "to_x": 2,
+        "to_y": 1,
+        "started_tick": 3,
+        "duration_ticks": 4,
+    }
+    assert commander_snapshot["vertical_transition"] == {
+        "from_altitude": 2,
+        "to_altitude": 4,
+        "started_tick": 2,
+        "duration_ticks": 4,
+    }
+    # Round-trips cleanly through the stdlib json encoder.
+    assert json.loads(json.dumps(result)) == result
 
 
 def test_commander_snapshot_is_json_safe_and_stable() -> None:

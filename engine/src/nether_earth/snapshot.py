@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from nether_earth.commander import Commander
+from nether_earth.commander import Commander, GridTransition, VerticalTransition
 from nether_earth.state import GameState
 
 __all__ = [
@@ -54,8 +54,43 @@ __all__ = [
 ]
 
 
+def _grid_transition_snapshot(transition: GridTransition | None) -> dict[str, Any] | None:
+    """Return a canonical, JSON-safe snapshot of a single ``GridTransition``, or ``None``."""
+    if transition is None:
+        return None
+    return {
+        "from_x": transition.from_x,
+        "from_y": transition.from_y,
+        "to_x": transition.to_x,
+        "to_y": transition.to_y,
+        "started_tick": transition.started_tick,
+        "duration_ticks": transition.duration_ticks,
+    }
+
+
+def _vertical_transition_snapshot(
+    transition: VerticalTransition | None,
+) -> dict[str, Any] | None:
+    """Return a canonical, JSON-safe snapshot of a single ``VerticalTransition``, or ``None``."""
+    if transition is None:
+        return None
+    return {
+        "from_altitude": transition.from_altitude,
+        "to_altitude": transition.to_altitude,
+        "started_tick": transition.started_tick,
+        "duration_ticks": transition.duration_ticks,
+    }
+
+
 def _commander_snapshot(commander: Commander) -> dict[str, Any]:
-    """Return a canonical, JSON-safe snapshot of a single ``Commander``."""
+    """Return a canonical, JSON-safe snapshot of a single ``Commander``.
+
+    Extended by issue #42 (M3.6) to also serialize the movement fields added
+    by issue #38 (``rising``, ``horizontal_transition``, ``vertical_transition``)
+    -- new keys are appended after the existing #37 keys so any existing
+    snapshot-shape test that checks key order can be extended additively
+    rather than reshuffled.
+    """
     return {
         "player_id": commander.player_id.to_json(),
         "mode": commander.mode.value,
@@ -65,6 +100,9 @@ def _commander_snapshot(commander: Commander) -> dict[str, Any]:
         "docked_robot_id": (
             commander.docked_robot_id.to_json() if commander.docked_robot_id is not None else None
         ),
+        "rising": commander.rising,
+        "horizontal_transition": _grid_transition_snapshot(commander.horizontal_transition),
+        "vertical_transition": _vertical_transition_snapshot(commander.vertical_transition),
     }
 
 

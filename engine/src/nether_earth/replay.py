@@ -35,9 +35,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from nether_earth import engine
+from nether_earth.collision import RobotFixture
 from nether_earth.commands import Command
 from nether_earth.events import Event, order_events
-from nether_earth.map import BootstrapMap
+from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.scenario import Scenario
 from nether_earth.state import GameState
 
@@ -66,6 +67,14 @@ class ReplayFixture:
     - ``tick_count``: exactly how many ``engine.step`` calls :func:`run_fixture`
       performs. Explicit rather than inferred from
       ``max(commands_by_tick)`` (see module docstring).
+    - ``world``/``robots`` (added by issue #42, M3.6): passed straight
+      through to every ``engine.step`` call this fixture drives, matching
+      the optional, backward-compatible parameters #42 added to
+      ``engine.step`` itself. ``world`` defaults to ``None`` (no collision
+      checks applied to any commander, matching every pre-#42 fixture's
+      behavior unchanged) and ``robots`` defaults to ``()``. This is
+      required groundwork for issue #43's full commander scenario replay
+      against a real map/collision setup.
     """
 
     scenario: Scenario
@@ -73,6 +82,8 @@ class ReplayFixture:
     seed: int
     tick_count: int
     commands_by_tick: Mapping[int, tuple[Command, ...]] = field(default_factory=dict)
+    world: WorldMap | None = None
+    robots: tuple[RobotFixture, ...] = ()
 
     def __post_init__(self) -> None:
         if self.tick_count < 0:
@@ -115,7 +126,9 @@ def run_fixture(fixture: ReplayFixture) -> tuple[GameState, tuple[Event, ...]]:
     all_events: list[Event] = []
     for tick in range(1, fixture.tick_count + 1):
         commands = fixture.commands_by_tick.get(tick, ())
-        state, tick_events = engine.step(state, commands)
+        state, tick_events = engine.step(
+            state, commands, world=fixture.world, robots=fixture.robots
+        )
         all_events.extend(order_events(tick_events))
 
     return state, tuple(all_events)
