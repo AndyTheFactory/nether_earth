@@ -2,96 +2,537 @@
 
 ## Goal
 
-Implement authoritative weapon firing, projectile lifecycle, nuclear detonation, damage/strength handling, destruction, and victory evaluation.
+Implement the authoritative deterministic combat layer: weapon eligibility and firing, the single-active-normal-projectile channel, projectile simulation/collision/lifecycle, robot hit/damage/strength resolution, autonomous engagement consumption, nuclear detonation, structure destruction, and victory evaluation.
 
-Milestone 6 consumes the canonical robot component/module catalog from Milestone 4 and the target-selection/engagement-intent contract from Milestone 5. It must not create a duplicate weapon/component catalog or reimplement navigation decisions.
+Milestone 6 consumes contracts established by earlier milestones rather than redefining them:
+
+- M2 owns world geometry, component/cell heights, structure identity, interaction metadata, and occupancy;
+- M3 owns commander physical collision and the rule that commanders are indestructible/untargetable;
+- M4 owns canonical robot/module identity, construction cost, component stack, and robot height;
+- M5 owns robot movement, target selection, navigation, capture, and engagement intent.
+
+M6 must not create a second weapon/module catalog, a second target-selection system, or viewport-dependent gameplay rules.
+
+## Planning status
+
+This milestone is intentionally specified before M5 implementation is complete.
+
+Implementation may start only where upstream contracts are stable. Research tasks may start earlier. Any task that depends on unresolved projectile/damage fidelity must preserve a clean rule interface and must not silently invent Spectrum behavior.
 
 ## Spec references
 
-- `_specs/functional-spec.md` §18–§19 and victory rules
-- `_specs/technical-spec.md` weapon/projectile/damage/victory sections
-- `_specs/open-questions.md` §3, §8, §9
+- `_specs/functional-spec.md` combat, damage, nuclear, and victory sections
+- `_specs/technical-spec.md` weapon/projectile/damage/nuclear/victory sections
+- `_specs/open-questions.md` §8 — projectile mechanics (partially resolved)
+- `_specs/open-questions.md` §9 — damage/accuracy/electronics (partially resolved)
+- `_specs/open-questions.md` §3 — miles/grid conversion (resolved)
+- `https://github.com/santiontanon/netherearth-disassembly`
 
 ## Start dependencies
 
-- Milestone 4 canonical robot composition, component identity, and height contract.
-- Milestone 5 movement/range, ownership, target-selection, and engagement-intent contracts.
+Architecture/contracts can be prepared when:
 
-## Completion dependencies
+- M4 canonical module/build/height contract is stable;
+- M5 engagement-intent contract is stable enough to consume without duplicating target selection.
 
-- Milestones 4 and 5 complete for all combat-facing behavior consumed by this milestone.
+Full completion requires M5 movement/orders/navigation/capture integration complete.
 
 ## Deliverable
 
-A deterministic combat subsystem that validates fire commands, enforces the single-active-normal-projectile gate, advances projectiles by authoritative world rules, performs height-aware collisions, resolves damage/destruction, executes nuclear area effects, updates ownership/war-base counts where applicable, consumes autonomous engagement intent, and declares victory when a player owns zero war bases.
+A pure-engine combat subsystem that:
 
-## Workstreams and candidate tasks
+1. receives explicit human fire requests or M5 autonomous engagement intent;
+2. validates fitted weapon, target/range/state, and firing-channel legality;
+3. creates/advances authoritative normal projectiles or executes a nuclear detonation;
+4. resolves world/height collision deterministically;
+5. computes hit/damage/strength using centralized evidence-backed rules;
+6. destroys robots/structures according to locked destruction rules;
+7. clears occupancy/references/projectiles atomically;
+8. evaluates victory in the same authoritative step when war-base existence/ownership reaches the loss condition;
+9. emits deterministic events and is fully snapshot/replay-safe.
 
-### Combat metadata on canonical modules
-Attach or consume combat properties for the weapon identities established in Milestone 4, including range, lethality, projectile behavior, and electronics modifiers. Construction costs/resource requirements remain owned by Milestone 4 and must not be duplicated.
+---
 
-### Fire command and active projectile gate
-Validate fitted weapons, interaction state, firing legality, autonomous engagement intent, and the rule that only one normal projectile may remain active for a robot at a time.
+## Locked combat rules
 
-### Projectile simulation
-Implement deterministic projectile position/lifecycle, world/height collision, hit/crash/expiry semantics, and ordered events.
+### Canonical weapon identities
 
-### Damage and strength
-Implement the verified accuracy, damage, resistance, and robot-strength rules. Any component-level damage behavior must be evidence-backed.
+Consume the M4 weapon identities exactly:
 
-### Autonomous combat resolution
-Connect Milestone 5 target/engagement decisions to firing eligibility and combat resolution. Navigation and target-selection policy remain owned by Milestone 5.
+- cannon
+- missile
+- phaser
+- nuclear
 
-### Nuclear detonation
-Implement the nuke as a special area detonation: destroy eligible entities in the verified 8-mile radius and destroy the carrier. Factories/war bases are destroyable only by nuclear weapons.
+Construction cost/resource metadata remains owned by M4. M6 adds/consumes combat metadata keyed by those identities.
 
-### Destruction and victory
-Remove/destroy entities deterministically and evaluate victory immediately after any event capable of reducing a player's owned war-base count to zero.
+### Miles-to-cells conversion
+
+Locked shared conversion:
+
+```text
+1 mile = 2 cells
+1 cell = 0.5 miles
+```
+
+Canonical default ranges/effects:
+
+```text
+cannon base range     = 10 miles = 20 cells
+missile base range    = 14 miles = 28 cells
+phaser base range     = 10 miles = 20 cells
+electronics range add =  3 miles =  6 cells
+nuclear radius        =  8 miles = 16 cells
+```
+
+M6 must call the same shared conversion/helper used by M5. No duplicate conversion arithmetic.
+
+### Normal projectile altitude
+
+Cannon, missile, and phaser projectiles use authoritative altitude:
+
+```text
+normal_projectile_altitude = 10
+```
+
+This is the original Spectrum default and must live in centralized game-rule configuration.
+
+Normal projectile altitude:
+
+- is identical for cannon/missile/phaser;
+- does not depend on firing robot height;
+- does not depend on which normal weapon fired;
+- participates in height-aware collision against authoritative world/entity geometry.
+
+### Single active normal projectile channel
+
+Per robot:
+
+- cannon/missile/phaser share one normal-projectile channel;
+- a robot may have at most one active normal projectile;
+- another normal fire request is rejected while that projectile remains active;
+- there are no independent per-weapon cooldown channels unless later authoritative evidence explicitly requires one.
+
+Nuclear detonation is separate from this travelling-projectile channel.
+
+### Commander interaction
+
+Commanders:
+
+```text
+can_be_targeted = false
+can_take_damage = false
+can_be_destroyed = false
+```
+
+Combat may use commander geometry as physical world geometry only where already defined by M3. M6 must never damage or destroy a commander.
+
+### Damage formula
+
+Locked normal-weapon base-damage rule:
+
+```text
+base_damage = (60 - (robot_height + ground_height)) / 4
+```
+
+Configured default weapon multipliers:
+
+```text
+cannon  = 2
+missile = 3
+phaser  = 4
+```
+
+The implementation must isolate this behind a named engine rule function. Exact integer arithmetic/truncation semantics remain fidelity research until verified.
+
+### Nuclear destruction
+
+Nuclear weapon behavior is a special discrete detonation, not a normal projectile.
+
+Locked default radius:
+
+```text
+8 miles = 16 cells
+```
+
+On valid detonation:
+
+- the carrier robot is destroyed;
+- eligible robots inside the authoritative radius are destroyed;
+- eligible factories inside the authoritative radius are destroyed;
+- eligible war bases inside the authoritative radius are destroyed;
+- factories and war bases cannot be destroyed by cannon/missile/phaser;
+- commander entities are unaffected;
+- destruction and victory consequences resolve deterministically in the same authoritative engine step/event sequence.
+
+The exact radius boundary metric/inclusion rule must be evidence-backed or explicitly centralized/configurable if not yet verified.
+
+### Victory
+
+Locked loss condition:
+
+```text
+owned_warbase_count(player) == 0 -> player loses
+```
+
+Victory must be evaluated after every authoritative event that can change war-base ownership or existence, including:
+
+- M5 war-base capture;
+- M6 nuclear destruction.
+
+M6 must reuse the same victory rule/function used by M5 capture integration, not create a competing definition.
+
+---
+
+## Proposed engine contracts
+
+Names are illustrative; exact code naming may follow the implemented engine style.
+
+### Combat rule data
+
+One centralized rule object should expose combat-facing defaults, for example:
+
+```python
+CombatRules:
+    normal_projectile_altitude: int = 10
+    cannon_range_cells: int = 20
+    missile_range_cells: int = 28
+    phaser_range_cells: int = 20
+    electronics_range_bonus_cells: int = 6
+    nuclear_radius_cells: int = 16
+    cannon_damage_multiplier: int = 2
+    missile_damage_multiplier: int = 3
+    phaser_damage_multiplier: int = 4
+    # research-owned fields below once verified:
+    projectile_step_ticks: ...
+    projectile_step_distance: ...
+    hit_accuracy_rules: ...
+    electronics_accuracy_modifier: ...
+    electronics_resistance_modifier: ...
+```
+
+Unverified values must not be assigned fake "Spectrum" defaults.
+
+### Fire request/result boundary
+
+Conceptually:
+
+```python
+FireRequest:
+    robot_id
+    weapon_type
+    target/direction as required by verified control model
+
+FireResult:
+    accepted
+    rejection_reason | None
+    projectile_id | None
+    events
+```
+
+Validation must be engine-owned and deterministic.
+
+Expected rejection classes include at least:
+
+- robot does not exist / destroyed;
+- requester does not control robot;
+- weapon not fitted;
+- target/aim invalid under resolved rules;
+- normal projectile channel already occupied;
+- target/range invalid where range is checked at fire time;
+- nuclear-specific invalid state.
+
+### Normal projectile state
+
+Conceptually:
+
+```python
+Projectile:
+    id
+    owner_player_id
+    source_robot_id
+    weapon_type
+    x
+    y
+    z = normal_projectile_altitude
+    direction / path state
+    travelled_range
+    max_range
+    created_tick
+```
+
+Only fields required by authoritative rules should be stored. Derived values should remain derived when practical.
+
+### Combat event order
+
+For a projectile/hit step, preserve a stable deterministic ordering such as:
+
+```text
+validate fire
+-> create projectile / reserve channel
+-> advance projectile on eligible ticks
+-> determine collision/termination
+-> resolve hit/accuracy if applicable
+-> calculate/apply damage
+-> destroy entity if threshold reached
+-> clear occupancy/references/channel
+-> evaluate victory if war-base state changed
+-> emit ordered events
+```
+
+Exact implementation may differ, but ordering must be explicit and tested because replay hashes/events depend on it.
+
+### Destruction service
+
+Destruction should be centralized so projectile damage and nuclear effects cannot leave different cleanup semantics.
+
+A robot destruction path must consider:
+
+- authoritative destroyed/alive state;
+- world occupancy release;
+- movement reservation release;
+- active projectile ownership/channel semantics;
+- current order/target/capture references;
+- docked commander state if applicable (must resolve according to already locked commander safety rules, without damage);
+- replay/event emission.
+
+A structure destruction path must consider:
+
+- structure destroyed/existence state;
+- physical occupancy/components;
+- ownership counts;
+- capture state cleanup;
+- production eligibility;
+- victory evaluation for war bases.
+
+No task should independently "delete an entity" without using the shared destruction semantics.
+
+---
+
+## Fidelity research boundaries
+
+### Projectile mechanics — unresolved details
+
+Research must determine from Spectrum evidence where possible:
+
+- projectile advance cadence relative to original game cycles;
+- cells/sub-cells advanced per update;
+- whether cannon/missile/phaser share speed;
+- projectile collision footprint/profile;
+- exact collision ordering when multiple colliders are possible;
+- how projectile Z=10 intersects robots of varying stack height and static components;
+- whether projectiles collide with all static objects or only particular map/object classes;
+- what exactly terminates projectile life in the original;
+- whether maximum range or visible-screen departure is the primary expiry rule;
+- how original screen-relative logic should map to the browser/world model without making viewport size authoritative.
+
+Until resolved, projectile architecture may be implemented behind configurable policies, but browser viewport dimensions must never influence engine projectile lifetime.
+
+### Damage / accuracy / strength / electronics — unresolved details
+
+Research must determine where possible:
+
+- exact integer arithmetic for `(60 - (robot_height + ground_height)) / 4`;
+- order of multiplier application and truncation;
+- exact robot strength representation and starting strength;
+- hit/miss probability calculation;
+- range contribution to hit probability;
+- whether a successful projectile collision can still miss through an accuracy roll;
+- whether components are damaged individually or only aggregate robot strength;
+- electronics accuracy/effective-range behavior beyond the already locked +3-mile nominal range statement;
+- electronics damage-resistance modifier;
+- any weapon-specific accuracy behavior.
+
+No component-damage system or electronics modifier may be invented without evidence/owner approval.
+
+---
+
+## Workstreams
+
+### 1. Canonical combat metadata and rule interfaces
+
+Extend/associate combat metadata with M4 canonical weapon identities. Centralize ranges, projectile altitude, multipliers, nuclear radius, and research-owned policy hooks.
+
+### 2. Fire validation and projectile-channel state
+
+Implement explicit/direct and autonomous fire eligibility, fitted-weapon checks, normal projectile channel ownership, stable rejection reasons, and projectile creation boundary.
+
+### 3. Projectile fidelity research
+
+Trace Spectrum disassembly and supporting evidence; update open questions/spec with resolved projectile timing/collision/expiry semantics.
+
+### 4. Projectile simulation and collision
+
+Implement deterministic advancement, height-aware world collision, range/lifetime termination, and active-channel release using the resolved/configured projectile policy.
+
+### 5. Damage/accuracy/electronics fidelity research
+
+Trace and document arithmetic, strength, hit probability, electronics effects, and any component-damage semantics.
+
+### 6. Robot damage, strength, and destruction
+
+Implement centralized damage application and robot destruction using only resolved rules. Consume M4 canonical robot height and M2/M5 state cleanup contracts.
+
+### 7. M5 engagement-intent consumption
+
+Translate Stop & Defend/Search & Destroy engagement intent into fire attempts without moving target selection/navigation into M6.
+
+### 8. Nuclear detonation and structure destruction
+
+Implement the area effect, carrier destruction, eligible entity enumeration, structure destruction, occupancy cleanup, and deterministic event ordering.
+
+### 9. Victory/destruction integration
+
+Ensure war-base destruction/capture uses one loss/victory function and resolves on the exact authoritative step.
+
+### 10. Snapshot/replay integration
+
+Serialize/restore projectiles, fire-channel state, strength/damage state, destruction state, and any authoritative combat RNG/policy state required for exact replay.
+
+### 11. Milestone integration scenario
+
+Exercise direct and autonomous combat, obstruction/height cases, projectile gating, normal damage/destruction, nuclear destruction, and final-war-base victory with repeated replay/hash equality.
+
+---
 
 ## Parallelization
 
-Combat metadata/fire validation, damage model, autonomous combat integration, and nuclear rules can be built in parallel after shared combat/event contracts are agreed. Projectile integration depends on resolved movement/range/world collision data. Victory logic may be developed independently against ownership fixtures.
+Safe early parallel work once M4/M5 identities/contracts are stable enough:
+
+```text
+A: combat metadata/rule interfaces
+B: projectile fidelity research
+C: damage/electronics fidelity research
+D: victory/destruction service contract
+```
+
+After combat metadata/fire interface stabilizes:
+
+```text
+fire/channel ──► projectile simulation
+              └► autonomous engagement integration
+
+research damage ──► damage/strength/destruction
+
+nuclear/destruction can proceed against shared destruction/victory contracts
+```
+
+Snapshot/replay integration is the convergence point. The deterministic M6 scenario is the final gate.
+
+Avoid parallel branches independently editing canonical module identity, robot stack/height, target selection, or entity destruction semantics.
+
+---
 
 ## Acceptance criteria
 
-- Only fitted/eligible weapons can fire.
-- Weapon identities and construction costs come from the Milestone 4 canonical component catalog rather than a duplicate catalog.
-- A robot cannot fire a second normal weapon while its active projectile exists.
-- Projectiles use authoritative simulation/world rules, never browser viewport dimensions.
-- Height-aware collision uses canonical entity/component heights.
-- Resolved accuracy/damage/electronics resistance rules are centralized and deterministic.
-- Stop & Defend/Search & Destroy engagement intent from Milestone 5 can resolve into actual deterministic firing/combat.
-- Nuclear detonation applies the verified radius and destroys its carrier.
-- Non-nuclear weapons cannot destroy factories/war bases.
-- Destruction emits deterministic events and leaves valid occupancy/state.
-- Victory triggers exactly when the opponent owns zero war bases.
+### Fire/channel
+
+- Only fitted and eligible weapons may be fired.
+- A robot cannot create a second normal projectile while its active normal projectile exists.
+- Nuclear behavior does not accidentally occupy/use the normal travelling-projectile lifecycle unless verified evidence requires it.
+- Rejected fire attempts have no partial state mutation.
+
+### Range/geometry
+
+- Shared `1 mile = 2 cells` conversion is reused.
+- Default normal ranges are 20/28/20 cells for cannon/missile/phaser.
+- Electronics nominal range addition is 6 cells where the resolved combat rule applies.
+- Nuclear default radius is 16 cells.
+- Normal projectile altitude defaults to 10.
+- Collision consumes M2/M4 canonical geometry/height data.
+
+### Projectile lifecycle
+
+- Projectile simulation is fixed-tick and deterministic.
+- Projectile lifetime is a world/game rule, never browser viewport size.
+- Collision/termination releases the source robot's normal-projectile channel exactly once.
+- Snapshot/replay can restore an in-flight projectile exactly.
+
+### Damage/destruction
+
+- The locked base-damage expression and 2/3/4 multipliers are centralized.
+- Integer semantics and all unresolved modifiers are evidence-backed before being called Spectrum-faithful.
+- Destroyed robots release/clean all authoritative references consistently.
+- Normal weapons cannot destroy factories/war bases.
+- Commander entities remain untargetable and indestructible.
+
+### Nuclear/victory
+
+- Nuclear detonation destroys the carrier and eligible entities inside the authoritative radius.
+- Structure destruction cleans occupancy/capture/production state deterministically.
+- War-base destruction immediately updates the owned-war-base count.
+- Victory is evaluated in the same engine step and emits one stable result.
+
+### Autonomous integration
+
+- M5 engagement intent can trigger combat without M6 reselecting targets or replanning movement.
+- Target loss/invalidity produces deterministic no-fire/rejection behavior rather than stale damage.
+
+### Determinism
+
+- Same initial state + seed + accepted commands produces identical projectiles, hit/damage results, destruction order, events, match result, and final hash.
+
+---
 
 ## Milestone integration scenario
 
-Construct robots with several weapon configurations on a fixed fixture map. Exercise direct fire and Milestone 5 autonomous engagement intent, fire normal weapons through clear and obstructed paths, verify the active-projectile gate and damage, then trigger a nuke near robots/structures. Finally destroy/capture the last enemy war base and assert the exact victory tick/event. Replay to identical state/events.
+On a compact deterministic M2–M5 fixture:
+
+1. create robots with cannon, missile, phaser, electronics, and nuclear configurations;
+2. verify fitted-weapon validation and rejection of absent weapons;
+3. fire a normal projectile and verify a second normal shot is rejected until lifecycle completion;
+4. verify projectile altitude 10 and configured range limits;
+5. exercise clear-path and obstructed-path projectile termination at several static/robot heights;
+6. verify direct fire and M5 autonomous engagement use the same combat path;
+7. apply normal damage to robots and exercise destruction cleanup;
+8. verify commanders are unaffected/unselectable as damage targets;
+9. verify normal weapons cannot destroy factories/war bases;
+10. detonate a nuke near multiple robots/structures and verify radius boundary, carrier destruction, cleanup, and ordered events;
+11. destroy the opponent's final owned war base and verify victory occurs on the exact same authoritative step;
+12. replay identical initial state/seed/commands repeatedly and assert identical events/state/hash.
+
+If projectile or damage fidelity research remains partially unresolved, the scenario must explicitly name the configured policy/default used and must not label it exact Spectrum behavior.
+
+---
 
 ## Out of scope
 
-- Browser combat UI/effects.
-- Navigation/pathfinding or target-selection policy already owned by Milestone 5.
-- Construction cost/resource policy already owned by Milestone 4.
-- Network latency/reconciliation.
-- Match creation/join/reconnect.
+- Construction/resource spending (M4).
+- Robot movement/navigation/target-selection policy (M5).
+- Browser combat controls, VFX, sound, HUD, interpolation (M8).
+- Network transport/latency/reconciliation (M7).
+- Commander damage/destruction (does not exist in v1 rules).
+- Modernized cooldown systems, ammo systems, splash damage, critical hits, status effects, or other combat mechanics not supported by original evidence.
 
-## Open questions / blockers
+---
 
-Final implementation depends on resolving:
+## Human review / hard-stop rules
 
-- miles-to-grid conversion if not already resolved (§3);
-- exact projectile mechanics (§8);
-- damage, accuracy, strength, and electronics-resistance formulas (§9).
+Human review is required before merging behavior that:
 
-These are hard decision boundaries. Research agents may gather evidence and recommendations; implementation agents must not invent formulas or viewport-derived projectile expiry. Conflicting evidence requires owner review and a spec update before merge.
+- chooses an unresolved projectile speed/collision/expiry rule and labels it canonical;
+- chooses unresolved hit probability, strength, electronics resistance, or component-damage semantics;
+- changes the locked `1 mile = 2 cells` conversion;
+- changes projectile altitude 10;
+- changes normal projectile single-channel behavior;
+- allows normal weapons to destroy factories/war bases;
+- makes commanders damageable/targetable;
+- changes nuclear radius from the configured 8-mile default as the canonical Spectrum rule;
+- changes the victory condition;
+- duplicates M4 weapon identity or M5 target-selection/navigation logic;
+- introduces viewport-dependent projectile expiry.
+
+Research findings that contradict current locked rules must be surfaced to the owner before code/spec changes.
+
+---
 
 ## Definition of done
 
-- All milestone issues are closed by merged PRs.
-- Combat/nuclear/victory scenario passes deterministically.
-- All behavior-defining combat questions used by code are resolved in authoritative specs.
-- Regression fixtures cover representative firing, autonomous engagement, destruction, and victory edge cases.
-- Combat consumes M4/M5 contracts without duplicating component or navigation logic.
+- All M6 task issues are closed by merged PRs.
+- Combat consumes M2–M5 contracts without duplicating their responsibilities.
+- Fire/channel/projectile/damage/destruction/nuclear/victory paths are deterministic pure-engine code.
+- All behavior-defining fidelity questions used as canonical defaults are resolved in authoritative specs, or explicitly documented as configurable/non-canonical if still uncertain.
+- Snapshot/replay reproduces in-flight projectiles and combat outcomes exactly.
+- M6 integration scenario passes repeatedly with identical state/events/hash.
+- M7 can expose combat commands/events without implementing combat rules.
+- M8 can render combat state/effects without calculating authoritative outcomes.
