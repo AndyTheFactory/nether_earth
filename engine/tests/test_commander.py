@@ -103,3 +103,67 @@ def test_create_commander_honors_custom_rules_override() -> None:
 def test_create_commander_still_enforces_mode_invariants() -> None:
     with pytest.raises(ValueError):
         create_commander(PLAYER_ONE, CommanderMode.DOCKED, 0, 0, altitude=0)
+
+
+# --------------------------------------------------------------------------
+# with_docking (issue #40)
+# --------------------------------------------------------------------------
+
+
+def test_with_docking_transitions_free_to_docked() -> None:
+    commander = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=1, y=2, altitude=4)
+    robot_id = EntityId("robot-1")
+
+    docked = commander.with_docking(CommanderMode.DOCKED, robot_id)
+
+    assert docked.mode is CommanderMode.DOCKED
+    assert docked.docked_robot_id == robot_id
+    # every other field carried over unchanged
+    assert docked.player_id == commander.player_id
+    assert docked.x == commander.x
+    assert docked.y == commander.y
+    assert docked.altitude == commander.altitude
+    assert docked.rising == commander.rising
+    assert docked.horizontal_transition == commander.horizontal_transition
+    assert docked.vertical_transition == commander.vertical_transition
+
+
+def test_with_docking_transitions_docked_to_free() -> None:
+    robot_id = EntityId("robot-1")
+    commander = Commander(
+        player_id=PLAYER_ONE,
+        mode=CommanderMode.DOCKED,
+        x=1,
+        y=2,
+        altitude=4,
+        docked_robot_id=robot_id,
+        rising=True,
+    )
+
+    freed = commander.with_docking(CommanderMode.FREE, None)
+
+    assert freed.mode is CommanderMode.FREE
+    assert freed.docked_robot_id is None
+    assert freed.rising == commander.rising
+    assert freed.x == commander.x
+    assert freed.y == commander.y
+    assert freed.altitude == commander.altitude
+
+
+def test_with_docking_rejects_inconsistent_mode_and_robot_id() -> None:
+    commander = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=0, y=0, altitude=0)
+
+    with pytest.raises(ValueError):
+        commander.with_docking(CommanderMode.DOCKED, None)
+
+    with pytest.raises(ValueError):
+        commander.with_docking(CommanderMode.FREE, EntityId("robot-1"))
+
+
+def test_with_docking_does_not_mutate_original() -> None:
+    commander = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=0, y=0, altitude=0)
+
+    commander.with_docking(CommanderMode.DOCKED, EntityId("robot-1"))
+
+    assert commander.mode is CommanderMode.FREE
+    assert commander.docked_robot_id is None
