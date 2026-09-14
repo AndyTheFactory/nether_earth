@@ -277,6 +277,42 @@ class Commander:
             vertical_transition=transition,
         )
 
+    def with_docking(
+        self, mode: "CommanderMode", docked_robot_id: EntityId | None
+    ) -> "Commander":
+        """Return a new ``Commander`` with ``mode``/``docked_robot_id`` replaced.
+
+        Added by issue #40 (M3.4, docking/undocking) following the exact
+        same "explicit named transition, all other fields carried over
+        unchanged" pattern as the other ``with_*`` methods above. This is
+        the only supported way to change a commander's docking state:
+        callers must not construct a new ``Commander`` by hand for a mode
+        change, since :meth:`__post_init__` enforces the FREE/DOCKED
+        invariant on the *new* object and every other field (position,
+        altitude, rising intent, in-progress transitions) must survive a
+        dock/undock transition unchanged -- ``docking.py`` (issue #40) is
+        responsible for separately updating position/altitude (e.g. via
+        :meth:`with_position`/:meth:`with_altitude`) when a dock/undock also
+        moves the commander, rather than this method silently doing so.
+
+        ``mode``/``docked_robot_id`` together must satisfy the same
+        structural invariant as direct construction (``DOCKED`` requires a
+        non-``None`` id, ``FREE`` requires ``None``); passing an
+        inconsistent pair raises ``ValueError`` via ``__post_init__``, same
+        as constructing an invalid ``Commander`` directly.
+        """
+        return Commander(
+            player_id=self.player_id,
+            mode=mode,
+            x=self.x,
+            y=self.y,
+            altitude=self.altitude,
+            docked_robot_id=docked_robot_id,
+            rising=self.rising,
+            horizontal_transition=self.horizontal_transition,
+            vertical_transition=self.vertical_transition,
+        )
+
 
 def create_commander(
     player_id: PlayerId,
