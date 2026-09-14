@@ -28,6 +28,20 @@ not fully closed. It is therefore represented as a named, documented,
 overridable configuration constant (not a bare literal inlined at call
 sites) precisely so that later evidence can correct it in one place without
 an architecture change, rather than being silently treated as ground truth.
+
+Issue #39 (`_specs/milestones/03-commander-movement-docking.md`, M3.3) adds
+``commander_height``: none of `_specs/functional-spec.md` §8,
+`_specs/technical-spec.md` §9, or `_specs/open-questions.md` §12-§14 give the
+commander an explicit physical vertical extent in altitude units -- they
+describe the collision *rules* (height-aware, vertical-range overlap) but
+not a concrete height constant. Height-aware collision cannot be implemented
+against a zero-thickness point, so this field supplies a documented,
+overridable default (``4``, deliberately small relative to the 0..48
+altitude envelope and the +2/-1 step sizes) rather than silently hardcoding
+an unverified number inside ``collision.py``. Like
+``commander_vertical_update_ticks``, this is a "documented default, not
+independently verified" constant: later Spectrum sprite-geometry evidence
+may correct it in this one place without an architecture change.
 """
 
 from dataclasses import dataclass
@@ -61,6 +75,13 @@ class EngineRules:
     - ``commander_descent_step``: altitude lost per vertical update while
       descending/falling (locked Spectrum default ``1``; intentionally
       asymmetric with ascent per `_specs/open-questions.md` §13).
+    - ``commander_height``: the commander's physical vertical extent, in the
+      same altitude units as ``commander_min_altitude``/``commander_max_altitude``,
+      used by height-aware collision (`collision.py`, issue #39) to turn an
+      ``altitude`` scalar into an occupied vertical range
+      ``[altitude, altitude + commander_height)``. Documented default ``4``,
+      not independently verified against Spectrum sprite geometry -- see the
+      module docstring.
     """
 
     commander_min_altitude: int = 0
@@ -68,6 +89,7 @@ class EngineRules:
     commander_vertical_update_ticks: int = 4
     commander_ascent_step: int = 2
     commander_descent_step: int = 1
+    commander_height: int = 4
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -80,6 +102,8 @@ class EngineRules:
             raise ValueError("commander_ascent_step must be a positive integer")
         if self.commander_descent_step <= 0:
             raise ValueError("commander_descent_step must be a positive integer")
+        if self.commander_height <= 0:
+            raise ValueError("commander_height must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should
