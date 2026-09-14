@@ -8,7 +8,8 @@ import json
 from pathlib import Path
 
 from nether_earth import snapshot
-from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, PlayerId
+from nether_earth.commander import Commander, CommanderMode
+from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.snapshot import snapshot_to_json_string, to_snapshot
 from nether_earth.state import GameState, create_game_state
 
@@ -100,7 +101,7 @@ def test_snapshot_key_order_is_fixed() -> None:
 
     result = to_snapshot(state)
 
-    assert list(result.keys()) == ["tick", "players", "seed"]
+    assert list(result.keys()) == ["tick", "players", "seed", "commanders"]
 
 
 def test_arbitrary_player_id_serializes_via_to_json_not_reimplemented() -> None:
@@ -129,3 +130,77 @@ def test_module_does_not_reference_network_or_frontend_apis() -> None:
 def test_to_snapshot_return_type_is_plain_dict() -> None:
     state: GameState = create_game_state(0, [PLAYER_ONE, PLAYER_TWO], seed=0)
     assert type(to_snapshot(state)) is dict
+
+
+def test_commanders_default_to_empty_list_in_snapshot() -> None:
+    state = create_game_state(0, [PLAYER_ONE, PLAYER_TWO], seed=0)
+
+    result = to_snapshot(state)
+
+    assert result["commanders"] == []
+
+
+def test_commander_snapshot_round_trips_all_fields() -> None:
+    robot_id = EntityId("robot-7")
+    docked = Commander(
+        player_id=PLAYER_TWO,
+        mode=CommanderMode.DOCKED,
+        x=5,
+        y=6,
+        altitude=0,
+        docked_robot_id=robot_id,
+    )
+    free = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=1, y=2, altitude=12)
+    state = create_game_state(3, [PLAYER_ONE, PLAYER_TWO], seed=1, commanders=[docked, free])
+
+    result = to_snapshot(state)
+    commanders = result["commanders"]
+
+    assert len(commanders) == 2
+    assert commanders[0]["player_id"] == "p1"
+    assert commanders[0]["mode"] == "free"
+    assert commanders[0]["x"] == 1
+    assert commanders[0]["y"] == 2
+    assert commanders[0]["altitude"] == 12
+    assert commanders[0]["docked_robot_id"] is None
+    assert commanders[1]["player_id"] == "p2"
+    assert commanders[1]["mode"] == "docked"
+    assert commanders[1]["x"] == 5
+    assert commanders[1]["y"] == 6
+    assert commanders[1]["altitude"] == 0
+    assert commanders[1]["docked_robot_id"] == "robot-7"
+
+
+def test_commander_snapshot_is_json_safe_and_stable() -> None:
+    commander = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=1, y=2, altitude=12)
+    state = create_game_state(0, [PLAYER_ONE], seed=0, commanders=[commander])
+
+    result = to_snapshot(state)
+    reloaded = json.loads(json.dumps(result))
+    assert reloaded == result
+
+    first = snapshot_to_json_string(state)
+    second = snapshot_to_json_string(state)
+    assert first == second
+
+
+def test_dataclass_equal_states_with_commanders_serialize_identically() -> None:
+    commander_a = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=1, y=2, altitude=12)
+    commander_b = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=1, y=2, altitude=12)
+
+    first = create_game_state(0, [PLAYER_ONE], seed=0, commanders=[commander_a])
+    second = create_game_state(0, [PLAYER_ONE], seed=0, commanders=[commander_b])
+
+    assert first == second
+    assert to_snapshot(first) == to_snapshot(second)
+
+
+def test_different_commander_altitude_serializes_differently() -> None:
+    low = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=0, y=0, altitude=0)
+    high = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=0, y=0, altitude=10)
+
+    a_state = create_game_state(0, [PLAYER_ONE], seed=0, commanders=[low])
+    b_state = create_game_state(0, [PLAYER_ONE], seed=0, commanders=[high])
+
+    assert a_state != b_state
+    assert to_snapshot(a_state) != to_snapshot(b_state)
