@@ -38,13 +38,39 @@ authoritative integer tick counter (see ``clock.py``).
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from nether_earth.collision import (
+    RobotFixture,
+    commander_horizontal_move_allowed,
+    commander_vertical_move_allowed,
+)
+from nether_earth.commander import Commander, CommanderMode
+from nether_earth.commander_movement import (
+    CommanderMoveCommand,
+    CommanderSetVerticalIntentCommand,
+    HorizontalMoveCheck,
+    VerticalMoveCheck,
+    advance_all_horizontal_transitions,
+    apply_commander_move,
+    apply_vertical_physics,
+    is_vertical_update_tick,
+    set_vertical_intent,
+)
 from nether_earth.commands import Command, RejectionReason, validate_command_batch
+from nether_earth.docking import (
+    apply_undock,
+    auto_dock_with_event,
+    docked_movement_allowed,
+    follow_docked_robot,
+)
 from nether_earth.events import Event, EventSequencer, order_events
+from nether_earth.heli_pad import detect_heli_pad_landing
 from nether_earth.ids import PlayerId
-from nether_earth.map import BootstrapMap
+from nether_earth.map import BootstrapMap, WorldMap
+from nether_earth.rules import DEFAULT_RULES
 from nether_earth.scenario import Scenario, initialize_players
 from nether_earth.state import GameState, create_game_state
 
@@ -120,31 +146,91 @@ def new_game(
     return create_game_state(0, resolved_players, seed=seed)
 
 
-def step(state: GameState, commands: Iterable[Command]) -> tuple[GameState, tuple[Event, ...]]:
+def _always_allow_horizontal(
+    state: GameState, mover: Commander, dest_x: int, dest_y: int
+) -> bool:
+    """Permissive :data:`HorizontalMoveCheck` used when ``world is None``.
+
+    Matches ``commander_movement.py``'s own default parameter behavior
+    exactly (that module's functions already default to "always allow" when
+    no check callable is supplied at all); this module passes it explicitly
+    rather than omitting the argument so ``step`` can share one code path
+    regardless of whether ``world`` was supplied.
+    """
+    return True
+
+
+def _always_allow_vertical(state: GameState, mover: Commander, dest_altitude: int) -> bool:
+    """Permissive :data:`VerticalMoveCheck` used when ``world is None``. See
+    :func:`_always_allow_horizontal`."""
+    return True
+
+
+def _replace_commander(state: GameState, updated: Commander) -> GameState:
+    """Return ``state`` with ``updated`` replacing the commander for its player.
+
+    Local equivalent of ``commander_movement.py``'s private
+    ``_replace_commander`` helper -- that module does not export it (it is
+    an internal implementation detail of its own whole-state helpers), so
+    this integration module defines its own rather than reaching into
+    another module's private name (see issue #42's "Do NOT do" list).
+    """
+    return state.with_commanders(
+        tuple(
+            updated if commander.player_id == updated.player_id else commander
+            for commander in state.commanders
+        )
+    )
+
+
+def step(
+    state: GameState,
+    commands: Iterable[Command],
+    world: WorldMap | None = None,
+    robots: tuple[RobotFixture, ...] = (),
+) -> tuple[GameState, tuple[Event, ...]]:
     """Advance ``state`` by exactly one authoritative tick.
 
-    Contract (see module docstring):
+    Contract (see module docstring, extended by issue #42/M3.6 to wire in
+    the commander subsystem built by #37-#41):
 
     1. Validate the incoming ``commands`` batch deterministically via
        :func:`nether_earth.commands.validate_command_batch` (this also
        applies canonical ``(player, sequence)`` ordering and rejects
-       colliding commands).
-    2. "Apply" accepted commands in that canonical order. M1 has no concrete
-       gameplay command/state to mutate, so this phase is a structural
-       pass-through — it exists so later milestones can insert real
-       application logic here without changing ``step``'s contract.
+       colliding commands). Exactly one :class:`CommandAccepted`/
+       :class:`CommandRejected` event is emitted per input command, in that
+       canonical order -- this generic contract is unchanged by #42 and
+       fires for commander commands exactly like any other structurally
+       valid command (see the module's commander-integration notes below).
+    2. Layered on top of that generic pass-through, every *structurally
+       accepted* :class:`~nether_earth.commander_movement.CommanderMoveCommand`/
+       :class:`~nether_earth.commander_movement.CommanderSetVerticalIntentCommand`
+       is additionally applied at the gameplay level (movement/vertical
+       physics/docking/heli-pad detection), in the fixed per-tick order
+       documented on the private per-step helpers below. A gameplay-level
+       rejection (e.g. blocked, not free, move already in progress) simply
+       produces no additional event -- the generic ``CommandAccepted``
+       still fired; see ``commander_movement.py``/``docking.py``'s own
+       module docstrings for why no new rejection event type is introduced.
     3. Advance ``state.tick`` by exactly one via ``state.with_tick``.
-       Rejected commands never reach the application phase, so a batch
-       containing a rejected command cannot cause any mutation beyond what
-       the accepted commands in that same batch would have caused.
-    4. Emit one ordered :class:`CommandAccepted`/:class:`CommandRejected`
-       event per input command, sequenced via
-       :class:`nether_earth.events.EventSequencer` in the same canonical
-       order the commands were validated/applied in, then re-sorted via
-       :func:`nether_earth.events.order_events` for defense in depth.
+    4. Every event emitted in this ``step`` call -- structural and
+       gameplay alike -- shares one :class:`~nether_earth.events.EventSequencer`,
+       so the final :func:`~nether_earth.events.order_events` pass reflects
+       one globally consistent per-tick ordering.
 
-    Never reads wall-clock time. Same ``(state, commands)`` always produces
-    an identical ``(new_state, events)`` pair.
+    ``world``/``robots`` are optional and default to values that reproduce
+    the exact M1/M2 behavior for every existing call site that does not use
+    commanders: when ``world is None``, no collision check is applied to any
+    commander in ``state.commanders`` (movement functions fall back to their
+    own permissive "always allow" defaults; heli-pad detection, which
+    requires a real ``WorldMap``, is skipped entirely for the tick). When
+    ``world`` is supplied, it (together with ``robots``) is bound via
+    ``functools.partial`` into the collision-check callables
+    ``commander_movement.py``'s functions expect (see ``collision.py``'s
+    module docstring for this exact binding contract).
+
+    Never reads wall-clock time. Same ``(state, commands, world, robots)``
+    always produces an identical ``(new_state, events)`` pair.
     """
     results = validate_command_batch(commands, state)
 
@@ -153,8 +239,9 @@ def step(state: GameState, commands: Iterable[Command]) -> tuple[GameState, tupl
     for result in results:
         sequence = sequencer.next_sequence()
         if result.accepted:
-            # Structural pass-through: no gameplay state exists yet to apply
-            # an accepted command against (see module docstring).
+            # Structural pass-through: the generic contract does not know or
+            # care about gameplay-specific command types (see module
+            # docstring); gameplay application happens separately below.
             events.append(CommandAccepted(sequence=sequence, command=result.command))
         else:
             assert result.reason is not None  # invariant guaranteed by CommandResult
@@ -162,5 +249,110 @@ def step(state: GameState, commands: Iterable[Command]) -> tuple[GameState, tupl
                 CommandRejected(sequence=sequence, command=result.command, reason=result.reason)
             )
 
-    new_state = state.with_tick(state.tick + 1)
+    tick = state.tick + 1
+    rules = DEFAULT_RULES
+
+    # When world is None, fall back to commander_movement.py's own
+    # permissive ("always allow") defaults by simply not supplying a check
+    # callable at all -- see that module's documented default parameter
+    # values and the module docstring above for why calling the real
+    # collision functions with world=None would crash.
+    horizontal_check: HorizontalMoveCheck
+    vertical_check: VerticalMoveCheck
+    if world is not None:
+        horizontal_check = functools.partial(
+            commander_horizontal_move_allowed, world=world, robots=robots
+        )
+        vertical_check = functools.partial(
+            commander_vertical_move_allowed, world=world, robots=robots
+        )
+    else:
+        horizontal_check = _always_allow_horizontal
+        vertical_check = _always_allow_vertical
+
+    # --- Step 1: apply accepted commander commands, canonical order --------
+    for result in results:
+        if not result.accepted:
+            continue
+        command = result.command
+        if isinstance(command, CommanderMoveCommand):
+            commander = state.commander_for(command.player)
+            if commander is not None and not docked_movement_allowed(commander):
+                # Independent movement is disabled while docked (#40's own
+                # integration point); a gameplay no-op beyond the already-
+                # emitted generic CommandAccepted.
+                continue
+            state, _move_result, move_event = apply_commander_move(
+                command, state, tick, rules, horizontal_check, sequencer
+            )
+            if move_event is not None:
+                events.append(move_event)
+        elif isinstance(command, CommanderSetVerticalIntentCommand):
+            # Intent may be set regardless of FREE/DOCKED mode (see
+            # set_vertical_intent's own docstring).
+            state, intent_event = set_vertical_intent(command, state, tick, sequencer)
+            if intent_event is not None:
+                events.append(intent_event)
+
+    # --- Step 2: resolve horizontal transitions due to complete ------------
+    state, completed_events = advance_all_horizontal_transitions(state, tick, sequencer)
+    events.extend(completed_events)
+
+    # --- Step 3: undock any DOCKED commander holding rise intent ------------
+    for commander in state.commanders:
+        if commander.mode is not CommanderMode.DOCKED or not commander.rising:
+            continue
+        updated, undock_event = apply_undock(
+            commander, state, tick, rules, vertical_check, sequencer
+        )
+        state = _replace_commander(state, updated)
+        if undock_event is not None:
+            events.append(undock_event)
+
+    # --- Step 4: vertical-cadence physics for every FREE commander ---------
+    if is_vertical_update_tick(tick, rules):
+        for commander in state.commanders:
+            if commander.mode is not CommanderMode.FREE:
+                # apply_vertical_physics already no-ops defensively for a
+                # non-FREE commander; skip explicitly for clarity.
+                continue
+            updated, vertical_event = apply_vertical_physics(
+                commander, state, tick, rules, vertical_check, sequencer
+            )
+            state = _replace_commander(state, updated)
+            if vertical_event is not None:
+                events.append(vertical_event)
+
+    # --- Step 5: friendly auto-dock check for every FREE commander ---------
+    for commander in state.commanders:
+        if commander.mode is not CommanderMode.FREE:
+            continue
+        updated, dock_event = auto_dock_with_event(commander, robots, tick, rules, sequencer)
+        state = _replace_commander(state, updated)
+        if dock_event is not None:
+            events.append(dock_event)
+
+    # --- Step 6: docked commanders follow their robot fixture --------------
+    robots_by_id = {robot.id: robot for robot in robots}
+    for commander in state.commanders:
+        if commander.mode is not CommanderMode.DOCKED or commander.docked_robot_id is None:
+            continue
+        robot = robots_by_id.get(commander.docked_robot_id)
+        if robot is None:
+            # Stale/removed robot fixture: leave the commander unchanged
+            # rather than crash. No real robot subsystem exists until M4/M5
+            # (see issue #42's PR description for this forward-compat gap).
+            continue
+        state = _replace_commander(state, follow_docked_robot(commander, robot, rules))
+
+    # --- Step 7: heli-pad landing detection for every FREE commander -------
+    if world is not None:
+        for commander in state.commanders:
+            if commander.mode is not CommanderMode.FREE:
+                continue
+            landing_event = detect_heli_pad_landing(state, world, commander, tick, rules, sequencer)
+            if landing_event is not None:
+                events.append(landing_event)
+
+    new_state = state.with_tick(tick)
     return new_state, order_events(events)
