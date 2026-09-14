@@ -101,7 +101,15 @@ def test_snapshot_key_order_is_fixed() -> None:
 
     result = to_snapshot(state)
 
-    assert list(result.keys()) == ["tick", "players", "seed", "commanders"]
+    assert list(result.keys()) == [
+        "tick",
+        "players",
+        "seed",
+        "commanders",
+        "resource_pools",
+        "construction_sessions",
+        "robots",
+    ]
 
 
 def test_arbitrary_player_id_serializes_via_to_json_not_reimplemented() -> None:
