@@ -82,6 +82,24 @@ in this one place without an architecture change. Each module identity gets
 its own named field (rather than one dict-valued field) to match this
 module's existing flat-scalar-field convention and keep ``EngineRules``
 trivially hashable/equatable.
+
+Issue #34 (M4.3, `_specs/milestones/04-robots-construction-economy.md`,
+`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED") adds
+``starting_general_resources`` and the eight ``module_cost_*`` fields: the
+canonical original-Spectrum construction economy. Unlike the "documented
+placeholder, not independently verified" fields above
+(``commander_vertical_update_ticks``, ``commander_height``,
+``module_height_*``), these nine values are RESOLVED and locked exactly by
+`_specs/open-questions.md` §10's disassembly-derived table -- starting
+general resources 20; bipod 3; tracks 5; anti-grav 10; cannon 2; missile 4;
+phaser 4; nuclear 20; electronics 3 -- and are still represented as named,
+documented, overridable ``EngineRules`` fields (rather than bare literals)
+so the one Spectrum-locked source of truth for construction cost lives here
+and nowhere else in the engine, following the exact "one field per module
+identity" convention the ``module_height_*`` fields established in Task 2
+(M4.2) rather than a dict-valued field. The spend/refund algorithm that
+consumes these fields lives in `construction_economy.py` (issue #34); this
+module owns only the numeric configuration, not the spending logic.
 """
 
 from dataclasses import dataclass
@@ -137,6 +155,18 @@ class EngineRules:
       height. Documented placeholder defaults (chassis modules ``4``,
       weapon/electronics modules ``2``), not independently verified against
       Spectrum sprite geometry -- see the module docstring.
+    - ``starting_general_resources``: each player's general resource pool at
+      the start of a match (locked Spectrum default ``20``, per
+      `_specs/open-questions.md` §10).
+    - ``module_cost_bipod`` / ``module_cost_tracks`` / ``module_cost_anti_grav``
+      / ``module_cost_cannon`` / ``module_cost_missile`` / ``module_cost_phaser``
+      / ``module_cost_nuclear`` / ``module_cost_electronics``: the construction
+      resource cost of each :class:`~nether_earth.robot_build.ModuleIdentity`
+      module, spent from the module's resource category first and then from
+      general resources for any shortfall (`construction_economy.py`, issue
+      #34). Locked Spectrum defaults, per `_specs/open-questions.md` §10:
+      bipod ``3``, tracks ``5``, anti-grav ``10``, cannon ``2``, missile
+      ``4``, phaser ``4``, nuclear ``20``, electronics ``3``.
     """
 
     commander_min_altitude: int = 0
@@ -154,6 +184,15 @@ class EngineRules:
     module_height_phaser: int = 2
     module_height_nuclear: int = 2
     module_height_electronics: int = 2
+    starting_general_resources: int = 20
+    module_cost_bipod: int = 3
+    module_cost_tracks: int = 5
+    module_cost_anti_grav: int = 10
+    module_cost_cannon: int = 2
+    module_cost_missile: int = 4
+    module_cost_phaser: int = 4
+    module_cost_nuclear: int = 20
+    module_cost_electronics: int = 3
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -179,6 +218,20 @@ class EngineRules:
             "module_height_phaser",
             "module_height_nuclear",
             "module_height_electronics",
+        ):
+            if getattr(self, field_name) <= 0:
+                raise ValueError(f"{field_name} must be a positive integer")
+        if self.starting_general_resources < 0:
+            raise ValueError("starting_general_resources must be non-negative")
+        for field_name in (
+            "module_cost_bipod",
+            "module_cost_tracks",
+            "module_cost_anti_grav",
+            "module_cost_cannon",
+            "module_cost_missile",
+            "module_cost_phaser",
+            "module_cost_nuclear",
+            "module_cost_electronics",
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")
