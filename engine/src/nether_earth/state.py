@@ -78,6 +78,26 @@ rather than constructing this dataclass with a pre-sorted/pre-validated
 tuple by convention alone. ``construction_session.py`` is only imported
 under ``TYPE_CHECKING`` here to avoid a circular import (that module itself
 imports ``GameState`` to type its own session-returning functions).
+
+Robots field (added by issue #56, M4.6): ``robots`` attaches the
+authoritative :class:`~nether_earth.robot.Robot` entity collection directly
+onto ``GameState``, following the same "immutable tuple, never a ``dict``/
+``Mapping``-shaped field" convention as ``commanders``/``resource_pools``/
+``construction_sessions`` -- but ordered differently. Unlike those three
+fields, a player may own *any number* of robots (there is no "at most one
+per player" constraint, so sorting by owning-player id alone would not
+produce a total order), so ``robots`` is instead sorted by
+``Robot.entity_id.value`` -- each robot's own stable identifier -- which is
+guaranteed unique (enforced below) and therefore always yields one
+canonical order regardless of launch order. Every robot's ``owner`` must be
+a participant in ``players``; no two robots may share an ``entity_id``. Use
+:func:`create_game_state` or :meth:`with_robots` rather than constructing
+this dataclass with a pre-sorted/pre-validated tuple by convention alone.
+``robot.py`` is only imported under ``TYPE_CHECKING`` here to avoid a
+circular import (that module itself imports ``ids``/``robot_build``, not
+``GameState``, but is kept consistent with the ``construction_session``
+precedent above for symmetry and to keep this module's own import graph
+shallow).
 """
 
 from __future__ import annotations
@@ -86,11 +106,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from nether_earth.commander import Commander
-from nether_earth.ids import PlayerId
+from nether_earth.ids import EntityId, PlayerId
 from nether_earth.resource_pool import PlayerResourcePool
 
 if TYPE_CHECKING:
     from nether_earth.construction_session import ConstructionSession
+    from nether_earth.robot import Robot
 
 
 def _canonical_commanders(commanders: tuple[Commander, ...]) -> tuple[Commander, ...]:
@@ -151,6 +172,28 @@ def _canonical_construction_sessions(
     return tuple(sorted(construction_sessions, key=lambda session: session.player_id.value))
 
 
+def _canonical_robots(robots: tuple[Robot, ...]) -> tuple[Robot, ...]:
+    """Return ``robots`` sorted canonically, after validating them.
+
+    Shared by :func:`create_game_state` and :meth:`GameState.with_robots`.
+    Unlike :func:`_canonical_commanders`/:func:`_canonical_resource_pools`/
+    :func:`_canonical_construction_sessions`, robots sort by their own
+    ``entity_id.value`` (see the module docstring for why "one per player"
+    ordering does not apply here) and are validated for a unique
+    ``entity_id``, not a unique owning player -- multiple robots may share
+    an ``owner``.
+    """
+    seen_ids: set[EntityId] = set()
+    for robot in robots:
+        if robot.entity_id in seen_ids:
+            raise ValueError(
+                f"duplicate robot entity_id {robot.entity_id.value!r}: "
+                "every robot must have a unique entity_id"
+            )
+        seen_ids.add(robot.entity_id)
+    return tuple(sorted(robots, key=lambda robot: robot.entity_id.value))
+
+
 @dataclass(frozen=True, slots=True)
 class GameState:
     """Minimal authoritative engine state: tick, players, commanders, resource pools, and construction sessions.
@@ -184,6 +227,13 @@ class GameState:
     without construction-session state keep working unchanged. See the
     module docstring for the ownership invariants
     ``create_game_state``/``with_construction_sessions`` enforce.
+
+    ``robots`` is always stored in canonical (sorted by
+    ``Robot.entity_id.value``) order; it defaults to ``()`` so existing
+    callers that construct ``GameState`` without robot state keep working
+    unchanged. See the module docstring for why robots sort by their own
+    entity id rather than owning-player id, and for the ownership/
+    uniqueness invariants ``create_game_state``/``with_robots`` enforce.
     """
 
     tick: int
@@ -192,6 +242,7 @@ class GameState:
     commanders: tuple[Commander, ...] = ()
     resource_pools: tuple[PlayerResourcePool, ...] = ()
     construction_sessions: tuple[ConstructionSession, ...] = ()
+    robots: tuple[Robot, ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -199,7 +250,8 @@ class GameState:
         This is the explicit, controlled transition for advancing the
         authoritative tick counter; callers must not mutate ``tick`` in
         place. ``players``, ``seed``, ``commanders``, ``resource_pools``,
-        and ``construction_sessions`` are carried over unchanged.
+        ``construction_sessions``, and ``robots`` are carried over
+        unchanged.
         """
         return GameState(
             tick=tick,
@@ -208,6 +260,7 @@ class GameState:
             commanders=self.commanders,
             resource_pools=self.resource_pools,
             construction_sessions=self.construction_sessions,
+            robots=self.robots,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -236,6 +289,7 @@ class GameState:
             commanders=canonical_commanders,
             resource_pools=self.resource_pools,
             construction_sessions=self.construction_sessions,
+            robots=self.robots,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -273,6 +327,7 @@ class GameState:
             commanders=self.commanders,
             resource_pools=canonical_resource_pools,
             construction_sessions=self.construction_sessions,
+            robots=self.robots,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -312,6 +367,7 @@ class GameState:
             commanders=self.commanders,
             resource_pools=self.resource_pools,
             construction_sessions=canonical_construction_sessions,
+            robots=self.robots,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -321,6 +377,46 @@ class GameState:
                 return session
         return None
 
+    def with_robots(self, robots: tuple[Robot, ...]) -> GameState:
+        """Return a new ``GameState`` with ``robots`` replaced.
+
+        ``robots`` may be supplied in any order; the result is normalized
+        to canonical (sorted by ``entity_id.value``) order. Every robot's
+        ``owner`` must already be a participant in ``self.players`` and no
+        two robots may share an ``entity_id`` -- see the module docstring
+        for why these invariants live here rather than being left to
+        caller discipline. ``tick``, ``players``, ``seed``, ``commanders``,
+        ``resource_pools``, and ``construction_sessions`` are carried over
+        unchanged.
+        """
+        for robot in robots:
+            if robot.owner not in self.players:
+                raise ValueError(
+                    f"robot owner {robot.owner.value!r} is not a participant in "
+                    "this GameState's players"
+                )
+        canonical_robots = _canonical_robots(tuple(robots))
+        return GameState(
+            tick=self.tick,
+            players=self.players,
+            seed=self.seed,
+            commanders=self.commanders,
+            resource_pools=self.resource_pools,
+            construction_sessions=self.construction_sessions,
+            robots=canonical_robots,
+        )
+
+    def robot_for(self, entity_id: EntityId) -> Robot | None:
+        """Return the robot with ``entity_id``, or ``None`` if it has no such robot."""
+        for robot in self.robots:
+            if robot.entity_id == entity_id:
+                return robot
+        return None
+
+    def robots_for(self, player_id: PlayerId) -> tuple[Robot, ...]:
+        """Return every robot owned by ``player_id``, in canonical entity-id order."""
+        return tuple(robot for robot in self.robots if robot.owner == player_id)
+
 
 def create_game_state(
     tick: int,
@@ -329,8 +425,9 @@ def create_game_state(
     commanders: tuple[Commander, ...] | list[Commander] | None = None,
     resource_pools: tuple[PlayerResourcePool, ...] | list[PlayerResourcePool] | None = None,
     construction_sessions: tuple[ConstructionSession, ...] | list[ConstructionSession] | None = None,
+    robots: tuple[Robot, ...] | list[Robot] | None = None,
 ) -> GameState:
-    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions`` normalized.
+    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots`` normalized.
 
     ``players`` may be supplied in any order or as any iterable of unique
     ``PlayerId`` values; the resulting ``GameState.players`` is always the
@@ -359,6 +456,12 @@ def create_game_state(
     (see the module docstring). The resulting
     ``GameState.construction_sessions`` is always sorted by
     ``player_id.value``.
+
+    ``robots`` defaults to no robots (``()``); when supplied, every robot's
+    ``owner`` must be a member of the resolved ``players`` set and no two
+    robots may share an ``entity_id`` (see the module docstring for why
+    "one per player" ordering does not apply here). The resulting
+    ``GameState.robots`` is always sorted by ``entity_id.value``.
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -394,6 +497,14 @@ def create_game_state(
         resolved_construction_sessions
     )
 
+    resolved_robots = () if robots is None else tuple(robots)
+    for robot in resolved_robots:
+        if robot.owner not in canonical_players:
+            raise ValueError(
+                f"robot owner {robot.owner.value!r} is not a participant in players"
+            )
+    canonical_robots = _canonical_robots(resolved_robots)
+
     return GameState(
         tick=tick,
         players=canonical_players,
@@ -401,4 +512,5 @@ def create_game_state(
         commanders=canonical_commanders,
         resource_pools=canonical_resource_pools,
         construction_sessions=canonical_construction_sessions,
+        robots=canonical_robots,
     )

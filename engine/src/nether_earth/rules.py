@@ -112,6 +112,14 @@ day-length interval itself is *not* duplicated here -- it is already the
 single authoritative ``clock.TICKS_PER_GAME_DAY`` constant
 (`clock.py`) and production code (`resource_production.py`) imports it
 directly rather than this module redeclaring a second day-length value.
+
+Issue #56 (M4.6, `_specs/milestones/04-robots-construction-economy.md`)
+adds ``max_robots_per_player``: the per-player robot launch cap enforced by
+`robot_launch.py`. `_specs/functional-spec.md` locks this at the original
+ZX Spectrum's cap of 24 robots per player at a time -- represented as a
+named, documented, overridable ``EngineRules`` field (rather than a bare
+``24`` literal inlined at the launch call site) following this module's
+established convention for every other rule-legality constant.
 """
 
 from dataclasses import dataclass
@@ -185,6 +193,12 @@ class EngineRules:
     - ``war_base_production_amount``: general resource units an owned war
       base produces per in-game day (locked Spectrum default ``5``, per
       `_specs/open-questions.md` §10).
+    - ``max_robots_per_player``: maximum number of robots a player may have
+      launched and alive at once (locked Spectrum default ``24``, per
+      `_specs/technical-spec.md` §7 (``GameRules.max_robots_per_player``)
+      and `_specs/functional-spec.md` §11 "Construction cannot launch
+      when: player already has 24 robots"). Enforced by `robot_launch.py`
+      (issue #56).
     """
 
     commander_min_altitude: int = 0
@@ -213,6 +227,7 @@ class EngineRules:
     module_cost_electronics: int = 3
     factory_production_amount: int = 2
     war_base_production_amount: int = 5
+    max_robots_per_player: int = 24
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -259,6 +274,8 @@ class EngineRules:
             raise ValueError("factory_production_amount must be a positive integer")
         if self.war_base_production_amount <= 0:
             raise ValueError("war_base_production_amount must be a positive integer")
+        if self.max_robots_per_player <= 0:
+            raise ValueError("max_robots_per_player must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should
