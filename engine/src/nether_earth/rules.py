@@ -28,6 +28,19 @@ not fully closed. It is therefore represented as a named, documented,
 overridable configuration constant (not a bare literal inlined at call
 sites) precisely so that later evidence can correct it in one place without
 an architecture change, rather than being silently treated as ground truth.
+
+Issue #38 adds ``commander_horizontal_move_ticks``: the number of
+simulation ticks a single cell-to-cell horizontal commander move takes to
+resolve. `_specs/technical-spec.md` §7.2 defines the generic
+``GridTransition`` shape (``started_tick``/``duration_ticks``) that a
+cell-to-cell move uses, but -- unlike the vertical envelope above -- no
+spec section independently verifies the exact tick duration for a
+commander's horizontal move specifically. Following the exact same pattern
+as ``commander_vertical_update_ticks``, it is recorded here as a named,
+documented, overridable canonical default (``4``, matching the vertical
+cadence for a round, easy-to-reason-about default) rather than a bare
+literal, so later Spectrum-timing evidence can correct it in one place
+without an architecture change.
 """
 
 from dataclasses import dataclass
@@ -61,6 +74,11 @@ class EngineRules:
     - ``commander_descent_step``: altitude lost per vertical update while
       descending/falling (locked Spectrum default ``1``; intentionally
       asymmetric with ascent per `_specs/open-questions.md` §13).
+    - ``commander_horizontal_move_ticks``: number of simulation ticks a
+      single cell-to-cell horizontal commander move takes to resolve
+      (documented canonical default ``4``; see the module docstring for why
+      this exact duration is not independently spec-verified, unlike the
+      vertical envelope above).
     """
 
     commander_min_altitude: int = 0
@@ -68,6 +86,7 @@ class EngineRules:
     commander_vertical_update_ticks: int = 4
     commander_ascent_step: int = 2
     commander_descent_step: int = 1
+    commander_horizontal_move_ticks: int = 4
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -80,6 +99,8 @@ class EngineRules:
             raise ValueError("commander_ascent_step must be a positive integer")
         if self.commander_descent_step <= 0:
             raise ValueError("commander_descent_step must be a positive integer")
+        if self.commander_horizontal_move_ticks <= 0:
+            raise ValueError("commander_horizontal_move_ticks must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should
