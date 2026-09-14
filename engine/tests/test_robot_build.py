@@ -203,16 +203,33 @@ def test_two_or_more_electronics_via_from_modules_is_rejected() -> None:
         )
 
 
-# --- Invalid builds: cross-field duplicate module identity -----------------
+# --- Cross-field duplicate module identity is structurally impossible ------
 
 
-def test_duplicate_module_identity_across_chassis_and_electronics_is_rejected() -> None:
-    # A module cannot simultaneously classify as chassis and electronics, so
-    # this is only reachable by directly constructing an inconsistent build;
-    # the shared cross-field duplicate check still deterministically rejects
-    # it rather than silently accepting a malformed dataclass.
+def test_module_classes_are_pairwise_disjoint_so_cross_field_duplication_cannot_occur() -> None:
+    # RobotBuild.__post_init__ deliberately has no standalone "no duplicate
+    # module identity across chassis/weapons/electronics" check: it would be
+    # unreachable. Each field's own membership check (chassis in
+    # CHASSIS_MODULES, each weapon in WEAPON_MODULES, electronics in
+    # ELECTRONICS_MODULES or None) already guarantees no cross-field
+    # collision, *because* these three sets are pairwise disjoint -- proved
+    # here directly, and via the partition covered by
+    # test_chassis_weapon_electronics_module_classes_partition_the_catalog
+    # above. A value that is a member of one set is provably never a member
+    # of another, so it can never equal a value accepted into a different
+    # field.
+    assert CHASSIS_MODULES.isdisjoint(WEAPON_MODULES)
+    assert CHASSIS_MODULES.isdisjoint(ELECTRONICS_MODULES)
+    assert WEAPON_MODULES.isdisjoint(ELECTRONICS_MODULES)
+
+
+def test_attempting_a_weapon_identity_as_chassis_is_rejected_by_its_own_field_check() -> None:
+    # A module identity that belongs to another module class is rejected by
+    # that field's own membership check (not a separate cross-field check) --
+    # e.g. BIPOD (a chassis identity) can never appear in `weapons` because
+    # it is rejected as soon as its membership in WEAPON_MODULES is checked.
     with pytest.raises(BuildValidationError):
-        RobotBuild(chassis=ModuleIdentity.BIPOD, weapons=(ModuleIdentity.BIPOD,))
+        RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.BIPOD,))
 
 
 # --- from_modules classification -------------------------------------------

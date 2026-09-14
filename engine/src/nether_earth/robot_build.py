@@ -173,8 +173,13 @@ class RobotBuild:
       :data:`WEAPON_MODULES`, with no duplicates (the nuke may be the only
       weapon);
     - ``electronics`` must be ``None`` or :data:`ModuleIdentity.ELECTRONICS`;
-    - no module identity may appear more than once across the whole build
-      (chassis, weapons, and electronics share this one rule).
+    - no module identity may appear more than once across the whole build.
+      This falls directly out of the three checks above rather than needing
+      its own separate check: :data:`CHASSIS_MODULES`, :data:`WEAPON_MODULES`,
+      and :data:`ELECTRONICS_MODULES` are pairwise disjoint and exhaustive
+      over :class:`ModuleIdentity`, so a value that passes its own field's
+      membership check can never equal a value from a different field (see
+      the comment in ``__post_init__``).
     """
 
     chassis: ModuleIdentity
@@ -205,11 +210,19 @@ class RobotBuild:
                 f"{ModuleIdentity.ELECTRONICS!r} or None"
             )
 
-        all_modules = (self.chassis, *self.weapons)
-        if self.electronics is not None:
-            all_modules = (*all_modules, self.electronics)
-        if len(set(all_modules)) != len(all_modules):
-            raise BuildValidationError(f"duplicate module identity in build: {all_modules!r}")
+        # No separate "no duplicate module identity across chassis/weapons/
+        # electronics" check follows: it would be unreachable. CHASSIS_MODULES,
+        # WEAPON_MODULES, and ELECTRONICS_MODULES are pairwise disjoint and
+        # exhaustive over ModuleIdentity (enforced by the checks above, each
+        # field only accepts values from its own set, and proven for the
+        # catalog as a whole by
+        # test_chassis_weapon_electronics_module_classes_partition_the_catalog
+        # in test_robot_build.py) -- so no value that passes its own field's
+        # membership check can ever equal a value from a different field. The
+        # "no duplicate module identity anywhere in the build" rule from
+        # `_specs/functional-spec.md` §11 is therefore already fully enforced
+        # by the three per-field membership checks plus the weapons-only
+        # duplicate check above.
 
         object.__setattr__(self, "weapons", _canonical_weapon_order(self.weapons))
 
