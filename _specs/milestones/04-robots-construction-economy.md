@@ -24,7 +24,7 @@ Implement robot composition, canonical height/stack derivation, factory/war-base
 
 An engine subsystem that represents valid robot builds, derives one canonical physical component stack and height, tracks player resources, processes production on game-day boundaries, validates construction eligibility, deducts resources according to the resolved spending policy, and launches a robot when the war-base exit is available.
 
-This milestone owns the canonical robot component/module catalog for construction concerns. Later combat systems consume and extend this catalog with combat-specific metadata rather than defining a second weapon catalog.
+This milestone owns the canonical robot component/module catalog and authoritative robot entity shape needed by later movement and combat. Later milestones consume and extend these identities; they must not define parallel robot/module catalogs.
 
 ## Locked original Spectrum economy/construction values
 
@@ -63,41 +63,54 @@ Construction spending must reproduce the original behavior:
 6. Actual player resources are committed atomically only when **Start Robot** succeeds.
 7. Exiting/scrapping an unlaunched construction does not permanently consume resources.
 
-This policy should be isolated behind one engine-level construction/economy service or function so alternate balancing rules could be introduced later without rewriting UI or robot-build logic.
+This policy must be isolated behind engine-level construction/economy logic so alternate balancing rules could be introduced later without rewriting UI or robot-build logic.
 
-## Workstreams and candidate tasks
+## Workstreams and planned issue boundaries
 
-### Canonical component/module catalog
-Define the canonical chassis, weapon, and electronics module identities and construction-facing metadata. Construction costs and resource-category requirements use the locked Spectrum defaults above and are loaded from game-rule configuration. Combat-specific properties such as range, lethality, and projectile behavior are added/consumed by Milestone 6 without duplicating module identity or construction cost.
-
-### Robot build model
-Implement chassis, weapon, and electronics module types and validation:
+### M4.1 Canonical module catalog and robot build model
+Define chassis, weapon, and electronics identities plus construction-facing metadata and validation:
 
 - exactly one chassis;
 - one to three weapons;
 - no duplicate module;
 - zero or one electronics module.
 
-### Canonical stack and height
-Create one engine function that derives physical component order and total height. Rendering metadata may consume this output later; no client-side duplicate ordering logic is allowed.
+Combat properties remain M6-owned, but module identity/cost/resource category must be canonical here.
+
+### M4.2 Canonical component stack and height
+Create one engine function that derives physical component order and total height. Rendering and later collision/combat consume this output; no duplicate ordering logic is allowed.
 
 Locked bottom-to-top weapon order is cannon, missile, phaser, nuke, followed by electronics when fitted.
 
-### Resource pool and production
-Track general and type-specific resources. Every 2,880 ticks, owned factories produce 2 type-specific units and owned war bases produce 5 general units.
+### M4.3 Configurable Spectrum construction economy
+Centralize starting resources, component costs, resource-category mapping, specific-first/general-shortfall spending, reversible temporary accounting, and atomic commit semantics. Existing issue #34 owns this work.
 
-### Construction state
-Implement entering/exiting construction from a valid heli-pad state, selecting/deselecting modules, temporary resource-buffer behavior, validation, scrap/cancel semantics, and build launch according to the locked Spectrum rule above.
+### M4.4 Player resource pools and daily production
+Track general and type-specific resources. Every 2,880 ticks, owned factories produce 2 type-specific units and owned war bases produce 5 general units. Production is deterministic and derived from authoritative ownership/ticks only.
 
-### Robot count and war-base exit constraints
-Enforce the 24-robot sector cap and blocked-exit rule using the canonical war-base exit metadata from Milestone 2.
+### M4.5 Construction session state
+Implement entry from the M3 heli-pad interaction, build editing, select/deselect, temporary resource-buffer state, validation, cancel/scrap, and construction-state lifecycle without yet performing final robot placement.
 
-### Initial robot entity
-Create the authoritative robot entity fields needed by later movement/orders/combat without prematurely adding those behaviors.
+### M4.6 Launch constraints and robot creation
+Enforce 24-robot cap, canonical M2 war-base exit occupancy, valid build requirements, and atomic resource commit. Successful launch creates exactly one authoritative robot at the exit; failed launch leaves actual resources unchanged.
+
+### M4.7 Engine state / snapshot / replay integration
+Integrate robot/resource/construction state through the existing deterministic engine command/event/snapshot/replay boundaries without adding M5 movement or M6 combat behavior.
+
+### M4.8 Milestone integration scenario
+Exercise production, mixed resource spending, select/deselect reversibility, cancel, invalid builds, robot cap, blocked exit, successful launch, canonical stack/height, and deterministic replay together.
 
 ## Parallelization
 
-Component catalog/build/stack, economy, and construction-state work may proceed in parallel once shared module/resource types are agreed. The launch integration task owns resource deduction + robot creation + exit occupancy behavior.
+After the shared module/resource types from M4.1 stabilize:
+
+- M4.2 stack/height can proceed independently;
+- M4.3 economy can proceed independently;
+- M4.4 production can proceed independently against the resource-pool/config contract.
+
+M4.5 depends on the build model and M4.3 spending behavior. M4.6 converges M4.2, M4.4, M4.5 plus the M2 exit and M3 heli-pad contracts. M4.7 integrates the resulting domain state, and M4.8 is the final milestone gate.
+
+Avoid parallel edits to the same core state/serialization files unless interfaces are explicitly stabilized first.
 
 ## Acceptance criteria
 
@@ -116,12 +129,13 @@ Component catalog/build/stack, economy, and construction-state work may proceed 
 - Construction requires valid commander/war-base interaction.
 - Robot cap and blocked exit prevent launch.
 - Launch creates exactly one valid robot and applies the resolved resource rule atomically.
-- Construction behavior can be replayed deterministically.
+- Robot/resource/construction state is snapshot/replay safe.
+- Milestone 5 can consume robot identity/state without restructuring M4.
 - Milestone 6 can attach/consume combat metadata without redefining weapon identities or construction costs.
 
 ## Milestone integration scenario
 
-Initialize a player with the default 20 general resources plus known type-specific pools. Advance exactly one game day and verify production. Land the commander, build legal robots that exercise both pure type-specific spending and general-resource substitution, remove/re-add components and verify reversible temporary accounting, verify the original component costs, launch and verify atomic resource commit, exit an unlaunched build and verify no permanent deduction, test an invalid build, then block the exit and verify launch rejection. Replay to identical results.
+Initialize a player with the default 20 general resources plus known type-specific pools. Advance exactly one game day and verify production. Land the commander, build legal robots that exercise both pure type-specific spending and general-resource substitution, remove/re-add components and verify reversible temporary accounting, verify the original component costs, launch and verify atomic resource commit, exit an unlaunched build and verify no permanent deduction, test invalid configurations and insufficient resources, then exercise robot-cap and blocked-exit launch rejection. Verify canonical component stack/height and replay the full sequence to identical results.
 
 ## Out of scope
 
@@ -136,7 +150,7 @@ Initialize a player with the default 20 general resources plus known type-specif
 
 The construction-cost and resource-spending questions previously tracked in `_specs/open-questions.md` §10 are resolved by the original Spectrum disassembly and project-owner confirmation.
 
-No product decision remains for spending precedence, module costs, starting resources, or construction refund/commit behavior. Implementation details must preserve determinism and the locked behavior above.
+No product decision remains for spending precedence, module costs, starting resources, construction refund/commit behavior, or canonical stack order. Implementation details must preserve determinism and the locked behavior above.
 
 ## Definition of done
 
@@ -145,3 +159,4 @@ No product decision remains for spending precedence, module costs, starting reso
 - Canonical stack and resource policies are backed by resolved specs.
 - One canonical component/module catalog exists for later systems to consume.
 - Later movement/combat can consume robot state without restructuring the build model.
+- No frontend/network dependency exists in robot construction/economy logic.
