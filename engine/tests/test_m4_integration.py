@@ -208,13 +208,19 @@ def test_one_game_day_produces_factory_and_war_base_resources_exactly_once() -> 
     assert by_player[PLAYER_ONE].day_boundaries_crossed == 1
     assert by_player[PLAYER_TWO].day_boundaries_crossed == 1
 
-    # p1 owns 2 chassis factories + 1 cannon factory + its war base.
+    # p1 owns 2 chassis factories + 1 cannon factory + 1 missile factory +
+    # its war base. The single missile factory is deliberate (see the
+    # fixture's own header comment): it produces less than
+    # module_cost_missile, so a later selection can exercise "partial
+    # type-specific stock, general covers only the remaining shortfall"
+    # (item 5) as distinct from "zero stock, whole cost from general".
     p1_pool = state.resource_pool_for(PLAYER_ONE)
     assert p1_pool is not None
     assert p1_pool.general == RULES.starting_general_resources + RULES.war_base_production_amount
     assert p1_pool.chassis == 2 * RULES.factory_production_amount
     assert p1_pool.cannon == 1 * RULES.factory_production_amount
-    assert p1_pool.missile == 0
+    assert p1_pool.missile == 1 * RULES.factory_production_amount
+    assert p1_pool.missile < module_cost(ModuleIdentity.MISSILE, RULES)
     assert p1_pool.phaser == 0
     assert p1_pool.nuclear == 0
     assert p1_pool.electronics == 0
@@ -356,9 +362,15 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     4. Cannon is deselected then immediately reselected, proving reversible
        temporary accounting: the buffer after the round trip is byte-for-
        byte identical to the buffer immediately before it (item 6).
-    5. Two more weapons (missile, phaser) are added; neither category has
-       any production, so both spend entirely from general resources --
-       the documented general-resource shortfall substitution (item 5).
+    5. Two more weapons are added: missile, whose type-specific pool holds
+       *some* stock (one factory's worth) but strictly less than the
+       module's own cost, draining that partial stock to exactly 0 and
+       drawing only the remaining shortfall from general resources -- the
+       literal "spend more of a type than its starting pool held" case
+       item 5 asks for; then phaser, whose category has zero production at
+       all, spending its entire cost from general -- the simpler "zero
+       stock" variant, kept alongside missile's partial-stock case for
+       contrast.
     6. A second chassis and a fourth weapon are both attempted and both
        rejected (invalid build shape) without mutating the session (item 8,
        first half).
@@ -391,6 +403,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     assert p1_pool_after_production.general == 25
     assert p1_pool_after_production.chassis == 4
     assert p1_pool_after_production.cannon == 2
+    assert p1_pool_after_production.missile == 2
 
     # --- Phase 2: land on the heli-pad, auto-enter construction ----------
     commander = _grounded_commander(PLAYER_ONE, P1_HELI_PAD_CELL)
@@ -405,6 +418,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     assert session.buffer.general == 25
     assert session.buffer.amount(FactoryType.CHASSIS) == 4
     assert session.buffer.amount(FactoryType.CANNON) == 2
+    assert session.buffer.amount(FactoryType.MISSILE) == 2
 
     # --- Phase 3: first build, pure type-specific resources ---------------
     select_bipod = SelectModuleCommand(player=PLAYER_ONE, sequence=0, module=ModuleIdentity.BIPOD)
@@ -448,14 +462,35 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     assert session.buffer == buffer_before_deselect
 
     # --- Phase 5: two more weapons, forced general-resource shortfall ----
+    # Missile: the buffer holds a *partial* type-specific stock (2, from
+    # one factory's day of production) that is strictly less than
+    # module_cost_missile (4) -- the literal "spend more of a type than
+    # its starting pool held" case. spend_module drains the partial stock
+    # to exactly 0 and draws only the remaining shortfall (cost - stock)
+    # from general, never the whole cost.
+    missile_stock_before = session.buffer.amount(FactoryType.MISSILE)
+    missile_cost = module_cost(ModuleIdentity.MISSILE, RULES)
+    assert 0 < missile_stock_before < missile_cost  # precondition for this exact case
+    general_before_missile = session.buffer.general
+
     select_missile = SelectModuleCommand(player=PLAYER_ONE, sequence=4, module=ModuleIdentity.MISSILE)
     state, events = step(state, [select_missile], world=world)
     all_events.extend(events)
     session = state.construction_session_for(PLAYER_ONE)
     assert session is not None
+    # (a) the category pool is drained to exactly 0 ...
     assert session.buffer.amount(FactoryType.MISSILE) == 0
-    assert session.buffer.general == 25 - module_cost(ModuleIdentity.MISSILE, RULES)
+    # ... and (b) general absorbs exactly the remainder (cost - pre-existing
+    # category amount), not the module's whole cost.
+    missile_shortfall = missile_cost - missile_stock_before
+    assert missile_shortfall < missile_cost
+    assert session.buffer.general == general_before_missile - missile_shortfall
 
+    # Phaser: zero type-specific stock at all -- the simpler "whole cost
+    # from general" variant, kept alongside missile's partial-stock case
+    # above for contrast (both are documented general-resource
+    # substitution paths, but only missile's is the exact "partial stock"
+    # shape item 5 asks for).
     select_phaser = SelectModuleCommand(player=PLAYER_ONE, sequence=5, module=ModuleIdentity.PHASER)
     state, events = step(state, [select_phaser], world=world)
     all_events.extend(events)
@@ -463,7 +498,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     assert session is not None
     assert session.buffer.amount(FactoryType.PHASER) == 0
     general_after_weapons = (
-        25 - module_cost(ModuleIdentity.MISSILE, RULES) - module_cost(ModuleIdentity.PHASER, RULES)
+        general_before_missile - missile_shortfall - module_cost(ModuleIdentity.PHASER, RULES)
     )
     assert session.buffer.general == general_after_weapons
     assert session.build.weapons == (ModuleIdentity.CANNON, ModuleIdentity.MISSILE, ModuleIdentity.PHASER)

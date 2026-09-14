@@ -10,7 +10,13 @@
 # This fixture combines what both partially offer: owned factories (for
 # daily production) plus a heli-pad and a *free* exit per war base (for
 # construction entry and launch), reusing the exact same M2 YAML shape/
-# conventions as both.
+# conventions as both. p1's missile factory is deliberately a *single*
+# factory (producing less than a missile module's own cost) rather than
+# zero or two+, so one game day gives p1 a missile pool that is nonzero
+# but strictly less than module_cost_missile -- the "partial type-specific
+# stock, general covers only the remaining shortfall" scenario the M4.8
+# brief's item 5 explicitly requires, distinct from the "zero stock, whole
+# cost from general" case already covered by phaser.
 id: fixture-m4-integration
 version: 1
 width: 10
@@ -44,6 +50,12 @@ factories:
     components:
       - {x: 1, y: 1, height: 2}
     factory_type: cannon
+    owner: p1
+
+  - id: factory-p1-missile
+    components:
+      - {x: 2, y: 1, height: 2}
+    factory_type: missile
     owner: p1
 
 interaction_points:
