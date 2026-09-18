@@ -49,7 +49,7 @@ from nether_earth.commander import Commander, GridTransition, VerticalTransition
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
 from nether_earth.resource_pool import PlayerResourcePool
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.state import GameState
 from nether_earth.structures import FactoryType
@@ -186,8 +186,32 @@ def _construction_session_snapshot(session: ConstructionSession) -> dict[str, An
     }
 
 
+def _robot_move_transition_snapshot(
+    transition: RobotMoveTransition | None,
+) -> dict[str, Any] | None:
+    """Return a canonical, JSON-safe snapshot of a ``RobotMoveTransition``, or ``None``."""
+    if transition is None:
+        return None
+    return {
+        "entity_id": transition.entity_id.to_json(),
+        "from_x": transition.from_x,
+        "from_y": transition.from_y,
+        "to_x": transition.to_x,
+        "to_y": transition.to_y,
+        "started_tick": transition.started_tick,
+        "duration_ticks": transition.duration_ticks,
+    }
+
+
 def _robot_snapshot(robot: Robot) -> dict[str, Any]:
-    """Return a canonical, JSON-safe snapshot of a single ``Robot``."""
+    """Return a canonical, JSON-safe snapshot of a single ``Robot``.
+
+    Extended by issue #60 (M5.1) to also serialize the in-progress move
+    transition added by that task -- a new key appended after the existing
+    #57 keys, matching ``_commander_snapshot``'s own additive precedent.
+    Without it, a snapshot/restore round-trip would silently drop an
+    in-flight move, so movement could not be replay-safe.
+    """
     return {
         "entity_id": robot.entity_id.to_json(),
         "owner": robot.owner.to_json(),
@@ -196,6 +220,7 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
         "build": _robot_build_snapshot(robot.build),
         "stack": [module.value for module in robot.stack],
         "height": robot.height,
+        "movement": _robot_move_transition_snapshot(robot.movement),
     }
 
 

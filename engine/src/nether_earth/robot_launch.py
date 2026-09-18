@@ -88,6 +88,12 @@ deterministic. A robot occupies exactly one cell (its ``x``, ``y``), so its
 footprint for this purpose is a single-cell
 :class:`~nether_earth.structures.Footprint`.
 
+Issue #60 (M5.1) needs exactly this fold for robot movement's destination
+occupancy check, so the fold itself now lives once, publicly, as
+:func:`nether_earth.movement.folded_robot_occupancy`; this module's
+``_folded_occupancy`` delegates to it rather than keeping a second copy
+that could silently diverge.
+
 Atomicity
 ------------
 
@@ -137,6 +143,7 @@ from nether_earth.construction_session import ConstructionSession, cancel_constr
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
+from nether_earth.movement import folded_robot_occupancy
 from nether_earth.occupancy import OccupancyGrid
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot import Robot
@@ -144,7 +151,6 @@ from nether_earth.robot_build import BuildValidationError
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
-from nether_earth.structures import Footprint
 
 __all__ = [
     "LaunchRejectionReason",
@@ -203,14 +209,12 @@ class LaunchResult:
 def _folded_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
     """Return ``world``'s static occupancy grid with every current robot folded in.
 
-    See the module docstring's "occupancy-folding approach" section. Robots
-    are folded in canonical ``state.robots`` order (already deterministic)
-    so this fold itself never depends on incidental iteration order.
+    Delegates to :func:`nether_earth.movement.folded_robot_occupancy`, the
+    one shared implementation of this fold (see the module docstring's
+    "occupancy-folding approach" section); kept as a named local alias so
+    this module's call site reads unchanged.
     """
-    grid = world.occupancy()
-    for robot in state.robots:
-        grid = grid.with_added(robot.entity_id, Footprint(cells=frozenset({(robot.x, robot.y)})))
-    return grid
+    return folded_robot_occupancy(world, state)
 
 
 def _resolve_exit_cell(world: WorldMap, war_base_id: EntityId) -> tuple[int, int] | None:

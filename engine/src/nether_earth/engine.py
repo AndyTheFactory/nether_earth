@@ -87,6 +87,7 @@ from nether_earth.events import Event, EventSequencer, order_events
 from nether_earth.heli_pad import detect_heli_pad_landing
 from nether_earth.ids import PlayerId
 from nether_earth.map import BootstrapMap, WorldMap
+from nether_earth.movement import advance_all_robot_transitions
 from nether_earth.resource_production import apply_daily_production
 from nether_earth.robot_launch import launch_robot
 from nether_earth.rules import DEFAULT_RULES
@@ -290,6 +291,18 @@ def step(
        resolution/occupancy cannot be computed without one); when
        ``world is None`` it is a gameplay no-op, matching Step 7's own
        world-gating.
+    Extended by issue #60 (M5.1) with Step 2b: any robot move transition
+    started through the shared movement executor (`movement.py`) and due to
+    complete by ``tick`` is resolved via
+    :func:`~nether_earth.movement.advance_all_robot_transitions`, in
+    ``state.robots``' canonical order. This is a no-op for any state with
+    no in-flight robot move, so every existing call site is unaffected;
+    starting robot moves is issued by later M5 tasks' own command types
+    (direct control, autonomous orders), which route through
+    :func:`~nether_earth.movement.apply_robot_move` -- this step is only
+    the completion half, so a started move always resolves on the tick its
+    centrally configured duration elapses.
+
     7. A new Step 9 applies
        :func:`~nether_earth.resource_production.apply_daily_production` for
        the tick range this ``step`` call advances through
@@ -367,6 +380,10 @@ def step(
     # --- Step 2: resolve horizontal transitions due to complete ------------
     state, completed_events = advance_all_horizontal_transitions(state, tick, sequencer)
     events.extend(completed_events)
+
+    # --- Step 2b: resolve robot move transitions due to complete -----------
+    state, robot_move_events = advance_all_robot_transitions(state, tick, sequencer)
+    events.extend(robot_move_events)
 
     # --- Step 3: undock any DOCKED commander holding rise intent ------------
     for commander in state.commanders:

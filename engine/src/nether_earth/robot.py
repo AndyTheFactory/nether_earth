@@ -51,6 +51,24 @@ second place in the engine that could compute them differently.
 ``GameState`` attachment (``GameState.robots``) is `robot_launch.py`
 and `state.py`'s concern, not this module's -- this module defines only
 the entity shape.
+
+Movement state (added by issue #60, M5.1): :class:`RobotMoveTransition`
+and the ``Robot.movement`` field are the authoritative representation of
+"this robot has an accepted cell-to-cell move in flight". They live here,
+next to the entity they belong to, exactly as
+:class:`~nether_earth.commander.GridTransition` lives next to
+:class:`~nether_earth.commander.Commander` -- the movement *rules* that
+create/resolve a transition live in `movement.py`, the way commander
+movement rules live in `commander_movement.py`. (Keeping the type here
+also avoids a `robot.py` <-> `movement.py` import cycle, since
+`movement.py` needs :class:`Robot`.) Unlike the commander's transition,
+this one carries its own ``entity_id``, matching
+`_specs/technical-spec.md` §8's recommended robot ``GridTransition``
+shape: robot moves contend for a shared destination-reservation table
+(M5.3), whose batching/release logic works with transitions detached from
+the robots that own them. ``Robot.with_movement`` enforces that the
+carried ``entity_id`` matches the robot it is attached to, so the
+redundancy can never drift.
 """
 
 from __future__ import annotations
@@ -60,7 +78,51 @@ from dataclasses import dataclass
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 
-__all__ = ["Robot"]
+__all__ = ["Robot", "RobotMoveTransition"]
+
+
+@dataclass(frozen=True, slots=True)
+class RobotMoveTransition:
+    """An in-progress, already-accepted cell-to-cell robot move.
+
+    Field shape matches `_specs/technical-spec.md` §8's recommended robot
+    ``GridTransition`` (``entity_id``, from/to cell, ``started_tick``,
+    ``duration_ticks``), spelled with explicit ``from_x``/``from_y``/
+    ``to_x``/``to_y`` integers to match every other grid-positioned value
+    in this codebase.
+
+    ``started_tick`` is the authoritative simulation tick the move began;
+    ``duration_ticks`` is how many ticks it takes to resolve (see
+    :func:`nether_earth.movement.move_duration_ticks`, which derives it
+    from centralized :class:`~nether_earth.rules.EngineRules` data). The
+    move is authoritative-complete once
+    ``tick >= started_tick + duration_ticks`` (see :meth:`is_complete`);
+    until then the robot's authoritative ``x``/``y`` remain at
+    ``from_x``/``from_y`` and only rendering may interpolate towards the
+    destination.
+    """
+
+    entity_id: EntityId
+    from_x: int
+    from_y: int
+    to_x: int
+    to_y: int
+    started_tick: int
+    duration_ticks: int
+
+    def __post_init__(self) -> None:
+        if self.started_tick < 0:
+            raise ValueError("started_tick must be non-negative")
+        if self.duration_ticks <= 0:
+            raise ValueError("duration_ticks must be a positive integer")
+
+    def completes_at(self) -> int:
+        """Return the tick at which this transition becomes authoritative-complete."""
+        return self.started_tick + self.duration_ticks
+
+    def is_complete(self, tick: int) -> bool:
+        """Return whether this transition has resolved as of ``tick``."""
+        return tick >= self.completes_at()
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,9 +142,54 @@ class Robot:
     build: RobotBuild
     stack: tuple[ModuleIdentity, ...]
     height: int
+    movement: RobotMoveTransition | None = None
 
     def __post_init__(self) -> None:
         if self.height <= 0:
             raise ValueError("height must be a positive integer")
         if not self.stack:
             raise ValueError("stack must not be empty")
+        if self.movement is not None and self.movement.entity_id != self.entity_id:
+            raise ValueError(
+                f"movement transition entity_id {self.movement.entity_id.value!r} does not "
+                f"match robot entity_id {self.entity_id.value!r}"
+            )
+
+    def with_movement(self, movement: RobotMoveTransition | None) -> Robot:
+        """Return a copy of this robot with ``movement`` replaced.
+
+        Passing ``None`` clears an in-progress move (completion,
+        cancellation, or release); passing a transition must name this
+        robot's own ``entity_id`` (enforced in ``__post_init__``).
+        Authoritative ``x``/``y`` are untouched -- starting a move does not
+        move the robot, resolving it does (see :meth:`with_position`).
+        """
+        return Robot(
+            entity_id=self.entity_id,
+            owner=self.owner,
+            x=self.x,
+            y=self.y,
+            build=self.build,
+            stack=self.stack,
+            height=self.height,
+            movement=movement,
+        )
+
+    def with_position(self, x: int, y: int) -> Robot:
+        """Return a copy of this robot at ``(x, y)`` with no in-progress move.
+
+        Used when a move transition resolves: the destination becomes the
+        robot's authoritative cell and the transition is cleared in the
+        same single, auditable state transition (mirroring
+        `commander.py`'s ``Commander.with_position``).
+        """
+        return Robot(
+            entity_id=self.entity_id,
+            owner=self.owner,
+            x=x,
+            y=y,
+            build=self.build,
+            stack=self.stack,
+            height=self.height,
+            movement=None,
+        )
