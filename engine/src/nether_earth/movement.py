@@ -442,7 +442,9 @@ def _in_bounds(world: WorldMap, x: int, y: int) -> bool:
     return 0 <= x < world.width and 0 <= y < world.height
 
 
-def _commander_blocks(state: GameState, robot: Robot, x: int, y: int) -> bool:
+def _commander_blocks(
+    state: GameState, robot: Robot, x: int, y: int, rules: EngineRules
+) -> bool:
     """Return whether any commander blocks ``robot`` from entering ``(x, y)``.
 
     Composes `collision.py`'s
@@ -452,10 +454,17 @@ def _commander_blocks(state: GameState, robot: Robot, x: int, y: int) -> bool:
     ground-rooted vertical range from
     :func:`~nether_earth.collision.robot_vertical_range`. No overlap math
     is re-derived here.
+
+    ``rules`` is forwarded because a commander's blocking volume is
+    ``[altitude, altitude + rules.commander_height)`` -- letting it default
+    would silently evaluate a caller's non-default rule set against
+    :data:`~nether_earth.rules.DEFAULT_RULES`. This mirrors
+    :func:`~nether_earth.collision.commander_horizontal_move_allowed`,
+    which forwards ``rules`` into the identical call.
     """
     vertical_range = robot_vertical_range(robot)
     return any(
-        commander_blocks_cell(state, commander, x, y, vertical_range)
+        commander_blocks_cell(state, commander, x, y, vertical_range, rules=rules)
         for commander in state.commanders
     )
 
@@ -492,12 +501,12 @@ def validate_robot_move(
        default) allows the destination
        (:attr:`~MovementRejectionReason.DESTINATION_UNAVAILABLE`).
 
-    ``rules`` is accepted so every legality entry point has the same
-    signature shape as :func:`apply_robot_move` (and so a future
-    rules-dependent legality check has a home); duration itself is
-    computed at move-start time by :func:`apply_robot_move`.
+    ``rules`` is forwarded to the commander-blocking check, whose blocking
+    volume depends on ``rules.commander_height``; a caller validating
+    against a non-default rule set therefore gets that rule set applied
+    here too. Movement *duration* is not computed by this function -- it
+    is derived at move-start time by :func:`apply_robot_move`.
     """
-    del rules  # no rules-dependent legality check today; see docstring
     robot = state.robot_for(request.entity_id)
     if robot is None:
         return RobotMoveResult.reject(request, MovementRejectionReason.NO_SUCH_ROBOT)
@@ -515,7 +524,7 @@ def validate_robot_move(
     if folded_robot_occupancy(world, state).is_occupied(dest_x, dest_y):
         return RobotMoveResult.reject(request, MovementRejectionReason.OCCUPIED)
 
-    if _commander_blocks(state, robot, dest_x, dest_y):
+    if _commander_blocks(state, robot, dest_x, dest_y, rules):
         return RobotMoveResult.reject(request, MovementRejectionReason.COMMANDER_BLOCKED)
 
     if not destination_check(state, robot, dest_x, dest_y):

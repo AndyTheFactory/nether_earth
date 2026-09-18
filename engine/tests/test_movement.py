@@ -351,6 +351,57 @@ def test_commander_elsewhere_does_not_block() -> None:
     assert result.accepted
 
 
+def test_commander_blocking_uses_the_rules_passed_in_not_the_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: ``validate_robot_move``'s ``rules`` must reach the M3 query.
+
+    A commander's blocking volume is
+    ``[altitude, altitude + rules.commander_height)``, so the M3
+    commander-blocking query is rules-dependent and
+    :func:`~nether_earth.collision.commander_horizontal_move_allowed`
+    forwards ``rules`` into the identical call. Robot movement previously
+    omitted it, silently evaluating every caller against ``DEFAULT_RULES``.
+
+    Asserted on the call itself rather than on an outcome: with both
+    volumes ground-rooted, a commander at altitude ``a`` overlaps a robot's
+    ``[0, height)`` exactly when ``a < height``, independently of
+    ``commander_height``, so no current fixture can distinguish the two
+    rule sets by result alone. The guarantee under test is that the
+    caller's rule set is what the query is evaluated against -- which is
+    what must not silently regress if commander geometry ever gains a
+    rules-dependent term.
+    """
+    import nether_earth.movement as movement_module
+
+    seen: list[EngineRules] = []
+    real_query = movement_module.commander_blocks_cell
+
+    def spy(
+        state: GameState,
+        commander: Commander,
+        x: int,
+        y: int,
+        vertical_range: object,
+        *,
+        rules: EngineRules = DEFAULT_RULES,
+    ) -> bool:
+        seen.append(rules)
+        return real_query(state, commander, x, y, vertical_range, rules=rules)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(movement_module, "commander_blocks_cell", spy)
+    custom_rules = EngineRules(commander_height=17)
+
+    validate_robot_move(
+        _east(),
+        _state((_robot(),), commanders=(_commander(x=8, y=8),)),
+        _world(),
+        custom_rules,
+    )
+
+    assert seen == [custom_rules]
+
+
 def test_destination_availability_hook_can_reject_the_move() -> None:
     def unavailable(state: GameState, robot: Robot, dest_x: int, dest_y: int) -> bool:
         return not (dest_x == 6 and dest_y == 5)
