@@ -43,8 +43,10 @@ and folding robot occupancy):
    (:data:`LaunchRejectionReason.NO_EXIT_DEFINED`) -- a map-authoring
    precondition, not a gameplay rule, but must be checked before resolving
    a cell;
-5. the resolved exit cell is not occupied
-   (:data:`LaunchRejectionReason.EXIT_BLOCKED`).
+5. the resolved exit cell is neither occupied nor *reserved* as some
+   in-flight move's destination (issue #62/M5.3; both surface as
+   :data:`LaunchRejectionReason.EXIT_BLOCKED` -- see the check itself for
+   why a reservation blocks an exit exactly like a standing robot does).
 
 Every rejection path returns the original ``state`` completely unchanged
 (:attr:`LaunchResult.state` is ``None`` on rejection, exactly like every
@@ -145,6 +147,7 @@ from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
 from nether_earth.movement import folded_robot_occupancy
 from nether_earth.occupancy import OccupancyGrid
+from nether_earth.reservations import reservations_from_state
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot import Robot
 from nether_earth.robot_build import BuildValidationError
@@ -290,6 +293,20 @@ def launch_robot(
     occupancy = _folded_occupancy(world, state)
     exit_x, exit_y = exit_cell
     if occupancy.is_occupied(exit_x, exit_y):
+        return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
+
+    # A robot with a move in flight authoritatively occupies its *origin*
+    # cell, so the fold above cannot see the destination it is about to
+    # land on -- that claim lives in M5.3's reservation contract (see
+    # `movement.folded_robot_occupancy`'s docstring, which says exactly
+    # this). Launching onto a reserved exit cell would therefore look legal
+    # here and then stack two robots on one cell the moment that move
+    # completes, since `movement.advance_robot_transition` writes the mover
+    # onto its reserved destination unconditionally. A reservation blocks
+    # the exit for the same reason a standing robot does, so it reuses
+    # EXIT_BLOCKED rather than introducing a second "cell is taken" code
+    # that callers would have to branch on identically.
+    if reservations_from_state(state).is_reserved(exit_x, exit_y):
         return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
 
     stack, height = derive_stack_and_height(robot_build, rules)
