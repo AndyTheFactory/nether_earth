@@ -35,6 +35,7 @@ def _world(
     *,
     factory_owner: PlayerId | None = None,
     war_base_capture: bool = False,
+    war_base_one_owner: PlayerId | None = PLAYER_ONE,
     extra_factory_capture_points: tuple[InteractionPoint, ...] = (),
 ) -> WorldMap:
     factories = (
@@ -46,7 +47,7 @@ def _world(
         ),
     )
     war_bases = (
-        WarBase(id=WAR_BASE_ONE, components=(Component(x=0, y=0, height=3),), owner=PLAYER_ONE),
+        WarBase(id=WAR_BASE_ONE, components=(Component(x=0, y=0, height=3),), owner=war_base_one_owner),
         WarBase(id=WAR_BASE_TWO, components=(Component(x=9, y=9, height=3),), owner=PLAYER_TWO),
     )
     interaction_points = (
@@ -344,6 +345,106 @@ def test_war_base_with_no_capture_interaction_point_is_not_capturable() -> None:
         isinstance(event, StructureCapturedEvent) and event.structure_id in (WAR_BASE_ONE, WAR_BASE_TWO)
         for event in events
     )
+
+
+# --- Neutral war base: continuous occupation, NOT instant acquisition -------
+#
+# Regression coverage for a spec violation found in review: a neutral war
+# base must go through the same continuous-occupation countdown as an
+# enemy-owned one (`_specs/open-questions.md` §6, "War-base capture uses
+# the same continuous-occupation rule as factory capture by default") --
+# only a neutral *factory* gets instant acquisition
+# (`_specs/functional-spec.md` §9). Every other test in this module's
+# "War-base capture" section above pre-assigns ``WAR_BASE_ONE`` to
+# ``PLAYER_ONE``, so this behavior was previously untested.
+
+
+def test_neutral_war_base_starts_a_capture_progress_countdown_not_instant_ownership() -> None:
+    rules = EngineRules(capture_duration_ticks=3)
+    world = _world(factory_owner=PLAYER_ONE, war_base_capture=True, war_base_one_owner=None)
+    robot = _robot("robot-p2-1", PLAYER_TWO, *WARBASE_CAPTURE_CELL)
+    state = _state((robot,))
+
+    new_state, events = advance_capture(state, world, tick=1, rules=rules)
+
+    # No instant acquisition, no NeutralStructureAcquiredEvent, no ownership
+    # override yet -- just a fresh CaptureProgress record, exactly like an
+    # enemy-owned war base would get.
+    assert events == ()
+    assert new_state.structure_ownership_for(WAR_BASE_ONE) is None
+    assert new_state.capture_progress_for(WAR_BASE_ONE) == CaptureProgress(
+        structure_id=WAR_BASE_ONE,
+        capturing_player=PLAYER_TWO,
+        robot_id=EntityId("robot-p2-1"),
+        elapsed_ticks=1,
+        required_ticks=3,
+    )
+
+
+def test_neutral_war_base_progress_advances_and_completes_at_duration_boundary() -> None:
+    rules = EngineRules(capture_duration_ticks=3)
+    world = _world(factory_owner=PLAYER_ONE, war_base_capture=True, war_base_one_owner=None)
+    robot = _robot("robot-p2-1", PLAYER_TWO, *WARBASE_CAPTURE_CELL)
+    state = _state((robot,))
+
+    for tick in (1, 2):
+        state, events = advance_capture(state, world, tick=tick, rules=rules)
+        assert events == ()
+        progress = state.capture_progress_for(WAR_BASE_ONE)
+        assert progress is not None
+        assert progress.elapsed_ticks == tick
+        # Ownership must not transfer before the duration boundary.
+        assert state.structure_ownership_for(WAR_BASE_ONE) is None
+
+    state, events = advance_capture(state, world, tick=3, rules=rules)
+
+    assert events == (
+        StructureCapturedEvent(
+            sequence=0,
+            structure_id=WAR_BASE_ONE,
+            structure_kind=CapturableStructureKind.WAR_BASE,
+            previous_owner=None,
+            new_owner=PLAYER_TWO,
+            robot_id=EntityId("robot-p2-1"),
+            tick=3,
+        ),
+    )
+    assert state.capture_progress_for(WAR_BASE_ONE) is None
+    assert state.structure_ownership_for(WAR_BASE_ONE) == StructureOwnership(
+        structure_id=WAR_BASE_ONE, owner=PLAYER_TWO
+    )
+
+
+def test_neutral_war_base_interruption_resets_progress_to_zero_immediately() -> None:
+    rules = EngineRules(capture_duration_ticks=3)
+    world = _world(factory_owner=PLAYER_ONE, war_base_capture=True, war_base_one_owner=None)
+    robot = _robot("robot-p2-1", PLAYER_TWO, *WARBASE_CAPTURE_CELL)
+    state = _state((robot,))
+
+    state, _events = advance_capture(state, world, tick=1, rules=rules)
+    assert state.capture_progress_for(WAR_BASE_ONE) is not None
+
+    # Robot leaves before completion -- interruption, no partial credit.
+    moved_robot = state.robot_for(EntityId("robot-p2-1"))
+    assert moved_robot is not None
+    state = state.with_robots((moved_robot.with_position(5, 5),))
+
+    state, events = advance_capture(state, world, tick=2, rules=rules)
+
+    assert events == ()
+    assert state.capture_progress_for(WAR_BASE_ONE) is None
+    assert state.structure_ownership_for(WAR_BASE_ONE) is None
+
+    # Robot returns: must restart from elapsed_ticks=1, not resume.
+    returned_robot = state.robot_for(EntityId("robot-p2-1"))
+    assert returned_robot is not None
+    state = state.with_robots((returned_robot.with_position(*WARBASE_CAPTURE_CELL),))
+    state, events = advance_capture(state, world, tick=3, rules=rules)
+
+    assert events == ()
+    progress = state.capture_progress_for(WAR_BASE_ONE)
+    assert progress is not None
+    assert progress.elapsed_ticks == 1
 
 
 # --- effective_world / effective_owner ---------------------------------------
