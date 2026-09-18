@@ -42,6 +42,13 @@ import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from nether_earth.capture import (
+    CapturableStructureKind,
+    NeutralStructureAcquiredEvent,
+    StructureCapturedEvent,
+    advance_capture,
+    effective_world,
+)
 from nether_earth.collision import (
     RobotFixture,
     commander_horizontal_move_allowed,
@@ -94,6 +101,7 @@ from nether_earth.robot_launch import launch_robot
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.scenario import Scenario, initialize_players
 from nether_earth.state import GameState, create_game_state
+from nether_earth.victory import evaluate_victory
 
 __all__ = [
     "CommandAccepted",
@@ -332,6 +340,44 @@ def step(
        launch handling, this requires a real ``world`` (factory/war-base
        ownership) and is skipped when ``world is None``.
 
+    Extended by issue #66 (M5.7) with Step 2d and the war-base-capture
+    victory hook:
+
+    8. A new Step 2d, immediately after Step 2c starts this tick's robot
+       moves (capture reads robots' *post*-move authoritative positions,
+       matching `capture.py`'s own documented ordering requirement -- a
+       move *starting* this tick does not itself change a robot's
+       authoritative position, so Step 2d's placement relative to Step 2c
+       has no observable effect on capture outcomes), applies
+       :func:`~nether_earth.capture.advance_capture`: neutral factory
+       instant acquisition, and enemy factory/war-base continuous-
+       occupation progress/interruption/completion. This is a no-op for
+       any state with no capturable structures/qualifying robots, so every
+       existing call site is unaffected. Skipped entirely when
+       ``world is None`` (there is no structure/interaction-point data to
+       evaluate capture against).
+    9. Whenever Step 2c completes at least one war-base capture/neutral
+       acquisition (a :class:`~nether_earth.capture.StructureCapturedEvent`
+       or :class:`~nether_earth.capture.NeutralStructureAcquiredEvent` with
+       ``structure_kind is CapturableStructureKind.WAR_BASE``),
+       :func:`~nether_earth.victory.evaluate_victory` is invoked in this
+       same step (`_specs/technical-spec.md` §6/§10's "victory is evaluated
+       in the same authoritative simulation step" requirement), against the
+       post-capture effective world. A resulting
+       :class:`~nether_earth.victory.VictoryEvent` is appended like any
+       other event; this module does not otherwise react to it (see
+       `victory.py`'s module docstring for why -- match
+       finalization/session lifecycle is the match/session layer's job).
+    10. Steps 7-9 above (heli-pad/construction entry, launch, daily
+        production) are evaluated against
+        :func:`~nether_earth.capture.effective_world` -- ``world`` with
+        every runtime capture ownership override (including any that
+        completed earlier in this same tick's Step 2c) layered on top --
+        rather than the raw ``world`` argument, so a structure's new owner
+        is immediately visible to every other ownership-aware subsystem in
+        the same tick it changes hands, matching "ownership transfers
+        immediately on completion".
+
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
     always produces an identical ``(new_state, events)`` pair.
     """
@@ -417,6 +463,35 @@ def step(
         events.extend(batch.contentions)
         events.extend(batch.started)
 
+    # --- Step 2d: neutral acquisition / enemy capture progress -------------
+    # After Step 2c: capture reads robots' authoritative positions, which a
+    # move *starting* this tick does not change (only a move *completing*,
+    # already resolved in Step 2b, does) -- so this step's relative order
+    # against Step 2c has no observable effect on capture outcomes, but it
+    # must stay after Step 2b for the "post-move position" ordering capture.py
+    # documents.
+    world_for_step: WorldMap | None = world
+    if world is not None:
+        state, capture_events = advance_capture(state, world, tick, rules, sequencer)
+        events.extend(capture_events)
+
+        war_base_ownership_changed = any(
+            isinstance(event, (NeutralStructureAcquiredEvent, StructureCapturedEvent))
+            and event.structure_kind is CapturableStructureKind.WAR_BASE
+            for event in capture_events
+        )
+
+        # Every subsequent world-dependent step this tick sees ownership as
+        # it stands *after* Step 2d -- including a completion that just
+        # happened this very tick -- per the module docstring's "ownership
+        # transfers immediately on completion" requirement.
+        world_for_step = effective_world(world, state)
+
+        if war_base_ownership_changed:
+            victory_event = evaluate_victory(world_for_step, state, tick, sequencer)
+            if victory_event is not None:
+                events.append(victory_event)
+
     # --- Step 3: undock any DOCKED commander holding rise intent ------------
     for commander in state.commanders:
         if commander.mode is not CommanderMode.DOCKED or not commander.rising:
@@ -465,11 +540,13 @@ def step(
         state = _replace_commander(state, follow_docked_robot(commander, robot, rules))
 
     # --- Step 7: heli-pad landing detection + auto construction entry ------
-    if world is not None:
+    if world_for_step is not None:
         for commander in state.commanders:
             if commander.mode is not CommanderMode.FREE:
                 continue
-            landing_event = detect_heli_pad_landing(state, world, commander, tick, rules, sequencer)
+            landing_event = detect_heli_pad_landing(
+                state, world_for_step, commander, tick, rules, sequencer
+            )
             if landing_event is not None:
                 events.append(landing_event)
                 # Detect and immediately apply, mirroring Step 5's auto-dock
@@ -538,7 +615,7 @@ def step(
                     )
                 )
         elif isinstance(command, LaunchRobotCommand):
-            if world is None:
+            if world_for_step is None:
                 # Launch requires resolving the owning war base's EXIT
                 # interaction point and folding robot occupancy against a
                 # real WorldMap (see robot_launch.py); with no world
@@ -547,7 +624,7 @@ def step(
                 # precondition rejection -- no additional event, matching
                 # this module's own rejection convention.
                 continue
-            launch_result = launch_robot(state, world, command.player, rules)
+            launch_result = launch_robot(state, world_for_step, command.player, rules)
             if launch_result.accepted:
                 assert launch_result.state is not None
                 assert launch_result.robot is not None
@@ -562,9 +639,9 @@ def step(
                 )
 
     # --- Step 9: daily production boundary check ----------------------------
-    if world is not None:
+    if world_for_step is not None:
         state, production_events = apply_daily_production(
-            state, world, starting_tick, tick, rules, sequencer
+            state, world_for_step, starting_tick, tick, rules, sequencer
         )
         events.extend(production_events)
 

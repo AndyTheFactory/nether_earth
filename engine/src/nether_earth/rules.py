@@ -266,6 +266,21 @@ class EngineRules:
       flagged in `_specs/open-questions.md` §4 as a known likely
       under-estimate rather than silently "corrected" with an invented
       integer.
+    - ``capture_duration_ticks``: the number of continuous authoritative
+      ticks a qualifying enemy robot must occupy a factory's or war base's
+      canonical capture interaction location before ownership transfers
+      (`capture.py`, issue #66, M5.7). RESOLVED and locked by
+      `_specs/open-questions.md` §6 ("War-base capture mechanics") -- default
+      duration 12 in-game hours = 1,440 simulation ticks at the locked 20 Hz
+      tick rate = 72 real seconds -- and applies identically to enemy
+      factory capture per that same section ("War-base capture uses the
+      same continuous-occupation rule as factory capture by default").
+      Represented as a named, documented, overridable ``EngineRules`` field
+      (rather than a bare ``1440`` literal inlined at any capture call
+      site) so scenario data can override it, per §6's explicit "capture
+      duration is configurable game-rule/scenario data."  Neutral factory
+      acquisition (`_specs/functional-spec.md` §9) is instantaneous for the
+      first qualifying robot and does not consume this field at all.
     """
 
     commander_min_altitude: int = 0
@@ -302,6 +317,7 @@ class EngineRules:
     robot_rough_multiplier_tracks: int = 2
     robot_rough_multiplier_anti_grav: int = 1
     robot_ditch_multiplier_anti_grav: int = 1
+    capture_duration_ticks: int = 1440
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -361,6 +377,8 @@ class EngineRules:
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")
+        if self.capture_duration_ticks <= 0:
+            raise ValueError("capture_duration_ticks must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

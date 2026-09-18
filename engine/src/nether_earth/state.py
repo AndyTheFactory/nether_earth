@@ -110,6 +110,7 @@ from nether_earth.ids import EntityId, PlayerId
 from nether_earth.resource_pool import PlayerResourcePool
 
 if TYPE_CHECKING:
+    from nether_earth.capture import CaptureProgress, StructureOwnership
     from nether_earth.construction_session import ConstructionSession
     from nether_earth.robot import Robot
 
@@ -194,6 +195,58 @@ def _canonical_robots(robots: tuple[Robot, ...]) -> tuple[Robot, ...]:
     return tuple(sorted(robots, key=lambda robot: robot.entity_id.value))
 
 
+def _canonical_structure_ownership(
+    structure_ownership: tuple[StructureOwnership, ...],
+) -> tuple[StructureOwnership, ...]:
+    """Return ``structure_ownership`` sorted canonically, after validating it.
+
+    Shared by :func:`create_game_state` and
+    :meth:`GameState.with_structure_ownership` (see issue #66, M5.7). Mirrors
+    :func:`_canonical_robots`'s "sort/validate by the record's own id"
+    shape: a structure has at most one runtime ownership override recorded
+    at a time (absence means "still whatever ``WorldMap`` says", never a
+    second, stale override), so uniqueness is enforced on
+    ``structure_id``, not on the owning player (unlike
+    ``commanders``/``resource_pools``/``construction_sessions``, many
+    structures may share the same current owner).
+    """
+    seen_structures: set[EntityId] = set()
+    for record in structure_ownership:
+        if record.structure_id in seen_structures:
+            raise ValueError(
+                f"duplicate structure ownership override for structure "
+                f"{record.structure_id.value!r}: a structure may have at most one "
+                "runtime ownership override"
+            )
+        seen_structures.add(record.structure_id)
+    return tuple(sorted(structure_ownership, key=lambda record: record.structure_id.value))
+
+
+def _canonical_capture_progress(
+    capture_progress: tuple[CaptureProgress, ...],
+) -> tuple[CaptureProgress, ...]:
+    """Return ``capture_progress`` sorted canonically, after validating it.
+
+    Shared by :func:`create_game_state` and
+    :meth:`GameState.with_capture_progress` (see issue #66, M5.7). A
+    structure has at most one active capture attempt in progress at a time
+    -- per `_specs/open-questions.md` §7, any interruption resets progress
+    to zero immediately rather than retaining a second, stale attempt --
+    so uniqueness is enforced on ``structure_id``, mirroring
+    :func:`_canonical_structure_ownership`.
+    """
+    seen_structures: set[EntityId] = set()
+    for progress in capture_progress:
+        if progress.structure_id in seen_structures:
+            raise ValueError(
+                f"duplicate capture progress for structure "
+                f"{progress.structure_id.value!r}: a structure may have at most one "
+                "active capture attempt in progress"
+            )
+        seen_structures.add(progress.structure_id)
+    return tuple(sorted(capture_progress, key=lambda progress: progress.structure_id.value))
+
+
 @dataclass(frozen=True, slots=True)
 class GameState:
     """Minimal authoritative engine state: tick, players, commanders, resource pools, and construction sessions.
@@ -234,6 +287,25 @@ class GameState:
     unchanged. See the module docstring for why robots sort by their own
     entity id rather than owning-player id, and for the ownership/
     uniqueness invariants ``create_game_state``/``with_robots`` enforce.
+
+    ``structure_ownership`` (added by issue #66, M5.7) carries runtime
+    ownership overrides for war bases/factories captured since match start,
+    layered over ``WorldMap``'s own static/scenario-starting ``owner``
+    fields (see ``capture.py``'s ``effective_world``) -- ``WorldMap`` is a
+    plain loaded map value external to ``GameState`` and is never mutated
+    in place, so a structure's *current* owner after any capture completes
+    is authoritative only on ``GameState``. It is always stored in
+    canonical (sorted by ``StructureOwnership.structure_id.value``) order,
+    at most one override per structure; it defaults to ``()`` so existing
+    callers keep working unchanged.
+
+    ``capture_progress`` (added by issue #66, M5.7) carries the in-progress
+    continuous-occupation capture attempt, if any, for each contested
+    structure (`_specs/technical-spec.md` §10's ``CaptureProgress``). It is
+    always stored in canonical (sorted by
+    ``CaptureProgress.structure_id.value``) order, at most one active
+    attempt per structure; it defaults to ``()`` so existing callers keep
+    working unchanged.
     """
 
     tick: int
@@ -243,6 +315,8 @@ class GameState:
     resource_pools: tuple[PlayerResourcePool, ...] = ()
     construction_sessions: tuple[ConstructionSession, ...] = ()
     robots: tuple[Robot, ...] = ()
+    structure_ownership: tuple[StructureOwnership, ...] = ()
+    capture_progress: tuple[CaptureProgress, ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -250,8 +324,8 @@ class GameState:
         This is the explicit, controlled transition for advancing the
         authoritative tick counter; callers must not mutate ``tick`` in
         place. ``players``, ``seed``, ``commanders``, ``resource_pools``,
-        ``construction_sessions``, and ``robots`` are carried over
-        unchanged.
+        ``construction_sessions``, ``robots``, ``structure_ownership``, and
+        ``capture_progress`` are carried over unchanged.
         """
         return GameState(
             tick=tick,
@@ -261,6 +335,8 @@ class GameState:
             resource_pools=self.resource_pools,
             construction_sessions=self.construction_sessions,
             robots=self.robots,
+            structure_ownership=self.structure_ownership,
+            capture_progress=self.capture_progress,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -290,6 +366,8 @@ class GameState:
             resource_pools=self.resource_pools,
             construction_sessions=self.construction_sessions,
             robots=self.robots,
+            structure_ownership=self.structure_ownership,
+            capture_progress=self.capture_progress,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -328,6 +406,8 @@ class GameState:
             resource_pools=canonical_resource_pools,
             construction_sessions=self.construction_sessions,
             robots=self.robots,
+            structure_ownership=self.structure_ownership,
+            capture_progress=self.capture_progress,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -368,6 +448,8 @@ class GameState:
             resource_pools=self.resource_pools,
             construction_sessions=canonical_construction_sessions,
             robots=self.robots,
+            structure_ownership=self.structure_ownership,
+            capture_progress=self.capture_progress,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -404,6 +486,8 @@ class GameState:
             resource_pools=self.resource_pools,
             construction_sessions=self.construction_sessions,
             robots=canonical_robots,
+            structure_ownership=self.structure_ownership,
+            capture_progress=self.capture_progress,
         )
 
     def robot_for(self, entity_id: EntityId) -> Robot | None:
@@ -417,6 +501,78 @@ class GameState:
         """Return every robot owned by ``player_id``, in canonical entity-id order."""
         return tuple(robot for robot in self.robots if robot.owner == player_id)
 
+    def with_structure_ownership(
+        self, structure_ownership: tuple[StructureOwnership, ...]
+    ) -> GameState:
+        """Return a new ``GameState`` with ``structure_ownership`` replaced.
+
+        ``structure_ownership`` may be supplied in any order; the result is
+        normalized to canonical (sorted by ``structure_id.value``) order.
+        No two overrides may share a ``structure_id`` -- see
+        :func:`_canonical_structure_ownership`. Unlike
+        ``commanders``/``resource_pools``/``robots``, there is no
+        ``self.players``-membership check here: a structure id is not a
+        ``PlayerId`` and this module has no map/world reference to validate
+        it against (``capture.py`` validates structure ids against the
+        ``WorldMap`` it is given before ever constructing a
+        :class:`~nether_earth.capture.StructureOwnership`). ``tick``,
+        ``players``, ``seed``, ``commanders``, ``resource_pools``,
+        ``construction_sessions``, ``robots``, and ``capture_progress`` are
+        carried over unchanged.
+        """
+        canonical_structure_ownership = _canonical_structure_ownership(
+            tuple(structure_ownership)
+        )
+        return GameState(
+            tick=self.tick,
+            players=self.players,
+            seed=self.seed,
+            commanders=self.commanders,
+            resource_pools=self.resource_pools,
+            construction_sessions=self.construction_sessions,
+            robots=self.robots,
+            structure_ownership=canonical_structure_ownership,
+            capture_progress=self.capture_progress,
+        )
+
+    def structure_ownership_for(self, structure_id: EntityId) -> StructureOwnership | None:
+        """Return the runtime ownership override for ``structure_id``, or ``None`` if it has none."""
+        for record in self.structure_ownership:
+            if record.structure_id == structure_id:
+                return record
+        return None
+
+    def with_capture_progress(self, capture_progress: tuple[CaptureProgress, ...]) -> GameState:
+        """Return a new ``GameState`` with ``capture_progress`` replaced.
+
+        ``capture_progress`` may be supplied in any order; the result is
+        normalized to canonical (sorted by ``structure_id.value``) order.
+        No two entries may share a ``structure_id`` -- see
+        :func:`_canonical_capture_progress`. ``tick``, ``players``,
+        ``seed``, ``commanders``, ``resource_pools``,
+        ``construction_sessions``, ``robots``, and ``structure_ownership``
+        are carried over unchanged.
+        """
+        canonical_capture_progress = _canonical_capture_progress(tuple(capture_progress))
+        return GameState(
+            tick=self.tick,
+            players=self.players,
+            seed=self.seed,
+            commanders=self.commanders,
+            resource_pools=self.resource_pools,
+            construction_sessions=self.construction_sessions,
+            robots=self.robots,
+            structure_ownership=self.structure_ownership,
+            capture_progress=canonical_capture_progress,
+        )
+
+    def capture_progress_for(self, structure_id: EntityId) -> CaptureProgress | None:
+        """Return the in-progress capture attempt for ``structure_id``, or ``None`` if it has none."""
+        for progress in self.capture_progress:
+            if progress.structure_id == structure_id:
+                return progress
+        return None
+
 
 def create_game_state(
     tick: int,
@@ -426,8 +582,10 @@ def create_game_state(
     resource_pools: tuple[PlayerResourcePool, ...] | list[PlayerResourcePool] | None = None,
     construction_sessions: tuple[ConstructionSession, ...] | list[ConstructionSession] | None = None,
     robots: tuple[Robot, ...] | list[Robot] | None = None,
+    structure_ownership: tuple[StructureOwnership, ...] | list[StructureOwnership] | None = None,
+    capture_progress: tuple[CaptureProgress, ...] | list[CaptureProgress] | None = None,
 ) -> GameState:
-    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots`` normalized.
+    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress`` normalized.
 
     ``players`` may be supplied in any order or as any iterable of unique
     ``PlayerId`` values; the resulting ``GameState.players`` is always the
@@ -462,6 +620,16 @@ def create_game_state(
     robots may share an ``entity_id`` (see the module docstring for why
     "one per player" ordering does not apply here). The resulting
     ``GameState.robots`` is always sorted by ``entity_id.value``.
+
+    ``structure_ownership`` defaults to no overrides (``()``); at most one
+    override per ``structure_id`` (see the module docstring). The resulting
+    ``GameState.structure_ownership`` is always sorted by
+    ``structure_id.value``.
+
+    ``capture_progress`` defaults to no in-progress attempts (``()``); at
+    most one attempt per ``structure_id`` (see the module docstring). The
+    resulting ``GameState.capture_progress`` is always sorted by
+    ``structure_id.value``.
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -505,6 +673,14 @@ def create_game_state(
             )
     canonical_robots = _canonical_robots(resolved_robots)
 
+    resolved_structure_ownership = (
+        () if structure_ownership is None else tuple(structure_ownership)
+    )
+    canonical_structure_ownership = _canonical_structure_ownership(resolved_structure_ownership)
+
+    resolved_capture_progress = () if capture_progress is None else tuple(capture_progress)
+    canonical_capture_progress = _canonical_capture_progress(resolved_capture_progress)
+
     return GameState(
         tick=tick,
         players=canonical_players,
@@ -513,4 +689,6 @@ def create_game_state(
         resource_pools=canonical_resource_pools,
         construction_sessions=canonical_construction_sessions,
         robots=canonical_robots,
+        structure_ownership=canonical_structure_ownership,
+        capture_progress=canonical_capture_progress,
     )
