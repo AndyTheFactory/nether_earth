@@ -50,12 +50,82 @@ Locked:
 - authoritative movement timing is integer ticks-per-tile at 20 Hz;
 - values live in centralized game-rule configuration.
 
-Still open:
+Issue #61 (M5.2) research findings, encoded in `engine/src/nether_earth/rules.py`'s
+`EngineRules.robot_move_ticks_*` / `robot_rough_multiplier_*` /
+`robot_ditch_multiplier_anti_grav` fields (the movement-timing home issue
+#60/M5.1 established; evidence trail lives in that module's docstring and
+in each field's own docstring entry) and consumed by
+`engine/src/nether_earth/movement.py`'s `move_duration_ticks`:
 
-- exact default ticks per tile for each chassis;
-- exact bipod rough-terrain penalty;
-- exact tracked rough-terrain penalty;
-- whether anti-grav speed is identical on every traversable terrain type.
+**Newly resolved (disassembly-evidence-backed):**
+
+- default ordinary-terrain ticks per cell, derived from
+  `santiontanon/netherearth-disassembly`'s `netherearth-annotated.asm`
+  `Lb61d_robot_movement_speed_table` (bipod/tracks/anti-grav = 6/4/3
+  "cycles" on flat terrain) and the game's own documented cadence
+  (`MIN_INTERRUPTS_PER_GAME_CYCLE: equ 10 ; game maximum speed is 5 frames
+  per second`, i.e. 1 cycle = 200 ms = 4 ticks at the locked 20 Hz rate):
+  bipod = 24 ticks/cell, tracks = 16 ticks/cell, anti-grav = 12 ticks/cell
+  (`robot_move_ticks_bipod` / `robot_move_ticks_tracks` /
+  `robot_move_ticks_anti_grav`). This evidence was retrieved via an
+  automated fetch (not a first-hand raw read) but is corroborated: the same
+  fetch independently reproduced two other already-locked constants from
+  this file (`INITIAL_PLAYER_RESOURCES: equ 20`, `MAX_ROBOTS_PER_PLAYER:
+  equ 24`), matching §10 and `rules.py`.
+- anti-grav's rough-terrain multiplier (`robot_rough_multiplier_anti_grav
+  = 1`, i.e. no penalty) is now evidence-backed rather than a placeholder:
+  the same disassembly table shows anti-grav identical on flat/rugged (3
+  cycles both).
+- anti-grav is **not** uniform across every traversable terrain type once
+  ditch is included: the disassembly table shows anti-grav slower on the
+  most extreme ("mountains") terrain tier (4 cycles vs. 3 on flat/rugged,
+  a ~1.33x ratio). See "still open" below for why this could not be
+  encoded as an exact `robot_ditch_multiplier_anti_grav` value.
+
+**Still open / explicitly NOT resolved by this research pass:**
+
+- exact bipod rough-terrain penalty and exact tracked rough-terrain
+  penalty: the disassembly table itself (bipod 6->8 cycles, tracks 4->6
+  cycles on rugged terrain) does **not** unambiguously support the locked
+  "tracks penalized less severely than bipod" ordering under either an
+  absolute-increase reading (tied, +2 cycles each) or a proportional
+  reading (tracks' 1.5x proportional slowdown is actually *larger* than
+  bipod's 1.33x) — a genuine conflict between hard disassembly evidence and
+  the previously locked qualitative claim above, not a rounding artifact.
+  Neither raw ratio (1.33x, 1.5x) is representable as a clean integer
+  `robot_rough_multiplier_*` without inventing precision the evidence does
+  not support, so `robot_rough_multiplier_bipod = 3` /
+  `robot_rough_multiplier_tracks = 2` remain the pre-existing, explicitly
+  unverified placeholder values (chosen only to satisfy the locked
+  qualitative ordering, which they do: 3 > 2 > 1). **This conflict needs a
+  human decision**: either accept the disassembly numbers and revise the
+  locked qualitative claim (and possibly relax the multiplier field to a
+  non-integer/rational type), or keep the qualitative claim and accept that
+  the exact rough-penalty magnitude is permanently a configurable,
+  non-Spectrum-exact default.
+- exact anti-grav ditch multiplier: the disassembly-evidenced flat-to-
+  mountains ratio (~1.33x) is likewise not representable as a clean integer
+  multiplier on the `EngineRules` schema. `robot_ditch_multiplier_anti_grav`
+  therefore remains at its pre-existing placeholder value (`1`, i.e. no
+  penalty) — this is a known **under-estimate** relative to the disassembly
+  evidence above (which suggests anti-grav should be measurably slower,
+  not equally fast, on ditch terrain), left unchanged rather than silently
+  replaced with an invented integer (e.g. `2`, which would overstate the
+  penalty). Flagged here as open rather than corrected in place.
+- exact terrain-tier correspondence: the disassembly's speed table is keyed
+  by a continuous per-cell altitude tier (flat / rugged / mountains) gated
+  by a separate per-chassis altitude ceiling (bipod 8, tracks 12, anti-grav
+  15), not by this project's discrete `NORMAL`/`ROUGH`/`DITCH` categories
+  with a categorical bipod/tracks ditch ban. Mapping flat->`NORMAL` and
+  rugged->`ROUGH` is direct; mapping "mountains"->`DITCH` (the closest
+  available evidence for anti-grav's non-ordinary-terrain speed, since
+  ditch remains categorically forbidden for bipod/tracks) is an
+  interpretive judgment, not a verified one-to-one correspondence.
+- whether anti-grav speed is identical across *every* traversable terrain
+  type: disassembly evidence suggests **no** (see above), but the current
+  shipped `robot_ditch_multiplier_anti_grav = 1` default does not yet
+  reflect that finding (see the ditch-multiplier item above) — this is an
+  intentionally recorded gap, not a resolved "yes."
 
 ## 5. Dumb vs electronic navigation — RESOLVED
 
