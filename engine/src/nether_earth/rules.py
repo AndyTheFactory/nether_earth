@@ -120,6 +120,29 @@ ZX Spectrum's cap of 24 robots per player at a time -- represented as a
 named, documented, overridable ``EngineRules`` field (rather than a bare
 ``24`` literal inlined at the launch call site) following this module's
 established convention for every other rule-legality constant.
+
+Issue #60 (M5.1, `_specs/milestones/05-orders-navigation-capture.md`) adds
+the seven robot-movement timing fields (``robot_move_ticks_*``,
+``robot_rough_multiplier_*``, ``robot_ditch_multiplier_anti_grav``): the
+integer per-cell movement durations `movement.py`'s shared movement
+executor consumes. `_specs/open-questions.md` §4 ("Exact movement speeds
+and terrain penalties -- PARTIALLY RESOLVED") locks only the *relative*
+behavior -- bipod slowest, tracks faster, anti-grav fastest on ordinary
+terrain; bipod's rough-terrain slowdown severe, tracks' smaller;
+authoritative timing is integer ticks-per-tile at 20 Hz -- and explicitly
+leaves the exact ticks-per-tile per chassis, the exact bipod/tracked
+rough penalties, and whether anti-grav speed is identical on every
+traversable terrain type UNRESOLVED. These fields therefore follow the
+same "documented default, not independently verified" precedent as
+``commander_vertical_update_ticks``/``commander_height``: the defaults
+below express exactly the locked relative ordering and nothing more, live
+named/documented/overridable in this one place (no movement call site
+inlines a literal), and are owned for fidelity finalization by milestone
+issue #61 (M5.2), which can correct them here without any movement
+architecture change. Per-cell cost is expressed as a per-chassis base
+ticks-per-cell multiplied by a per-chassis terrain multiplier (``1`` means
+"no penalty relative to ordinary terrain"), so evidence resolving either
+half of §4 lands as a value change here rather than a shape change.
 """
 
 from dataclasses import dataclass
@@ -199,6 +222,25 @@ class EngineRules:
       and `_specs/functional-spec.md` §11 "Construction cannot launch
       when: player already has 24 robots"). Enforced by `robot_launch.py`
       (issue #56).
+    - ``robot_move_ticks_bipod`` / ``robot_move_ticks_tracks`` /
+      ``robot_move_ticks_anti_grav``: simulation ticks a robot with that
+      chassis takes to move one cell across ordinary (``NORMAL``) terrain.
+      Defaults (``8`` / ``6`` / ``4``) encode only the locked relative
+      ordering "bipod < tracks < anti-grav" in speed; the exact values are
+      documented defaults pending issue #61 -- see the module docstring.
+    - ``robot_rough_multiplier_bipod`` / ``robot_rough_multiplier_tracks``
+      / ``robot_rough_multiplier_anti_grav``: multiplier applied to that
+      chassis' base per-cell ticks when entering ``ROUGH`` terrain.
+      Defaults (``3`` / ``2`` / ``1``) encode only the locked relative
+      rule "rough slows bipod severely, tracks less severely"; anti-grav's
+      ``1`` reflects `_specs/open-questions.md` §4's still-open question of
+      whether anti-grav speed is uniform across traversable terrain, made
+      configurable here rather than asserted as verified.
+    - ``robot_ditch_multiplier_anti_grav``: multiplier applied to
+      anti-grav's base per-cell ticks when entering ``DITCH`` terrain
+      (anti-grav is the only chassis permitted to; see `movement.py`).
+      Default ``1``, for the same still-open §4 reason as the rough
+      multiplier above.
     """
 
     commander_min_altitude: int = 0
@@ -228,6 +270,13 @@ class EngineRules:
     factory_production_amount: int = 2
     war_base_production_amount: int = 5
     max_robots_per_player: int = 24
+    robot_move_ticks_bipod: int = 8
+    robot_move_ticks_tracks: int = 6
+    robot_move_ticks_anti_grav: int = 4
+    robot_rough_multiplier_bipod: int = 3
+    robot_rough_multiplier_tracks: int = 2
+    robot_rough_multiplier_anti_grav: int = 1
+    robot_ditch_multiplier_anti_grav: int = 1
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -276,6 +325,17 @@ class EngineRules:
             raise ValueError("war_base_production_amount must be a positive integer")
         if self.max_robots_per_player <= 0:
             raise ValueError("max_robots_per_player must be a positive integer")
+        for field_name in (
+            "robot_move_ticks_bipod",
+            "robot_move_ticks_tracks",
+            "robot_move_ticks_anti_grav",
+            "robot_rough_multiplier_bipod",
+            "robot_rough_multiplier_tracks",
+            "robot_rough_multiplier_anti_grav",
+            "robot_ditch_multiplier_anti_grav",
+        ):
+            if getattr(self, field_name) <= 0:
+                raise ValueError(f"{field_name} must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

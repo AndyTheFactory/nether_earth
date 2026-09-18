@@ -101,6 +101,7 @@ from dataclasses import dataclass
 from nether_earth.commander import Commander
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.map import WorldMap
+from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
 from nether_earth.structures import Blocker, Component, Factory, WarBase
@@ -190,11 +191,19 @@ def component_vertical_range(component: Component) -> VerticalRange:
     return VerticalRange(bottom=0, top=component.height)
 
 
-def robot_vertical_range(robot: RobotFixture) -> VerticalRange:
+def robot_vertical_range(robot: RobotFixture | Robot) -> VerticalRange:
     """Return the ground-rooted vertical range ``robot``'s physical stack occupies.
 
     Same ground-rooted convention as :func:`component_vertical_range`:
     ``[0, robot.height)``.
+
+    Accepts either this module's :class:`RobotFixture` placeholder or the
+    real :class:`~nether_earth.robot.Robot` entity (M4.6), which carries
+    the same derived ``height``. Widened by issue #60 (M5.1) so robot
+    movement can ask this module for a robot's blocking range instead of
+    re-deriving the ground-rooted convention itself -- the placeholder is
+    still not extended, and callers holding a real robot never need to
+    build a fixture to use this module.
     """
     return VerticalRange(bottom=0, top=robot.height)
 
