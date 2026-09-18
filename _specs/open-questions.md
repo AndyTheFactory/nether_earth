@@ -50,12 +50,62 @@ Locked:
 - authoritative movement timing is integer ticks-per-tile at 20 Hz;
 - values live in centralized game-rule configuration.
 
-Still open:
+Issue #61 (M5.2) research findings, encoded in
+`engine/src/nether_earth/movement_rules.py` (`MovementRules`, evidence trail
+in that module's docstring):
 
-- exact default ticks per tile for each chassis;
-- exact bipod rough-terrain penalty;
-- exact tracked rough-terrain penalty;
-- whether anti-grav speed is identical on every traversable terrain type.
+**Newly resolved (disassembly-evidence-backed):**
+
+- default ordinary-terrain ticks per cell, derived from
+  `santiontanon/netherearth-disassembly`'s `netherearth-annotated.asm`
+  `Lb61d_robot_movement_speed_table` (bipod/tracks/anti-grav = 6/4/3
+  "cycles" on flat terrain) and the game's own documented cadence
+  (`MIN_INTERRUPTS_PER_GAME_CYCLE: equ 10 ; game maximum speed is 5 frames
+  per second`, i.e. 1 cycle = 200 ms = 4 ticks at the locked 20 Hz rate):
+  bipod = 24 ticks/cell, tracks = 16 ticks/cell, anti-grav = 12 ticks/cell.
+  This evidence was retrieved via an automated fetch (not a first-hand raw
+  read) but is corroborated: the same fetch independently reproduced two
+  other already-locked constants from this file (`INITIAL_PLAYER_RESOURCES:
+  equ 20`, `MAX_ROBOTS_PER_PLAYER: equ 24`), matching §10 and `rules.py`.
+- anti-grav is **not** uniform across every traversable terrain type: the
+  same disassembly table shows anti-grav identical on flat/rugged (3 cycles
+  both -> 12 ticks) but slower on the most extreme ("mountains") terrain
+  tier (4 cycles -> 16 ticks). This project's ditch category is mapped to
+  that most-extreme tier as the closest available evidence (see the
+  mapping caveat below) -> `anti_grav_ditch_ticks_per_cell = 16`.
+
+**Still open / explicitly NOT resolved by this research pass:**
+
+- exact bipod rough-terrain penalty and exact tracked rough-terrain
+  penalty: the disassembly table itself (bipod 6->8 cycles, tracks 4->6
+  cycles on rugged terrain) does **not** unambiguously support the locked
+  "tracks penalized less severely than bipod" ordering under either an
+  absolute-increase reading (tied, +2 cycles each) or a proportional
+  reading (tracks' 1.5x proportional slowdown is actually *larger* than
+  bipod's 1.33x) — a genuine conflict between hard disassembly evidence and
+  the previously locked qualitative claim above, not a rounding artifact.
+  `movement_rules.py` ships documented placeholder values
+  (`bipod_rough_ticks_per_cell = 36`, `tracks_rough_ticks_per_cell = 22`)
+  chosen only to satisfy the locked qualitative ordering for the mandated
+  regression test, and explicitly NOT presented as verified exact Spectrum
+  constants. **This conflict needs a human decision**: either accept the
+  disassembly numbers and revise the locked qualitative claim, or keep the
+  qualitative claim and accept that the exact rough-penalty magnitude is
+  permanently a configurable, non-Spectrum-exact default.
+- exact terrain-tier correspondence: the disassembly's speed table is keyed
+  by a continuous per-cell altitude tier (flat / rugged / mountains) gated
+  by a separate per-chassis altitude ceiling (bipod 8, tracks 12, anti-grav
+  15), not by this project's discrete `NORMAL`/`ROUGH`/`DITCH` categories
+  with a categorical bipod/tracks ditch ban. Mapping flat->`NORMAL` and
+  rugged->`ROUGH` is direct; mapping "mountains"->`DITCH` (used only for
+  anti-grav's ditch speed, since ditch remains categorically forbidden for
+  bipod/tracks) is an interpretive judgment, not a verified one-to-one
+  correspondence.
+- whether anti-grav speed is identical across *every* traversable terrain
+  type is now answered **no** (see above) for the normal/rough/ditch model
+  used here, but only via the interpretive ditch mapping just described —
+  not a fully independent verification of this project's own ditch category
+  specifically.
 
 ## 5. Dumb vs electronic navigation — RESOLVED
 
