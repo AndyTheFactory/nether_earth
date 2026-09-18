@@ -125,24 +125,37 @@ Issue #60 (M5.1, `_specs/milestones/05-orders-navigation-capture.md`) adds
 the seven robot-movement timing fields (``robot_move_ticks_*``,
 ``robot_rough_multiplier_*``, ``robot_ditch_multiplier_anti_grav``): the
 integer per-cell movement durations `movement.py`'s shared movement
-executor consumes. `_specs/open-questions.md` §4 ("Exact movement speeds
-and terrain penalties -- PARTIALLY RESOLVED") locks only the *relative*
-behavior -- bipod slowest, tracks faster, anti-grav fastest on ordinary
-terrain; bipod's rough-terrain slowdown severe, tracks' smaller;
-authoritative timing is integer ticks-per-tile at 20 Hz -- and explicitly
-leaves the exact ticks-per-tile per chassis, the exact bipod/tracked
-rough penalties, and whether anti-grav speed is identical on every
-traversable terrain type UNRESOLVED. These fields therefore follow the
-same "documented default, not independently verified" precedent as
-``commander_vertical_update_ticks``/``commander_height``: the defaults
-below express exactly the locked relative ordering and nothing more, live
-named/documented/overridable in this one place (no movement call site
-inlines a literal), and are owned for fidelity finalization by milestone
-issue #61 (M5.2), which can correct them here without any movement
-architecture change. Per-cell cost is expressed as a per-chassis base
+executor consumes. Per-cell cost is expressed as a per-chassis base
 ticks-per-cell multiplied by a per-chassis terrain multiplier (``1`` means
 "no penalty relative to ordinary terrain"), so evidence resolving either
-half of §4 lands as a value change here rather than a shape change.
+half of `_specs/open-questions.md` §4 lands as a value change here rather
+than a shape change.
+
+Issue #61 (M5.2) is the fidelity-finalization pass over these same seven
+fields, per `_specs/open-questions.md` §4 ("Exact movement speeds and
+terrain penalties -- PARTIALLY RESOLVED"). It resolved the three
+``robot_move_ticks_*`` (ordinary-terrain) defaults directly from disassembly
+evidence (`santiontanon/netherearth-disassembly`,
+``netherearth-annotated.asm``'s ``Lb61d_robot_movement_speed_table``: bipod/
+tracks/anti-grav = 6/4/3 "cycles" on flat terrain) mapped onto the locked
+20 Hz tick rate via the disassembly's own documented cadence
+(``MIN_INTERRUPTS_PER_GAME_CYCLE: equ 10 ; game maximum speed is 5 frames
+per second``, i.e. 1 cycle = 200 ms = 4 ticks): bipod ``24``, tracks ``16``,
+anti-grav ``12``. It also confirmed ``robot_rough_multiplier_anti_grav = 1``
+against the same table (anti-grav identical on flat/rugged: 3 cycles both).
+
+It could **not** resolve ``robot_rough_multiplier_bipod`` /
+``robot_rough_multiplier_tracks`` / ``robot_ditch_multiplier_anti_grav``
+to exact disassembly values: the raw evidence does not unambiguously
+support the locked "tracks penalized less severely than bipod on rough
+terrain" ordering (tied under an absolute-cycle-increase reading, reversed
+under a proportional reading), and neither the rough nor the ditch raw
+ratios (1.33x-1.5x) are representable as a clean integer multiplier on
+this ``int`` schema without inventing precision. Per `_specs/open-questions.md`
+§4, all three remain the pre-existing, explicitly unverified placeholder
+values (``3`` / ``2`` / ``1``) -- chosen only to satisfy the locked
+qualitative ordering, not presented as recovered exact Spectrum constants
+-- pending a human decision on how to reconcile the evidence conflict.
 """
 
 from dataclasses import dataclass
@@ -225,22 +238,34 @@ class EngineRules:
     - ``robot_move_ticks_bipod`` / ``robot_move_ticks_tracks`` /
       ``robot_move_ticks_anti_grav``: simulation ticks a robot with that
       chassis takes to move one cell across ordinary (``NORMAL``) terrain.
-      Defaults (``8`` / ``6`` / ``4``) encode only the locked relative
-      ordering "bipod < tracks < anti-grav" in speed; the exact values are
-      documented defaults pending issue #61 -- see the module docstring.
-    - ``robot_rough_multiplier_bipod`` / ``robot_rough_multiplier_tracks``
-      / ``robot_rough_multiplier_anti_grav``: multiplier applied to that
-      chassis' base per-cell ticks when entering ``ROUGH`` terrain.
-      Defaults (``3`` / ``2`` / ``1``) encode only the locked relative
-      rule "rough slows bipod severely, tracks less severely"; anti-grav's
-      ``1`` reflects `_specs/open-questions.md` §4's still-open question of
-      whether anti-grav speed is uniform across traversable terrain, made
-      configurable here rather than asserted as verified.
+      Defaults (``24`` / ``16`` / ``12``) are evidence-backed (issue #61,
+      disassembly ``Lb61d_robot_movement_speed_table`` flat-terrain row x
+      the evidence-derived 4-ticks-per-game-cycle conversion factor -- see
+      the module docstring) rather than placeholders; they encode both the
+      locked relative ordering "bipod < tracks < anti-grav" in speed and
+      the specific magnitude.
+    - ``robot_rough_multiplier_bipod`` / ``robot_rough_multiplier_tracks``:
+      multiplier applied to that chassis' base per-cell ticks when entering
+      ``ROUGH`` terrain. Defaults (``3`` / ``2``) remain the pre-existing,
+      explicitly *unverified* placeholders (issue #61 could not derive a
+      disassembly-exact integer multiplier -- see the module docstring);
+      they encode only the locked relative rule "rough slows bipod
+      severely, tracks less severely" and nothing more.
+    - ``robot_rough_multiplier_anti_grav``: multiplier applied to
+      anti-grav's base per-cell ticks when entering ``ROUGH`` terrain.
+      Default ``1`` is evidence-backed (issue #61: the disassembly table
+      shows anti-grav identical on flat and rugged terrain).
     - ``robot_ditch_multiplier_anti_grav``: multiplier applied to
       anti-grav's base per-cell ticks when entering ``DITCH`` terrain
       (anti-grav is the only chassis permitted to; see `movement.py`).
-      Default ``1``, for the same still-open §4 reason as the rough
-      multiplier above.
+      Default ``1`` remains the pre-existing placeholder -- issue #61 found
+      disassembly evidence that anti-grav is *not* uniform across every
+      traversable terrain type (it is measurably slower on the most
+      extreme terrain tier), but that evidence's ~1.33x ratio has no clean
+      integer-multiplier representation on this schema, so this field is
+      flagged in `_specs/open-questions.md` §4 as a known likely
+      under-estimate rather than silently "corrected" with an invented
+      integer.
     """
 
     commander_min_altitude: int = 0
@@ -270,9 +295,9 @@ class EngineRules:
     factory_production_amount: int = 2
     war_base_production_amount: int = 5
     max_robots_per_player: int = 24
-    robot_move_ticks_bipod: int = 8
-    robot_move_ticks_tracks: int = 6
-    robot_move_ticks_anti_grav: int = 4
+    robot_move_ticks_bipod: int = 24
+    robot_move_ticks_tracks: int = 16
+    robot_move_ticks_anti_grav: int = 12
     robot_rough_multiplier_bipod: int = 3
     robot_rough_multiplier_tracks: int = 2
     robot_rough_multiplier_anti_grav: int = 1

@@ -19,6 +19,27 @@ def test_engine_rules_default_constructor_matches_default_rules_instance() -> No
     assert EngineRules() == DEFAULT_RULES
 
 
+def test_default_rules_match_evidence_backed_ordinary_terrain_movement_ticks() -> None:
+    """Issue #61 (M5.2): ordinary-terrain ticks/cell, disassembly-evidence-backed.
+
+    Derived from `santiontanon/netherearth-disassembly`'s
+    `netherearth-annotated.asm` `Lb61d_robot_movement_speed_table`
+    (bipod/tracks/anti-grav = 6/4/3 "cycles" on flat terrain) and the
+    disassembly's own documented cadence (``MIN_INTERRUPTS_PER_GAME_CYCLE:
+    equ 10 ; game maximum speed is 5 frames per second``, i.e. one game
+    cycle = 200ms = 4 ticks at the locked 20Hz simulation rate). See
+    `rules.py`'s module docstring and `_specs/open-questions.md` §4 for the
+    full evidence trail, including the rough/ditch multipliers this
+    research pass could NOT resolve to exact disassembly values.
+    """
+    assert DEFAULT_RULES.robot_move_ticks_bipod == 24
+    assert DEFAULT_RULES.robot_move_ticks_tracks == 16
+    assert DEFAULT_RULES.robot_move_ticks_anti_grav == 12
+    # Evidence-backed: the same disassembly table shows anti-grav identical
+    # on flat/rugged terrain (3 cycles both).
+    assert DEFAULT_RULES.robot_rough_multiplier_anti_grav == 1
+
+
 def test_engine_rules_is_frozen() -> None:
     rules = EngineRules()
 
