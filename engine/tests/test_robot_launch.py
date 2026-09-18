@@ -20,6 +20,13 @@ from nether_earth.construction_session import BuildInProgress, ConstructionSessi
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import WorldMap
+from nether_earth.movement import (
+    RobotMoveRequest,
+    apply_robot_move,
+    cancel_robot_move,
+    folded_robot_occupancy,
+)
+from nether_earth.reservations import reservations_from_state
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
@@ -314,6 +321,55 @@ def test_launch_rejects_blocked_exit() -> None:
     # Atomicity: nothing changed.
     assert state.resource_pools == pools_before
     assert state.robots == robots_before
+
+
+def test_launch_rejects_an_exit_cell_reserved_by_an_in_flight_move() -> None:
+    # Regression (issue #62/M5.3): a mover authoritatively occupies its
+    # origin, so folded occupancy alone reports the exit cell as free while
+    # a move is inbound to it; launching there would stack two robots on one
+    # cell the moment that move completes.
+    world = _world()
+    mover = _dummy_robot(PLAYER_TWO, 1, x=P1_EXIT_CELL[0] - 1, y=P1_EXIT_CELL[1])
+    state = _state(session=_session(), robots=(mover,))
+    state, move_result, _event = apply_robot_move(
+        RobotMoveRequest(entity_id=mover.entity_id, dx=1, dy=0), state, world, tick=0
+    )
+    assert move_result.accepted
+    assert reservations_from_state(state).is_reserved(*P1_EXIT_CELL)
+    assert not folded_robot_occupancy(world, state).is_occupied(*P1_EXIT_CELL)
+
+    pools_before = copy.deepcopy(state.resource_pools)
+    robots_before = copy.deepcopy(state.robots)
+    # Sessions hold a read-only mapping (not deep-copyable); they are frozen
+    # value objects, so capturing the tuple is enough to detect a mutation.
+    sessions_before = state.construction_sessions
+
+    result = launch_robot(state, world, PLAYER_ONE)
+
+    assert not result.accepted
+    assert result.reason is LaunchRejectionReason.EXIT_BLOCKED
+    assert result.state is None
+    assert result.robot is None
+    # Atomicity: nothing changed.
+    assert state.resource_pools == pools_before
+    assert state.robots == robots_before
+    assert state.construction_sessions == sessions_before
+
+
+def test_launch_succeeds_once_a_reserved_exit_cell_move_is_cancelled() -> None:
+    world = _world()
+    mover = _dummy_robot(PLAYER_TWO, 1, x=P1_EXIT_CELL[0] - 1, y=P1_EXIT_CELL[1])
+    state = _state(session=_session(), robots=(mover,))
+    state, _move_result, _event = apply_robot_move(
+        RobotMoveRequest(entity_id=mover.entity_id, dx=1, dy=0), state, world, tick=0
+    )
+    state, _cancel_event = cancel_robot_move(state, mover.entity_id, tick=1)
+
+    result = launch_robot(state, world, PLAYER_ONE)
+
+    assert result.accepted
+    assert result.robot is not None
+    assert (result.robot.x, result.robot.y) == P1_EXIT_CELL
 
 
 def test_launch_succeeds_with_free_exit_even_when_other_cells_occupied() -> None:

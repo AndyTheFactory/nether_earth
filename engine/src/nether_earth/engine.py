@@ -87,7 +87,8 @@ from nether_earth.events import Event, EventSequencer, order_events
 from nether_earth.heli_pad import detect_heli_pad_landing
 from nether_earth.ids import PlayerId
 from nether_earth.map import BootstrapMap, WorldMap
-from nether_earth.movement import advance_all_robot_transitions
+from nether_earth.movement import RobotMoveRequest, advance_all_robot_transitions
+from nether_earth.reservations import apply_robot_move_batch
 from nether_earth.resource_production import apply_daily_production
 from nether_earth.robot_launch import launch_robot
 from nether_earth.rules import DEFAULT_RULES
@@ -221,6 +222,7 @@ def step(
     commands: Iterable[Command],
     world: WorldMap | None = None,
     robots: tuple[RobotFixture, ...] = (),
+    robot_moves: Iterable[RobotMoveRequest] = (),
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Advance ``state`` by exactly one authoritative tick.
 
@@ -303,6 +305,25 @@ def step(
     the completion half, so a started move always resolves on the tick its
     centrally configured duration elapses.
 
+    Extended by issue #62 (M5.3) with Step 2c: ``robot_moves`` -- this
+    tick's :class:`~nether_earth.movement.RobotMoveRequest`\\ s -- are
+    started as one deconflicted *batch* via
+    :func:`~nether_earth.reservations.apply_robot_move_batch`, never one at
+    a time, so that same-tick claims on one destination cell are collected
+    before a winner is drawn from the match-local seeded RNG
+    (`_specs/open-questions.md` §11; resolving them as they arrived would
+    make submission order decide, which §11 forbids). The batch emits a
+    :class:`~nether_earth.reservations.DestinationContentionResolvedEvent`
+    per contested cell plus the winners'
+    :class:`~nether_earth.movement.RobotMoveStartedEvent`\\ s; losers are
+    reported only through the returned per-request results (not events),
+    matching this module's existing "a gameplay-level rejection produces no
+    additional event" convention. Like Step 8's launch handling this needs
+    a real ``world`` and is skipped when ``world is None``. ``robot_moves``
+    is a parameter rather than a command type because the player-facing
+    direct-control command is M5.4's scope (issue #63); it is additive and
+    defaults to ``()``, reproducing every existing call site exactly.
+
     7. A new Step 9 applies
        :func:`~nether_earth.resource_production.apply_daily_production` for
        the tick range this ``step`` call advances through
@@ -384,6 +405,17 @@ def step(
     # --- Step 2b: resolve robot move transitions due to complete -----------
     state, robot_move_events = advance_all_robot_transitions(state, tick, sequencer)
     events.extend(robot_move_events)
+
+    # --- Step 2c: start this tick's robot moves as one deconflicted batch ---
+    # Deliberately after Step 2b: a move completing on this tick releases its
+    # destination reservation (the transition is cleared) before this tick's
+    # new claims are validated, so a robot may claim the cell a finishing
+    # move is vacating without waiting an extra tick.
+    if world is not None:
+        batch = apply_robot_move_batch(robot_moves, state, world, tick, rules, sequencer)
+        state = batch.state
+        events.extend(batch.contentions)
+        events.extend(batch.started)
 
     # --- Step 3: undock any DOCKED commander holding rise intent ------------
     for commander in state.commanders:
