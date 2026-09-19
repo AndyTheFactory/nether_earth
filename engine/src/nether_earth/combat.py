@@ -142,6 +142,7 @@ __all__ = [
     "is_projectile_advance_tick",
     "resolve_fire_direction",
     "validate_fire",
+    "weapon_range_cells",
 ]
 
 
@@ -334,13 +335,19 @@ def resolve_fire_direction(robot: Robot, request: FireRequest) -> tuple[int, int
     return (0, 1 if raw_dy > 0 else -1)
 
 
-def _weapon_range_cells(weapon: ModuleIdentity, rules: EngineRules) -> int:
+def weapon_range_cells(weapon: ModuleIdentity, rules: EngineRules) -> int:
     """Return ``rules``' configured maximum range, in cells, for ``weapon``.
 
     One dict, one place, mirroring ``robot_build.MODULE_RESOURCE_CATEGORY``'s
     "one dict, one place" convention -- see :func:`apply_fire`. Nuclear is
     deliberately absent: it does not create a :class:`Projectile` at all (a
     later task's scope), so it never reaches this lookup.
+
+    Public (rather than module-private) because `autonomous_combat.py`
+    (issue #77, M6.7) needs the exact same weapon-range lookup to
+    re-validate an autonomous engagement intent's range eligibility, and two
+    independent spellings of "how far can this weapon reach" could silently
+    drift apart -- see that module's own docstring.
     """
     ranges: dict[ModuleIdentity, int] = {
         ModuleIdentity.CANNON: rules.cannon_range_cells,
@@ -468,7 +475,7 @@ def apply_fire(
         return state, rejected, None
     dx, dy = direction
 
-    max_range = _weapon_range_cells(request.weapon, rules)
+    max_range = weapon_range_cells(request.weapon, rules)
     if robot.build.electronics is ModuleIdentity.ELECTRONICS:
         max_range += rules.electronics_range_bonus_cells
 
