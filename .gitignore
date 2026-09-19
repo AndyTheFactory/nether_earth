@@ -27,3 +27,6 @@ replays/*
 .env
 .env.*
 !.env.example
+
+# Subagent-driven-development scratch workspace
+.superpowers/
