@@ -98,6 +98,7 @@ explicitly *not* a claim that the original ZX Spectrum used this metric.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
 from nether_earth.capture import CapturableStructureKind
@@ -110,6 +111,8 @@ from nether_earth.map import WorldMap
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
 from nether_earth.structures import Factory, WarBase, occupied_cells
+from nether_earth.victory import VictoryEvent
+from nether_earth.victory import evaluate_victory as _evaluate_victory
 
 __all__ = [
     "RobotDestroyedEvent",
@@ -117,6 +120,7 @@ __all__ = [
     "destroy_robot",
     "destroy_structure",
     "effective_world",
+    "evaluate_victory_after_nuclear_detonation",
     "execute_nuclear_detonation",
 ]
 
@@ -583,3 +587,59 @@ def execute_nuclear_detonation(
             events.append(structure_event)
 
     return current_state, tuple(events)
+
+
+def evaluate_victory_after_nuclear_detonation(
+    detonation_events: Iterable[Event],
+    world: WorldMap,
+    state: GameState,
+    tick: int,
+    sequencer: EventSequencer | None = None,
+) -> VictoryEvent | None:
+    """Trigger `victory.py`'s one authoritative victory check after a nuclear detonation.
+
+    Mirrors `engine.py`'s existing Step 2d pattern for M5 capture (see that
+    module's ``step``, where a ``NeutralStructureAcquiredEvent``/
+    ``StructureCapturedEvent`` naming a war base gates a single
+    :func:`~nether_earth.victory.evaluate_victory` call) -- just for the
+    nuclear-destruction case instead of the capture case. This function does
+    not define a second victory rule: it only decides *whether* a war base's
+    existence just changed (by scanning ``detonation_events``, the events a
+    prior call to :func:`execute_nuclear_detonation` returned) and, if so,
+    calls `victory.py`'s single authoritative :func:`~nether_earth.victory.evaluate_victory`
+    -- never redefining or duplicating its ownership-counting logic.
+
+    Returns ``None`` immediately, with no call to
+    :func:`~nether_earth.victory.evaluate_victory`, when no
+    :class:`StructureDestroyedEvent` in ``detonation_events`` names a
+    ``CapturableStructureKind.WAR_BASE`` -- no war-base existence changed, so
+    there is nothing new for the victory check to see.
+
+    Otherwise, :func:`~nether_earth.victory.evaluate_victory` is called
+    EXACTLY ONCE -- this function's body contains exactly one ``if`` gate and
+    one call site, so a batch destroying multiple war bases at once (e.g. one
+    nuke wiping out both of a losing side's remaining war bases) still
+    produces at most one :class:`~nether_earth.victory.VictoryEvent`, never
+    one per destroyed war base. It is called against
+    ``effective_world(world, state)`` (this module's OWN :func:`effective_world`,
+    which layers both capture ownership and destruction on top of ``world``)
+    -- the critical correctness point: :func:`~nether_earth.victory.evaluate_victory`
+    reads ``world.war_bases`` and counts each entry's ``owner``, and a
+    destroyed war base must be excluded from that count entirely (not merely
+    "owned by nobody"), which :func:`effective_world` already guarantees by
+    filtering destroyed structures out of the returned ``WorldMap.war_bases``
+    tuple. This is why `victory.py` itself needs zero code changes for the
+    nuclear-destruction case: a destroyed war base is simply absent from the
+    list ``evaluate_victory`` iterates, so nobody's owned-count includes it --
+    exactly the correct effect of "this player now effectively owns one fewer
+    war base."
+    """
+    any_war_base_destroyed = any(
+        isinstance(event, StructureDestroyedEvent)
+        and event.structure_kind is CapturableStructureKind.WAR_BASE
+        for event in detonation_events
+    )
+    if not any_war_base_destroyed:
+        return None
+
+    return _evaluate_victory(effective_world(world, state), state, tick, sequencer)
