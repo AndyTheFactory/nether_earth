@@ -1,0 +1,98 @@
+# M5 milestone integration fixture (issue #68, M5.9).
+#
+# One battlefield laid out in independent, non-overlapping "lanes" so a
+# single coherent command stream can exercise every M5 rule in
+# `_specs/milestones/05-orders-navigation-capture.md`'s "Milestone
+# integration scenario" without any lane's robots/terrain/structures
+# interfering with another's:
+#
+# - y=0..2, x=0..6: chassis terrain-permission / movement-duration lane.
+#   Column 1 is NORMAL, column 2 is ROUGH, column 3 is DITCH for all three
+#   rows, so a bipod (y=0), tracks (y=1), and anti-grav (y=2) robot each walk
+#   the identical normal -> rough -> ditch sequence: bipod/tracks may enter
+#   rough but never ditch (locked terrain permissions); anti-grav may enter
+#   all three. Comparing each chassis's normal-terrain move duration proves
+#   the locked "bipod < tracks < anti-grav" ordinary-terrain speed ranking.
+# - y=6..9, x=10..20: navigation lane. A 3-cell-tall blocker wall at x=15
+#   (rows 6-8) with a clear gap at row 9 gives non-electronic vs electronic
+#   robots advancing along row 6/7 the same wall dead ahead: non-electronic
+#   has no detour logic and stalls nose-to-wall; electronic pathfinds down
+#   to the row-9 gap and through.
+# - y=12, x=19..21: neutral factory `factory-neutral` with a capture point
+#   at (20, 12), straddled one cell either side by the contention robots.
+# - y=14, x=1..2: commander-blocking lane. p2's commander parks directly on
+#   the only cell between the lane robot and its goal.
+# - y=16, x=5..6: adjacent hostile robots for Search & Destroy / engagement
+#   intent (Stop & Defend vs Search & Destroy(robot)).
+# - y=18, x=2..3: direct-control lane, p1's commander docked to the lane
+#   robot from tick 0.
+# - y=20/21: capture lane. `factory-enemy` (owned by p1) is captured
+#   continuously by a p2 robot; `warbase-p1` (p1's only war base) is
+#   captured, interrupted, and re-captured by a second p2 robot, whose
+#   eventual completion is p1's last war base and triggers same-step
+#   victory for p2.
+id: fixture-m5-integration
+version: 1
+width: 32
+height: 24
+
+terrain:
+  default: normal
+  cells:
+    - {x: 2, y: 0, type: rough}
+    - {x: 3, y: 0, type: ditch}
+    - {x: 2, y: 1, type: rough}
+    - {x: 3, y: 1, type: ditch}
+    - {x: 2, y: 2, type: rough}
+    - {x: 3, y: 2, type: ditch}
+
+war_bases:
+  - id: warbase-p1
+    components:
+      - {x: 1, y: 21, height: 3}
+    owner: p1
+
+  - id: warbase-p2
+    components:
+      - {x: 30, y: 21, height: 3}
+    owner: p2
+
+factories:
+  - id: factory-neutral
+    components:
+      - {x: 20, y: 13, height: 2}
+    factory_type: chassis
+    owner: null
+
+  - id: factory-enemy
+    components:
+      - {x: 25, y: 20, height: 2}
+    factory_type: cannon
+    owner: p1
+
+blockers:
+  - id: nav-wall
+    components:
+      - {x: 15, y: 6, height: 1}
+      - {x: 15, y: 7, height: 1}
+      - {x: 15, y: 8, height: 1}
+
+interaction_points:
+  - id: factory-neutral-capture
+    kind: factory_capture
+    structure_id: factory-neutral
+    footprint: {x: 20, y: 12}
+
+  - id: factory-enemy-capture
+    kind: factory_capture
+    structure_id: factory-enemy
+    footprint: {x: 25, y: 19}
+
+  - id: warbase-p1-capture
+    kind: warbase_capture
+    structure_id: warbase-p1
+    footprint: {x: 2, y: 21}
+
+spawn_positions:
+  p1_commander: {x: 2, y: 18}
+  p2_commander: {x: 2, y: 14}
