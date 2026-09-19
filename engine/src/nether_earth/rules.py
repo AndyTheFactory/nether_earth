@@ -156,6 +156,32 @@ this ``int`` schema without inventing precision. Per `_specs/open-questions.md`
 values (``3`` / ``2`` / ``1``) -- chosen only to satisfy the locked
 qualitative ordering, not presented as recovered exact Spectrum constants
 -- pending a human decision on how to reconcile the evidence conflict.
+
+Issue #70 (M6.1, `_specs/milestones/06-combat-damage-victory.md`, "Locked
+combat rules") adds the nine combat metadata fields: ``cannon_range_cells``,
+``missile_range_cells``, ``phaser_range_cells``,
+``electronics_range_bonus_cells``, ``nuclear_radius_cells``,
+``normal_projectile_altitude``, ``cannon_damage_multiplier``,
+``missile_damage_multiplier``, ``phaser_damage_multiplier``. These are the
+canonical locked Spectrum weapon range/effect defaults from the milestone
+spec's "Canonical default ranges/effects" section, converted from miles to
+cells via the shared ``miles_to_cells`` helper already defined in this
+module: cannon 10 miles = 20 cells, missile 14 miles = 28 cells, phaser
+10 miles = 20 cells, electronics bonus 3 miles = 6 cells, nuclear radius
+8 miles = 16 cells. All weapon ranges and the nuclear radius resolve from
+`_specs/open-questions.md` §3 ("miles/grid conversion -- RESOLVED") and are
+locked game rules; projectile altitude and damage multipliers are explicitly
+locked Spectrum defaults per the milestone spec. Together these form the
+authoritative rule set for all later combat tasks.
+
+Issue #70 also adds one placeholder field, ``projectile_max_range_cells``,
+for an as-yet-unresolved projectile-lifetime rule. This field will be
+consumed by a later task to gate projectile termination; the default is
+set to the longest locked weapon range (missile at 28 cells), a documented,
+explicitly unverified policy choice (see the module docstring's "documented
+default, not independently verified" precedent for the rationale). Later
+Spectrum evidence on projectile expiry may correct this in one place
+without an architecture change.
 """
 
 from dataclasses import dataclass
@@ -318,6 +344,47 @@ class EngineRules:
       duration is configurable game-rule/scenario data."  Neutral factory
       acquisition (`_specs/functional-spec.md` §9) is instantaneous for the
       first qualifying robot and does not consume this field at all.
+    - ``cannon_range_cells``: the maximum firing range of a cannon-equipped
+      robot, in grid cells (issue #70, M6.1,
+      `_specs/milestones/06-combat-damage-victory.md` "Locked combat rules").
+      Locked Spectrum default: 10 miles = 20 cells.
+    - ``missile_range_cells``: the maximum firing range of a
+      missile-equipped robot, in grid cells (issue #70, M6.1). Locked
+      Spectrum default: 14 miles = 28 cells.
+    - ``phaser_range_cells``: the maximum firing range of a
+      phaser-equipped robot, in grid cells (issue #70, M6.1). Locked
+      Spectrum default: 10 miles = 20 cells.
+    - ``electronics_range_bonus_cells``: the maximum additional range granted
+      by an electronics module when fitted, in grid cells (issue #70, M6.1).
+      Locked Spectrum default: 3 miles = 6 cells. This is a nominal bonus;
+      exact electronics accuracy and resistance mechanics remain research-owned.
+    - ``nuclear_radius_cells``: the blast radius of a nuclear detonation,
+      in grid cells (issue #70, M6.1). Locked Spectrum default: 8 miles =
+      16 cells. All robots and structures within this radius of the
+      detonation point are destroyed; the carrier robot is always destroyed.
+    - ``normal_projectile_altitude``: the fixed altitude at which normal
+      (cannon/missile/phaser) projectiles travel, in the same altitude units
+      as the commander vertical envelope (issue #70, M6.1). Locked Spectrum
+      default: ``10``. This altitude is independent of the firing robot's
+      height and applies uniformly to all three normal weapon types.
+    - ``cannon_damage_multiplier``: the damage multiplier for cannon hits
+      (issue #70, M6.1). Locked Spectrum default: ``2``. Final damage is
+      computed as ``base_damage * multiplier`` where ``base_damage`` is
+      derived from the target robot's height, stack height, and ground height.
+    - ``missile_damage_multiplier``: the damage multiplier for missile hits
+      (issue #70, M6.1). Locked Spectrum default: ``3``.
+    - ``phaser_damage_multiplier``: the damage multiplier for phaser hits
+      (issue #70, M6.1). Locked Spectrum default: ``4``.
+    - ``projectile_max_range_cells``: a documented, unverified placeholder
+      for the maximum distance a projectile may travel before terminating
+      (issue #70, M6.1, consumed by M6.4). Spectrum evidence on whether
+      projectile lifetime is tied to absolute range/distance or a tick
+      duration remains unresolved (`_specs/open-questions.md` §8). This field
+      defaults to ``28`` cells, the longest locked weapon range (missile),
+      as an explicitly provisional policy choice pending later evidence; it
+      is *not* presented as a verified Spectrum constant, only as a named
+      configurable placeholder. Later research may correct it in this one
+      place without an architecture change.
     """
 
     commander_min_altitude: int = 0
@@ -355,6 +422,16 @@ class EngineRules:
     robot_rough_multiplier_anti_grav: int = 1
     robot_ditch_multiplier_anti_grav: int = 1
     capture_duration_ticks: int = 1440
+    cannon_range_cells: int = 20
+    missile_range_cells: int = 28
+    phaser_range_cells: int = 20
+    electronics_range_bonus_cells: int = 6
+    nuclear_radius_cells: int = 16
+    normal_projectile_altitude: int = 10
+    cannon_damage_multiplier: int = 2
+    missile_damage_multiplier: int = 3
+    phaser_damage_multiplier: int = 4
+    projectile_max_range_cells: int = 28
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -416,6 +493,20 @@ class EngineRules:
                 raise ValueError(f"{field_name} must be a positive integer")
         if self.capture_duration_ticks <= 0:
             raise ValueError("capture_duration_ticks must be a positive integer")
+        for field_name in (
+            "cannon_range_cells",
+            "missile_range_cells",
+            "phaser_range_cells",
+            "electronics_range_bonus_cells",
+            "nuclear_radius_cells",
+            "normal_projectile_altitude",
+            "cannon_damage_multiplier",
+            "missile_damage_multiplier",
+            "phaser_damage_multiplier",
+            "projectile_max_range_cells",
+        ):
+            if getattr(self, field_name) <= 0:
+                raise ValueError(f"{field_name} must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

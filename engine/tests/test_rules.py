@@ -142,3 +142,59 @@ def test_engine_rules_rejects_non_positive_module_height(field_name: str) -> Non
     with pytest.raises(ValueError):
         EngineRules(**{field_name: -1})
 
+
+def test_default_rules_match_locked_combat_range_and_effect_defaults() -> None:
+    """Issue #70 (M6.1): locked weapon ranges and nuclear radius.
+
+    All values are Spectrum-compatible locked defaults from
+    `_specs/milestones/06-combat-damage-victory.md` "Canonical default
+    ranges/effects", converted from miles to cells via the shared
+    mile-to-cell conversion (1 mile = 2 cells).
+    """
+    assert DEFAULT_RULES.cannon_range_cells == 20  # 10 miles
+    assert DEFAULT_RULES.missile_range_cells == 28  # 14 miles
+    assert DEFAULT_RULES.phaser_range_cells == 20  # 10 miles
+    assert DEFAULT_RULES.electronics_range_bonus_cells == 6  # 3 miles
+    assert DEFAULT_RULES.nuclear_radius_cells == 16  # 8 miles
+    assert DEFAULT_RULES.normal_projectile_altitude == 10
+    assert DEFAULT_RULES.cannon_damage_multiplier == 2
+    assert DEFAULT_RULES.missile_damage_multiplier == 3
+    assert DEFAULT_RULES.phaser_damage_multiplier == 4
+    assert DEFAULT_RULES.projectile_max_range_cells == 28  # longest range
+
+
+def test_engine_rules_accepts_custom_combat_overrides() -> None:
+    rules = EngineRules(
+        cannon_range_cells=25,
+        missile_range_cells=30,
+        normal_projectile_altitude=15,
+    )
+
+    assert rules.cannon_range_cells == 25
+    assert rules.missile_range_cells == 30
+    assert rules.normal_projectile_altitude == 15
+    # Others remain at defaults
+    assert rules.phaser_range_cells == 20
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "cannon_range_cells",
+        "missile_range_cells",
+        "phaser_range_cells",
+        "electronics_range_bonus_cells",
+        "nuclear_radius_cells",
+        "normal_projectile_altitude",
+        "cannon_damage_multiplier",
+        "missile_damage_multiplier",
+        "phaser_damage_multiplier",
+        "projectile_max_range_cells",
+    ],
+)
+def test_engine_rules_rejects_non_positive_combat_fields(field_name: str) -> None:
+    with pytest.raises(ValueError):
+        EngineRules(**{field_name: 0})
+    with pytest.raises(ValueError):
+        EngineRules(**{field_name: -1})
+
