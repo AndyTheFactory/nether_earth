@@ -161,6 +161,17 @@ def test_mixed_detonation_destroys_carrier_robot_factory_and_war_base_in_order()
     assert events.index(robot_events[0]) < events.index(robot_events[1])
     assert events.index(robot_events[1]) < events.index(structure_events[0])
 
+    # The documented carrier -> robots -> structures order must also be
+    # recoverable from event.sequence (strictly increasing), not merely from
+    # tuple/list index -- this is what events.order_events actually sorts
+    # by. A regression here (e.g. forwarding a possibly-None `sequencer`
+    # straight into each destroy_robot/destroy_structure sub-call instead of
+    # resolving it once up front) would silently produce sequence=0 for
+    # every event while this ordered-by-index check above still passed.
+    sequences = [e.sequence for e in events]
+    assert sequences == sorted(sequences)
+    assert len(set(sequences)) == len(sequences)  # strictly increasing, no duplicates
+
 
 def test_radius_boundary_robot_at_exact_radius_is_destroyed_one_beyond_is_not() -> None:
     carrier = _robot(entity_id="carrier", x=0, y=0)

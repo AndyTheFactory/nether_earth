@@ -521,6 +521,22 @@ def execute_nuclear_detonation(
        into the next), and every emitted event is accumulated, in that same
        order, into the returned tuple.
 
+    ``sequencer`` is resolved to a single shared ``EventSequencer`` ONCE, at
+    the top of this function (``sequencer if sequencer is not None else
+    EventSequencer()``), and that one resolved instance -- never the
+    original, possibly-``None`` ``sequencer`` parameter -- is passed to
+    every downstream :func:`destroy_robot`/:func:`destroy_structure` call.
+    This is required for the documented carrier -> robots -> structures
+    order to actually be recoverable from event ``sequence`` numbers (which
+    is what `events.py`'s ``order_events`` sorts by): passing the original
+    ``sequencer`` straight through would mean a caller who defaults it to
+    ``None`` gets a *fresh* ``EventSequencer()`` constructed independently
+    inside each sub-call, so every emitted event would carry ``sequence ==
+    0`` instead of a monotonically increasing sequence -- silently losing
+    the ordering this function otherwise carefully constructs. Mirrors
+    `engine.py`'s own ``step`` convention of constructing one shared
+    ``EventSequencer()`` for a whole authoritative step.
+
     Commanders are never in ``state.robots``/``world.war_bases``/
     ``world.factories`` -- they are structurally excluded already, so this
     function contains no commander-related special-casing at all.
@@ -528,6 +544,8 @@ def execute_nuclear_detonation(
     carrier = state.robot_for(carrier_id)
     if carrier is None:
         return state, ()
+
+    resolved_sequencer = sequencer if sequencer is not None else EventSequencer()
 
     epicenter_x, epicenter_y = carrier.x, carrier.y
 
@@ -546,18 +564,20 @@ def execute_nuclear_detonation(
 
     events: list[Event] = []
 
-    current_state, carrier_events = destroy_robot(state, carrier_id, tick, rules, sequencer)
+    current_state, carrier_events = destroy_robot(
+        state, carrier_id, tick, rules, resolved_sequencer
+    )
     events.extend(carrier_events)
 
     for robot in eligible_robots:
         current_state, robot_events = destroy_robot(
-            current_state, robot.entity_id, tick, rules, sequencer
+            current_state, robot.entity_id, tick, rules, resolved_sequencer
         )
         events.extend(robot_events)
 
     for structure, kind in eligible_structures:
         current_state, structure_event = destroy_structure(
-            current_state, structure.id, kind, tick, rules, sequencer
+            current_state, structure.id, kind, tick, rules, resolved_sequencer
         )
         if structure_event is not None:
             events.append(structure_event)
