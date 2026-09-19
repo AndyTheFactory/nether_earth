@@ -87,6 +87,24 @@ imported under ``TYPE_CHECKING`` only, because `orders.py` itself imports
 :class:`Robot` (and ``GameState``/``WorldMap``), so a runtime import here
 would be circular -- the same pattern `state.py` already uses for
 ``Robot``/``ConstructionSession``/``CaptureProgress``.
+
+Combat channel state (added by issue #71, M6.2): the
+``Robot.active_projectile_id`` field is the authoritative per-robot gate
+for "this robot already has a normal (cannon/missile/phaser) projectile
+in flight" -- the milestone spec locks each robot to a single active
+normal-weapon channel shared across all three normal weapon types, so a
+robot with a cannon shot already airborne cannot also have a missile or
+phaser shot airborne at the same time. It lives on the entity for the
+same reason ``movement``/``order`` do: it is per-robot authoritative
+state, and keeping it here means ``state.robots``' single canonical
+ordering already orders combat evaluation too, with no second parallel
+``GameState`` collection to keep in sync. Nuclear fire never touches this
+field -- the nuke has no channel to occupy, since a robot can only ever
+fire it once (`_specs/milestones/06-combat-damage-victory.md`). This
+task (M6.2) only defines and validates against the field; setting it to a
+real :class:`~nether_earth.ids.EntityId` when a normal projectile is
+created, and clearing it back to ``None`` when that projectile
+terminates, are later M6 tasks' jobs (projectile simulation).
 """
 
 from __future__ import annotations
@@ -166,6 +184,7 @@ class Robot:
     height: int
     movement: RobotMoveTransition | None = None
     order: Order | None = None
+    active_projectile_id: EntityId | None = None
 
     def __post_init__(self) -> None:
         if self.height <= 0:
@@ -236,4 +255,25 @@ class Robot:
             height=self.height,
             movement=self.movement,
             order=order,
+        )
+
+    def with_active_projectile(self, active_projectile_id: EntityId | None) -> Robot:
+        """Return a copy of this robot with ``active_projectile_id`` replaced.
+
+        Passing ``None`` clears the combat channel (no in-flight normal
+        projectile); passing an :class:`~nether_earth.ids.EntityId` occupies
+        it. Every other field -- authoritative ``x``/``y``, ``build``,
+        ``movement``, ``order`` -- is carried over unchanged.
+        """
+        return Robot(
+            entity_id=self.entity_id,
+            owner=self.owner,
+            x=self.x,
+            y=self.y,
+            build=self.build,
+            stack=self.stack,
+            height=self.height,
+            movement=self.movement,
+            order=self.order,
+            active_projectile_id=active_projectile_id,
         )

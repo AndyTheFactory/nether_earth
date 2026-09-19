@@ -22,15 +22,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.robot_build import ModuleIdentity
+
+if TYPE_CHECKING:
+    from nether_earth.state import GameState
 
 __all__ = [
     "FireRejectionReason",
     "FireRequest",
     "FireResult",
     "Projectile",
+    "validate_fire",
 ]
 
 
@@ -145,3 +150,46 @@ class Projectile:
             raise ValueError(
                 "diagonal travel is not supported: exactly one of dx/dy must be nonzero"
             )
+
+
+def validate_fire(request: FireRequest, state: GameState) -> FireResult:
+    """Validate ``request`` against every fire-eligibility legality rule.
+
+    Pure function: reads its arguments and returns a :class:`FireResult`,
+    never mutating anything. Checks run in this fixed order, so the same
+    illegal fire attempt always reports the same reason:
+
+    1. the source robot exists in ``state``
+       (:attr:`~FireRejectionReason.NO_SUCH_ROBOT` -- this also covers a
+       destroyed robot, since a destroyed robot is represented by absence
+       from ``state.robots`` rather than a flag, so there is no separate
+       "robot destroyed" check here);
+    2. the requesting player controls the robot
+       (:attr:`~FireRejectionReason.NOT_CONTROLLED_BY_PLAYER`);
+    3. the requested weapon is fitted to the robot's build
+       (:attr:`~FireRejectionReason.WEAPON_NOT_FITTED` -- this single check
+       covers both normal weapons and nuclear, since ``robot.build.weapons``
+       is where every weapon lives, nuclear included);
+    4. nuclear bypasses the combat channel entirely and is accepted
+       immediately; a normal weapon (cannon/missile/phaser) is rejected
+       when the robot's single shared channel is already occupied
+       (:attr:`~FireRejectionReason.CHANNEL_OCCUPIED`), and accepted
+       otherwise.
+    """
+    robot = state.robot_for(request.robot_id)
+    if robot is None:
+        return FireResult.reject(request, FireRejectionReason.NO_SUCH_ROBOT)
+
+    if request.player != robot.owner:
+        return FireResult.reject(request, FireRejectionReason.NOT_CONTROLLED_BY_PLAYER)
+
+    if request.weapon not in robot.build.weapons:
+        return FireResult.reject(request, FireRejectionReason.WEAPON_NOT_FITTED)
+
+    if request.weapon is ModuleIdentity.NUCLEAR:
+        return FireResult.accept(request)
+
+    if robot.active_projectile_id is not None:
+        return FireResult.reject(request, FireRejectionReason.CHANNEL_OCCUPIED)
+
+    return FireResult.accept(request)
