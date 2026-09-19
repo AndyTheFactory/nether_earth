@@ -36,9 +36,11 @@ from dataclasses import dataclass, field
 
 from nether_earth import engine
 from nether_earth.collision import RobotFixture
+from nether_earth.commander import Commander
 from nether_earth.commands import Command
 from nether_earth.events import Event, order_events
 from nether_earth.map import BootstrapMap, WorldMap
+from nether_earth.robot import Robot
 from nether_earth.scenario import Scenario
 from nether_earth.state import GameState
 
@@ -67,6 +69,23 @@ class ReplayFixture:
     - ``tick_count``: exactly how many ``engine.step`` calls :func:`run_fixture`
       performs. Explicit rather than inferred from
       ``max(commands_by_tick)`` (see module docstring).
+    - ``commanders``/``initial_robots`` (added by issue #67, M5.8): the
+      authoritative entities placed on the tick-0 state, so a fixture can
+      describe a match that already has commanders and launched robots
+      rather than only the empty bootstrap state ``engine.new_game``
+      produces on its own. ``commanders`` is forwarded to
+      ``engine.new_game``; ``initial_robots`` is applied to the resulting
+      state via ``GameState.with_robots`` (which canonicalizes/validates
+      them exactly as ``new_game`` would). Without these, no M5 behavior --
+      movement, reservations/contention, orders, capture -- could be
+      expressed as a replay fixture at all, since every one of them needs a
+      robot on the map before tick 1.
+
+      Note the deliberate distinction from ``robots`` below:
+      ``initial_robots`` are real :class:`~nether_earth.robot.Robot`
+      entities living on ``GameState``, whereas ``robots`` is the M3-era
+      :class:`~nether_earth.collision.RobotFixture` stand-in used only for
+      commander collision/auto-dock checks.
     - ``world``/``robots`` (added by issue #42, M3.6): passed straight
       through to every ``engine.step`` call this fixture drives, matching
       the optional, backward-compatible parameters #42 added to
@@ -84,6 +103,8 @@ class ReplayFixture:
     commands_by_tick: Mapping[int, tuple[Command, ...]] = field(default_factory=dict)
     world: WorldMap | None = None
     robots: tuple[RobotFixture, ...] = ()
+    commanders: tuple[Commander, ...] = ()
+    initial_robots: tuple[Robot, ...] = ()
 
     def __post_init__(self) -> None:
         if self.tick_count < 0:
@@ -100,7 +121,8 @@ def run_fixture(fixture: ReplayFixture) -> tuple[GameState, tuple[Event, ...]]:
     """Replay ``fixture`` from tick 0 and return the final state and events.
 
     Calls ``engine.new_game(fixture.map_data, fixture.scenario,
-    seed=fixture.seed)`` to build the initial state, then calls
+    seed=fixture.seed, commanders=fixture.commanders)`` to build the initial
+    state and attaches ``fixture.initial_robots`` to it, then calls
     ``engine.step`` once per tick in ``1..fixture.tick_count`` (in order),
     passing ``fixture.commands_by_tick.get(tick, ())`` as that call's command
     batch.
@@ -121,7 +143,14 @@ def run_fixture(fixture: ReplayFixture) -> tuple[GameState, tuple[Event, ...]]:
     fixture repeatedly yields the same snapshot and event sequence"
     acceptance criterion from issue #8.
     """
-    state = engine.new_game(fixture.map_data, fixture.scenario, seed=fixture.seed)
+    state = engine.new_game(
+        fixture.map_data,
+        fixture.scenario,
+        seed=fixture.seed,
+        commanders=fixture.commanders,
+    )
+    if fixture.initial_robots:
+        state = state.with_robots(fixture.initial_robots)
 
     all_events: list[Event] = []
     for tick in range(1, fixture.tick_count + 1):
