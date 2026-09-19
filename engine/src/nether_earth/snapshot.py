@@ -38,16 +38,53 @@ whatever order ``GameState.commanders`` already holds it in -- ``state.py``
 guarantees that order is canonical (sorted by ``player_id.value``) for any
 two dataclass-equal states, matching the ``players`` convention documented
 above.
+
+Milestone 5 integration (issue #67, M5.8) completes the snapshot's coverage
+of the authoritative state M5 introduced. Three things were still missing
+and are added here: :attr:`~nether_earth.robot.Robot.order` (issue #64),
+``GameState.structure_ownership`` and ``GameState.capture_progress`` (issue
+#66). Two further pieces of M5 state are deliberately *not* given snapshot
+keys of their own, because they are not authoritative state:
+
+- **Destination reservations.** `reservations.py`'s ``ReservationTable`` is
+  a pure projection of ``state.robots`` --
+  :func:`~nether_earth.reservations.reservations_from_state` derives exactly
+  one entry per robot carrying a non-``None``
+  :attr:`~nether_earth.robot.Robot.movement`, keyed by that transition's
+  destination -- and is never stored on ``GameState``. Serializing every
+  robot's ``movement`` transition (which :func:`_robot_snapshot` already
+  does) therefore captures the reservation table losslessly. A second,
+  independently serialized ``reservations`` key could only ever agree with
+  or *drift from* the transitions it was derived from, so this module does
+  not create one.
+- **Engagement intent.** `orders.py`'s
+  :class:`~nether_earth.orders.EngagementIntent` is recomputed from scratch
+  by :func:`~nether_earth.orders.evaluate_orders` on every tick and is
+  reported as a :class:`~nether_earth.orders.RobotEngagementIntentEvent`; it
+  is stored neither on :class:`~nether_earth.robot.Robot` nor on
+  ``GameState``. It is a per-tick derived value, not state, so its
+  determinism is a property of the inputs it is derived from (robot
+  positions/builds/orders and world ownership -- all of which this module
+  serializes) rather than something a snapshot can or should carry.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, assert_never
 
+from nether_earth.capture import CaptureProgress, StructureOwnership
 from nether_earth.commander import Commander, GridTransition, VerticalTransition
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
+from nether_earth.orders import (
+    Advance,
+    Order,
+    Retreat,
+    SearchCapture,
+    SearchDestroy,
+    StopAndDefend,
+)
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot import Robot, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
@@ -203,6 +240,45 @@ def _robot_move_transition_snapshot(
     }
 
 
+def _order_snapshot(order: Order | None) -> dict[str, Any] | None:
+    """Return a canonical, JSON-safe snapshot of a robot's ``Order``, or ``None``.
+
+    :data:`~nether_earth.orders.Order` is a union of five plain value types
+    with no shared base class and no discriminator field of their own, so
+    this function tags each member with a stable ``kind`` token. The tokens
+    are spelled here rather than added to `orders.py` because they are a
+    property of *this* module's serialization contract (the one place the
+    engine converts state to plain data), exactly as :data:`_CATEGORY_ORDER`
+    encodes the serialized category ordering here rather than in
+    `structures.py`. Bound goal state (``Advance``/``Retreat``'s
+    ``target_x``) is serialized as-is: it is authoritative -- an in-flight
+    ``Advance`` that has already bound its goal column is a different state
+    from a freshly assigned one, and `orders.py`'s ``PENDING`` -> ``ACTIVE``
+    transition is exactly that difference.
+    """
+    if order is None:
+        return None
+    if isinstance(order, StopAndDefend):
+        return {"kind": "stop_and_defend"}
+    if isinstance(order, Advance):
+        return {
+            "kind": "advance",
+            "distance_miles": order.distance_miles,
+            "target_x": order.target_x,
+        }
+    if isinstance(order, Retreat):
+        return {
+            "kind": "retreat",
+            "distance_miles": order.distance_miles,
+            "target_x": order.target_x,
+        }
+    if isinstance(order, SearchCapture):
+        return {"kind": "search_capture", "target": order.target.value}
+    if isinstance(order, SearchDestroy):
+        return {"kind": "search_destroy", "target": order.target.value}
+    assert_never(order)
+
+
 def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of a single ``Robot``.
 
@@ -211,6 +287,12 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     #57 keys, matching ``_commander_snapshot``'s own additive precedent.
     Without it, a snapshot/restore round-trip would silently drop an
     in-flight move, so movement could not be replay-safe.
+
+    Extended again by issue #67 (M5.8) with ``order`` (added to the entity by
+    issue #64), appended after ``movement`` for the same additive reason:
+    the standing autonomous order is per-robot authoritative state, and a
+    snapshot that dropped it could not distinguish a robot holding ground
+    under ``StopAndDefend`` from one halfway through a ``SearchCapture``.
     """
     return {
         "entity_id": robot.entity_id.to_json(),
@@ -221,6 +303,31 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
         "stack": [module.value for module in robot.stack],
         "height": robot.height,
         "movement": _robot_move_transition_snapshot(robot.movement),
+        "order": _order_snapshot(robot.order),
+    }
+
+
+def _structure_ownership_snapshot(record: StructureOwnership) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single ``StructureOwnership``."""
+    return {
+        "structure_id": record.structure_id.to_json(),
+        "owner": record.owner.to_json(),
+    }
+
+
+def _capture_progress_snapshot(progress: CaptureProgress) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single ``CaptureProgress``.
+
+    ``required_ticks`` is carried on the record itself (see
+    `capture.py`), so an in-progress capture serializes self-describingly
+    without the snapshot also having to carry the rule set that produced it.
+    """
+    return {
+        "structure_id": progress.structure_id.to_json(),
+        "capturing_player": progress.capturing_player.to_json(),
+        "robot_id": progress.robot_id.to_json(),
+        "elapsed_ticks": progress.elapsed_ticks,
+        "required_ticks": progress.required_ticks,
     }
 
 
@@ -230,17 +337,25 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     The result contains only ``dict``/``list``/``str``/``int``/``bool``/
     ``None`` values, with a fixed key insertion order (``tick``, ``players``,
     ``seed``, ``commanders``, ``resource_pools``, ``construction_sessions``,
-    ``robots``). Two dataclass-equal ``GameState`` instances always produce
-    an identical snapshot; two states that differ in any field produce a
-    detectably different snapshot.
+    ``robots``, ``structure_ownership``, ``capture_progress``). Two
+    dataclass-equal ``GameState`` instances always produce an identical
+    snapshot; two states that differ in any field produce a detectably
+    different snapshot.
 
     ``resource_pools``/``construction_sessions``/``robots`` (added by issue
     #57, M4.7) are appended after the existing #37/#42 keys -- new keys are
     appended after existing keys so any existing snapshot-shape test can be
     extended additively, matching ``_commander_snapshot``'s own stated
-    precedent. Each is serialized in whatever order ``GameState`` already
-    holds it in (canonical per ``state.py``'s own ordering guarantees for
-    each field), not re-sorted by this module.
+    precedent. ``structure_ownership``/``capture_progress`` (added to
+    ``GameState`` by issue #66 and wired in here by issue #67, M5.8) follow
+    the same rule and are appended last. Each is serialized in whatever
+    order ``GameState`` already holds it in (canonical per ``state.py``'s
+    own ordering guarantees for each field -- both M5 collections sort by
+    ``structure_id.value``), not re-sorted by this module.
+
+    Every field of ``GameState`` is now serialized; see the module docstring
+    for why reservations and engagement intent, which M5 also introduced,
+    correctly have no keys of their own.
     """
     return {
         "tick": state.tick,
@@ -252,6 +367,12 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
             _construction_session_snapshot(session) for session in state.construction_sessions
         ],
         "robots": [_robot_snapshot(robot) for robot in state.robots],
+        "structure_ownership": [
+            _structure_ownership_snapshot(record) for record in state.structure_ownership
+        ],
+        "capture_progress": [
+            _capture_progress_snapshot(progress) for progress in state.capture_progress
+        ],
     }
 
 

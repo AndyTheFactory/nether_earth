@@ -5,11 +5,27 @@ from __future__ import annotations
 import ast
 import inspect
 import json
+from dataclasses import fields
 from pathlib import Path
 
 from nether_earth import snapshot
+from nether_earth.capture import CaptureProgress, StructureOwnership
 from nether_earth.commander import Commander, CommanderMode, GridTransition, VerticalTransition
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
+from nether_earth.orders import (
+    Advance,
+    Order,
+    Retreat,
+    SearchCapture,
+    SearchCaptureTarget,
+    SearchDestroy,
+    SearchDestroyTarget,
+    StopAndDefend,
+)
+from nether_earth.robot import Robot
+from nether_earth.robot_build import ModuleIdentity, RobotBuild
+from nether_earth.robot_stack import derive_stack_and_height
+from nether_earth.rules import DEFAULT_RULES
 from nether_earth.snapshot import snapshot_to_json_string, to_snapshot
 from nether_earth.state import GameState, create_game_state
 
@@ -109,6 +125,8 @@ def test_snapshot_key_order_is_fixed() -> None:
         "resource_pools",
         "construction_sessions",
         "robots",
+        "structure_ownership",
+        "capture_progress",
     ]
 
 
@@ -257,3 +275,217 @@ def test_different_commander_altitude_serializes_differently() -> None:
 
     assert a_state != b_state
     assert to_snapshot(a_state) != to_snapshot(b_state)
+
+
+# --- Milestone 5 state: orders, ownership, capture progress (issue #67) ---
+
+
+def _robot(entity_id: str, owner: PlayerId, *, order: Order | None = None) -> Robot:
+    build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.CANNON,))
+    stack, height = derive_stack_and_height(build, DEFAULT_RULES)
+    return Robot(
+        entity_id=EntityId(entity_id),
+        owner=owner,
+        x=3,
+        y=4,
+        build=build,
+        stack=stack,
+        height=height,
+        order=order,
+    )
+
+
+def test_robot_snapshot_includes_order_key_defaulting_to_none() -> None:
+    state = create_game_state(0, [PLAYER_ONE], seed=0, robots=[_robot("robot-1", PLAYER_ONE)])
+
+    entry = to_snapshot(state)["robots"][0]
+
+    assert list(entry.keys()) == [
+        "entity_id",
+        "owner",
+        "x",
+        "y",
+        "build",
+        "stack",
+        "height",
+        "movement",
+        "order",
+    ]
+    assert entry["order"] is None
+
+
+def test_every_order_kind_serializes_to_a_stable_tagged_dict() -> None:
+    cases: list[tuple[Order, dict[str, object]]] = [
+        (StopAndDefend(), {"kind": "stop_and_defend"}),
+        (
+            Advance(distance_miles=10),
+            {"kind": "advance", "distance_miles": 10, "target_x": None},
+        ),
+        (
+            Advance(distance_miles=10, target_x=27),
+            {"kind": "advance", "distance_miles": 10, "target_x": 27},
+        ),
+        (
+            Retreat(distance_miles=4),
+            {"kind": "retreat", "distance_miles": 4, "target_x": None},
+        ),
+        (
+            Retreat(distance_miles=4, target_x=1),
+            {"kind": "retreat", "distance_miles": 4, "target_x": 1},
+        ),
+        (
+            SearchCapture(target=SearchCaptureTarget.ENEMY_WAR_BASE),
+            {"kind": "search_capture", "target": "enemy_war_base"},
+        ),
+        (
+            SearchDestroy(target=SearchDestroyTarget.FACTORY),
+            {"kind": "search_destroy", "target": "factory"},
+        ),
+    ]
+
+    for order, expected in cases:
+        state = create_game_state(
+            0, [PLAYER_ONE], seed=0, robots=[_robot("robot-1", PLAYER_ONE, order=order)]
+        )
+        result = to_snapshot(state)
+        assert result["robots"][0]["order"] == expected
+        assert json.loads(json.dumps(result)) == result
+
+
+def test_bound_and_unbound_advance_orders_serialize_differently() -> None:
+    """``target_x`` is authoritative state, not a derived convenience."""
+    pending = create_game_state(
+        0,
+        [PLAYER_ONE],
+        seed=0,
+        robots=[_robot("robot-1", PLAYER_ONE, order=Advance(distance_miles=6))],
+    )
+    active = create_game_state(
+        0,
+        [PLAYER_ONE],
+        seed=0,
+        robots=[_robot("robot-1", PLAYER_ONE, order=Advance(distance_miles=6, target_x=15))],
+    )
+
+    assert pending != active
+    assert to_snapshot(pending) != to_snapshot(active)
+
+
+def test_dataclass_equal_states_with_m5_state_serialize_identically() -> None:
+    def build() -> GameState:
+        return create_game_state(
+            9,
+            [PLAYER_ONE, PLAYER_TWO],
+            seed=3,
+            robots=[
+                _robot(
+                    "robot-1",
+                    PLAYER_ONE,
+                    order=SearchCapture(target=SearchCaptureTarget.NEUTRAL_FACTORY),
+                ),
+                _robot("robot-2", PLAYER_TWO, order=StopAndDefend()),
+            ],
+            structure_ownership=[
+                StructureOwnership(structure_id=EntityId("factory-1"), owner=PLAYER_TWO)
+            ],
+            capture_progress=[
+                CaptureProgress(
+                    structure_id=EntityId("warbase-1"),
+                    capturing_player=PLAYER_ONE,
+                    robot_id=EntityId("robot-1"),
+                    elapsed_ticks=7,
+                    required_ticks=1440,
+                )
+            ],
+        )
+
+    first = build()
+    second = build()
+
+    assert first == second
+    assert to_snapshot(first) == to_snapshot(second)
+    assert snapshot_to_json_string(first) == snapshot_to_json_string(second)
+
+
+def test_structure_ownership_and_capture_progress_round_trip_all_fields() -> None:
+    state = create_game_state(
+        1,
+        [PLAYER_ONE, PLAYER_TWO],
+        seed=0,
+        structure_ownership=[
+            StructureOwnership(structure_id=EntityId("factory-2"), owner=PLAYER_ONE),
+            StructureOwnership(structure_id=EntityId("factory-1"), owner=PLAYER_TWO),
+        ],
+        capture_progress=[
+            CaptureProgress(
+                structure_id=EntityId("warbase-1"),
+                capturing_player=PLAYER_TWO,
+                robot_id=EntityId("robot-9"),
+                elapsed_ticks=120,
+                required_ticks=1440,
+            )
+        ],
+    )
+
+    result = to_snapshot(state)
+
+    # ``state.py`` canonicalizes both collections by ``structure_id.value``;
+    # this module serializes them in exactly that order, never re-sorting.
+    assert result["structure_ownership"] == [
+        {"structure_id": "factory-1", "owner": "p2"},
+        {"structure_id": "factory-2", "owner": "p1"},
+    ]
+    assert result["capture_progress"] == [
+        {
+            "structure_id": "warbase-1",
+            "capturing_player": "p2",
+            "robot_id": "robot-9",
+            "elapsed_ticks": 120,
+            "required_ticks": 1440,
+        }
+    ]
+    assert json.loads(json.dumps(result)) == result
+
+
+def test_m5_collections_default_to_empty_lists() -> None:
+    result = to_snapshot(create_game_state(0, [PLAYER_ONE], seed=0))
+
+    assert result["structure_ownership"] == []
+    assert result["capture_progress"] == []
+
+
+def test_different_capture_progress_serializes_differently() -> None:
+    def build(elapsed: int) -> GameState:
+        return create_game_state(
+            0,
+            [PLAYER_ONE, PLAYER_TWO],
+            seed=0,
+            capture_progress=[
+                CaptureProgress(
+                    structure_id=EntityId("warbase-1"),
+                    capturing_player=PLAYER_TWO,
+                    robot_id=EntityId("robot-9"),
+                    elapsed_ticks=elapsed,
+                    required_ticks=1440,
+                )
+            ],
+        )
+
+    early = build(1)
+    late = build(2)
+
+    assert early != late
+    assert to_snapshot(early) != to_snapshot(late)
+
+
+def test_snapshot_covers_every_game_state_field() -> None:
+    """Guard against a future ``GameState`` field silently missing a snapshot key.
+
+    Reservations/engagement intent are deliberately absent (both are
+    derived, not stored -- see ``snapshot.py``'s module docstring), which
+    this check enforces by construction: it compares against
+    ``GameState``'s own fields, so only real stored state can be missed.
+    """
+    state = create_game_state(0, [PLAYER_ONE], seed=0)
+
+    assert set(to_snapshot(state)) == {field.name for field in fields(state)}

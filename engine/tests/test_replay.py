@@ -16,11 +16,16 @@ from pathlib import Path
 import pytest
 
 from nether_earth import replay
+from nether_earth.commander import Commander, CommanderMode
 from nether_earth.commands import Command, RejectionReason
 from nether_earth.engine import CommandAccepted, CommandRejected
-from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, PlayerId
+from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.map import BootstrapMap
 from nether_earth.replay import ReplayFixture, run_fixture
+from nether_earth.robot import Robot
+from nether_earth.robot_build import ModuleIdentity, RobotBuild
+from nether_earth.robot_stack import derive_stack_and_height
+from nether_earth.rules import DEFAULT_RULES
 from nether_earth.scenario import Scenario, default_pvp_scenario
 from nether_earth.snapshot import to_snapshot
 
@@ -96,6 +101,57 @@ def test_replay_fixture_defaults_to_empty_commands() -> None:
     scenario, map_data = _default_scenario_and_map()
     fixture = ReplayFixture(scenario=scenario, map_data=map_data, seed=0, tick_count=3)
     assert fixture.commands_by_tick == {}
+
+
+def test_replay_fixture_defaults_to_no_initial_entities() -> None:
+    """Pre-#67 fixtures keep their exact previous behavior (empty tick-0 state)."""
+    scenario, map_data = _default_scenario_and_map()
+    fixture = ReplayFixture(scenario=scenario, map_data=map_data, seed=0, tick_count=3)
+
+    assert fixture.commanders == ()
+    assert fixture.initial_robots == ()
+
+    final_state, _events = run_fixture(fixture)
+    assert final_state.commanders == ()
+    assert final_state.robots == ()
+
+
+def test_run_fixture_places_initial_commanders_and_robots_on_tick_zero() -> None:
+    """``commanders``/``initial_robots`` (issue #67) reach the tick-0 state.
+
+    Without them no M5 behavior (movement, reservations, orders, capture)
+    could be expressed as a replay fixture at all -- see
+    ``test_m5_replay_integration.py``, which builds on this.
+    """
+    scenario, map_data = _default_scenario_and_map()
+    build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.CANNON,))
+    stack, height = derive_stack_and_height(build, DEFAULT_RULES)
+    robot = Robot(
+        entity_id=EntityId("robot-1"),
+        owner=PLAYER_ONE,
+        x=2,
+        y=3,
+        build=build,
+        stack=stack,
+        height=height,
+    )
+    commander = Commander(
+        player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=2, y=3, altitude=10
+    )
+    fixture = ReplayFixture(
+        scenario=scenario,
+        map_data=map_data,
+        seed=7,
+        tick_count=0,
+        commanders=(commander,),
+        initial_robots=(robot,),
+    )
+
+    final_state, events = run_fixture(fixture)
+
+    assert events == ()
+    assert final_state.commanders == (commander,)
+    assert final_state.robots == (robot,)
 
 
 # --- run_fixture: basic shape --------------------------------------------
