@@ -385,20 +385,54 @@ influence engine projectile lifetime.
 
 ### Damage / accuracy / strength / electronics — unresolved details
 
-Research must determine where possible:
+Issue #74 (M6.5) traced the Spectrum disassembly (`santiontanon/netherearth-disassembly`,
+`netherearth-annotated.asm`) and resolved all items below directly from code
+evidence; see `_specs/open-questions.md` §9 for the full citation trail.
+Resolved items are removed from this list.
 
-- exact integer arithmetic for `(60 - (robot_height + ground_height)) / 4`;
-- order of multiplier application and truncation;
-- exact robot strength representation and starting strength;
-- hit/miss probability calculation;
-- range contribution to hit probability;
-- whether a successful projectile collision can still miss through an accuracy roll;
-- whether components are damaged individually or only aggregate robot strength;
-- electronics accuracy/effective-range behavior beyond the already locked +3-mile nominal range statement;
-- electronics damage-resistance modifier;
-- any weapon-specific accuracy behavior.
+Resolved by issue #74 (see `_specs/open-questions.md` §9 for citations —
+not repeated here):
 
-No component-damage system or electronics modifier may be invented without evidence/owner approval.
+- exact integer arithmetic for `(60 - (robot_height + ground_height)) / 4` —
+  resolved: two consecutive `srl a` instructions on a non-negative operand,
+  i.e. unsigned floor-division by 4, no separate rounding step;
+- order of multiplier application and truncation — resolved: base damage is
+  computed once (`d`), then accumulated via `b`-times repeated addition
+  (`b` = bullet type 1/2/3), giving `base * (b + 1)` = `base * 2/3/4` for
+  cannon/missile/phaser — arithmetically identical to the already-locked
+  multipliers, no further rounding after the initial floor-division;
+- exact robot strength representation and starting strength — resolved: a
+  single signed byte (`ROBOT_STRUCT_STRENGTH`), initialized to exactly `100`
+  at both robot-spawn sites; see §9's scale-reconciliation note (no unit
+  conversion needed, unlike the mile/cell range discrepancy in §8, but Task 6
+  should confirm `robot_height`/`ground_height` inputs are wired on the same
+  raw 13–38 disassembly scale before treating `100` as final);
+- hit/miss probability calculation — resolved: none exists. No RNG call
+  (`Ld358_random` or otherwise) appears anywhere in
+  `Lb7a7_potentially_hit_a_robot`; a geometric collision always deals damage;
+- range contribution to hit probability — moot, since no hit-probability
+  roll exists at all in the traced collision-damage path;
+- whether a successful projectile collision can still miss through an
+  accuracy roll — resolved: no, there is no accuracy roll after collision;
+- whether components are damaged individually or only aggregate robot
+  strength — resolved: aggregate only. The full `ROBOT_STRUCT_*` layout (16
+  bytes) has exactly one strength field and no per-piece/per-weapon health
+  field;
+- electronics damage-resistance modifier — resolved: none found. The
+  damage-calculation path was searched specifically for a second electronics
+  check beyond the already-documented firing-time range bonus (§8's
+  `Lb6d6_weapon_fire` finding) and none exists;
+- electronics accuracy/effective-range behavior beyond the already locked
+  +3-mile nominal range statement — moot, since no accuracy roll exists to
+  be affected, and range's only disassembly-verified effect remains the
+  already-documented +1 raw-unit bonus to `BULLET_STRUCT_RANGE`;
+- any weapon-specific accuracy behavior — resolved: none found; weapon type
+  only selects the damage multiplier (and, at fire time, projectile range),
+  never an accuracy factor.
+
+No component-damage system or electronics resistance modifier was invented;
+the evidence found none, confirming the pre-existing constraint on this
+section.
 
 ---
 

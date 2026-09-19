@@ -341,7 +341,7 @@ Task 4 should add these as explicit, documented-as-non-canonical
   altitude/decoration values (see `Lb0c1_decoration_altitudes` for the
   concrete per-decoration altitude table, e.g. warbase "H" pad = `#0f`).
 
-## 9. Damage, accuracy, and electronics effects — PARTIALLY RESOLVED
+## 9. Damage, accuracy, and electronics effects — RESOLVED (starting-strength scale caveat noted)
 
 Locked normal-weapon damage:
 
@@ -355,15 +355,134 @@ Default multipliers:
 
 The damage formula is isolated behind one engine function; multipliers are centralized game-rule configuration.
 
-Still open:
+Resolved by issue #74 research (`santiontanon/netherearth-disassembly`,
+`netherearth-annotated.asm`), each cited to its exact label:
 
-- exact integer truncation/rounding path;
-- exact hit-probability/accuracy formula;
-- exact range effect on accuracy;
-- exact strength representation/reduction;
-- whether individual components can be damaged separately;
-- exact electronics resistance modifier;
-- exact electronics accuracy/range behavior.
+- **Integer truncation/rounding path**: confirmed. `Lb7a7_potentially_hit_a_robot`
+  computes `ld a, 60` / `sub (iy + ROBOT_STRUCT_HEIGHT)` /
+  `sub (iy + ROBOT_STRUCT_ALTITUDE)` / `srl a` / `srl a` / `ld d, a`. Two
+  consecutive `srl` (shift-right-logical) instructions are an unsigned,
+  bit-level divide-by-4 — since `a` is non-negative at this point (robot
+  height + ground height is bounded well under 60 per the header comment's
+  worked min/max, 13–38), this is exactly integer floor-division by 4 with
+  no separate rounding step: `base = (60 - robot_height - ground_height) >> 2`.
+  This confirms the locked formula's `/ 4` should be read as integer
+  floor-division, not real-division-then-round.
+- **Order of multiplier application**: confirmed via the accumulation loop
+  immediately following, `Lb7c8_damage_calculation_loop`: `ld b, e` (`e` was
+  loaded from `BULLET_STRUCT_TYPE`, 1 = cannon, 2 = missile, 3 = phaser) then
+  `add a, d` / `djnz Lb7c8_damage_calculation_loop`. Since `a` already equals
+  `d` (the base) going into the loop, and the loop runs `b` times adding `d`
+  again each time, the total is `base + base * b = base * (b + 1)`: cannon
+  (`b=1`) → `base * 2`, missile (`b=2`) → `base * 3`, phaser (`b=3`) →
+  `base * 4`. This is repeated-addition, not a multiply instruction, but is
+  arithmetically identical to `damage = base * multiplier` with no further
+  rounding — directly confirming the already-locked multipliers 2/3/4 as
+  evidence-backed, not just plausible. The disassembly's own module-header
+  comment cross-checks this independently: "phasers against the weakest
+  robot (at ground level) deal: ((60 - 13)/4)*4 = 44 damage" — this pass
+  verified that worked example against the actual code path rather than
+  trusting the prose alone.
+- **`ROBOT_STRUCT_HEIGHT` vs. `ROBOT_STRUCT_ALTITUDE` semantics — naming
+  caution**: both operands were traced to their write sites, and the names
+  are misleading relative to what they hold. `ROBOT_STRUCT_HEIGHT` (struct
+  offset 9) is a fixed, chassis/piece-derived value computed once at robot
+  construction (`Lb904_robot_height_loop`, summing `Ld7b4_piece_heights` for
+  each equipped piece) — this is the robot's own physical height, matching
+  this project's `robot_height`. `ROBOT_STRUCT_ALTITUDE` (struct offset 13),
+  despite its name suggesting the robot's own elevation/jump-height, is
+  actually written by `Lb495`'s `call Lb5d6_map_altitude_2x2` /
+  `ld (iy + ROBOT_STRUCT_ALTITUDE), a` with the comment "update the altitude
+  of the robot based on the terrain underneath" — i.e. it is the **terrain
+  elevation at the robot's current map position**, refreshed every time the
+  robot moves. This confirms it maps to this project's `ground_height`
+  operand, not a separate "robot's own altitude off the ground" concept —
+  the disassembly's field name is a false cognate here and should not be
+  read literally when cross-referencing future disassembly passes.
+- **Strength representation and starting value**: confirmed. Both robot
+  spawn sites — `ld (iy + ROBOT_STRUCT_STRENGTH), 100` at line ~368
+  (warbase-exit reset) and again at line ~3306 (`Lb890`-area robot
+  construction) — set strength to exactly `100` (a single signed byte field,
+  struct offset 12). No other initial value was found anywhere in the file.
+- **Damage application / destruction threshold**: confirmed via
+  `Lb7a7_potentially_hit_a_robot`'s tail: `ld a, (iy + ROBOT_STRUCT_STRENGTH)`
+  / `sub b` (b = computed damage) / `jr z, Lb7d7_robot_destroyed` (exact
+  zero → destroyed) / `jp p, Lb7db_robot_hit` (still positive → survives,
+  new strength stored as-is). If neither branch is taken (result negative),
+  execution falls through into `Lb7d7_robot_destroyed` directly — so **any
+  result ≤ 0 leads to destruction**, matching the brief's "<= 0" hypothesis
+  exactly; there is no separate "overkill" branch. `Lb7d7_robot_destroyed`
+  does **not** store the actual computed negative remainder — it discards it
+  and writes a fixed sentinel: `ld a, -4` / `ld (iy + ROBOT_STRUCT_STRENGTH), a`.
+  This `-4` is a specific countdown/blink value, not "any negative number":
+  `Lb0fa_robot_update`'s per-cycle update increments a negative strength
+  toward zero (`inc (iy + ROBOT_STRUCT_STRENGTH)`) and toggles a "blink"
+  bit each cycle (`and 1` / `res 6, (hl)` or `set 6, (hl)`) until strength
+  reaches exactly 0, at which point `Lb116_robot_destroyed` performs the
+  actual removal from the map. So destruction is a two-stage process: (1)
+  strength reaches ≤0 → set to sentinel -4 and begin a fixed 4-cycle visible
+  "blink" grace period, (2) strength counts back up to exactly 0 → robot is
+  actually removed. The gate at the top of `Lb7a7_potentially_hit_a_robot`
+  (`ld a, (iy + ROBOT_STRUCT_STRENGTH)` / `dec a` / `jp m,
+  Lb7de_collision_handled`) treats any strength ≤0 (including mid-blink
+  sentinel values) as "already destroyed," preventing further damage
+  processing on a robot that is already in its blink-out grace period.
+- **Hit/miss accuracy roll**: confirmed absent. The entire
+  `Lb7a7_potentially_hit_a_robot` routine (from its label through
+  `Lb7de_collision_handled`'s `ret`) was read line-by-line and contains no
+  call to `Ld358_random` or any other RNG routine. A projectile that
+  geometrically collides with a robot (per the collision-footprint scan
+  already documented in §8) always deals damage; there is no separate
+  probability gate anywhere in this code path. This confirms the brief's
+  hypothesis.
+- **Component-level damage**: confirmed absent. The full `ROBOT_STRUCT_*`
+  field list (struct size 16 bytes: `MAP_PTR`, `X`, `Y`,
+  `DESIRED_MOVE_DIRECTION`, `NUMBER_OF_STEPS_TO_KEEP_WALKING`, `PIECES`,
+  `DIRECTION`, `HEIGHT`, `CONTROL`, `ORDERS`, `STRENGTH`, `ALTITUDE`,
+  `ORDERS_ARGUMENT`, `CYCLES_TO_NEXT_UPDATE`) has exactly one strength/health
+  field (`ROBOT_STRUCT_STRENGTH`, offset 12) and no per-piece or per-weapon
+  health/durability field. Damage is always applied to this single aggregate
+  value; there is no evidence anywhere in the traced struct layout or the
+  damage routine of individual component/weapon-slot damage.
+- **Electronics' damage-related effect**: confirmed to be range-only, with
+  no separate effect in the damage-calculation path. Cross-referencing §8's
+  already-verified `Lb6d6_weapon_fire` finding (`bit 7, (ix + ROBOT_STRUCT_PIECES)`
+  / `inc c` = +1 to `BULLET_STRUCT_RANGE` only), this pass additionally
+  searched `Lb7a7_potentially_hit_a_robot`'s entire damage-calculation branch
+  specifically for any second electronics check (e.g. a `bit 7,
+  (iy + ROBOT_STRUCT_PIECES)` on the *defending* robot) and found none — the
+  damage formula reads only `ROBOT_STRUCT_HEIGHT`, `ROBOT_STRUCT_ALTITUDE`,
+  and the bullet type; a defending robot's own electronics piece has no
+  bearing on damage taken. No damage-resistance modifier exists.
+
+Scale-reconciliation note (starting strength, mirroring §8's mile/cell
+caution): the disassembly's `100` is a raw signed-byte counter consumed by
+damage values on the same raw scale as the `(60 - h - a) / 4 * multiplier`
+formula traced above (e.g. a phaser hit on the weakest robot at ground level
+deals 44 raw points per the header comment's worked example, meaning as few
+as 2–3 solid phaser hits can destroy a fresh robot at 100 strength). Because
+this project's `robot_height`/`ground_height` inputs to the locked formula
+are expected to be on this same raw disassembly scale (per the already-locked
+formula text `(60 - (robot_height + ground_height)) / 4`, which reuses the
+disassembly's literal constant `60` unmodified), `100` is very likely
+directly portable as the starting-strength default with **no scale
+conversion needed** — unlike the mile-vs-raw-unit range discrepancy in §8,
+this pass found no evidence of two different unit systems in play for
+strength/damage (both sides of the equation — the `60` constant and the
+`100` strength constant — are the same disassembly-native raw scale). This
+is recorded as a resolved-with-caveat item, not silently adopted: Task 6
+should treat `100` as evidence-backed but confirm the same conclusion holds
+once `robot_height`/`ground_height` are wired to real per-chassis/terrain
+data (i.e. that those inputs are populated on the disassembly's raw 13–38
+height scale and not on some other project-specific unit), since this
+research pass only traced the arithmetic/constants, not the numeric ranges
+that will flow through them at runtime.
+
+Still open (not resolved by this research pass):
+
+- none of the items originally listed above remain open; all resolved as
+  documented in the "Resolved by issue #74 research" block, subject to the
+  scale-reconciliation caveat on starting strength noted above.
 
 ## 10. Resource spending rules — RESOLVED
 
