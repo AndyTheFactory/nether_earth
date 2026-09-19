@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import fields, replace
+
 from nether_earth.combat import (
     RobotDamagedEvent,
     apply_damage,
@@ -16,7 +18,7 @@ from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.map import WorldMap
 from nether_earth.movement import folded_robot_occupancy
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState, create_game_state
@@ -422,3 +424,126 @@ def test_repeated_destroy_sequence_is_deterministic() -> None:
 
     assert state_a == state_b
     assert log_a == log_b
+
+
+# --------------------------------------------------------------------------
+# Regression tests: Robot.with_movement/with_position/with_order must not
+# drop active_projectile_id/strength (the latent bug found and fixed while
+# implementing Robot.with_strength for this task -- see task-6-report.md).
+# --------------------------------------------------------------------------
+
+
+def test_with_movement_preserves_active_projectile_id_and_strength() -> None:
+    robot = _robot(entity_id="robot-1", strength=57, active_projectile_id=EntityId("projectile-1"))
+    transition = RobotMoveTransition(
+        entity_id=robot.entity_id,
+        from_x=robot.x,
+        from_y=robot.y,
+        to_x=robot.x + 1,
+        to_y=robot.y,
+        started_tick=0,
+        duration_ticks=5,
+    )
+
+    updated = robot.with_movement(transition)
+
+    assert updated.movement == transition
+    assert updated.active_projectile_id == EntityId("projectile-1")
+    assert updated.strength == 57
+
+
+def test_with_position_preserves_active_projectile_id_and_strength() -> None:
+    robot = _robot(entity_id="robot-1", strength=57, active_projectile_id=EntityId("projectile-1"))
+
+    updated = robot.with_position(robot.x + 1, robot.y)
+
+    assert (updated.x, updated.y) == (robot.x + 1, robot.y)
+    assert updated.active_projectile_id == EntityId("projectile-1")
+    assert updated.strength == 57
+
+
+def test_with_order_preserves_active_projectile_id_and_strength() -> None:
+    from nether_earth.orders import StopAndDefend
+
+    robot = _robot(entity_id="robot-1", strength=57, active_projectile_id=EntityId("projectile-1"))
+
+    updated = robot.with_order(StopAndDefend())
+
+    assert updated.order == StopAndDefend()
+    assert updated.active_projectile_id == EntityId("projectile-1")
+    assert updated.strength == 57
+
+
+def test_every_with_method_changes_only_its_own_field() -> None:
+    """Strongest form of the regression protection: for every ``Robot.with_*``
+    method, assert it changes exactly its own targeted field(s) and leaves
+    every other :func:`dataclasses.fields` value untouched. This is the
+    exact property that silently broke for ``active_projectile_id`` before
+    this task's fix, encoded so the *next* field addition to ``Robot``
+    cannot reintroduce the same class of bug without a test failing here.
+    """
+    from nether_earth.orders import StopAndDefend
+
+    transition = RobotMoveTransition(
+        entity_id=EntityId("robot-1"),
+        from_x=5,
+        from_y=5,
+        to_x=6,
+        to_y=5,
+        started_tick=0,
+        duration_ticks=5,
+    )
+
+    base = _robot(
+        entity_id="robot-1",
+        x=5,
+        y=5,
+        strength=57,
+        active_projectile_id=EntityId("projectile-1"),
+    )
+    base = base.with_order(StopAndDefend())
+
+    field_names = {f.name for f in fields(Robot)}
+
+    cases: tuple[tuple[Robot, set[str]], ...] = (
+        (base.with_movement(transition), {"movement"}),
+        (base.with_position(9, 9), {"x", "y", "movement"}),
+        (base.with_order(None), {"order"}),
+        (base.with_active_projectile(EntityId("projectile-2")), {"active_projectile_id"}),
+        (base.with_strength(1), {"strength"}),
+    )
+
+    for updated, expected_changed in cases:
+        unchanged_fields = field_names - expected_changed
+        for name in unchanged_fields:
+            assert getattr(updated, name) == getattr(base, name), (
+                f"{name!r} unexpectedly changed"
+            )
+        # Sanity check the targeted field(s) actually did change, so this
+        # test cannot pass vacuously if a with_* method became a no-op.
+        assert any(
+            getattr(updated, name) != getattr(base, name) for name in expected_changed
+        )
+
+
+def test_with_strength_preserves_every_other_field() -> None:
+    transition = RobotMoveTransition(
+        entity_id=EntityId("robot-1"),
+        from_x=5,
+        from_y=5,
+        to_x=6,
+        to_y=5,
+        started_tick=0,
+        duration_ticks=5,
+    )
+    robot = replace(
+        _robot(entity_id="robot-1", strength=57, active_projectile_id=EntityId("projectile-1")),
+        movement=transition,
+    )
+
+    updated = robot.with_strength(1)
+
+    assert updated.strength == 1
+    assert updated.movement == transition
+    assert updated.active_projectile_id == EntityId("projectile-1")
+    assert updated.order == robot.order
