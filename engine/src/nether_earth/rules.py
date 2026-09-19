@@ -182,6 +182,17 @@ explicitly unverified policy choice (see the module docstring's "documented
 default, not independently verified" precedent for the rationale). Later
 Spectrum evidence on projectile expiry may correct this in one place
 without an architecture change.
+
+Issue #73 (M6.4, `_specs/milestones/06-combat-damage-victory.md`) adds
+``projectile_advance_ticks``: the cadence (in simulation ticks) at which
+in-flight projectiles advance one cell, consumed by `combat.py`'s
+``is_projectile_advance_tick``/``advance_projectiles``. Unlike
+``projectile_max_range_cells`` above, this value is evidence-backed rather
+than an independent placeholder: issue #72's disassembly research
+(`_specs/open-questions.md` §8) found bullets and robots share the same
+per-game-cycle dispatcher, and issue #61 (M5.2) already mapped that shared
+game-cycle boundary onto this project's locked 20 Hz tick rate as "1 cycle
+= 4 ticks" -- reused here unchanged, default ``4``.
 """
 
 from dataclasses import dataclass
@@ -385,6 +396,19 @@ class EngineRules:
       is *not* presented as a verified Spectrum constant, only as a named
       configurable placeholder. Later research may correct it in this one
       place without an architecture change.
+    - ``projectile_advance_ticks``: the number of simulation ticks between
+      projectile-advance cadence updates (issue #73, M6.4, per
+      `_specs/open-questions.md` §8 "Advance cadence"). The disassembly
+      evidence found by issue #72's research shows bullets and robots are
+      driven from the same per-game-cycle dispatcher
+      (`Lb0ca_update_robots_bullets_and_ai`), with the same outer
+      game-cycle boundary already mapped by issue #61 (M5.2) onto this
+      project's locked 20 Hz tick rate as "1 cycle = 200 ms = 4 ticks" --
+      unlike a robot's per-cycle movement (which is additionally throttled
+      by its own chassis/terrain-speed skip counter), a bullet has no such
+      throttle and advances on every single game cycle. Reusing that same
+      "1 cycle = 4 ticks" conversion factor here is therefore an
+      evidence-backed default (``4``), not an independent placeholder.
     """
 
     commander_min_altitude: int = 0
@@ -432,6 +456,7 @@ class EngineRules:
     missile_damage_multiplier: int = 3
     phaser_damage_multiplier: int = 4
     projectile_max_range_cells: int = 28
+    projectile_advance_ticks: int = 4
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -507,6 +532,8 @@ class EngineRules:
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")
+        if self.projectile_advance_ticks <= 0:
+            raise ValueError("projectile_advance_ticks must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

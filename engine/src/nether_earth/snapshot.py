@@ -66,6 +66,13 @@ keys of their own, because they are not authoritative state:
   determinism is a property of the inputs it is derived from (robot
   positions/builds/orders and world ownership -- all of which this module
   serializes) rather than something a snapshot can or should carry.
+
+Projectiles (added by issue #73, M6.4): ``GameState.projectiles`` is
+serialized by :func:`_projectile_snapshot`, appended after
+``capture_progress`` following this module's own "new keys are appended
+after existing keys" precedent. An in-flight projectile is authoritative
+state (not a derived/recomputed value like the two exclusions above), so
+it gets a snapshot key of its own.
 """
 
 from __future__ import annotations
@@ -74,6 +81,7 @@ import json
 from typing import Any, assert_never
 
 from nether_earth.capture import CaptureProgress, StructureOwnership
+from nether_earth.combat import Projectile
 from nether_earth.commander import Commander, GridTransition, VerticalTransition
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
@@ -331,6 +339,29 @@ def _capture_progress_snapshot(progress: CaptureProgress) -> dict[str, Any]:
     }
 
 
+def _projectile_snapshot(projectile: Projectile) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of a single ``Projectile``.
+
+    Added by issue #73 (M6.4), which introduced ``GameState.projectiles``.
+    Serializes every field ``combat.Projectile`` carries, matching this
+    module's existing "every stored field gets a snapshot key" convention.
+    """
+    return {
+        "id": projectile.id.to_json(),
+        "owner": projectile.owner.to_json(),
+        "source_robot_id": projectile.source_robot_id.to_json(),
+        "weapon": projectile.weapon.value,
+        "x": projectile.x,
+        "y": projectile.y,
+        "z": projectile.z,
+        "dx": projectile.dx,
+        "dy": projectile.dy,
+        "travelled_cells": projectile.travelled_cells,
+        "max_range_cells": projectile.max_range_cells,
+        "created_tick": projectile.created_tick,
+    }
+
+
 def to_snapshot(state: GameState) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of ``state``.
 
@@ -353,6 +384,9 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     own ordering guarantees for each field -- both M5 collections sort by
     ``structure_id.value``), not re-sorted by this module.
 
+    ``projectiles`` (added to ``GameState`` by issue #73, M6.4) is appended
+    last, following the same additive-key convention.
+
     Every field of ``GameState`` is now serialized; see the module docstring
     for why reservations and engagement intent, which M5 also introduced,
     correctly have no keys of their own.
@@ -372,6 +406,9 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
         ],
         "capture_progress": [
             _capture_progress_snapshot(progress) for progress in state.capture_progress
+        ],
+        "projectiles": [
+            _projectile_snapshot(projectile) for projectile in state.projectiles
         ],
     }
 

@@ -98,6 +98,26 @@ circular import (that module itself imports ``ids``/``robot_build``, not
 ``GameState``, but is kept consistent with the ``construction_session``
 precedent above for symmetry and to keep this module's own import graph
 shallow).
+
+Projectiles field (added by issue #73, M6.4): ``projectiles`` attaches the
+authoritative in-flight :class:`~nether_earth.combat.Projectile` collection
+directly onto ``GameState``, following the exact same "immutable tuple,
+never a ``dict``/``Mapping``-shaped field" convention established above.
+Like ``robots`` -- and unlike ``commanders``/``resource_pools``/
+``construction_sessions`` -- a projectile has no "at most one per player"
+constraint (a player may have several robots each with their own in-flight
+projectile at once), so sorting by owning-player id alone would not
+produce a total order; ``projectiles`` is instead sorted by its own
+``Projectile.id.value``, mirroring ``robots``' rationale exactly. No
+``players``-membership check is performed on a projectile's ``owner`` here
+because ``combat.py`` (which constructs every ``Projectile``) already
+derives ``owner`` from a validated ``FireRequest``/``Robot`` pair; unlike
+``robots``/``commanders``/etc., ``GameState.with_projectiles`` only
+enforces the one invariant it can check locally (unique ``id``).
+``combat.py`` is only imported under ``TYPE_CHECKING`` here to avoid a
+circular import (that module itself will need ``GameState`` for
+``apply_fire``/``advance_projectiles``), mirroring the ``robot.py``/
+``construction_session.py`` precedent above.
 """
 
 from __future__ import annotations
@@ -111,6 +131,7 @@ from nether_earth.resource_pool import PlayerResourcePool
 
 if TYPE_CHECKING:
     from nether_earth.capture import CaptureProgress, StructureOwnership
+    from nether_earth.combat import Projectile
     from nether_earth.construction_session import ConstructionSession
     from nether_earth.robot import Robot
 
@@ -193,6 +214,26 @@ def _canonical_robots(robots: tuple[Robot, ...]) -> tuple[Robot, ...]:
             )
         seen_ids.add(robot.entity_id)
     return tuple(sorted(robots, key=lambda robot: robot.entity_id.value))
+
+
+def _canonical_projectiles(projectiles: tuple[Projectile, ...]) -> tuple[Projectile, ...]:
+    """Return ``projectiles`` sorted canonically, after validating them.
+
+    Shared by :func:`create_game_state` and :meth:`GameState.with_projectiles`.
+    Mirrors :func:`_canonical_robots`'s "sort/validate by the record's own
+    id" shape exactly, for the same reason: a projectile has no "one per
+    player" constraint, so it sorts by its own ``id.value`` rather than an
+    owning player's id, and is validated for a unique ``id``.
+    """
+    seen_ids: set[EntityId] = set()
+    for projectile in projectiles:
+        if projectile.id in seen_ids:
+            raise ValueError(
+                f"duplicate projectile id {projectile.id.value!r}: "
+                "every projectile must have a unique id"
+            )
+        seen_ids.add(projectile.id)
+    return tuple(sorted(projectiles, key=lambda projectile: projectile.id.value))
 
 
 def _canonical_structure_ownership(
@@ -306,6 +347,13 @@ class GameState:
     ``CaptureProgress.structure_id.value``) order, at most one active
     attempt per structure; it defaults to ``()`` so existing callers keep
     working unchanged.
+
+    ``projectiles`` (added by issue #73, M6.4) carries every in-flight
+    :class:`~nether_earth.combat.Projectile`. It is always stored in
+    canonical (sorted by ``Projectile.id.value``) order, matching
+    ``robots``' own-id sort rather than an owning-player sort (see the
+    module docstring); it defaults to ``()`` so existing callers keep
+    working unchanged.
     """
 
     tick: int
@@ -317,6 +365,7 @@ class GameState:
     robots: tuple[Robot, ...] = ()
     structure_ownership: tuple[StructureOwnership, ...] = ()
     capture_progress: tuple[CaptureProgress, ...] = ()
+    projectiles: tuple[Projectile, ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -324,8 +373,9 @@ class GameState:
         This is the explicit, controlled transition for advancing the
         authoritative tick counter; callers must not mutate ``tick`` in
         place. ``players``, ``seed``, ``commanders``, ``resource_pools``,
-        ``construction_sessions``, ``robots``, ``structure_ownership``, and
-        ``capture_progress`` are carried over unchanged.
+        ``construction_sessions``, ``robots``, ``structure_ownership``,
+        ``capture_progress``, and ``projectiles`` are carried over
+        unchanged.
         """
         return GameState(
             tick=tick,
@@ -337,6 +387,7 @@ class GameState:
             robots=self.robots,
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
+            projectiles=self.projectiles,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -368,6 +419,7 @@ class GameState:
             robots=self.robots,
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
+            projectiles=self.projectiles,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -408,6 +460,7 @@ class GameState:
             robots=self.robots,
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
+            projectiles=self.projectiles,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -450,6 +503,7 @@ class GameState:
             robots=self.robots,
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
+            projectiles=self.projectiles,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -488,6 +542,7 @@ class GameState:
             robots=canonical_robots,
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
+            projectiles=self.projectiles,
         )
 
     def robot_for(self, entity_id: EntityId) -> Robot | None:
@@ -533,6 +588,7 @@ class GameState:
             robots=self.robots,
             structure_ownership=canonical_structure_ownership,
             capture_progress=self.capture_progress,
+            projectiles=self.projectiles,
         )
 
     def structure_ownership_for(self, structure_id: EntityId) -> StructureOwnership | None:
@@ -564,6 +620,7 @@ class GameState:
             robots=self.robots,
             structure_ownership=self.structure_ownership,
             capture_progress=canonical_capture_progress,
+            projectiles=self.projectiles,
         )
 
     def capture_progress_for(self, structure_id: EntityId) -> CaptureProgress | None:
@@ -571,6 +628,40 @@ class GameState:
         for progress in self.capture_progress:
             if progress.structure_id == structure_id:
                 return progress
+        return None
+
+    def with_projectiles(self, projectiles: tuple[Projectile, ...]) -> GameState:
+        """Return a new ``GameState`` with ``projectiles`` replaced.
+
+        ``projectiles`` may be supplied in any order; the result is
+        normalized to canonical (sorted by ``id.value``) order, mirroring
+        :meth:`with_robots` exactly (see the module docstring for why
+        projectiles sort by their own id rather than owning-player id). No
+        two projectiles may share an ``id`` -- see
+        :func:`_canonical_projectiles`. ``tick``, ``players``, ``seed``,
+        ``commanders``, ``resource_pools``, ``construction_sessions``,
+        ``robots``, ``structure_ownership``, and ``capture_progress`` are
+        carried over unchanged.
+        """
+        canonical_projectiles = _canonical_projectiles(tuple(projectiles))
+        return GameState(
+            tick=self.tick,
+            players=self.players,
+            seed=self.seed,
+            commanders=self.commanders,
+            resource_pools=self.resource_pools,
+            construction_sessions=self.construction_sessions,
+            robots=self.robots,
+            structure_ownership=self.structure_ownership,
+            capture_progress=self.capture_progress,
+            projectiles=canonical_projectiles,
+        )
+
+    def projectile_for(self, entity_id: EntityId) -> Projectile | None:
+        """Return the projectile with ``entity_id``, or ``None`` if it has no such projectile."""
+        for projectile in self.projectiles:
+            if projectile.id == entity_id:
+                return projectile
         return None
 
 
@@ -584,8 +675,9 @@ def create_game_state(
     robots: tuple[Robot, ...] | list[Robot] | None = None,
     structure_ownership: tuple[StructureOwnership, ...] | list[StructureOwnership] | None = None,
     capture_progress: tuple[CaptureProgress, ...] | list[CaptureProgress] | None = None,
+    projectiles: tuple[Projectile, ...] | list[Projectile] | None = None,
 ) -> GameState:
-    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress`` normalized.
+    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress``/``projectiles`` normalized.
 
     ``players`` may be supplied in any order or as any iterable of unique
     ``PlayerId`` values; the resulting ``GameState.players`` is always the
@@ -630,6 +722,10 @@ def create_game_state(
     most one attempt per ``structure_id`` (see the module docstring). The
     resulting ``GameState.capture_progress`` is always sorted by
     ``structure_id.value``.
+
+    ``projectiles`` defaults to no in-flight projectiles (``()``); no two
+    projectiles may share an ``id`` (see the module docstring). The
+    resulting ``GameState.projectiles`` is always sorted by ``id.value``.
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -681,6 +777,9 @@ def create_game_state(
     resolved_capture_progress = () if capture_progress is None else tuple(capture_progress)
     canonical_capture_progress = _canonical_capture_progress(resolved_capture_progress)
 
+    resolved_projectiles = () if projectiles is None else tuple(projectiles)
+    canonical_projectiles = _canonical_projectiles(resolved_projectiles)
+
     return GameState(
         tick=tick,
         players=canonical_players,
@@ -691,4 +790,5 @@ def create_game_state(
         robots=canonical_robots,
         structure_ownership=canonical_structure_ownership,
         capture_progress=canonical_capture_progress,
+        projectiles=canonical_projectiles,
     )
