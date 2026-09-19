@@ -129,6 +129,7 @@ __all__ = [
     "StructureCapturedEvent",
     "StructureOwnership",
     "advance_capture",
+    "capture_footprint",
     "effective_owner",
     "effective_world",
 ]
@@ -289,7 +290,7 @@ def effective_world(world: WorldMap, state: GameState) -> WorldMap:
     return apply_overlay(world, overlay)
 
 
-def _capture_footprint(
+def capture_footprint(
     world: WorldMap, structure_id: EntityId, kind: InteractionKind
 ) -> frozenset[tuple[int, int]]:
     """Return the union of ``kind``-typed interaction-point footprint cells for ``structure_id``.
@@ -299,6 +300,13 @@ def _capture_footprint(
     location is the union of all of them. Returns an empty ``frozenset``
     when none are declared -- a valid "not capturable on this map" state,
     never an error (see the module docstring).
+
+    Public (rather than module-private) because `orders.py`'s Search &
+    Capture target selection must send a robot to exactly the cells
+    :func:`advance_capture` counts as qualifying occupation. Two
+    independent spellings of "where must a robot stand to capture this"
+    could drift apart and produce an order that walks a robot to a cell
+    that never starts a capture, so both read this one function.
     """
     cells: set[tuple[int, int]] = set()
     for point in world.interaction_points_for(structure_id, kind=kind):
@@ -398,7 +406,7 @@ def advance_capture(
     }
 
     for structure, interaction_kind, structure_kind in _capturable_structures(world):
-        footprint = _capture_footprint(world, structure.id, interaction_kind)
+        footprint = capture_footprint(world, structure.id, interaction_kind)
         if not footprint:
             continue
 

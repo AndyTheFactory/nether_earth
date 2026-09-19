@@ -69,14 +69,36 @@ shape: robot moves contend for a shared destination-reservation table
 the robots that own them. ``Robot.with_movement`` enforces that the
 carried ``entity_id`` matches the robot it is attached to, so the
 redundancy can never drift.
+
+Order state (added by issue #64, M5.5): the ``Robot.order`` field carries
+the robot's current autonomous order (`orders.py`'s :class:`Order` union:
+``StopAndDefend``/``Advance``/``Retreat``/``SearchCapture``/
+``SearchDestroy``), or ``None`` for a robot under no autonomous order at
+all -- which is every robot at launch, and every robot under direct
+control. It lives on the entity for the same reason ``movement`` does:
+it is per-robot authoritative state, and keeping it here means
+``state.robots``' single canonical ordering already orders order
+evaluation too, with no second parallel ``GameState`` collection to keep
+in sync. The order *rules* -- validation/fallback, movement-goal
+derivation, target selection, engagement intent, and completion
+transitions -- live in `orders.py`, exactly as the movement rules live in
+`movement.py`; this module defines only the field. :class:`Order` is
+imported under ``TYPE_CHECKING`` only, because `orders.py` itself imports
+:class:`Robot` (and ``GameState``/``WorldMap``), so a runtime import here
+would be circular -- the same pattern `state.py` already uses for
+``Robot``/``ConstructionSession``/``CaptureProgress``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
+
+if TYPE_CHECKING:
+    from nether_earth.orders import Order
 
 __all__ = ["Robot", "RobotMoveTransition"]
 
@@ -143,6 +165,7 @@ class Robot:
     stack: tuple[ModuleIdentity, ...]
     height: int
     movement: RobotMoveTransition | None = None
+    order: Order | None = None
 
     def __post_init__(self) -> None:
         if self.height <= 0:
@@ -173,6 +196,7 @@ class Robot:
             stack=self.stack,
             height=self.height,
             movement=movement,
+            order=self.order,
         )
 
     def with_position(self, x: int, y: int) -> Robot:
@@ -192,4 +216,24 @@ class Robot:
             stack=self.stack,
             height=self.height,
             movement=None,
+            order=self.order,
+        )
+
+    def with_order(self, order: Order | None) -> Robot:
+        """Return a copy of this robot with ``order`` replaced.
+
+        Passing ``None`` clears the order (e.g. when an order completes and
+        no follow-on is assigned). The robot's authoritative ``x``/``y``,
+        ``build``, and ``movement`` are carried over unchanged.
+        """
+        return Robot(
+            entity_id=self.entity_id,
+            owner=self.owner,
+            x=self.x,
+            y=self.y,
+            build=self.build,
+            stack=self.stack,
+            height=self.height,
+            movement=self.movement,
+            order=order,
         )
