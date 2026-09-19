@@ -62,6 +62,48 @@ bullet; this engine has no equivalent state to copy, so
 cell via a documented, deliberate dominant-axis-with-x-tiebreak rule -- see
 its own docstring for the exact rationale. This is a documented
 simplification, not a fidelity claim.
+
+Damage, strength, and destruction (issue #76, M6.6)
+-------------------------------------------------------
+This task adds the damage-calculation and damage-application half of
+combat: :func:`calculate_base_damage`/:func:`calculate_weapon_damage`
+implement the locked, evidence-backed formula
+(`_specs/open-questions.md` §9), and :func:`apply_damage` is the single
+point that reads a hit robot's current strength, applies computed damage,
+and either updates it in place or routes to `destruction.py`'s
+:func:`~nether_earth.destruction.destroy_robot` -- mirroring this module's
+own "validate/compute, then execute" shape one level further.
+
+``ground_height_at`` -- what "ground height" means in THIS engine
+-----------------------------------------------------------------------
+The locked formula is ``base_damage = (60 - (robot_height + ground_height))
+/ 4``. `_specs/open-questions.md` §9's disassembly research traced the
+original's ``ROBOT_STRUCT_ALTITUDE`` operand (read into this formula as
+"ground_height") and found it is a **misleading name**: it is not a
+robot-owned altitude/elevation field at all, but the terrain elevation
+directly *underneath* the robot's current map position, refreshed every
+time the robot moves (`Lb5d6_map_altitude_2x2`, "update the altitude of the
+robot based on the terrain underneath").
+
+This engine's :class:`~nether_earth.robot.Robot` has no equivalent field to
+read instead: robots move on a flat integer X/Y grid with no per-robot
+elevation state, and `terrain.py`'s :class:`~nether_earth.terrain.TerrainType`
+itself carries no height value (only static `structures.py`
+:class:`~nether_earth.structures.Component` entries have a per-cell
+``height``). So in this engine, "ground height" at a robot's position is
+defined as: the height of whatever static ``Component`` currently occupies
+the robot's ``(x, y)`` cell (a war base/factory/blocker piece the robot is
+standing on top of, per `collision.py`'s ground-rooted geometry
+convention), or ``0`` when the robot stands on bare terrain with no
+structure component there. :func:`ground_height_at` implements exactly
+this, via `collision.py`'s already-public :func:`~nether_earth.collision.components_at`
+cell lookup (the same one :func:`_components_at_inclusive_blocking` above
+already reuses) -- never re-walking ``world.war_bases``/``factories``/
+``blockers`` a second time. ``max(..., default=0)`` is used rather than
+assuming exactly zero-or-one component per cell: M2's occupancy invariants
+should already guarantee at most one component per cell, but ``max`` is
+the safe, deterministic choice if that invariant is ever violated, rather
+than this function silently picking an arbitrary one via iteration order.
 """
 
 from __future__ import annotations
@@ -71,6 +113,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from nether_earth.collision import components_at
+from nether_earth.destruction import destroy_robot
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.robot import Robot
@@ -89,8 +132,13 @@ __all__ = [
     "ProjectileFiredEvent",
     "ProjectileTerminatedEvent",
     "ProjectileTerminationReason",
+    "RobotDamagedEvent",
     "advance_projectiles",
+    "apply_damage",
     "apply_fire",
+    "calculate_base_damage",
+    "calculate_weapon_damage",
+    "ground_height_at",
     "is_projectile_advance_tick",
     "resolve_fire_direction",
     "validate_fire",
@@ -731,3 +779,170 @@ def advance_projectiles(
             )
         )
     return new_state, tuple(events)
+
+
+# --------------------------------------------------------------------------
+# Damage calculation, application, and destruction (issue #76, M6.6)
+# --------------------------------------------------------------------------
+
+
+def ground_height_at(world: WorldMap, x: int, y: int) -> int:
+    """Return the "ground height" the damage formula reads at ``(x, y)``.
+
+    See the module docstring's "``ground_height_at`` -- what 'ground
+    height' means in THIS engine" section for the full disassembly-vs-this-
+    engine reasoning. In short: the original's ``ROBOT_STRUCT_ALTITUDE`` is
+    terrain elevation under the robot, not a robot-owned field, and this
+    engine has nothing equivalent to read for a robot's own position --
+    only static ``structures.Component`` entries carry a height. This
+    returns the tallest component's height at ``(x, y)`` (``max(...,
+    default=0)``, defensive against the -- normally impossible, per M2's
+    occupancy invariants -- case of more than one component sharing a
+    cell), or ``0`` when no component occupies ``(x, y)`` at all (bare
+    terrain).
+    """
+    return max((component.height for component in components_at(world, x, y)), default=0)
+
+
+def calculate_base_damage(robot_height: int, ground_height: int) -> int:
+    """Return the locked base-damage value for a hit at this height/ground pair.
+
+    Implements `_specs/open-questions.md` §9's confirmed formula exactly:
+    ``(60 - (robot_height + ground_height)) // 4``. Python's ``//`` is
+    floor division, matching the disassembly's confirmed two-``srl``
+    (shift-right-logical) unsigned bit-level divide-by-4 on a non-negative
+    operand (``Lb7a7_potentially_hit_a_robot``: ``ld a,60`` / ``sub
+    HEIGHT`` / ``sub ALTITUDE`` / ``srl a`` / ``srl a``) -- there is no
+    separate rounding step, and no additional clamping beyond what that
+    evidence supports (a negative ``a`` was never observed in the traced
+    height ranges, so this function does not defensively clamp to zero).
+    """
+    return (60 - (robot_height + ground_height)) // 4
+
+
+_WEAPON_DAMAGE_MULTIPLIER_FIELDS: dict[ModuleIdentity, str] = {
+    ModuleIdentity.CANNON: "cannon_damage_multiplier",
+    ModuleIdentity.MISSILE: "missile_damage_multiplier",
+    ModuleIdentity.PHASER: "phaser_damage_multiplier",
+}
+
+
+def calculate_weapon_damage(
+    weapon: ModuleIdentity, robot_height: int, ground_height: int, rules: EngineRules
+) -> int:
+    """Return ``calculate_base_damage(...)`` scaled by ``weapon``'s damage multiplier.
+
+    One dict, one place, mirroring ``robot_build.MODULE_RESOURCE_CATEGORY``'s
+    "one dict, one place" convention: :data:`_WEAPON_DAMAGE_MULTIPLIER_FIELDS`
+    names, per normal weapon, which ``EngineRules`` attribute holds its
+    multiplier (default 2/3/4 for cannon/missile/phaser respectively,
+    confirmed by `_specs/open-questions.md` §9's disassembly trace of
+    ``Lb7c8_damage_calculation_loop``'s repeated-addition accumulation,
+    arithmetically identical to ``base * multiplier``).
+
+    Raises ``ValueError`` for :attr:`~nether_earth.robot_build.ModuleIdentity.NUCLEAR`
+    or any non-weapon identity -- nuclear damage is an area-destruction
+    event with no per-hit formula (a later task's scope, #78), so a caller
+    passing it here is a caller bug, not a gameplay rejection this function
+    should model as a normal return value.
+    """
+    field = _WEAPON_DAMAGE_MULTIPLIER_FIELDS.get(weapon)
+    if field is None:
+        raise ValueError(
+            f"calculate_weapon_damage does not support weapon {weapon!r}: only "
+            "normal weapons (cannon/missile/phaser) have a per-hit damage formula"
+        )
+    multiplier: int = getattr(rules, field)
+    return calculate_base_damage(robot_height, ground_height) * multiplier
+
+
+@dataclass(frozen=True, slots=True)
+class RobotDamagedEvent(Event):
+    """A robot took normal-weapon damage and survived (see :func:`apply_damage`).
+
+    Emitted only on the survival path -- a hit that destroys the robot
+    instead emits `destruction.py`'s
+    :class:`~nether_earth.destruction.RobotDestroyedEvent` (and possibly a
+    commander-undock event), not this one, mirroring
+    :class:`ProjectileTerminatedEvent`'s "this event only covers one
+    outcome" shape. ``remaining_strength`` is the robot's new,
+    already-applied ``Robot.strength`` (always ``> 0`` here), so a consumer
+    never needs to re-read ``state`` to know the post-hit value.
+    """
+
+    entity_id: EntityId
+    owner: PlayerId
+    weapon: ModuleIdentity
+    damage: int
+    remaining_strength: int
+    tick: int
+
+
+def apply_damage(
+    state: GameState,
+    world: WorldMap,
+    target_robot_id: EntityId,
+    weapon: ModuleIdentity,
+    rules: EngineRules,
+    tick: int,
+    sequencer: EventSequencer | None = None,
+) -> tuple[GameState, tuple[Event, ...]]:
+    """Apply one weapon hit to ``target_robot_id``: damage, or destruction.
+
+    Returns ``(state, ())`` unchanged -- no event -- if ``target_robot_id``
+    no longer names a live robot in ``state.robots``. This guards against a
+    projectile identifying a hit on a robot that something else already
+    destroyed earlier in the same tick (single-threaded tick processing
+    should normally prevent this, but the guard costs nothing and mirrors
+    `destruction.py`'s own :func:`~nether_earth.destruction.destroy_robot`
+    idempotency guard and this codebase's "a rejected/no-op action returns
+    state unchanged" convention).
+
+    Otherwise: computes ``ground_height_at(world, robot.x, robot.y)``, then
+    ``calculate_weapon_damage(weapon, robot.height, ground_height, rules)``,
+    then ``new_strength = robot.strength - damage``.
+
+    - ``new_strength <= 0``: destruction supersedes a strength update --
+      this function does *not* also write the (never-observed,
+      non-positive) intermediate strength value first. It calls and
+      returns `destruction.py`'s :func:`~nether_earth.destruction.destroy_robot`
+      directly, so destruction's own event(s) (and any docked-commander
+      safety relocation) are exactly what this call returns.
+    - Otherwise: the robot's ``strength`` is updated via
+      :meth:`~nether_earth.robot.Robot.with_strength`, replaced in
+      ``state.robots``, and a single :class:`RobotDamagedEvent` is emitted.
+
+    The return type is a tuple of events (not a single optional event)
+    because the destruction path may itself emit more than one event
+    (destruction, plus a possible commander-undock event) -- this plural
+    shape is deliberate from the start rather than retrofitted later.
+    """
+    robot = state.robot_for(target_robot_id)
+    if robot is None:
+        return state, ()
+
+    ground_height = ground_height_at(world, robot.x, robot.y)
+    damage = calculate_weapon_damage(weapon, robot.height, ground_height, rules)
+    new_strength = robot.strength - damage
+
+    if new_strength <= 0:
+        return destroy_robot(state, target_robot_id, tick, rules, sequencer)
+
+    updated_robot = robot.with_strength(new_strength)
+    new_state = state.with_robots(
+        tuple(
+            updated_robot if r.entity_id == updated_robot.entity_id else r
+            for r in state.robots
+        )
+    )
+    sequence = sequencer.next_sequence() if sequencer is not None else 0
+    event = RobotDamagedEvent(
+        sequence=sequence,
+        entity_id=updated_robot.entity_id,
+        owner=updated_robot.owner,
+        weapon=weapon,
+        damage=damage,
+        remaining_strength=new_strength,
+        tick=tick,
+    )
+    return new_state, (event,)

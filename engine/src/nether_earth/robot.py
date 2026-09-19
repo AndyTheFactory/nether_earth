@@ -88,6 +88,26 @@ imported under ``TYPE_CHECKING`` only, because `orders.py` itself imports
 would be circular -- the same pattern `state.py` already uses for
 ``Robot``/``ConstructionSession``/``CaptureProgress``.
 
+Strength state (added by issue #76, M6.6): the ``Robot.strength`` field is
+the robot's authoritative damage counter, defaulting to ``100`` -- the
+evidence-backed starting value confirmed by `_specs/open-questions.md` §9's
+disassembly research (both robot spawn sites in the original set
+``ROBOT_STRUCT_STRENGTH`` to exactly ``100``, and that research pass found
+no scale mismatch between this constant and the locked
+``(60 - (robot_height + ground_height)) / 4`` damage formula's own ``60``
+constant, so ``100`` is directly portable with no conversion). Damage
+application (`combat.py`'s :func:`~nether_earth.combat.apply_damage`)
+subtracts from this field; a robot whose strength would reach zero or below
+is instead removed from ``state.robots`` entirely (`destruction.py`) rather
+than lingering at a non-positive ``strength`` -- this codebase deliberately
+does **not** add a ``Robot.destroyed`` flag, following the same "absence
+from the collection is the terminal state" convention already used for
+``capture_progress``/``construction_sessions`` (see `state.py`), so no other
+subsystem ever needs an ``if not robot.destroyed`` guard. Because a
+non-positive ``strength`` is therefore only ever a same-step, pre-removal
+intermediate value (never observed by any other reader), ``__post_init__``
+does not enforce ``strength > 0``.
+
 Combat channel state (added by issue #71, M6.2): the
 ``Robot.active_projectile_id`` field is the authoritative per-robot gate
 for "this robot already has a normal (cannon/missile/phaser) projectile
@@ -185,6 +205,7 @@ class Robot:
     movement: RobotMoveTransition | None = None
     order: Order | None = None
     active_projectile_id: EntityId | None = None
+    strength: int = 100
 
     def __post_init__(self) -> None:
         if self.height <= 0:
@@ -205,6 +226,15 @@ class Robot:
         robot's own ``entity_id`` (enforced in ``__post_init__``).
         Authoritative ``x``/``y`` are untouched -- starting a move does not
         move the robot, resolving it does (see :meth:`with_position`).
+
+        Every other field -- ``active_projectile_id``, ``strength``
+        included -- is carried over unchanged (fixed alongside issue #76,
+        M6.6: this method previously omitted ``active_projectile_id`` from
+        the copy, silently resetting a robot's combat channel to ``None``
+        on every move-transition update; that was a latent bug this task's
+        own "extend every ``with_*`` copy method" work surfaced and fixed
+        in the same pass, since a dropped ``strength`` here would have
+        undone :meth:`with_strength`'s damage tracking the same way).
         """
         return Robot(
             entity_id=self.entity_id,
@@ -216,6 +246,8 @@ class Robot:
             height=self.height,
             movement=movement,
             order=self.order,
+            active_projectile_id=self.active_projectile_id,
+            strength=self.strength,
         )
 
     def with_position(self, x: int, y: int) -> Robot:
@@ -225,6 +257,11 @@ class Robot:
         robot's authoritative cell and the transition is cleared in the
         same single, auditable state transition (mirroring
         `commander.py`'s ``Commander.with_position``).
+
+        Every other field -- ``active_projectile_id``, ``strength``
+        included -- is carried over unchanged; see :meth:`with_movement`'s
+        docstring for the same "previously dropped active_projectile_id"
+        latent-bug fix applied here.
         """
         return Robot(
             entity_id=self.entity_id,
@@ -236,6 +273,8 @@ class Robot:
             height=self.height,
             movement=None,
             order=self.order,
+            active_projectile_id=self.active_projectile_id,
+            strength=self.strength,
         )
 
     def with_order(self, order: Order | None) -> Robot:
@@ -243,7 +282,10 @@ class Robot:
 
         Passing ``None`` clears the order (e.g. when an order completes and
         no follow-on is assigned). The robot's authoritative ``x``/``y``,
-        ``build``, and ``movement`` are carried over unchanged.
+        ``build``, ``movement``, ``active_projectile_id``, and ``strength``
+        are carried over unchanged; see :meth:`with_movement`'s docstring
+        for the same "previously dropped active_projectile_id" latent-bug
+        fix applied here.
         """
         return Robot(
             entity_id=self.entity_id,
@@ -255,6 +297,8 @@ class Robot:
             height=self.height,
             movement=self.movement,
             order=order,
+            active_projectile_id=self.active_projectile_id,
+            strength=self.strength,
         )
 
     def with_active_projectile(self, active_projectile_id: EntityId | None) -> Robot:
@@ -263,7 +307,7 @@ class Robot:
         Passing ``None`` clears the combat channel (no in-flight normal
         projectile); passing an :class:`~nether_earth.ids.EntityId` occupies
         it. Every other field -- authoritative ``x``/``y``, ``build``,
-        ``movement``, ``order`` -- is carried over unchanged.
+        ``movement``, ``order``, ``strength`` -- is carried over unchanged.
         """
         return Robot(
             entity_id=self.entity_id,
@@ -276,4 +320,33 @@ class Robot:
             movement=self.movement,
             order=self.order,
             active_projectile_id=active_projectile_id,
+            strength=self.strength,
+        )
+
+    def with_strength(self, strength: int) -> Robot:
+        """Return a copy of this robot with ``strength`` replaced.
+
+        Added by issue #76 (M6.6): the authoritative per-hit update point
+        for `combat.py`'s :func:`~nether_earth.combat.apply_damage`. Every
+        other field -- authoritative ``x``/``y``, ``build``, ``movement``,
+        ``order``, ``active_projectile_id`` -- is carried over unchanged,
+        mirroring every other ``with_*`` method's "one field changes, the
+        rest survive" contract. Callers that compute a non-positive
+        ``strength`` should route to `destruction.py`'s
+        :func:`~nether_earth.destruction.destroy_robot` instead of calling
+        this method -- see the module docstring's "Strength state" section
+        for why ``strength <= 0`` is never actually observed here.
+        """
+        return Robot(
+            entity_id=self.entity_id,
+            owner=self.owner,
+            x=self.x,
+            y=self.y,
+            build=self.build,
+            stack=self.stack,
+            height=self.height,
+            movement=self.movement,
+            order=self.order,
+            active_projectile_id=self.active_projectile_id,
+            strength=strength,
         )
