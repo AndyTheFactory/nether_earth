@@ -422,11 +422,11 @@ class EngineRules:
     robot_rough_multiplier_anti_grav: int = 1
     robot_ditch_multiplier_anti_grav: int = 1
     capture_duration_ticks: int = 1440
-    cannon_range_cells: int = 20
-    missile_range_cells: int = 28
-    phaser_range_cells: int = 20
-    electronics_range_bonus_cells: int = 6
-    nuclear_radius_cells: int = 16
+    cannon_range_cells: int = miles_to_cells(10)
+    missile_range_cells: int = miles_to_cells(14)
+    phaser_range_cells: int = miles_to_cells(10)
+    electronics_range_bonus_cells: int = miles_to_cells(3)
+    nuclear_radius_cells: int = miles_to_cells(8)
     normal_projectile_altitude: int = 10
     cannon_damage_multiplier: int = 2
     missile_damage_multiplier: int = 3

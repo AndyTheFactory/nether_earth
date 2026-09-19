@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nether_earth.rules import DEFAULT_RULES, EngineRules
+from nether_earth.rules import DEFAULT_RULES, EngineRules, miles_to_cells
 
 
 def test_default_rules_match_locked_spectrum_values() -> None:
@@ -151,11 +151,11 @@ def test_default_rules_match_locked_combat_range_and_effect_defaults() -> None:
     ranges/effects", converted from miles to cells via the shared
     mile-to-cell conversion (1 mile = 2 cells).
     """
-    assert DEFAULT_RULES.cannon_range_cells == 20  # 10 miles
-    assert DEFAULT_RULES.missile_range_cells == 28  # 14 miles
-    assert DEFAULT_RULES.phaser_range_cells == 20  # 10 miles
-    assert DEFAULT_RULES.electronics_range_bonus_cells == 6  # 3 miles
-    assert DEFAULT_RULES.nuclear_radius_cells == 16  # 8 miles
+    assert DEFAULT_RULES.cannon_range_cells == miles_to_cells(10)
+    assert DEFAULT_RULES.missile_range_cells == miles_to_cells(14)
+    assert DEFAULT_RULES.phaser_range_cells == miles_to_cells(10)
+    assert DEFAULT_RULES.electronics_range_bonus_cells == miles_to_cells(3)
+    assert DEFAULT_RULES.nuclear_radius_cells == miles_to_cells(8)
     assert DEFAULT_RULES.normal_projectile_altitude == 10
     assert DEFAULT_RULES.cannon_damage_multiplier == 2
     assert DEFAULT_RULES.missile_damage_multiplier == 3
@@ -174,7 +174,7 @@ def test_engine_rules_accepts_custom_combat_overrides() -> None:
     assert rules.missile_range_cells == 30
     assert rules.normal_projectile_altitude == 15
     # Others remain at defaults
-    assert rules.phaser_range_cells == 20
+    assert rules.phaser_range_cells == miles_to_cells(10)
 
 
 @pytest.mark.parametrize(
