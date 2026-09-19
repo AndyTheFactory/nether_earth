@@ -43,9 +43,11 @@ What this module deliberately reuses rather than re-implements
 
 What this module deliberately does NOT own
 -------------------------------------------
-Pathfinding, order logic, and destination reservation/contention are later
-M5 tasks (M5.3/M5.5/M5.7). They are not implemented here; instead this
-module exposes the hooks they plug into:
+Pathfinding, order logic, and destination reservation/contention are
+separate M5 tasks: reservation/contention is `reservations.py` (M5.3),
+navigation policy and route planning are `navigation.py` (M5.6), and order
+logic is M5.7. None of them is implemented here; instead this module
+exposes the hooks they plug into:
 
 - :data:`DestinationAvailabilityCheck` -- a duck-typed callable, defaulting
   to permissive, consulted as the *last* legality gate. M5.3's reservation
@@ -115,6 +117,7 @@ __all__ = [
     "apply_robot_move",
     "cancel_robot_move",
     "chassis_can_enter",
+    "commander_blocks_robot_cell",
     "folded_robot_occupancy",
     "move_duration_ticks",
     "robot_move_duration_ticks",
@@ -442,8 +445,8 @@ def _in_bounds(world: WorldMap, x: int, y: int) -> bool:
     return 0 <= x < world.width and 0 <= y < world.height
 
 
-def _commander_blocks(
-    state: GameState, robot: Robot, x: int, y: int, rules: EngineRules
+def commander_blocks_robot_cell(
+    state: GameState, robot: Robot, x: int, y: int, rules: EngineRules = DEFAULT_RULES
 ) -> bool:
     """Return whether any commander blocks ``robot`` from entering ``(x, y)``.
 
@@ -454,6 +457,14 @@ def _commander_blocks(
     ground-rooted vertical range from
     :func:`~nether_earth.collision.robot_vertical_range`. No overlap math
     is re-derived here.
+
+    Public because it is a *cell* property rather than a move property, so
+    the navigation policy layer (M5.6, `navigation.py`) searches over it
+    directly when planning a route through cells it will only later step
+    into one at a time -- exactly as `collision.py` exposes
+    :func:`~nether_earth.collision.commander_blocks_cell` for this module.
+    Keeping one composition point means the planner and
+    :func:`validate_robot_move` can never disagree about commander blocking.
 
     ``rules`` is forwarded because a commander's blocking volume is
     ``[altitude, altitude + rules.commander_height)`` -- letting it default
@@ -524,7 +535,7 @@ def validate_robot_move(
     if folded_robot_occupancy(world, state).is_occupied(dest_x, dest_y):
         return RobotMoveResult.reject(request, MovementRejectionReason.OCCUPIED)
 
-    if _commander_blocks(state, robot, dest_x, dest_y, rules):
+    if commander_blocks_robot_cell(state, robot, dest_x, dest_y, rules):
         return RobotMoveResult.reject(request, MovementRejectionReason.COMMANDER_BLOCKED)
 
     if not destination_check(state, robot, dest_x, dest_y):
