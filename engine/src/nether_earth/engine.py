@@ -84,6 +84,7 @@ from nether_earth.construction_session import (
     enter_construction,
     select_module,
 )
+from nether_earth.direct_control import DirectRobotMoveCommand, direct_robot_move_request
 from nether_earth.docking import (
     apply_undock,
     auto_dock_with_event,
@@ -328,9 +329,32 @@ def step(
     matching this module's existing "a gameplay-level rejection produces no
     additional event" convention. Like Step 8's launch handling this needs
     a real ``world`` and is skipped when ``world is None``. ``robot_moves``
-    is a parameter rather than a command type because the player-facing
-    direct-control command is M5.4's scope (issue #63); it is additive and
-    defaults to ``()``, reproducing every existing call site exactly.
+    is a parameter (additive, defaulting to ``()``) for any caller that
+    already has its own :class:`~nether_earth.movement.RobotMoveRequest`\\ s
+    to submit directly.
+
+    Extended by issue #63 (M5.4) with direct-control robot movement:
+    structurally accepted
+    :class:`~nether_earth.direct_control.DirectRobotMoveCommand`\\ s are,
+    immediately before Step 2c's batch call, resolved via
+    :func:`~nether_earth.direct_control.direct_robot_move_request` against
+    the docked-commander interaction gate that module documents (a command
+    from a player whose commander is not currently ``DOCKED`` to a robot
+    yields no request at all -- zero side effects, no additional event,
+    matching every other gameplay-level rejection in this function) and the
+    resulting :class:`~nether_earth.movement.RobotMoveRequest`\\ s are
+    appended to ``robot_moves`` before the single combined iterable is
+    handed to :func:`~nether_earth.reservations.apply_robot_move_batch`.
+    Direct control therefore always goes through the exact same batched
+    legality/execution/contention path as any other robot move request --
+    it cannot bypass terrain, occupancy, commander-blocking, or reservation
+    rules, and it fully participates in the same tick's contention
+    resolution as autonomous moves. Leaving direct control reuses the
+    existing Step 3 undock transition below (no separate handling needed):
+    once a docked commander undocks, its former robot is no longer that
+    player's direct-control target, and a further
+    ``DirectRobotMoveCommand`` from that player is rejected at the gate on
+    the very next tick.
 
     7. A new Step 9 applies
        :func:`~nether_earth.resource_production.apply_daily_production` for
@@ -458,7 +482,18 @@ def step(
     # new claims are validated, so a robot may claim the cell a finishing
     # move is vacating without waiting an extra tick.
     if world is not None:
-        batch = apply_robot_move_batch(robot_moves, state, world, tick, rules, sequencer)
+        direct_move_requests = []
+        for result in results:
+            if not result.accepted:
+                continue
+            command = result.command
+            if isinstance(command, DirectRobotMoveCommand):
+                _direct_result, direct_request = direct_robot_move_request(command, state)
+                if direct_request is not None:
+                    direct_move_requests.append(direct_request)
+        batch = apply_robot_move_batch(
+            (*robot_moves, *direct_move_requests), state, world, tick, rules, sequencer
+        )
         state = batch.state
         events.extend(batch.contentions)
         events.extend(batch.started)
