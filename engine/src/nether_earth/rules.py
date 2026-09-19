@@ -160,7 +160,44 @@ qualitative ordering, not presented as recovered exact Spectrum constants
 
 from dataclasses import dataclass
 
-__all__ = ["DEFAULT_RULES", "EngineRules"]
+__all__ = ["CELLS_PER_MILE", "DEFAULT_RULES", "EngineRules", "miles_to_cells"]
+
+
+#: How many grid cells one in-game *mile* spans.
+#:
+#: `_specs/open-questions.md` §3 locks this as a resolved rule: "1 mile = 2
+#: cells". Every spec-facing distance in this game is stated in miles
+#: (``Advance 0-50 miles``, weapon ranges, the nuclear blast radius) while
+#: every engine-facing distance is stated in cells, so the conversion is
+#: needed by more than one subsystem. §3 requires it to exist exactly once
+#: in shared game-rule/helper code -- this module -- rather than being
+#: re-spelled as a literal ``* 2`` at each call site. `orders.py`
+#: re-exports :func:`miles_to_cells` for convenience, but this is its only
+#: definition, so a later combat milestone can convert weapon ranges
+#: without taking a dependency on the orders subsystem.
+#:
+#: It is a module constant rather than an :class:`EngineRules` field
+#: because it is a *unit definition*, not a tunable: an ``EngineRules``
+#: override that made a mile three cells would silently reinterpret every
+#: spec quotation in the codebase rather than retune a balance value.
+CELLS_PER_MILE = 2
+
+
+def miles_to_cells(miles: int) -> int:
+    """Convert a spec-stated distance in miles to engine grid cells.
+
+    The single conversion point described on :data:`CELLS_PER_MILE`.
+    Integer in, integer out -- gameplay distances are never floating point
+    (see `AGENTS.md`'s "avoid floating-point gameplay state when integer
+    ticks/grid values can express the rule").
+
+    Negative inputs are rejected: a distance is a magnitude, and direction
+    is the caller's own concern (``Retreat`` converts its magnitude and
+    then applies the westward sign itself).
+    """
+    if miles < 0:
+        raise ValueError("miles must be non-negative")
+    return miles * CELLS_PER_MILE
 
 
 @dataclass(frozen=True, slots=True)

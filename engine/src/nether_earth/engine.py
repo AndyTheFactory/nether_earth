@@ -96,6 +96,12 @@ from nether_earth.heli_pad import detect_heli_pad_landing
 from nether_earth.ids import PlayerId
 from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.movement import RobotMoveRequest, advance_all_robot_transitions
+from nether_earth.orders import (
+    SetRobotOrderCommand,
+    apply_order_evaluations,
+    apply_set_robot_order,
+    evaluate_orders,
+)
 from nether_earth.reservations import apply_robot_move_batch
 from nether_earth.resource_production import apply_daily_production
 from nether_earth.robot_launch import launch_robot
@@ -402,6 +408,40 @@ def step(
         the same tick it changes hands, matching "ownership transfers
         immediately on completion".
 
+    Extended by issue #64 (M5.5) with Step 2b2, the autonomous-order pass:
+
+    11. Structurally accepted
+        :class:`~nether_earth.orders.SetRobotOrderCommand`\\ s are applied
+        via :func:`~nether_earth.orders.apply_set_robot_order` (a command
+        naming a robot the issuing player does not own is a gameplay no-op,
+        matching every other gameplay-level rejection here), and then every
+        ordered robot's standing order is evaluated for the tick by
+        :func:`~nether_earth.orders.evaluate_orders`. Order lifecycle
+        changes are written back and their
+        :class:`~nether_earth.orders.RobotOrderChangedEvent`/
+        :class:`~nether_earth.orders.RobotEngagementIntentEvent` are
+        appended by :func:`~nether_earth.orders.apply_order_evaluations`.
+        Like Steps 2c/2d this needs a real ``world`` and is skipped when
+        ``world is None``.
+    12. Step 2b2 sits deliberately **before** Step 2c, not after Step 2d:
+        the movement requests orders produce are appended to Step 2c's
+        single ``apply_robot_move_batch`` call rather than executed in a
+        second batch of their own. `_specs/open-questions.md` §11 requires
+        same-tick claims on one cell to be collected before a seeded winner
+        is drawn; evaluating orders in a separate later batch would instead
+        let direct-control moves win every contested cell purely because
+        their phase ran first, making submission order decide -- exactly
+        what §11 forbids. Autonomous and direct-control moves therefore
+        contend as equals in one batch.
+    13. Order evaluation reads
+        :func:`~nether_earth.capture.effective_world` (ownership as it
+        stands at the start of the tick, including every previously
+        completed capture) so a Search & Capture order re-resolves
+        "neutral"/"enemy" against live ownership. A capture completing
+        later in this same tick's Step 2d is reflected on the next tick's
+        evaluation, which is the same one-tick visibility every other
+        pre-capture step in this function has.
+
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
     always produces an identical ``(new_state, events)`` pair.
     """
@@ -476,6 +516,32 @@ def step(
     state, robot_move_events = advance_all_robot_transitions(state, tick, sequencer)
     events.extend(robot_move_events)
 
+    # --- Step 2b2: apply order assignments, then evaluate standing orders ---
+    # Runs *before* Step 2c so every autonomous move request joins the exact
+    # same deconflicted batch as this tick's direct-control requests -- see
+    # the docstring's issue #64 notes for why a second batch would break
+    # `_specs/open-questions.md` §11.
+    order_requests: list[RobotMoveRequest] = []
+    order_lifecycle_events: tuple[Event, ...] = ()
+    if world is not None:
+        for result in results:
+            if not result.accepted:
+                continue
+            command = result.command
+            if isinstance(command, SetRobotOrderCommand):
+                state, order_changed = apply_set_robot_order(command, state, tick, sequencer)
+                if order_changed is not None:
+                    events.append(order_changed)
+
+        evaluations = evaluate_orders(state, effective_world(world, state), rules)
+        state, order_lifecycle_events = apply_order_evaluations(
+            evaluations, state, tick, sequencer
+        )
+        order_requests = [
+            evaluation.request for evaluation in evaluations if evaluation.request is not None
+        ]
+        events.extend(order_lifecycle_events)
+
     # --- Step 2c: start this tick's robot moves as one deconflicted batch ---
     # Deliberately after Step 2b: a move completing on this tick releases its
     # destination reservation (the transition is cleared) before this tick's
@@ -492,7 +558,12 @@ def step(
                 if direct_request is not None:
                     direct_move_requests.append(direct_request)
         batch = apply_robot_move_batch(
-            (*robot_moves, *direct_move_requests), state, world, tick, rules, sequencer
+            (*robot_moves, *order_requests, *direct_move_requests),
+            state,
+            world,
+            tick,
+            rules,
+            sequencer,
         )
         state = batch.state
         events.extend(batch.contentions)
