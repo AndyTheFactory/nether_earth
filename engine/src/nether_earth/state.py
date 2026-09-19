@@ -118,6 +118,22 @@ enforces the one invariant it can check locally (unique ``id``).
 circular import (that module itself will need ``GameState`` for
 ``apply_fire``/``advance_projectiles``), mirroring the ``robot.py``/
 ``construction_session.py`` precedent above.
+
+Structure destruction field (added by issue #78, M6.8): ``structure_destruction``
+attaches the set of war base/factory ids nuclear detonation has permanently
+removed from play, analogous to ``structure_ownership`` -- another
+``GameState``-attached override layered over ``WorldMap`` without mutating
+it -- but simpler: destruction has no associated value to record, only the
+bare fact "this structure no longer exists", so it is a plain tuple of
+``EntityId`` rather than a tuple of id-plus-value records. It is always
+stored in canonical (sorted by ``EntityId.value``) order, at most once per
+id (a structure cannot be destroyed twice); it defaults to ``()`` so
+existing callers keep working unchanged. `destruction.py`'s
+:func:`~nether_earth.destruction.destroy_structure` is the sole writer, and
+:func:`~nether_earth.destruction.effective_world` is the sole reader that
+turns this into "excluded from ``WorldMap.war_bases``/``factories``" for
+every downstream consumer, mirroring `capture.py`'s
+:func:`~nether_earth.capture.effective_world` shape one layer further.
 """
 
 from __future__ import annotations
@@ -288,6 +304,29 @@ def _canonical_capture_progress(
     return tuple(sorted(capture_progress, key=lambda progress: progress.structure_id.value))
 
 
+def _canonical_structure_destruction(
+    structure_destruction: tuple[EntityId, ...],
+) -> tuple[EntityId, ...]:
+    """Return ``structure_destruction`` sorted canonically, after validating it.
+
+    Shared by :func:`create_game_state` and
+    :meth:`GameState.with_structure_destruction` (see issue #78, M6.8).
+    Simpler than :func:`_canonical_structure_ownership`/
+    :func:`_canonical_capture_progress`: this is a plain tuple of ids, not
+    id-plus-value records, so validation is just "no id appears twice" (a
+    structure cannot be destroyed a second time).
+    """
+    seen_structures: set[EntityId] = set()
+    for structure_id in structure_destruction:
+        if structure_id in seen_structures:
+            raise ValueError(
+                f"duplicate structure destruction entry for structure "
+                f"{structure_id.value!r}: a structure can only be destroyed once"
+            )
+        seen_structures.add(structure_id)
+    return tuple(sorted(structure_destruction, key=lambda structure_id: structure_id.value))
+
+
 @dataclass(frozen=True, slots=True)
 class GameState:
     """Minimal authoritative engine state: tick, players, commanders, resource pools, and construction sessions.
@@ -354,6 +393,15 @@ class GameState:
     ``robots``' own-id sort rather than an owning-player sort (see the
     module docstring); it defaults to ``()`` so existing callers keep
     working unchanged.
+
+    ``structure_destruction`` (added by issue #78, M6.8) carries the ids of
+    every war base/factory nuclear detonation has permanently destroyed --
+    a ``GameState``-attached "this structure no longer exists" marker,
+    analogous to ``structure_ownership`` but simpler (presence alone is the
+    fact; there is no associated value, unlike ownership which must also
+    record who owns it). It is always stored in canonical (sorted by
+    ``EntityId.value``) order, at most once per structure id; it defaults
+    to ``()`` so existing callers keep working unchanged.
     """
 
     tick: int
@@ -366,6 +414,7 @@ class GameState:
     structure_ownership: tuple[StructureOwnership, ...] = ()
     capture_progress: tuple[CaptureProgress, ...] = ()
     projectiles: tuple[Projectile, ...] = ()
+    structure_destruction: tuple[EntityId, ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -388,6 +437,7 @@ class GameState:
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
+            structure_destruction=self.structure_destruction,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -420,6 +470,7 @@ class GameState:
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
+            structure_destruction=self.structure_destruction,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -461,6 +512,7 @@ class GameState:
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
+            structure_destruction=self.structure_destruction,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -504,6 +556,7 @@ class GameState:
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
+            structure_destruction=self.structure_destruction,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -543,6 +596,7 @@ class GameState:
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
+            structure_destruction=self.structure_destruction,
         )
 
     def robot_for(self, entity_id: EntityId) -> Robot | None:
@@ -589,6 +643,7 @@ class GameState:
             structure_ownership=canonical_structure_ownership,
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
+            structure_destruction=self.structure_destruction,
         )
 
     def structure_ownership_for(self, structure_id: EntityId) -> StructureOwnership | None:
@@ -621,6 +676,7 @@ class GameState:
             structure_ownership=self.structure_ownership,
             capture_progress=canonical_capture_progress,
             projectiles=self.projectiles,
+            structure_destruction=self.structure_destruction,
         )
 
     def capture_progress_for(self, structure_id: EntityId) -> CaptureProgress | None:
@@ -655,6 +711,7 @@ class GameState:
             structure_ownership=self.structure_ownership,
             capture_progress=self.capture_progress,
             projectiles=canonical_projectiles,
+            structure_destruction=self.structure_destruction,
         )
 
     def projectile_for(self, entity_id: EntityId) -> Projectile | None:
@@ -663,6 +720,39 @@ class GameState:
             if projectile.id == entity_id:
                 return projectile
         return None
+
+    def with_structure_destruction(
+        self, structure_destruction: tuple[EntityId, ...]
+    ) -> GameState:
+        """Return a new ``GameState`` with ``structure_destruction`` replaced.
+
+        ``structure_destruction`` may be supplied in any order; the result
+        is normalized to canonical (sorted by ``EntityId.value``) order. No
+        id may appear twice -- see :func:`_canonical_structure_destruction`.
+        ``tick``, ``players``, ``seed``, ``commanders``, ``resource_pools``,
+        ``construction_sessions``, ``robots``, ``structure_ownership``,
+        ``capture_progress``, and ``projectiles`` are carried over unchanged.
+        """
+        canonical_structure_destruction = _canonical_structure_destruction(
+            tuple(structure_destruction)
+        )
+        return GameState(
+            tick=self.tick,
+            players=self.players,
+            seed=self.seed,
+            commanders=self.commanders,
+            resource_pools=self.resource_pools,
+            construction_sessions=self.construction_sessions,
+            robots=self.robots,
+            structure_ownership=self.structure_ownership,
+            capture_progress=self.capture_progress,
+            projectiles=self.projectiles,
+            structure_destruction=canonical_structure_destruction,
+        )
+
+    def structure_destroyed(self, structure_id: EntityId) -> bool:
+        """Return whether ``structure_id`` has been permanently destroyed."""
+        return structure_id in self.structure_destruction
 
 
 def create_game_state(
@@ -676,8 +766,9 @@ def create_game_state(
     structure_ownership: tuple[StructureOwnership, ...] | list[StructureOwnership] | None = None,
     capture_progress: tuple[CaptureProgress, ...] | list[CaptureProgress] | None = None,
     projectiles: tuple[Projectile, ...] | list[Projectile] | None = None,
+    structure_destruction: tuple[EntityId, ...] | list[EntityId] | None = None,
 ) -> GameState:
-    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress``/``projectiles`` normalized.
+    """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress``/``projectiles``/``structure_destruction`` normalized.
 
     ``players`` may be supplied in any order or as any iterable of unique
     ``PlayerId`` values; the resulting ``GameState.players`` is always the
@@ -726,6 +817,10 @@ def create_game_state(
     ``projectiles`` defaults to no in-flight projectiles (``()``); no two
     projectiles may share an ``id`` (see the module docstring). The
     resulting ``GameState.projectiles`` is always sorted by ``id.value``.
+
+    ``structure_destruction`` defaults to no destroyed structures (``()``);
+    no id may appear twice (see the module docstring). The resulting
+    ``GameState.structure_destruction`` is always sorted by ``id.value``.
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -780,6 +875,13 @@ def create_game_state(
     resolved_projectiles = () if projectiles is None else tuple(projectiles)
     canonical_projectiles = _canonical_projectiles(resolved_projectiles)
 
+    resolved_structure_destruction = (
+        () if structure_destruction is None else tuple(structure_destruction)
+    )
+    canonical_structure_destruction = _canonical_structure_destruction(
+        resolved_structure_destruction
+    )
+
     return GameState(
         tick=tick,
         players=canonical_players,
@@ -791,4 +893,5 @@ def create_game_state(
         structure_ownership=canonical_structure_ownership,
         capture_progress=canonical_capture_progress,
         projectiles=canonical_projectiles,
+        structure_destruction=canonical_structure_destruction,
     )

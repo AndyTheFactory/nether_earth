@@ -128,6 +128,7 @@ def test_snapshot_key_order_is_fixed() -> None:
         "structure_ownership",
         "capture_progress",
         "projectiles",
+        "structure_destruction",
     ]
 
 

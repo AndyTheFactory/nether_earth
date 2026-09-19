@@ -73,6 +73,14 @@ serialized by :func:`_projectile_snapshot`, appended after
 after existing keys" precedent. An in-flight projectile is authoritative
 state (not a derived/recomputed value like the two exclusions above), so
 it gets a snapshot key of its own.
+
+Structure destruction (added by issue #78, M6.8): ``GameState.structure_destruction``
+is serialized as ``"structure_destruction"``, a plain list of
+``EntityId.to_json()`` values, appended after ``projectiles`` following the
+same "new keys are appended after existing keys" precedent. No dedicated
+per-entry snapshot helper is needed (unlike ``structure_ownership``/
+``capture_progress``/``projectiles``) because each entry is a bare id, not a
+multi-field record.
 """
 
 from __future__ import annotations
@@ -400,6 +408,9 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     ``projectiles`` (added to ``GameState`` by issue #73, M6.4) is appended
     last, following the same additive-key convention.
 
+    ``structure_destruction`` (added to ``GameState`` by issue #78, M6.8) is
+    appended last, following the same additive-key convention.
+
     Every field of ``GameState`` is now serialized; see the module docstring
     for why reservations and engagement intent, which M5 also introduced,
     correctly have no keys of their own.
@@ -422,6 +433,9 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
         ],
         "projectiles": [
             _projectile_snapshot(projectile) for projectile in state.projectiles
+        ],
+        "structure_destruction": [
+            structure_id.to_json() for structure_id in state.structure_destruction
         ],
     }
 
