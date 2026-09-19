@@ -70,12 +70,12 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from nether_earth.collision import components_at
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
-from nether_earth.structures import Blocker, Factory, WarBase
 
 if TYPE_CHECKING:
     from nether_earth.map import WorldMap
@@ -486,29 +486,22 @@ def _components_at_inclusive_blocking(
 ) -> bool:
     """Return whether any static ``Component`` at ``(x, y)`` blocks a projectile.
 
-    Walks ``world.war_bases``, then ``world.factories``, then
-    ``world.blockers`` (each in canonical tuple/declared-component order,
-    mirroring `collision.py`'s ``_components_at`` iteration convention), so
-    the result is deterministic regardless of input ordering. A component
+    Reuses `collision.py`'s public :func:`~nether_earth.collision.components_at`
+    for the cell lookup itself (issue #73, M6.4), rather than re-walking
+    ``world.war_bases``/``world.factories``/``world.blockers`` a second
+    time -- so this module's notion of "what static geometry occupies this
+    cell" can never silently diverge from `collision.py`'s. A component
     blocks the projectile when ``component.height >= rules.
     normal_projectile_altitude`` -- see the module docstring's "Height-
     collision semantics" section for why this is a direct ``>=`` comparison
-    and not `collision.py`'s ``VerticalRange.overlaps()``.
+    and not `collision.py`'s ``VerticalRange.overlaps()`` (that inclusive
+    ``>=`` comparison, unlike the cell lookup, is this module's own logic
+    and is not delegated).
     """
-    all_structures: list[WarBase | Factory | Blocker] = [
-        *world.war_bases,
-        *world.factories,
-        *world.blockers,
-    ]
-    for structure in all_structures:
-        for component in structure.components:
-            if (
-                component.x == x
-                and component.y == y
-                and component.height >= rules.normal_projectile_altitude
-            ):
-                return True
-    return False
+    return any(
+        component.height >= rules.normal_projectile_altitude
+        for component in components_at(world, x, y)
+    )
 
 
 def _robot_hit_at(
@@ -539,31 +532,57 @@ def _robot_hit_at(
     return None
 
 
+def _range_exhausted(projectile: Projectile) -> bool:
+    """Return whether ``projectile`` has already reached its maximum range.
+
+    Checked against the projectile's CURRENT (not-yet-incremented)
+    ``travelled_cells`` -- see :func:`_projectile_terminal_reason`'s
+    docstring for why this must be evaluated before any new position is
+    computed for this step, not after.
+    """
+    return projectile.travelled_cells >= projectile.max_range_cells
+
+
 def _projectile_terminal_reason(
     projectile: Projectile,
     new_x: int,
     new_y: int,
-    new_travelled: int,
     state: GameState,
     world: WorldMap,
     rules: EngineRules,
 ) -> tuple[ProjectileTerminationReason, EntityId | None] | None:
     """Return ``(reason, hit_robot_id)`` if ``projectile`` terminates this step, else ``None``.
 
-    Checks run in this fixed order, so the same terminal outcome always
-    reports the same reason (mirroring
+    Range exhaustion is checked by the caller (:func:`advance_projectiles`)
+    BEFORE this function is invoked, against the projectile's current
+    (not-yet-incremented) ``travelled_cells`` -- not here, and not against
+    the candidate ``new_x``/``new_y``. This function only evaluates the
+    remaining checks, in this fixed order, so the same terminal outcome
+    always reports the same reason (mirroring
     :func:`~nether_earth.movement.validate_robot_move`'s "same illegal case
     always same reason" discipline):
 
-    1. range exhausted;
-    2. out of map bounds;
-    3. static-geometry collision (inclusive ``>=`` height comparison);
-    4. robot collision (inclusive ``>=`` height comparison, excluding the
+    1. out of map bounds;
+    2. static-geometry collision (inclusive ``>=`` height comparison);
+    3. robot collision (inclusive ``>=`` height comparison, excluding the
        projectile's own firer).
-    """
-    if new_travelled >= projectile.max_range_cells:
-        return ProjectileTerminationReason.RANGE_EXHAUSTED, None
 
+    Why range exhaustion must be checked separately, against the OLD
+    ``travelled_cells``, at the OLD position: a projectile with
+    ``max_range_cells = N`` must remain reachable/hittable at its Nth cell
+    (``travelled_cells`` becoming exactly ``N`` on the tick it moves there)
+    before it expires -- collision at that final cell is still checked on
+    the same tick it arrives there. Checking
+    ``new_travelled >= max_range_cells`` (the post-increment value) instead
+    would terminate the projectile one tick early, at ``travelled_cells ==
+    N - 1``, reporting a resting cell one short of the weapon's actual
+    configured range and making the Nth cell permanently unreachable. The
+    correct sequence is: the projectile moves into its Nth cell and is
+    collision-checked there on arrival; only on the *following* advance
+    call (finding ``travelled_cells`` already ``>= max_range_cells``, with
+    no move having been attempted this step) does it expire, at that exact
+    resting cell.
+    """
     if not (0 <= new_x < world.width and 0 <= new_y < world.height):
         return ProjectileTerminationReason.OUT_OF_BOUNDS, None
 
@@ -635,14 +654,25 @@ def advance_projectiles(
 
     Otherwise, every projectile in ``state.projectiles`` (already in
     canonical ``id.value`` order, per `state.py`) is processed in that
-    order: its candidate next cell is computed
-    (``x + dx``, ``y + dy``, ``travelled_cells + 1``) and checked for
-    termination via :func:`_projectile_terminal_reason`, in the fixed order
-    documented there. A terminated projectile is dropped from the result
-    and its firing robot's combat channel is cleared (unless that robot no
-    longer exists -- see :func:`_terminate_projectile`); a projectile that
-    does not terminate this step is kept, at its new position. This task
-    applies no damage -- see :class:`ProjectileTerminatedEvent`'s docstring.
+    order:
+
+    1. Range exhaustion is checked FIRST, against the projectile's current
+       (not-yet-incremented) ``travelled_cells`` via :func:`_range_exhausted`
+       -- if it has already reached ``max_range_cells`` on a prior tick, it
+       terminates now, at its CURRENT ``x``/``y`` (no move is attempted
+       this tick). See :func:`_projectile_terminal_reason`'s docstring for
+       why this must be checked before, and separately from, the rest of
+       the termination checks.
+    2. Otherwise, its candidate next cell is computed
+       (``x + dx``, ``y + dy``, ``travelled_cells + 1``) and checked for
+       termination via :func:`_projectile_terminal_reason` (bounds, static
+       collision, robot collision, in that fixed order).
+
+    A terminated projectile is dropped from the result and its firing
+    robot's combat channel is cleared (unless that robot no longer exists
+    -- see :func:`_terminate_projectile`); a projectile that does not
+    terminate this step is kept, at its new position. This task applies no
+    damage -- see :class:`ProjectileTerminatedEvent`'s docstring.
 
     All updates are collected into exactly one new ``GameState`` (one
     :meth:`~nether_earth.state.GameState.with_projectiles` call, one
@@ -658,13 +688,27 @@ def advance_projectiles(
     updated_robots: dict[EntityId, Robot] = {}
 
     for projectile in state.projectiles:
+        if _range_exhausted(projectile):
+            cleared_robot, event = _terminate_projectile(
+                state,
+                projectile,
+                tick,
+                ProjectileTerminationReason.RANGE_EXHAUSTED,
+                None,
+                projectile.x,
+                projectile.y,
+                sequencer,
+            )
+            events.append(event)
+            if cleared_robot is not None:
+                updated_robots[cleared_robot.entity_id] = cleared_robot
+            continue
+
         new_x = projectile.x + projectile.dx
         new_y = projectile.y + projectile.dy
         new_travelled = projectile.travelled_cells + 1
 
-        outcome = _projectile_terminal_reason(
-            projectile, new_x, new_y, new_travelled, state, world, rules
-        )
+        outcome = _projectile_terminal_reason(projectile, new_x, new_y, state, world, rules)
         if outcome is None:
             surviving_projectiles.append(
                 replace(projectile, x=new_x, y=new_y, travelled_cells=new_travelled)

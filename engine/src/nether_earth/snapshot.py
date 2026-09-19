@@ -301,6 +301,14 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     the standing autonomous order is per-robot authoritative state, and a
     snapshot that dropped it could not distinguish a robot holding ground
     under ``StopAndDefend`` from one halfway through a ``SearchCapture``.
+
+    Extended again by issue #73 (M6.4) with ``active_projectile_id``
+    (added to the entity by issue #71, M6.2), appended after ``order`` for
+    the same additive reason: it is the robot's authoritative combat-channel
+    occupancy flag, and now that M6.4 gives it real load-bearing meaning (a
+    live in-flight ``Projectile`` may reference it), a snapshot/restore
+    round-trip that dropped it would silently free an occupied combat
+    channel.
     """
     return {
         "entity_id": robot.entity_id.to_json(),
@@ -312,6 +320,11 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
         "height": robot.height,
         "movement": _robot_move_transition_snapshot(robot.movement),
         "order": _order_snapshot(robot.order),
+        "active_projectile_id": (
+            robot.active_projectile_id.to_json()
+            if robot.active_projectile_id is not None
+            else None
+        ),
     }
 
 

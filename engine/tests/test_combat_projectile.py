@@ -351,16 +351,19 @@ def test_advance_projectiles_moves_projectile_on_cadence_tick() -> None:
 
 
 def test_advance_projectiles_terminates_on_range_exhaustion() -> None:
+    """A projectile that already reached its max range (on a prior tick)
+    terminates in place -- no move is attempted, and the reported
+    coordinates are its actual current (resting) cell, not a new one."""
     robot = _robot(active_projectile_id=EntityId("projectile-1"))
     projectile = _projectile(
         entity_id="projectile-1",
         source_robot_id="robot-player-one-1",
-        x=5,
+        x=8,
         y=5,
         dx=1,
         dy=0,
-        travelled_cells=0,
-        max_range_cells=1,
+        travelled_cells=3,
+        max_range_cells=3,
     )
     state = _state((robot,), (projectile,))
     world = _world()
@@ -372,10 +375,87 @@ def test_advance_projectiles_terminates_on_range_exhaustion() -> None:
     event = events[0]
     assert event.reason is ProjectileTerminationReason.RANGE_EXHAUSTED
     assert event.hit_robot_id is None
+    # Reported coordinates are the projectile's actual resting cell (it did
+    # not move this tick), not one cell further along its direction.
+    assert event.x == 8
+    assert event.y == 5
 
     updated_robot = new_state.robot_for(robot.entity_id)
     assert updated_robot is not None
     assert updated_robot.active_projectile_id is None
+
+
+def test_advance_projectiles_reaches_and_survives_exactly_its_max_range_cell() -> None:
+    """A projectile must still advance INTO its Nth cell (travelled_cells
+    becoming exactly max_range_cells) before expiring -- the target cell at
+    exactly the weapon's nominal range must remain reachable/hittable, not
+    permanently one cell short of it."""
+    projectile = _projectile(
+        entity_id="projectile-1", x=5, y=5, dx=1, dy=0, travelled_cells=2, max_range_cells=3
+    )
+    state = _state((_robot(active_projectile_id=EntityId("projectile-1")),), (projectile,))
+    world = _world()
+
+    new_state, events = advance_projectiles(state, world, tick=4)
+
+    # Still in flight: reached travelled_cells == max_range_cells, but that
+    # is the arrival tick, not an expiry tick -- it must not terminate yet.
+    assert events == ()
+    assert len(new_state.projectiles) == 1
+    survivor = new_state.projectiles[0]
+    assert survivor.x == 6
+    assert survivor.y == 5
+    assert survivor.travelled_cells == 3
+
+    # On the FOLLOWING advance call, it now expires in place.
+    final_state, final_events = advance_projectiles(new_state, world, tick=8)
+    assert final_state.projectiles == ()
+    assert len(final_events) == 1
+    assert final_events[0].reason is ProjectileTerminationReason.RANGE_EXHAUSTED
+    assert final_events[0].x == 6
+    assert final_events[0].y == 5
+
+
+def test_advance_projectiles_hits_robot_standing_exactly_at_max_range_cell() -> None:
+    """A robot standing exactly ``max_range_cells`` cells from the firer's
+    origin must be reachable/hittable -- reproduces the reviewer's cannon
+    range-20 probe with a smaller range for test speed."""
+    firer = _robot(entity_id="robot-firer", active_projectile_id=EntityId("projectile-1"), x=5, y=5)
+    target = _robot(entity_id="robot-target", owner=PLAYER_TWO, x=8, y=5)
+    tall_target = Robot(
+        entity_id=target.entity_id,
+        owner=target.owner,
+        x=target.x,
+        y=target.y,
+        build=target.build,
+        stack=target.stack,
+        height=DEFAULT_RULES.normal_projectile_altitude,
+    )
+    # travelled_cells=2, max_range_cells=3: the candidate cell (x=8) is
+    # exactly the Nth (3rd) cell travelled -- new_travelled becomes 3,
+    # equal to max_range_cells, and collision must still be checked there.
+    projectile = _projectile(
+        entity_id="projectile-1",
+        source_robot_id="robot-firer",
+        x=7,
+        y=5,
+        dx=1,
+        dy=0,
+        travelled_cells=2,
+        max_range_cells=3,
+    )
+    state = _state((firer, tall_target), (projectile,))
+    world = _world()
+
+    new_state, events = advance_projectiles(state, world, tick=4)
+
+    assert new_state.projectiles == ()
+    assert len(events) == 1
+    event = events[0]
+    assert event.reason is ProjectileTerminationReason.ROBOT_HIT
+    assert event.hit_robot_id == tall_target.entity_id
+    assert event.x == 8
+    assert event.y == 5
 
 
 def test_advance_projectiles_terminates_on_out_of_bounds() -> None:
@@ -508,6 +588,7 @@ def test_advance_projectiles_source_robot_destroyed_mid_flight_does_not_crash() 
         y=5,
         dx=1,
         dy=0,
+        travelled_cells=1,
         max_range_cells=1,
     )
     # No robot named "robot-gone" exists in state.robots.
