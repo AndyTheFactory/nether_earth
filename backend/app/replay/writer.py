@@ -106,31 +106,58 @@ ARTIFACT_SCHEMA_VERSION = 1
 RULES_VERSION = "m7"
 
 _ENV_VAR = "NETHER_EARTH_REPLAY_DIR"
-#: ``replays/`` is the repo's own locked top-level directory for this
-#: purpose (see `_specs/milestones/00-repository-agentic-foundation.md`'s
-#: repository-skeleton workstream, and `replays/.gitkeep`, which already
-#: exists at the repo root). ``deploy/docker-compose.yml`` mounts
-#: ``../replays:/app/replays`` for the backend service, whose ``Dockerfile``
-#: sets ``WORKDIR /app/backend`` before running ``uvicorn`` -- so
-#: ``../replays``, resolved against that same working directory, is exactly
-#: the path this default must produce for a real deployment (and for local
-#: dev run the same way, ``cd backend && uvicorn app.main:app``) to land in
-#: the mounted/tracked directory rather than inventing a second, untracked
-#: one. Every test that exercises a real ``ReplayWriter``/``create_app``
-#: passes an explicit ``tmp_path``-scoped override instead of relying on
-#: this default -- see ``tests/replay/test_replay_log.py`` and
-#: ``tests/transport/test_ws.py``'s ``client`` fixture.
-_DEFAULT_REPLAY_DIR = Path("../replays")
 
 _META_FILENAME = "meta.json"
 _COMMANDS_FILENAME = "commands.jsonl"
 _LIFECYCLE_FILENAME = "lifecycle.jsonl"
 
 
+def _package_relative_default_replay_dir() -> Path:
+    """Return ``<repo>/replays`` anchored to this module's own file location, not the process CWD.
+
+    ``replays/`` is the repo's own locked top-level directory for this
+    purpose (see `_specs/milestones/00-repository-agentic-foundation.md`'s
+    repository-skeleton workstream, and `replays/.gitkeep`, which already
+    exists at the repo root).
+
+    Deliberately *not* CWD-relative (M7 Task 8 review, Important I6): this
+    repo's own ``README.md`` documents launching the backend for local dev
+    as ``uvicorn app.main:app --app-dir backend --reload`` -- run from the
+    *repo root*, which never changes the process CWD, only the import path.
+    A CWD-relative default (e.g. a literal ``"../replays"``) would silently
+    resolve outside the repo entirely under that exact documented command,
+    while happening to resolve correctly only under a *different* launch
+    style (``cd backend && uvicorn ...``). Anchoring to ``__file__`` instead
+    is deterministic regardless of which of those two launch styles was
+    used, because this repo's local dev tooling installs both packages
+    editable (see `backend/pyproject.toml`'s standard `pip install -e`
+    flow): ``__file__`` here always resolves to the real
+    ``<repo>/backend/app/replay/writer.py`` path, four directories below
+    the repo root (``replay`` -> ``app`` -> ``backend`` -> repo root).
+
+    This anchor is *not* relied on for the containerized deployment: a
+    non-editable ``pip install`` (see `backend/Dockerfile`) copies this
+    package's files into site-packages, severing any fixed relationship
+    between ``__file__`` and ``/app/replays`` (the volume
+    `deploy/docker-compose.yml` mounts). `backend/Dockerfile` therefore
+    sets ``$NETHER_EARTH_REPLAY_DIR=/app/replays`` explicitly, which
+    :func:`default_replay_dir` always prefers over this fallback -- this
+    function only needs to be correct for the editable-install/local-dev
+    case.
+    """
+    return Path(__file__).resolve().parents[3] / "replays"
+
+
 def default_replay_dir() -> Path:
-    """Return the configured replay directory: ``$NETHER_EARTH_REPLAY_DIR``, else the repo's ``replays/`` dir."""
+    """Return the configured replay directory: ``$NETHER_EARTH_REPLAY_DIR``, else a package-relative default.
+
+    Every test that exercises a real ``ReplayWriter``/``create_app`` passes
+    an explicit ``tmp_path``-scoped override instead of relying on either of
+    these -- see ``tests/replay/test_replay_log.py`` and
+    ``tests/transport/test_ws.py``'s ``client`` fixture.
+    """
     override = os.environ.get(_ENV_VAR)
-    return Path(override) if override else _DEFAULT_REPLAY_DIR
+    return Path(override) if override else _package_relative_default_replay_dir()
 
 
 def match_dir(base_dir: Path, match_id: str) -> Path:
@@ -151,11 +178,27 @@ def _command_to_json(command: Command) -> dict[str, Any]:
     ``app.transport.ws``'s ``ClientGameplayCommand`` handling only ever
     constructs a bare ``nether_earth.commands.Command`` (full
     gameplay-command-adapter coverage is issue #98's job, explicitly out of
-    this task's scope). Whoever lands #98 must extend this (and
-    ``load_commands_by_tick``) alongside it -- silently dropping a concrete
-    subclass's extra fields here would make a persisted replay lie about
-    what was actually applied.
+    this task's scope).
+
+    Raises ``NotImplementedError`` for anything other than exactly
+    ``Command`` (M7 Task 8 review, Important I3): the engine already
+    defines nine concrete ``Command`` subclasses (``LaunchRobotCommand``,
+    ``FireCommand``, ...), and silently emitting only ``player``/
+    ``sequence`` for one of those the moment #98 starts submitting them
+    would produce a persisted artifact that *looks* fine but has quietly
+    lost every gameplay-specific field -- a corrupted replay with no error
+    anywhere. Failing loudly here forces whoever lands #98 to extend this
+    function (and ``load_commands_by_tick``'s ``_command_from_json``)
+    instead of discovering the gap via a silent replay divergence later.
     """
+    if type(command) is not Command:
+        raise NotImplementedError(
+            f"_command_to_json only supports the base Command contract; got "
+            f"{type(command).__name__!r}. Extend this function (and "
+            "app.replay.verify's _command_from_json) to serialize concrete "
+            "gameplay Command subclasses losslessly before submitting them "
+            "through the backend (see issue #98)."
+        )
     return {"player": command.player.to_json(), "sequence": command.sequence}
 
 
@@ -255,6 +298,10 @@ class ReplayWriter:
             "final_snapshot": None,
         }
         self._write_meta_atomic(match.match_id, meta)
+        # Truncating (rather than appending) is only safe because
+        # `start_match` runs exactly once per match -- see this method's
+        # own docstring. A second call for the same match_id would silently
+        # wipe an already-in-progress gameplay/lifecycle stream.
         (directory / _COMMANDS_FILENAME).write_text("", encoding="utf-8")
         (directory / _LIFECYCLE_FILENAME).write_text("", encoding="utf-8")
 

@@ -213,6 +213,58 @@ def test_ready_from_both_players_starts_the_match(client: TestClient) -> None:
         assert ws_b.receive_json()["type"] == "started"
 
 
+def test_match_start_lands_a_replay_artifact_on_disk(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """The real ``create_app()`` composition-root wiring actually produces a
+    filesystem replay artifact, not just the hand-built ``ReplayWriter``/
+    ``MatchRuntime`` objects every other test in ``tests/replay/`` exercises
+    directly (M7 Task 8 review, Important I5). A dropped hook or swapped
+    factory in ``app.main`` would leave `tests/replay/` fully green while
+    production silently wrote zero artifacts -- this is the one test that
+    would catch that.
+
+    ``tmp_path`` here is the exact same directory the ``client`` fixture
+    passed to ``create_app(replay_dir=...)`` (both fixtures are
+    function-scoped, so requesting ``tmp_path`` alongside ``client`` in one
+    test yields the same underlying path).
+    """
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        created = _create(ws_a, "alice")
+        joined = _join(ws_b, created["joinCode"], "bob")
+        ws_a.receive_json()
+        ws_b.receive_json()
+
+        _ready(
+            ws_a,
+            match_id=created["matchId"],
+            player_id="p1",
+            session_token=created["sessionToken"],
+        )
+        ws_a.receive_json()
+        ws_b.receive_json()
+
+        _ready(
+            ws_b,
+            match_id=created["matchId"],
+            player_id="p2",
+            session_token=joined["sessionToken"],
+        )
+        ws_a.receive_json()
+        ws_b.receive_json()
+        assert ws_a.receive_json()["type"] == "started"
+        assert ws_b.receive_json()["type"] == "started"
+
+    meta_path = tmp_path / "replays" / created["matchId"] / "meta.json"
+    assert meta_path.exists(), (
+        f"expected a replay artifact at {meta_path} after the match started -- "
+        "the create_app() composition-root wiring did not produce one"
+    )
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["match_id"] == created["matchId"]
+    assert meta["status"] == "in_progress"
+
+
 def test_match_start_broadcasts_a_real_initial_authoritative_snapshot(
     no_tick_client: TestClient,
 ) -> None:

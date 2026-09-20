@@ -75,10 +75,13 @@ TickObserver = Callable[[GameState, tuple[Event, ...]], Awaitable[None]]
 #: `MatchManager.on_tick_factory`) with its exact two-argument shape, and
 #: changing it would force every existing call site to change too for a
 #: capability (the command stream) only the replay writer needs. Awaited
-#: synchronously, immediately after `TickObserver` (see
-#: `_advance_one_tick`), under the same single-owner-task, no-reordering
-#: guarantee.
-TickCommandObserver = Callable[[int, tuple[Command, ...], GameState, tuple[Event, ...]], Awaitable[None]]
+#: synchronously, immediately *before* `TickObserver` (see
+#: `_advance_one_tick`'s Important I1 note on why that order is load-
+#: bearing, not arbitrary), under the same single-owner-task,
+#: no-reordering guarantee.
+TickCommandObserver = Callable[
+    [int, tuple[Command, ...], GameState, tuple[Event, ...]], Awaitable[None]
+]
 
 #: Authoritative simulation tick rate (`_specs/technical-spec.md` "Authoritative
 #: simulation: 20 Hz"). Named constant, not a magic literal, per the task brief.
@@ -437,6 +440,26 @@ class MatchRuntime:
         # method) still guarantees observers see ticks in strict order with
         # no interleaving, even though this call sits outside the lock.
         #
+        # `on_tick_commands` fires *before* `on_tick`, deliberately, not
+        # arbitrarily (M7 Task 8 review, Important I1): `request_cancel`
+        # (called by `MatchManager.finish_match`) delivers
+        # `asyncio.CancelledError` at this task's next suspension point,
+        # which -- if `on_tick` (a WebSocket broadcast) ran first -- would
+        # most likely be *inside* that `await`, since it is the slower of
+        # the two. A cancellation landing there would skip
+        # `on_tick_commands` entirely, silently dropping this tick's
+        # commands from a replay writer's gameplay stream even though
+        # `match.game_state`/`tick_count` (read moments later by
+        # `MatchManager.finish_match` -> a bound `on_match_finish` hook)
+        # already reflect this tick -- a persisted artifact whose
+        # `final_tick` is ahead of its own recorded command stream. Running
+        # the (cheap, local, synchronous-under-the-hood) command recorder
+        # first closes that window: by the time `on_tick`'s slower/
+        # network-bound await can be cancelled, this tick's commands are
+        # already durably recorded.
+        if self._on_tick_commands is not None:
+            await self._on_tick_commands(self.tick_count, commands, new_state, events)
+
         # Cost, not just an ordering guarantee: this `await` is still on the
         # tick loop's own critical path -- a slow/backpressured `on_tick`
         # (e.g. a peer whose `send_text` is stalled) delays every later tick
@@ -447,15 +470,6 @@ class MatchRuntime:
         # real workload shows this coupling matters.
         if self._on_tick is not None:
             await self._on_tick(new_state, events)
-        # Fires after `on_tick` (order is arbitrary between the two, since
-        # both are simple awaits with no shared mutable state), still
-        # outside `_step_lock` for the same reason `on_tick` sits outside it
-        # -- see the note above. `tick`/`commands` are the exact values this
-        # call applied via `engine.step` above (see `TickCommandObserver`'s
-        # docstring for why this needs its own callback rather than reusing
-        # `on_tick`).
-        if self._on_tick_commands is not None:
-            await self._on_tick_commands(self.tick_count, commands, new_state, events)
 
 
 class MatchRuntimeRegistry:

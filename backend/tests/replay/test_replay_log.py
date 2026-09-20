@@ -24,6 +24,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
 from nether_earth import engine as engine_module
 from nether_earth.commands import Command
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
@@ -31,7 +32,7 @@ from nether_earth.map import BootstrapMap
 from nether_earth.scenario import Scenario, default_pvp_scenario
 from nether_earth.snapshot import to_snapshot
 
-from app.match.models import Match, MatchRuntimeState, PlayerSlot
+from app.match.models import Match, MatchOutcome, MatchResult, MatchRuntimeState, PlayerSlot
 from app.match.reconnect import ForfeitEvent, NoContestEvent, PausedEvent, ResumedEvent
 from app.match.runtime import MatchRuntime
 from app.replay import (
@@ -277,6 +278,89 @@ def test_finish_match_on_unknown_match_is_a_silent_no_op(tmp_path: Path) -> None
     writer.finish_match(match)
 
     assert not match_dir(tmp_path, match.match_id).exists()
+
+
+# -- the one production-reachable "finished" result shape (M7 Task 8 review, I2) --
+
+
+def test_finish_match_persists_a_forfeit_result(tmp_path: Path) -> None:
+    """``ReconnectCoordinator`` is currently the only production path into
+    ``finish_match`` (via ``bind_finish_hook``) -- a forfeit/no-contest
+    ``MatchResult`` is therefore the one result shape that actually appears
+    on disk today. Exercises ``_result_to_json``'s non-``None`` branch,
+    which no other test in this module reaches.
+    """
+    match, scenario, map_data = _build_match("match-forfeit-result")
+    writer = ReplayWriter(base_dir=tmp_path)
+    writer.start_match(match, scenario, map_data)
+
+    match.result = MatchResult(
+        outcome=MatchOutcome.FORFEIT,
+        reason="disconnect_timeout",
+        winner_player_id=PLAYER_TWO,
+        forfeiting_player_id=PLAYER_ONE,
+    )
+
+    writer.finish_match(match)
+
+    meta = load_meta(tmp_path, match.match_id)
+    assert meta["status"] == "finished"
+    assert meta["result"] == {
+        "outcome": "forfeit",
+        "reason": "disconnect_timeout",
+        "winner_player_id": "p2",
+        "forfeiting_player_id": "p1",
+    }
+
+
+def test_finish_match_persists_a_no_contest_result(tmp_path: Path) -> None:
+    match, scenario, map_data = _build_match("match-no-contest-result")
+    writer = ReplayWriter(base_dir=tmp_path)
+    writer.start_match(match, scenario, map_data)
+
+    match.result = MatchResult(outcome=MatchOutcome.NO_CONTEST, reason="disconnect_timeout_both")
+
+    writer.finish_match(match)
+
+    meta = load_meta(tmp_path, match.match_id)
+    assert meta["result"] == {
+        "outcome": "no_contest",
+        "reason": "disconnect_timeout_both",
+        "winner_player_id": None,
+        "forfeiting_player_id": None,
+    }
+
+
+# -- lossy command serialization fails loudly, not silently (M7 Task 8 review, I3) --
+
+
+async def test_command_serialization_rejects_a_concrete_command_subclass(tmp_path: Path) -> None:
+    """A concrete gameplay ``Command`` subclass must raise, not silently lose fields.
+
+    Guards against the moment issue #98 starts submitting real gameplay
+    commands: recording only ``player``/``sequence`` for a subclass with
+    its own extra fields would produce a persisted artifact that looks
+    fine but is quietly corrupted. This must fail loudly instead.
+    """
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True, slots=True)
+    class _FakeGameplayCommand(Command):
+        target: str
+
+    match, scenario, map_data = _build_match("match-lossy-command-guard")
+    writer = ReplayWriter(base_dir=tmp_path)
+    writer.start_match(match, scenario, map_data)
+
+    on_tick_commands = make_replay_tick_recorder(writer, match.match_id)
+    runtime = MatchRuntime(match, on_tick_commands=on_tick_commands)
+    assert (
+        await runtime.submit_command(_FakeGameplayCommand(player=PLAYER_ONE, sequence=0, target="x"))
+        is True
+    )
+
+    with pytest.raises(NotImplementedError):
+        await runtime._advance_one_tick()
 
 
 # -- engine package gains no dependency on the backend ------------------------

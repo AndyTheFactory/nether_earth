@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    NETHER_EARTH_REPLAY_DIR=/app/replays
 
 COPY engine /app/engine
 COPY backend /app/backend
