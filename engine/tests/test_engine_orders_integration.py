@@ -9,6 +9,7 @@ that an ordered fleet behaves identically across replays.
 from __future__ import annotations
 
 from nether_earth.capture import StructureCapturedEvent
+from nether_earth.combat import ProjectileFiredEvent
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.engine import step
@@ -260,13 +261,12 @@ def test_search_capture_with_no_candidate_falls_back_immediately() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_stop_and_defend_emits_engagement_intent_without_firing_or_damage() -> None:
+def test_stop_and_defend_emits_engagement_intent_and_fires_through_step() -> None:
     world = _world()
     defender = _robot("robot-a", x=2, y=5, order=StopAndDefend())
     enemy = _robot("robot-z", PLAYER_TWO, x=5, y=5)
     state = _state((defender, enemy))
 
-    before = state.robots
     state, events = step(state, (), world)
 
     intents = _of(events, RobotEngagementIntentEvent)
@@ -275,9 +275,17 @@ def test_stop_and_defend_emits_engagement_intent_without_firing_or_damage() -> N
     assert intent.robot_id == defender.entity_id
     assert intent.target_id == enemy.entity_id
     assert intent.distance_cells == 3
-    # M5 produces intent only: nothing moved, nothing was destroyed.
-    assert state.robots == before
+
+    # M5 produced intent only; M6.10's Step 2c2 now consumes that same
+    # intent in the same authoritative step, so the defender fires. Nothing
+    # has moved and nothing is destroyed yet -- the projectile still has to
+    # travel (see ``test_engine_combat_integration.py``).
+    assert _of(events, ProjectileFiredEvent) != []
     assert len(state.robots) == 2
+    assert state.robot_for(defender.entity_id).x == 2  # type: ignore[union-attr]
+    assert state.robot_for(defender.entity_id).active_projectile_id is not None  # type: ignore[union-attr]
+    assert state.robot_for(enemy.entity_id).strength == 100  # type: ignore[union-attr]
+    assert len(state.projectiles) == 1
 
 
 def test_search_destroy_closes_on_its_target_every_tick_it_has_one() -> None:

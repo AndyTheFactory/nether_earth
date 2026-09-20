@@ -317,6 +317,12 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     live in-flight ``Projectile`` may reference it), a snapshot/restore
     round-trip that dropped it would silently free an occupied combat
     channel.
+
+    Extended again by M6.10 with ``strength`` (added to the entity by issue
+    #76, M6.6), appended last for the same additive reason: accumulated
+    damage is per-robot authoritative state, so a snapshot that dropped it
+    could not distinguish an undamaged robot from one a hit away from
+    destruction.
     """
     return {
         "entity_id": robot.entity_id.to_json(),
@@ -333,6 +339,7 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
             if robot.active_projectile_id is not None
             else None
         ),
+        "strength": robot.strength,
     }
 
 

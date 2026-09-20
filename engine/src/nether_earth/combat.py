@@ -26,11 +26,12 @@ projectile-advancement executor (:func:`advance_projectiles`), mirroring
 (:func:`is_projectile_advance_tick` mirrors
 :func:`~nether_earth.commander_movement.is_vertical_update_tick` exactly).
 
-Like `docking.py` (M3.4) and `commander_movement.py` (M3.2) before it, this
-module's new functions are a pure, directly testable reference
-implementation, not yet threaded into ``engine.step()`` -- that integration
-is a later task's (M6.10's) scope. Tests call :func:`apply_fire`/
-:func:`advance_projectiles` directly.
+Like `docking.py` (M3.4) and `commander_movement.py` (M3.2) before it, these
+functions were built as a pure, directly testable reference implementation
+first; M6.10 has since threaded them into ``engine.step()``'s Step 2c2 (see
+`engine.py`), alongside :class:`FireCommand`, the player-facing command type
+that produces a :class:`FireRequest`. Tests still call :func:`apply_fire`/
+:func:`advance_projectiles` directly for unit-level coverage.
 
 Height-collision semantics (read this before touching termination logic)
 -----------------------------------------------------------------------------
@@ -113,6 +114,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from nether_earth.collision import components_at
+from nether_earth.commands import Command
 from nether_earth.destruction import destroy_robot
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
@@ -125,6 +127,7 @@ if TYPE_CHECKING:
     from nether_earth.state import GameState
 
 __all__ = [
+    "FireCommand",
     "FireRejectionReason",
     "FireRequest",
     "FireResult",
@@ -209,6 +212,44 @@ class FireResult:
     def reject(cls, request: FireRequest, reason: FireRejectionReason) -> FireResult:
         """Build a rejected result for ``request`` with a stable ``reason``."""
         return cls(request=request, accepted=False, reason=reason)
+
+
+@dataclass(frozen=True, slots=True)
+class FireCommand(Command):
+    """A player's request to fire ``weapon`` from one of their robots.
+
+    The player-facing command type that produces a :class:`FireRequest`,
+    exactly as `direct_control.py`'s
+    :class:`~nether_earth.direct_control.DirectRobotMoveCommand` is the
+    player-facing command that produces a
+    :class:`~nether_earth.movement.RobotMoveRequest`. ``FireRequest`` itself
+    is the internal currency :func:`validate_fire`/:func:`apply_fire`
+    consume; nothing produced one from player input before this type
+    existed.
+
+    Unlike ``DirectRobotMoveCommand`` (which deliberately has no
+    ``entity_id`` because exactly one robot is ever directly controllable),
+    this command *does* name ``entity_id``, following `orders.py`'s
+    :class:`~nether_earth.orders.SetRobotOrderCommand` precedent and its
+    identical reasoning: firing is an action a player may direct at any of
+    their own robots, not only the one their commander is docked to, and
+    ownership is enforced downstream by :func:`validate_fire`'s
+    ``request.player == robot.owner`` check rather than by artificially
+    restricting the command's shape. Any presentation-level restriction
+    (M7/M8) is a UI-availability concern, not an engine rule.
+
+    No ``__post_init__`` validation is needed beyond what
+    :func:`validate_fire` already checks structurally: unlike a move
+    command's ``dx``/``dy``, a target cell has no structurally invalid
+    shape -- an out-of-bounds or degenerate aim is a gameplay rejection
+    (:attr:`FireRejectionReason.TARGET_OUT_OF_RANGE`), not a malformed
+    command.
+    """
+
+    entity_id: EntityId
+    weapon: ModuleIdentity
+    target_x: int
+    target_y: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -406,15 +447,24 @@ class ProjectileTerminatedEvent(Event):
 
     ``hit_robot_id`` is populated only when ``reason`` is
     :attr:`~ProjectileTerminationReason.ROBOT_HIT`; it is ``None`` for every
-    other termination reason. This task does not apply any damage -- it
-    only identifies the collision and releases the firing robot's combat
-    channel; a later task (M6.6) consumes ``hit_robot_id`` from this event
-    to apply damage.
+    other termination reason. This event does not itself apply any damage --
+    it only identifies the collision and releases the firing robot's combat
+    channel; `engine.py`'s combat step (M6.10) consumes ``hit_robot_id``
+    plus ``weapon`` from this event and calls :func:`apply_damage`.
+
+    ``weapon`` (added by M6.10) is the terminated projectile's own
+    :attr:`Projectile.weapon`. It is carried here because
+    :func:`apply_damage` needs it to select the right damage multiplier, and
+    the projectile itself is removed from ``state.projectiles`` on the very
+    tick this event is emitted -- so a consumer could not look it back up.
+    This completes the "enough info for the damage layer" intent M6.4 stated
+    for this event but did not finish.
     """
 
     entity_id: EntityId
     owner: PlayerId
     source_robot_id: EntityId
+    weapon: ModuleIdentity
     x: int
     y: int
     tick: int
@@ -685,6 +735,7 @@ def _terminate_projectile(
         entity_id=projectile.id,
         owner=projectile.owner,
         source_robot_id=projectile.source_robot_id,
+        weapon=projectile.weapon,
         x=at_x,
         y=at_y,
         tick=tick,

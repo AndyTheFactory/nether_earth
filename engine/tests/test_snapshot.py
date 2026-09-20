@@ -313,9 +313,11 @@ def test_robot_snapshot_includes_order_key_defaulting_to_none() -> None:
         "movement",
         "order",
         "active_projectile_id",
+        "strength",
     ]
     assert entry["order"] is None
     assert entry["active_projectile_id"] is None
+    assert entry["strength"] == 100
 
 
 def test_robot_snapshot_serializes_active_projectile_id_when_set() -> None:
@@ -336,6 +338,24 @@ def test_robot_snapshot_serializes_active_projectile_id_when_set() -> None:
     entry = to_snapshot(state)["robots"][0]
 
     assert entry["active_projectile_id"] == "projectile-1"
+
+
+def test_robot_snapshot_serializes_damaged_strength() -> None:
+    build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.CANNON,))
+    stack, height = derive_stack_and_height(build, DEFAULT_RULES)
+    robot = Robot(
+        entity_id=EntityId("robot-1"),
+        owner=PLAYER_ONE,
+        x=3,
+        y=4,
+        build=build,
+        stack=stack,
+        height=height,
+        strength=37,
+    )
+    state = create_game_state(0, [PLAYER_ONE], seed=0, robots=[robot])
+
+    assert to_snapshot(state)["robots"][0]["strength"] == 37
 
 
 def test_every_order_kind_serializes_to_a_stable_tagged_dict() -> None:
