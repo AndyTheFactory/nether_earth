@@ -37,14 +37,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 
 from nether_earth import engine as engine_module
 from nether_earth.collision import RobotFixture
 from nether_earth.commands import Command
+from nether_earth.events import Event
 from nether_earth.ids import PlayerId
 from nether_earth.map import WorldMap
 
 from app.match.models import Match, MatchRuntimeState
+
+logger = logging.getLogger(__name__)
 
 #: Authoritative simulation tick rate (`_specs/technical-spec.md` "Authoritative
 #: simulation: 20 Hz"). Named constant, not a magic literal, per the task brief.
@@ -56,6 +60,30 @@ TICK_INTERVAL_S: float = 1.0 / TICK_RATE_HZ
 #: tick interval; not itself gameplay-authoritative in any way.
 DEFAULT_PAUSE_POLL_INTERVAL_S: float = 0.05
 
+#: How many consecutive tick-overruns (a step taking longer than one tick
+#: interval) trigger a repeated warning log. Purely observability -- ticking
+#: itself is never skipped or batched to "catch up"; see `_run`.
+_OVERRUN_WARNING_EVERY_N_TICKS: int = 100
+
+
+def _assert_called_from_tasks_loop(task: asyncio.Task[None]) -> None:
+    """Raise ``RuntimeError`` if the calling thread does not own ``task``'s loop.
+
+    ``asyncio.get_running_loop()`` itself already raises ``RuntimeError``
+    loudly when the calling thread has no running loop at all (e.g. a
+    FastAPI sync endpoint running in Starlette's worker threadpool); this
+    additionally catches the rarer case of a *different* loop running on the
+    calling thread. Both are "you cannot safely touch this task from here"
+    and both must fail loudly, never silently no-op (issue #93 review).
+    """
+    running_loop = asyncio.get_running_loop()
+    if running_loop is not task.get_loop():
+        raise RuntimeError(
+            "MatchRuntime task methods must be called from the event loop thread "
+            "that owns the tick task; asyncio.Task.cancel() is not thread-safe "
+            "across event loops. Use loop.call_soon_threadsafe(...) instead."
+        )
+
 
 class MatchRuntime:
     """Owns the fixed-tick loop and command queue for exactly one match.
@@ -63,10 +91,13 @@ class MatchRuntime:
     One ``asyncio.Task`` runs :meth:`_run` for the lifetime of this object
     (started explicitly via :meth:`start`, stopped via :meth:`request_cancel`
     / :meth:`wait_stopped`). That single task is the sole caller of
-    ``engine.step`` for this match, which already serializes ``step`` calls
-    by construction (single-owner-task discipline); ``_step_lock`` below is
-    kept as defense-in-depth documented by the task brief, in case a future
-    caller ever needs to trigger a step from outside the loop task.
+    :meth:`_advance_one_tick`, which already serializes the drain -> step ->
+    bookkeeping sequence by construction (single-owner-task discipline).
+    ``_step_lock`` wraps the *entire* drain/step/bookkeeping sequence inside
+    :meth:`_advance_one_tick` (not just the ``engine.step`` call) so that
+    guarantee would still hold even if a future caller ever triggered a tick
+    from outside the loop task -- the lock's scope must match what it
+    documents to protect, or it is a false guarantee (see issue #93 review).
     """
 
     def __init__(
@@ -93,7 +124,7 @@ class MatchRuntime:
 
         self._task: asyncio.Task[None] | None = None
         self.tick_count = 0
-        self.last_events: tuple[object, ...] = ()
+        self.last_events: tuple[Event, ...] = ()
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -116,9 +147,24 @@ class MatchRuntime:
         ``threading.Lock`` and must never await). Does not wait for the task
         to actually finish -- use :meth:`wait_stopped` for that (mainly
         useful in tests that need to assert no orphan task remains).
+
+        ``asyncio.Task.cancel()`` is documented as callable from anywhere,
+        but it is only *thread-safe* when called from the thread that owns
+        the task's event loop -- calling it from a different thread (e.g. a
+        FastAPI sync/non-``async def`` endpoint, which Starlette runs in a
+        worker threadpool) races the loop's internals and can silently fail
+        to schedule the cancellation at all. This method therefore asserts
+        it is being called from the task's own loop thread and raises
+        ``RuntimeError`` loudly rather than risking that silent no-op; a
+        caller that legitimately needs to cancel from another thread should
+        route through ``loop.call_soon_threadsafe(runtime.request_cancel)``
+        instead (where ``loop`` is the task's own loop, e.g.
+        ``self._task.get_loop()``).
         """
-        if self._task is not None:
-            self._task.cancel()
+        if self._task is None:
+            return
+        _assert_called_from_tasks_loop(self._task)
+        self._task.cancel()
 
     async def wait_stopped(self) -> None:
         """Await the tick loop task's actual completion after cancellation.
@@ -154,15 +200,38 @@ class MatchRuntime:
         which is exclusively the engine's ``validate_command_batch``'s job
         once the batch reaches ``engine.step``.
 
-        Safe to call concurrently from multiple coroutines: the per-match
-        ``asyncio.Lock`` below makes the accept-or-reject decision and the
-        resulting queue/bookkeeping mutation atomic with respect to other
-        concurrent ``submit_command`` calls, so two coroutines racing to
-        submit out-of-order sequences for the same or different players
-        always converge on the same accepted set regardless of which one's
-        `await` happens to resume first -- final engine ordering is then
-        `engine.step`'s own deterministic ``(player.value, sequence)`` sort
-        over that accepted set, independent of submission/scheduling order.
+        Safe to call concurrently from multiple coroutines in the sense that
+        the per-match ``asyncio.Lock`` below makes each individual
+        accept-or-reject decision atomic: no two concurrent calls can ever
+        observe/mutate ``_last_accepted_sequence``/``_pending`` in a torn
+        state, and once a command *is* accepted, `engine.step`'s own
+        deterministic ``(player.value, sequence)`` sort makes its place in
+        that tick's applied order independent of submission/scheduling
+        order.
+
+        This does **not** mean the *accepted set* is independent of
+        scheduling when two concurrent calls submit out-of-order sequences
+        for the *same* player: the dedup rule is a high-water-mark
+        (``sequence <= last_accepted`` is rejected), so which of two
+        concurrently-submitted sequences "wins" the lock first determines
+        which one raises the high-water mark and which one is then rejected
+        as stale. e.g. sequences 6 and 7 for the same player submitted
+        concurrently deterministically resolve to "whichever's `await`
+        acquires the lock first is accepted; the other is rejected if it is
+        `<=` the winner" -- not to "both accepted". See
+        ``test_out_of_order_concurrent_submission_for_same_player_is_scheduling_dependent_by_design``
+        in ``tests/match/test_runtime.py`` for a pinned-down example of both
+        deterministic-given-a-fixed-schedule outcomes.
+
+        **Callers submitting multiple commands for the same player MUST
+        serialize those submissions** (`await` each ``submit_command`` call
+        to completion before reading/dispatching the next inbound command
+        for that player) rather than firing them concurrently -- a future
+        WebSocket handler (Task 5) should await each inbound frame's
+        ``submit_command`` before reading the connection's next frame, which
+        naturally guarantees in-order submission per connection/player. This
+        is a transport-layer discipline requirement, not something this
+        method can enforce on the caller's behalf.
         """
         async with self._queue_lock:
             last = self._last_accepted_sequence.get(command.player)
@@ -183,38 +252,91 @@ class MatchRuntime:
     async def _run(self) -> None:
         loop = asyncio.get_running_loop()
         next_tick_at = loop.time()
-        while True:
-            if self._match.state is MatchRuntimeState.FINISHED:
-                return
-            if self._match.state is not MatchRuntimeState.ACTIVE:
-                # PAUSED_DISCONNECTED (or, defensively, WAITING): cheap poll,
-                # never a busy loop, and never advances the engine.
-                await asyncio.sleep(self._pause_poll_interval_s)
-                # Resync the schedule so resuming ACTIVE does not trigger a
-                # burst of "catch-up" ticks for time spent paused.
-                next_tick_at = loop.time()
-                continue
+        consecutive_overruns = 0
+        try:
+            while True:
+                if self._match.state is MatchRuntimeState.FINISHED:
+                    return
+                if self._match.state is not MatchRuntimeState.ACTIVE:
+                    # PAUSED_DISCONNECTED (or, defensively, WAITING): cheap
+                    # poll, never a busy loop, and never advances the engine.
+                    await asyncio.sleep(self._pause_poll_interval_s)
+                    # Resync the schedule so resuming ACTIVE does not
+                    # trigger a burst of "catch-up" ticks for time spent
+                    # paused.
+                    next_tick_at = loop.time()
+                    consecutive_overruns = 0
+                    continue
 
-            await self._advance_one_tick()
+                await self._advance_one_tick()
 
-            # Drift-compensated scheduling: the next tick's target time is
-            # always `previous target + fixed interval`, not
-            # `now + interval` (which would accumulate scheduler jitter).
-            # This never feeds into `engine.step` itself -- every tick is
-            # still exactly one `step` call, full stop.
-            next_tick_at += self._interval_s
-            sleep_for = next_tick_at - loop.time()
-            if sleep_for > 0:
-                await asyncio.sleep(sleep_for)
-            else:
-                # Fell behind (e.g. a slow tick): resync to now rather than
-                # firing a burst of zero-wait catch-up ticks with stale
-                # target times.
-                next_tick_at = loop.time()
+                # Drift-compensated scheduling: the next tick's target time
+                # is always `previous target + fixed interval`, not
+                # `now + interval` (which would accumulate scheduler
+                # jitter). This never feeds into `engine.step` itself --
+                # every tick is still exactly one `step` call, full stop.
+                next_tick_at += self._interval_s
+                sleep_for = next_tick_at - loop.time()
+                if sleep_for > 0:
+                    await asyncio.sleep(sleep_for)
+                    consecutive_overruns = 0
+                else:
+                    # Fell behind (e.g. a slow tick): resync to now rather
+                    # than firing a burst of zero-wait catch-up ticks with
+                    # stale target times. Critically, still `await
+                    # asyncio.sleep(0)` here rather than looping straight
+                    # back to the top: on an uncontended `asyncio.Lock`,
+                    # `.acquire()` does not suspend (CPython fast path), and
+                    # `engine.step` is synchronous, so a persistently slow
+                    # match's loop would otherwise never yield to the event
+                    # loop at all -- starving every other match's tick loop
+                    # (and, once Task 5 lands, every WebSocket task) on the
+                    # same event loop (issue #93 review, Important #1).
+                    consecutive_overruns += 1
+                    if consecutive_overruns % _OVERRUN_WARNING_EVERY_N_TICKS == 0:
+                        logger.warning(
+                            "match %s tick loop has overrun its %.4fs tick budget for "
+                            "%d consecutive ticks (engine.step is taking longer than one "
+                            "tick interval)",
+                            self._match.match_id,
+                            self._interval_s,
+                            consecutive_overruns,
+                        )
+                    await asyncio.sleep(0)
+                    next_tick_at = loop.time()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # An unhandled exception here would otherwise kill this task
+            # silently: nothing in production awaits it (`request_cancel` is
+            # fire-and-forget), so asyncio's "Task exception was never
+            # retrieved" warning may not fire until GC, `match.state` stays
+            # ACTIVE, and the match freezes forever with zero log output
+            # (issue #93 review, Important #3). Log loudly and re-raise so
+            # the task still ends in an observable failed state for
+            # anything that does inspect it (e.g. tests, future
+            # monitoring), rather than swallowing the exception outright.
+            # Deciding *what* MatchManager/the match layer should do about a
+            # crashed runtime (flip match.state, notify clients, ...) is a
+            # lifecycle policy decision left to a later task -- this module
+            # only guarantees the failure is loud, not silent.
+            logger.exception(
+                "match %s tick loop crashed; ticking has stopped but match.state "
+                "remains %s",
+                self._match.match_id,
+                self._match.state,
+            )
+            raise
 
     async def _advance_one_tick(self) -> None:
-        commands = await self._drain_queue()
+        # The entire drain -> step -> bookkeeping sequence lives inside
+        # `_step_lock`, not just the `engine.step` call, so the lock's scope
+        # actually matches what its class docstring promises: a future
+        # caller triggering a tick from outside the loop task could not
+        # observe or apply a partial/interleaved batch (issue #93 review,
+        # Important #2).
         async with self._step_lock:
+            commands = await self._drain_queue()
             state = self._match.game_state
             if state is None:
                 # Defensive: a runtime should only ever be started for a
@@ -223,12 +345,19 @@ class MatchRuntime:
                 # engine.new_game. Not reachable through the documented
                 # start() call sites.
                 raise RuntimeError("MatchRuntime ticked before match.game_state was initialized")
+            # world=None/robots=() (the current MatchManager call site's
+            # default) means engine.step skips every collision/heli-pad/
+            # launch/robot_moves check this tick -- a pre-existing gap from
+            # M7 Task 2 (manager.py already documents that a real WorldMap
+            # is deferred to whichever task first needs one for
+            # engine.step; this module is that first caller, so it is
+            # tracked here too rather than only in manager.py).
             new_state, events = engine_module.step(
                 state, commands, world=self._world, robots=self._robots
             )
             self._match.game_state = new_state
             self.last_events = events
-        self.tick_count += 1
+            self.tick_count += 1
 
 
 class MatchRuntimeRegistry:
@@ -265,6 +394,16 @@ class MatchRuntimeRegistry:
         real deployment, since this is only ever wired up from an async
         FastAPI app; a caller with no running loop gets asyncio's own
         ``RuntimeError`` rather than a silently swallowed no-op).
+
+        If a runtime for ``match.match_id`` already exists (i.e. this is
+        called a second time for the same match), ``world``/``robots`` are
+        silently ignored and the existing runtime's original values keep
+        being used -- ``MatchManager``'s WAITING -> ACTIVE transition (the
+        only production call site) only ever calls this once per match, so
+        this is not reachable in practice, but a caller relying on a second
+        ``start()`` call to *change* ``world``/``robots`` on a live match
+        would be surprised; construct a new ``MatchRuntimeRegistry``/
+        ``MatchRuntime`` instead if that is ever needed.
         """
         runtime = self._runtimes.get(match.match_id)
         if runtime is None:
@@ -298,6 +437,15 @@ class MatchRuntimeRegistry:
         Called by ``MatchManager.dispose_match``. Idempotent: disposing an
         id with no registered runtime (e.g. a match that never went ACTIVE)
         is a no-op.
+
+        Any commands still sitting in the runtime's pending queue at
+        disposal time (submitted but not yet applied by a tick) are simply
+        discarded along with the rest of the ``MatchRuntime`` object -- no
+        record of them is kept anywhere. Replay persistence (Task 8) logs
+        commands as they are *applied* by ``engine.step``, not as they sit
+        queued, so this is expected and not this task's concern; noted here
+        for Task 8's benefit in case a truly-final tick before disposal is
+        ever desired.
         """
         self.cancel(match_id)
         self._runtimes.pop(match_id, None)
