@@ -42,17 +42,26 @@ import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from nether_earth.autonomous_combat import consume_engagement_intents
 from nether_earth.capture import (
     CapturableStructureKind,
     NeutralStructureAcquiredEvent,
     StructureCapturedEvent,
     advance_capture,
-    effective_world,
 )
 from nether_earth.collision import (
     RobotFixture,
     commander_horizontal_move_allowed,
     commander_vertical_move_allowed,
+)
+from nether_earth.combat import (
+    FireCommand,
+    FireRequest,
+    ProjectileTerminatedEvent,
+    advance_projectiles,
+    apply_damage,
+    apply_fire,
+    validate_fire,
 )
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.commander_movement import (
@@ -84,6 +93,20 @@ from nether_earth.construction_session import (
     enter_construction,
     select_module,
 )
+
+# Aliased deliberately: `capture.py` also exports a function called
+# ``effective_world`` (ownership overrides only). This module must read
+# structure existence through `destruction.py`'s composed one (ownership
+# overrides AND destruction), per that function's own documented hand-off
+# note, and an unaliased import of both would silently shadow one with the
+# other. `capture.effective_world` is no longer imported here at all --
+# every one of this module's own call sites now resolves through the
+# composed function below, so there is nothing left to shadow.
+from nether_earth.destruction import effective_world as destruction_effective_world
+from nether_earth.destruction import (
+    evaluate_victory_after_nuclear_detonation,
+    execute_nuclear_detonation,
+)
 from nether_earth.direct_control import DirectRobotMoveCommand, direct_robot_move_request
 from nether_earth.docking import (
     apply_undock,
@@ -97,6 +120,7 @@ from nether_earth.ids import PlayerId
 from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.movement import RobotMoveRequest, advance_all_robot_transitions
 from nether_earth.orders import (
+    OrderEvaluation,
     SetRobotOrderCommand,
     apply_order_evaluations,
     apply_set_robot_order,
@@ -104,6 +128,7 @@ from nether_earth.orders import (
 )
 from nether_earth.reservations import apply_robot_move_batch
 from nether_earth.resource_production import apply_daily_production
+from nether_earth.robot_build import ModuleIdentity
 from nether_earth.robot_launch import launch_robot
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.scenario import Scenario, initialize_players
@@ -400,10 +425,12 @@ def step(
        finalization/session lifecycle is the match/session layer's job).
     10. Steps 7-9 above (heli-pad/construction entry, launch, daily
         production) are evaluated against
-        :func:`~nether_earth.capture.effective_world` -- ``world`` with
-        every runtime capture ownership override (including any that
-        completed earlier in this same tick's Step 2c) layered on top --
-        rather than the raw ``world`` argument, so a structure's new owner
+        :func:`~nether_earth.destruction.effective_world` (M6.10; this was
+        :func:`~nether_earth.capture.effective_world` through M5) -- ``world``
+        with every runtime capture ownership override (including any that
+        completed earlier in this same tick's Step 2c) layered on top, and
+        every destroyed structure filtered out -- rather than the raw
+        ``world`` argument, so a structure's new owner
         is immediately visible to every other ownership-aware subsystem in
         the same tick it changes hands, matching "ownership transfers
         immediately on completion".
@@ -434,13 +461,81 @@ def step(
         what §11 forbids. Autonomous and direct-control moves therefore
         contend as equals in one batch.
     13. Order evaluation reads
-        :func:`~nether_earth.capture.effective_world` (ownership as it
-        stands at the start of the tick, including every previously
-        completed capture) so a Search & Capture order re-resolves
-        "neutral"/"enemy" against live ownership. A capture completing
+        :func:`~nether_earth.destruction.effective_world` (M6.10; this was
+        :func:`~nether_earth.capture.effective_world` through M5) --
+        ownership as it stands at the start of the tick, including every
+        previously completed capture, with every already-destroyed structure
+        filtered out -- so a Search & Capture/Search & Destroy order
+        re-resolves "neutral"/"enemy" against live ownership and never
+        targets a structure that no longer exists. A capture completing
         later in this same tick's Step 2d is reflected on the next tick's
         evaluation, which is the same one-tick visibility every other
         pre-capture step in this function has.
+
+    Extended by M6.10 with Step 2c2, the combat pass -- the single point at
+    which every Milestone 6 combat function (built as pure, directly
+    testable functions by M6.2/6.4/6.6/6.7/6.8/6.9, deliberately leaving
+    this module untouched) is wired in:
+
+    14. Step 2c2 sits immediately after Step 2c (this tick's robot moves
+        start) and before Step 2d (capture), and runs three sub-phases in a
+        fixed order:
+
+        a. :func:`~nether_earth.combat.advance_projectiles` advances every
+           in-flight projectile on its cadence tick, and each resulting
+           :class:`~nether_earth.combat.ProjectileTerminatedEvent` carrying
+           a ``hit_robot_id`` is immediately fed to
+           :func:`~nether_earth.combat.apply_damage` (which itself routes a
+           lethal hit to `destruction.py`). Advancement precedes firing so
+           a projectile fired this tick never also advances on the same
+           tick it was created -- travel always takes at least one full
+           cadence interval.
+        b. Every structurally accepted
+           :class:`~nether_earth.combat.FireCommand` is applied, in
+           canonical command order. A normal weapon routes through
+           :func:`~nether_earth.combat.apply_fire`; nuclear clears
+           :func:`~nether_earth.combat.validate_fire`'s accept boundary and
+           then detonates via
+           :func:`~nether_earth.destruction.execute_nuclear_detonation`,
+           followed by
+           :func:`~nether_earth.destruction.evaluate_victory_after_nuclear_detonation`
+           in the same step (the same "victory is evaluated in the same
+           authoritative simulation step" requirement Step 2d already
+           satisfies for capture).
+        c. Every engagement intent Step 2b2's ``evaluations`` produced is
+           consumed by
+           :func:`~nether_earth.autonomous_combat.consume_engagement_intents`,
+           which re-validates and fires through the exact same
+           ``FireRequest``/``validate_fire`` boundary direct fire uses --
+           autonomous and direct fire are provably one code path. An
+           autonomous nuclear shot gets the same victory check phase (b)
+           applies to a direct one.
+
+        Firing after movement means a robot that moved this tick fires from
+        its authoritative (pre-move-completion) cell, exactly as capture
+        reads authoritative positions in Step 2d -- a move *starting* this
+        tick does not change a robot's position, so this ordering has no
+        observable effect beyond being fixed and documented.
+    15. Every one of this module's own world resolutions now reads
+        `destruction.py`'s composed
+        :func:`~nether_earth.destruction.effective_world` (capture ownership
+        overrides *and* destruction) rather than `capture.py`'s
+        ownership-only one, per that function's documented hand-off: a
+        destroyed war base/factory must immediately stop being capturable,
+        production-eligible, a valid heli-pad/launch target, or an order's
+        Search & Capture/Search & Destroy target. This includes the world
+        handed *into* :func:`~nether_earth.capture.advance_capture`, which
+        therefore stays destruction-unaware itself.
+    16. **At most one** :class:`~nether_earth.victory.VictoryEvent` is
+        appended per ``step`` call, per issue #79's locked criteria
+        ("repeated/redundant evaluation does not emit duplicate
+        match-result events"). Three sites can each independently find the
+        same condition in one tick -- Step 2c2's per-``FireCommand``
+        nuclear branch (once per nuclear command in the batch), Step 2c2's
+        autonomous-engagement branch, and Step 2d's capture-triggered check
+        -- so a single ``victory_emitted`` flag, declared once at the top of
+        this function, guards all three appends rather than each site
+        reasoning about the others.
 
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
     always produces an identical ``(new_state, events)`` pair.
@@ -465,6 +560,19 @@ def step(
     starting_tick = state.tick
     tick = state.tick + 1
     rules = DEFAULT_RULES
+
+    # At most ONE VictoryEvent may be appended per `step` call, per issue
+    # #79's locked acceptance criteria ("repeated/redundant evaluation does
+    # not emit duplicate match-result events"; "match result is emitted once
+    # and cannot oscillate/reopen"). Three independent sites below can each
+    # find the same victory condition in one tick -- the per-`FireCommand`
+    # nuclear branch (once per nuclear command in the batch), the autonomous
+    # engagement branch, and Step 2d's capture-triggered check -- so the
+    # single authoritative guard lives here rather than in any one of them.
+    # The evaluation functions themselves are pure, so a later site may
+    # still safely be CALLED once this flag is set; only the append is
+    # suppressed, which keeps each site's own local reasoning unchanged.
+    victory_emitted = False
 
     # When world is None, fall back to commander_movement.py's own
     # permissive ("always allow") defaults by simply not supplying a check
@@ -523,6 +631,11 @@ def step(
     # `_specs/open-questions.md` §11.
     order_requests: list[RobotMoveRequest] = []
     order_lifecycle_events: tuple[Event, ...] = ()
+    # Bound before the guard so Step 2c2 (which consumes this tick's
+    # engagement intents) can read it unconditionally without recomputing
+    # `evaluate_orders` a second time -- `world is None` simply means no
+    # orders were evaluated at all this tick, hence no intents to consume.
+    evaluations: tuple[OrderEvaluation, ...] = ()
     if world is not None:
         for result in results:
             if not result.accepted:
@@ -533,7 +646,7 @@ def step(
                 if order_changed is not None:
                     events.append(order_changed)
 
-        evaluations = evaluate_orders(state, effective_world(world, state), rules)
+        evaluations = evaluate_orders(state, destruction_effective_world(world, state), rules)
         state, order_lifecycle_events = apply_order_evaluations(
             evaluations, state, tick, sequencer
         )
@@ -569,6 +682,107 @@ def step(
         events.extend(batch.contentions)
         events.extend(batch.started)
 
+    # --- Step 2c2: combat --------------------------------------------------
+    # Projectile advancement + damage, direct fire, autonomous engagement,
+    # nuclear detonation, and the nuclear victory check -- the single place
+    # every M6 combat function is wired in (see the docstring's M6.10 notes
+    # for why all of it lives in one step rather than four).
+    #
+    # `world_for_step` is NOT in scope here: it is first bound by Step 2d
+    # below, which runs after this step. Every sub-phase therefore resolves
+    # its own `destruction_effective_world(world, state)` from the LATEST
+    # state at the moment it needs one. That is not merely defensive: a
+    # nuclear detonation in phase (b) destroys structures, and phase (c)'s
+    # autonomous target re-validation must not then read a world that still
+    # contains them. It is a cheap pure recomputation over already-small
+    # tuples; correctness before caching.
+    if world is not None:
+        # (a) Advance in-flight projectiles, then apply damage for every hit,
+        # in the exact tuple order `advance_projectiles` returns its events
+        # (already canonical per M6.4), so simultaneous hits resolve stably.
+        combat_world = destruction_effective_world(world, state)
+        state, projectile_events = advance_projectiles(
+            state, combat_world, tick, rules, sequencer
+        )
+        events.extend(projectile_events)
+        for event in projectile_events:
+            if isinstance(event, ProjectileTerminatedEvent) and event.hit_robot_id is not None:
+                state, damage_events = apply_damage(
+                    state, combat_world, event.hit_robot_id, event.weapon, rules, tick, sequencer
+                )
+                events.extend(damage_events)
+
+        # (b) Direct-control fire. Ownership is enforced inside
+        # `validate_fire` (`request.player == robot.owner`), not here -- see
+        # `combat.FireCommand`'s docstring. A gameplay-level rejection
+        # produces no additional event, matching this module's convention.
+        for result in results:
+            if not result.accepted:
+                continue
+            command = result.command
+            if not isinstance(command, FireCommand):
+                continue
+            fire_world = destruction_effective_world(world, state)
+            request = FireRequest(
+                robot_id=command.entity_id,
+                player=command.player,
+                weapon=command.weapon,
+                target_x=command.target_x,
+                target_y=command.target_y,
+            )
+            if command.weapon is ModuleIdentity.NUCLEAR:
+                # Nuclear creates no projectile: it clears `validate_fire`'s
+                # accept boundary and detonates immediately (see
+                # `combat.apply_fire`, which deliberately passes nuclear
+                # through untouched).
+                if not validate_fire(request, state).accepted:
+                    continue
+                state, detonation_events = execute_nuclear_detonation(
+                    state, fire_world, command.entity_id, tick, rules, sequencer
+                )
+                events.extend(detonation_events)
+                victory_event = evaluate_victory_after_nuclear_detonation(
+                    detonation_events, fire_world, state, tick, sequencer
+                )
+                if victory_event is not None and not victory_emitted:
+                    events.append(victory_event)
+                    victory_emitted = True
+            else:
+                state, _fire_result, fire_event = apply_fire(
+                    request, state, fire_world, tick, rules, sequencer
+                )
+                if fire_event is not None:
+                    events.append(fire_event)
+
+        # (c) Autonomous engagement: consume this tick's intents from the
+        # SAME `evaluations` Step 2b2 already computed (never recomputed --
+        # a second `evaluate_orders` call could disagree with the first now
+        # that phases (a)/(b) have changed state).
+        engagement_world = destruction_effective_world(world, state)
+        state, engagement_events = consume_engagement_intents(
+            evaluations, state, engagement_world, tick, rules, sequencer
+        )
+        events.extend(engagement_events)
+
+        # `consume_engagement_intents` routes a nuclear intent straight to
+        # `execute_nuclear_detonation` but deliberately does NOT run the
+        # victory check itself (it owns the intent->fire bridge, not victory
+        # evaluation), so the autonomous nuclear path gets exactly the same
+        # treatment phase (b) gives the direct-fire one. The check is
+        # internally gated on a war-base `StructureDestroyedEvent` and calls
+        # `evaluate_victory` at most once, so passing the whole tuple is
+        # correct even when several structures were destroyed.
+        engagement_victory = evaluate_victory_after_nuclear_detonation(
+            engagement_events,
+            destruction_effective_world(world, state),
+            state,
+            tick,
+            sequencer,
+        )
+        if engagement_victory is not None and not victory_emitted:
+            events.append(engagement_victory)
+            victory_emitted = True
+
     # --- Step 2d: neutral acquisition / enemy capture progress -------------
     # After Step 2c: capture reads robots' authoritative positions, which a
     # move *starting* this tick does not change (only a move *completing*,
@@ -578,7 +792,14 @@ def step(
     # documents.
     world_for_step: WorldMap | None = world
     if world is not None:
-        state, capture_events = advance_capture(state, world, tick, rules, sequencer)
+        # Capture sees a destruction-filtered world: a war base/factory that
+        # Step 2c2 just nuked must stop being capturable the instant it is
+        # destroyed. `capture.py` itself stays destruction-unaware (it owns
+        # ownership only) precisely because it is handed an already-filtered
+        # world here.
+        state, capture_events = advance_capture(
+            state, destruction_effective_world(world, state), tick, rules, sequencer
+        )
         events.extend(capture_events)
 
         war_base_ownership_changed = any(
@@ -590,13 +811,20 @@ def step(
         # Every subsequent world-dependent step this tick sees ownership as
         # it stands *after* Step 2d -- including a completion that just
         # happened this very tick -- per the module docstring's "ownership
-        # transfers immediately on completion" requirement.
-        world_for_step = effective_world(world, state)
+        # transfers immediately on completion" requirement. Recomputed here
+        # from the LATEST state, so it also reflects every structure Step
+        # 2c2's combat destroyed earlier in this same tick.
+        world_for_step = destruction_effective_world(world, state)
 
         if war_base_ownership_changed:
-            victory_event = evaluate_victory(world_for_step, state, tick, sequencer)
-            if victory_event is not None:
-                events.append(victory_event)
+            capture_victory = evaluate_victory(world_for_step, state, tick, sequencer)
+            # Guarded by the same one-per-tick flag as Step 2c2's two nuclear
+            # victory sites: a nuke removing the loser's last war base in
+            # Step 2c2 and a war-base acquisition completing here can both
+            # find the condition in a single tick.
+            if capture_victory is not None and not victory_emitted:
+                events.append(capture_victory)
+                victory_emitted = True
 
     # --- Step 3: undock any DOCKED commander holding rise intent ------------
     for commander in state.commanders:

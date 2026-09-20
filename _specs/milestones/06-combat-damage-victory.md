@@ -313,37 +313,126 @@ No task should independently "delete an entity" without using the shared destruc
 
 ### Projectile mechanics — unresolved details
 
-Research must determine from Spectrum evidence where possible:
+Issue #72 (M6.3) traced the Spectrum disassembly (`santiontanon/netherearth-disassembly`,
+`netherearth-annotated.asm`) and resolved most of the items below directly
+from code evidence; see `_specs/open-questions.md` §8 for the full citation
+trail. Resolved items are removed from this list; remaining items are
+refined to state precisely what is still unknown.
 
-- projectile advance cadence relative to original game cycles;
-- cells/sub-cells advanced per update;
-- whether cannon/missile/phaser share speed;
-- projectile collision footprint/profile;
-- exact collision ordering when multiple colliders are possible;
-- how projectile Z=10 intersects robots of varying stack height and static components;
-- whether projectiles collide with all static objects or only particular map/object classes;
-- what exactly terminates projectile life in the original;
-- whether maximum range or visible-screen departure is the primary expiry rule;
-- how original screen-relative logic should map to the browser/world model without making viewport size authoritative.
+Resolved by issue #72 (see `_specs/open-questions.md` §8 for citations —
+not repeated here):
 
-Until resolved, projectile architecture may be implemented behind configurable policies, but browser viewport dimensions must never influence engine projectile lifetime.
+- projectile advance cadence relative to original game cycles — resolved:
+  once per `Lb0ca_update_robots_bullets_and_ai` invocation, unthrottled
+  (unlike robots, which gate movement behind a per-robot cycle-skip
+  counter);
+- cells advanced per update on the X axis — resolved: 2 raw units (1
+  logical cell under the established coordinate-doubling convention) per
+  update, one axis at a time;
+- whether cannon/missile/phaser share speed — resolved: yes, only
+  `BULLET_STRUCT_RANGE` differs by weapon type; movement code is identical;
+- projectile collision footprint/profile and collision ordering — resolved:
+  an ordered, first-hit-wins scan of up to 9 cells (3x3 neighborhood, not a
+  flat 2x2 or generic 8-cell shape), row-by-row with map-edge short-circuits;
+- what terminates projectile life in the original — resolved: range
+  exhaustion, Y-axis out-of-bounds, altitude/height collision via a 2x2
+  max-altitude probe, or robot-strike collision (four independent paths, all
+  cited in `_specs/open-questions.md` §8);
+- whether maximum range or visible-screen departure is the primary expiry
+  rule — resolved: range exhaustion (a per-cycle decrement counter) and
+  in-bounds/collision checks are the only expiry mechanisms found; there is
+  no visible-screen-departure check in the traced code, and the disassembly
+  explicitly relies on physical map-edge fence objects (its own code
+  comment) rather than an explicit X-bounds check.
+
+Still unresolved after issue #72's pass (refined per findings — see
+`_specs/open-questions.md` §8's "Still open" and "Recommended engine policy
+surface" for the precise scope Task 4 should treat as configurable/
+non-canonical):
+
+- exact Y-axis coordinate-doubling status: whether the ±2-per-update Y step
+  represents the same "2 raw units = 1 logical cell" convention as X, given
+  Y's much smaller map extent (`MAP_WIDTH = 16` vs. `MAP_LENGTH = 512`) —
+  not independently verified by this pass;
+- how projectile Z=10 intersects robots of varying stack height and static
+  components — the traced altitude-collision check (`Lb5d6_map_altitude_2x2`)
+  folds terrain, robots, and decorations into one "map altitude" figure and
+  does not distinguish object categories; no separate per-component
+  collision rule was found;
+- whether projectiles collide with all static objects or only particular
+  map/object classes — resolved as "all objects at or above the probed
+  altitude, uniformly," per the same altitude-folding evidence above; there
+  is no object-class-specific collision branch in the traced code;
+- how original screen-relative logic should map to the browser/world model
+  without making viewport size authoritative — no screen-relative expiry
+  logic was found in the traced code at all (see the resolved "primary
+  expiry rule" item above), so this item is now moot rather than open;
+- the raw disassembly range constants (`WEAPON_RANGE_DEFAULT = 5`,
+  `WEAPON_RANGE_MISSILES = 7`, +1 for electronics) describe the executable's
+  actual per-shot travel-cycle limit and are a different, non-interchangeable
+  figure from this project's locked mile-derived `cannon_range_cells` /
+  `missile_range_cells` / `phaser_range_cells` / `electronics_range_bonus_cells`
+  defaults (which derive from the instruction manual's stated mile ranges).
+  This discrepancy is recorded, not reconciled — see
+  `_specs/open-questions.md` §8's "Raw disassembly range figures vs. this
+  project's locked mile-derived ranges" note. The locked `rules.py` values
+  are not to be changed by this finding.
+
+Until fully resolved, projectile architecture may be implemented behind
+configurable policies per `_specs/open-questions.md` §8's "Recommended
+engine policy surface" note, but browser viewport dimensions must never
+influence engine projectile lifetime.
 
 ### Damage / accuracy / strength / electronics — unresolved details
 
-Research must determine where possible:
+Issue #74 (M6.5) traced the Spectrum disassembly (`santiontanon/netherearth-disassembly`,
+`netherearth-annotated.asm`) and resolved all items below directly from code
+evidence; see `_specs/open-questions.md` §9 for the full citation trail.
+Resolved items are removed from this list.
 
-- exact integer arithmetic for `(60 - (robot_height + ground_height)) / 4`;
-- order of multiplier application and truncation;
-- exact robot strength representation and starting strength;
-- hit/miss probability calculation;
-- range contribution to hit probability;
-- whether a successful projectile collision can still miss through an accuracy roll;
-- whether components are damaged individually or only aggregate robot strength;
-- electronics accuracy/effective-range behavior beyond the already locked +3-mile nominal range statement;
-- electronics damage-resistance modifier;
-- any weapon-specific accuracy behavior.
+Resolved by issue #74 (see `_specs/open-questions.md` §9 for citations —
+not repeated here):
 
-No component-damage system or electronics modifier may be invented without evidence/owner approval.
+- exact integer arithmetic for `(60 - (robot_height + ground_height)) / 4` —
+  resolved: two consecutive `srl a` instructions on a non-negative operand,
+  i.e. unsigned floor-division by 4, no separate rounding step;
+- order of multiplier application and truncation — resolved: base damage is
+  computed once (`d`), then accumulated via `b`-times repeated addition
+  (`b` = bullet type 1/2/3), giving `base * (b + 1)` = `base * 2/3/4` for
+  cannon/missile/phaser — arithmetically identical to the already-locked
+  multipliers, no further rounding after the initial floor-division;
+- exact robot strength representation and starting strength — resolved: a
+  single signed byte (`ROBOT_STRUCT_STRENGTH`), initialized to exactly `100`
+  at both robot-spawn sites; see §9's scale-reconciliation note (no unit
+  conversion needed, unlike the mile/cell range discrepancy in §8, but Task 6
+  should confirm `robot_height`/`ground_height` inputs are wired on the same
+  raw 13–38 disassembly scale before treating `100` as final);
+- hit/miss probability calculation — resolved: none exists. No RNG call
+  (`Ld358_random` or otherwise) appears anywhere in
+  `Lb7a7_potentially_hit_a_robot`; a geometric collision always deals damage;
+- range contribution to hit probability — moot, since no hit-probability
+  roll exists at all in the traced collision-damage path;
+- whether a successful projectile collision can still miss through an
+  accuracy roll — resolved: no, there is no accuracy roll after collision;
+- whether components are damaged individually or only aggregate robot
+  strength — resolved: aggregate only. The full `ROBOT_STRUCT_*` layout (16
+  bytes) has exactly one strength field and no per-piece/per-weapon health
+  field;
+- electronics damage-resistance modifier — resolved: none found. The
+  damage-calculation path was searched specifically for a second electronics
+  check beyond the already-documented firing-time range bonus (§8's
+  `Lb6d6_weapon_fire` finding) and none exists;
+- electronics accuracy/effective-range behavior beyond the already locked
+  +3-mile nominal range statement — moot, since no accuracy roll exists to
+  be affected, and range's only disassembly-verified effect remains the
+  already-documented +1 raw-unit bonus to `BULLET_STRUCT_RANGE`;
+- any weapon-specific accuracy behavior — resolved: none found; weapon type
+  only selects the damage multiplier (and, at fire time, projectile range),
+  never an accuracy factor.
+
+No component-damage system or electronics resistance modifier was invented;
+the evidence found none, confirming the pre-existing constraint on this
+section.
 
 ---
 

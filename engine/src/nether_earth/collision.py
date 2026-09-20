@@ -114,6 +114,7 @@ __all__ = [
     "commander_vertical_move_allowed",
     "commander_vertical_range",
     "component_vertical_range",
+    "components_at",
     "robot_vertical_range",
 ]
 
@@ -208,7 +209,7 @@ def robot_vertical_range(robot: RobotFixture | Robot) -> VerticalRange:
     return VerticalRange(bottom=0, top=robot.height)
 
 
-def _components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
+def components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
     """Return every static ``Component`` (war base/factory/blocker) at ``(x, y)``.
 
     Queries `structures.py`'s compositional per-component model directly
@@ -220,6 +221,12 @@ def _components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
     structures (enforced by `occupancy.py` at map-load time), but this
     function does not assume that invariant -- it simply returns whatever
     components are present.
+
+    Public (issue #73, M6.4): `combat.py`'s projectile-vs-geometry collision
+    check reuses this exact cell lookup rather than re-implementing the
+    same war-bases/factories/blockers walk a second time, so the two
+    modules' notion of "what static geometry occupies this cell" can never
+    silently diverge.
     """
     all_structures: list[WarBase | Factory | Blocker] = [
         *world.war_bases,
@@ -283,7 +290,7 @@ def _blocking_ranges_at(
     "descend through it" rule) stays visible at the call site rather than
     being folded into an opaque range list.
     """
-    ranges = [component_vertical_range(component) for component in _components_at(world, x, y)]
+    ranges = [component_vertical_range(component) for component in components_at(world, x, y)]
     ranges.extend(robot_vertical_range(robot) for robot in _robots_at(robots, x, y))
     return tuple(ranges)
 

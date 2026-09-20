@@ -156,6 +156,42 @@ this ``int`` schema without inventing precision. Per `_specs/open-questions.md`
 values (``3`` / ``2`` / ``1``) -- chosen only to satisfy the locked
 qualitative ordering, not presented as recovered exact Spectrum constants
 -- pending a human decision on how to reconcile the evidence conflict.
+
+Issue #70 (M6.1, `_specs/milestones/06-combat-damage-victory.md`, "Locked
+combat rules") adds the nine combat metadata fields: ``cannon_range_cells``,
+``missile_range_cells``, ``phaser_range_cells``,
+``electronics_range_bonus_cells``, ``nuclear_radius_cells``,
+``normal_projectile_altitude``, ``cannon_damage_multiplier``,
+``missile_damage_multiplier``, ``phaser_damage_multiplier``. These are the
+canonical locked Spectrum weapon range/effect defaults from the milestone
+spec's "Canonical default ranges/effects" section, converted from miles to
+cells via the shared ``miles_to_cells`` helper already defined in this
+module: cannon 10 miles = 20 cells, missile 14 miles = 28 cells, phaser
+10 miles = 20 cells, electronics bonus 3 miles = 6 cells, nuclear radius
+8 miles = 16 cells. All weapon ranges and the nuclear radius resolve from
+`_specs/open-questions.md` §3 ("miles/grid conversion -- RESOLVED") and are
+locked game rules; projectile altitude and damage multipliers are explicitly
+locked Spectrum defaults per the milestone spec. Together these form the
+authoritative rule set for all later combat tasks.
+
+Issue #73 (M6.4, `_specs/milestones/06-combat-damage-victory.md`) adds
+``projectile_advance_ticks``: the cadence (in simulation ticks) at which
+in-flight projectiles advance one cell, consumed by `combat.py`'s
+``is_projectile_advance_tick``/``advance_projectiles``. This value is
+evidence-backed: issue #72's disassembly research
+(`_specs/open-questions.md` §8) found bullets and robots share the same
+per-game-cycle dispatcher, and issue #61 (M5.2) already mapped that shared
+game-cycle boundary onto this project's locked 20 Hz tick rate as "1 cycle
+= 4 ticks" -- reused here unchanged, default ``4``.
+
+(Issue #70's original placeholder field ``projectile_max_range_cells`` --
+an as-yet-unresolved projectile-lifetime rule -- was removed as dead code
+during the M6 final review: the final per-weapon range design
+(`combat.weapon_range_cells()` plus the electronics range bonus) made it
+obsolete before anything ever consumed it. Per-weapon range is what
+actually gates projectile range/termination; see `combat.py`'s
+:func:`~nether_earth.combat.weapon_range_cells` and
+:func:`~nether_earth.combat.advance_projectiles`.)
 """
 
 from dataclasses import dataclass
@@ -318,6 +354,50 @@ class EngineRules:
       duration is configurable game-rule/scenario data."  Neutral factory
       acquisition (`_specs/functional-spec.md` §9) is instantaneous for the
       first qualifying robot and does not consume this field at all.
+    - ``cannon_range_cells``: the maximum firing range of a cannon-equipped
+      robot, in grid cells (issue #70, M6.1,
+      `_specs/milestones/06-combat-damage-victory.md` "Locked combat rules").
+      Locked Spectrum default: 10 miles = 20 cells.
+    - ``missile_range_cells``: the maximum firing range of a
+      missile-equipped robot, in grid cells (issue #70, M6.1). Locked
+      Spectrum default: 14 miles = 28 cells.
+    - ``phaser_range_cells``: the maximum firing range of a
+      phaser-equipped robot, in grid cells (issue #70, M6.1). Locked
+      Spectrum default: 10 miles = 20 cells.
+    - ``electronics_range_bonus_cells``: the maximum additional range granted
+      by an electronics module when fitted, in grid cells (issue #70, M6.1).
+      Locked Spectrum default: 3 miles = 6 cells. This is a nominal bonus;
+      exact electronics accuracy and resistance mechanics remain research-owned.
+    - ``nuclear_radius_cells``: the blast radius of a nuclear detonation,
+      in grid cells (issue #70, M6.1). Locked Spectrum default: 8 miles =
+      16 cells. All robots and structures within this radius of the
+      detonation point are destroyed; the carrier robot is always destroyed.
+    - ``normal_projectile_altitude``: the fixed altitude at which normal
+      (cannon/missile/phaser) projectiles travel, in the same altitude units
+      as the commander vertical envelope (issue #70, M6.1). Locked Spectrum
+      default: ``10``. This altitude is independent of the firing robot's
+      height and applies uniformly to all three normal weapon types.
+    - ``cannon_damage_multiplier``: the damage multiplier for cannon hits
+      (issue #70, M6.1). Locked Spectrum default: ``2``. Final damage is
+      computed as ``base_damage * multiplier`` where ``base_damage`` is
+      derived from the target robot's height, stack height, and ground height.
+    - ``missile_damage_multiplier``: the damage multiplier for missile hits
+      (issue #70, M6.1). Locked Spectrum default: ``3``.
+    - ``phaser_damage_multiplier``: the damage multiplier for phaser hits
+      (issue #70, M6.1). Locked Spectrum default: ``4``.
+    - ``projectile_advance_ticks``: the number of simulation ticks between
+      projectile-advance cadence updates (issue #73, M6.4, per
+      `_specs/open-questions.md` §8 "Advance cadence"). The disassembly
+      evidence found by issue #72's research shows bullets and robots are
+      driven from the same per-game-cycle dispatcher
+      (`Lb0ca_update_robots_bullets_and_ai`), with the same outer
+      game-cycle boundary already mapped by issue #61 (M5.2) onto this
+      project's locked 20 Hz tick rate as "1 cycle = 200 ms = 4 ticks" --
+      unlike a robot's per-cycle movement (which is additionally throttled
+      by its own chassis/terrain-speed skip counter), a bullet has no such
+      throttle and advances on every single game cycle. Reusing that same
+      "1 cycle = 4 ticks" conversion factor here is therefore an
+      evidence-backed default (``4``), not an independent placeholder.
     """
 
     commander_min_altitude: int = 0
@@ -355,6 +435,16 @@ class EngineRules:
     robot_rough_multiplier_anti_grav: int = 1
     robot_ditch_multiplier_anti_grav: int = 1
     capture_duration_ticks: int = 1440
+    cannon_range_cells: int = miles_to_cells(10)
+    missile_range_cells: int = miles_to_cells(14)
+    phaser_range_cells: int = miles_to_cells(10)
+    electronics_range_bonus_cells: int = miles_to_cells(3)
+    nuclear_radius_cells: int = miles_to_cells(8)
+    normal_projectile_altitude: int = 10
+    cannon_damage_multiplier: int = 2
+    missile_damage_multiplier: int = 3
+    phaser_damage_multiplier: int = 4
+    projectile_advance_ticks: int = 4
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -416,6 +506,21 @@ class EngineRules:
                 raise ValueError(f"{field_name} must be a positive integer")
         if self.capture_duration_ticks <= 0:
             raise ValueError("capture_duration_ticks must be a positive integer")
+        for field_name in (
+            "cannon_range_cells",
+            "missile_range_cells",
+            "phaser_range_cells",
+            "electronics_range_bonus_cells",
+            "nuclear_radius_cells",
+            "normal_projectile_altitude",
+            "cannon_damage_multiplier",
+            "missile_damage_multiplier",
+            "phaser_damage_multiplier",
+        ):
+            if getattr(self, field_name) <= 0:
+                raise ValueError(f"{field_name} must be a positive integer")
+        if self.projectile_advance_ticks <= 0:
+            raise ValueError("projectile_advance_ticks must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should
