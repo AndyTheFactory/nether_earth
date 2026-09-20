@@ -21,8 +21,13 @@ from fastapi import FastAPI
 
 from app.match.manager import MatchManager
 from app.match.models import Match
-from app.match.reconnect import DisconnectEvent, DisconnectNotifier, ReconnectCoordinator
-from app.match.runtime import MatchRuntimeRegistry, TickCommandObserver, TickObserver
+from app.match.reconnect import (
+    DEFAULT_GRACE_SECONDS,
+    DisconnectEvent,
+    DisconnectNotifier,
+    ReconnectCoordinator,
+)
+from app.match.runtime import TICK_RATE_HZ, MatchRuntimeRegistry, TickCommandObserver, TickObserver
 from app.replay import ReplayWriter, make_replay_lifecycle_notifier, make_replay_tick_recorder
 from app.transport import ConnectionRegistry, create_websocket_router
 from app.transport.disconnects import make_disconnect_notifier
@@ -48,7 +53,12 @@ def _combine_disconnect_notifiers(*notifiers: DisconnectNotifier) -> DisconnectN
     return _notify
 
 
-def create_app(*, replay_dir: Path | None = None) -> FastAPI:
+def create_app(
+    *,
+    replay_dir: Path | None = None,
+    reconnect_grace_seconds: float = DEFAULT_GRACE_SECONDS,
+    tick_rate_hz: float = TICK_RATE_HZ,
+) -> FastAPI:
     """Build a fresh, fully-wired app instance.
 
     ``replay_dir``, if supplied, overrides where this app's ``ReplayWriter``
@@ -56,11 +66,20 @@ def create_app(*, replay_dir: Path | None = None) -> FastAPI:
     (the default) falls back to ``ReplayWriter``'s own
     ``$NETHER_EARTH_REPLAY_DIR``-or-repo-relative default, which is what a
     real deployment (the module-level ``app`` below) wants.
+
+    ``reconnect_grace_seconds``/``tick_rate_hz`` default to this app's real
+    production values (``ReconnectCoordinator``'s locked 60s grace,
+    ``MatchRuntime``'s locked 20Hz tick rate -- see those modules' own
+    docstrings for why those specific values are non-negotiable gameplay
+    policy) and exist purely so a test can build the *exact* same
+    composition-root wiring as a real deployment while substituting a short
+    grace period/fast tick interval, instead of duplicating this function's
+    wiring in a second, drift-prone copy (M7 Task 10, issue #99).
     """
     fastapi_app = FastAPI(title="Nether Earth", version="0.0.0")
 
     connection_registry = ConnectionRegistry()
-    runtime_registry = MatchRuntimeRegistry()
+    runtime_registry = MatchRuntimeRegistry(tick_rate_hz=tick_rate_hz)
     replay_writer = ReplayWriter(base_dir=replay_dir)
 
     def _on_tick_factory(match: Match) -> TickObserver:
@@ -81,6 +100,7 @@ def create_app(*, replay_dir: Path | None = None) -> FastAPI:
             make_disconnect_notifier(connection_registry),
             make_replay_lifecycle_notifier(replay_writer),
         ),
+        grace_seconds=reconnect_grace_seconds,
         runtime_registry=runtime_registry,
     )
 
