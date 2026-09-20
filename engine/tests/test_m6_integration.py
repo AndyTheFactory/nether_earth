@@ -45,6 +45,19 @@ overclaim, every M6 policy choice still flagged non-canonical by Task 3
   (``Lb0fa_robot_update``/``Lb116_robot_destroyed``), which this milestone
   deliberately does not implement (`destroy_robot`'s own docstring) -- a
   documented simplification, not a fidelity claim.
+- This scenario's range-exhaustion assertions (Lanes C/D3, 20/28 cells) rest
+  on this project's locked mile-derived range constants; `_specs/open-
+  questions.md` §8's "Raw disassembly range figures vs. this project's
+  locked mile-derived ranges" section leaves those locked values explicitly
+  NOT reconciled against the disassembly's much smaller raw
+  ``BULLET_STRUCT_RANGE`` counters (5/7 cells) -- a still-open research
+  question, not silently resolved by this test.
+- This scenario hardcodes ``strength=100`` and asserts exact damage values
+  off it; `_specs/open-questions.md` §9 records the starting-strength
+  figure as resolved only "subject to the scale-reconciliation caveat" that
+  ``robot_height``/``ground_height`` be confirmed on the same disassembly-
+  native raw scale once wired to real data -- a noted caveat, not a
+  silently-assumed fact.
 """
 
 from __future__ import annotations
@@ -69,6 +82,7 @@ from nether_earth.engine import CommandAccepted
 from nether_earth.events import Event, order_events
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.map import BootstrapMap, load_world_map
+from nether_earth.movement import folded_robot_occupancy
 from nether_earth.orders import SearchDestroy, SearchDestroyTarget
 from nether_earth.replay import ReplayFixture, run_fixture
 from nether_earth.robot import Robot
@@ -101,12 +115,17 @@ NUCLEAR_RADIUS = DEFAULT_RULES.nuclear_radius_cells  # 16
 ALTITUDE = DEFAULT_RULES.normal_projectile_altitude  # 10
 CANNON_MULT = DEFAULT_RULES.cannon_damage_multiplier  # 2
 
-# A fixed, arbitrarily large offset used only to steer
+# A small, on-map-relative offset used only to steer
 # `combat.resolve_fire_direction`'s dominant-axis rule east: the exact
 # magnitude is irrelevant to direction resolution (only the sign of
 # `target_x - robot.x` matters), and no projectile in this fixture ever
-# travels far enough for the offset's actual value to matter.
-FAR_EAST = 1000
+# travels far enough for the offset's actual value to matter. Kept small
+# and relative to each shooter's own x (rather than a fixed far-away
+# constant) so every lane's target stays within the map's actual width
+# (`MAP_WIDTH = 200`) -- `apply_fire` performs no target-bounds validation
+# today, so an out-of-bounds target would silently work by accident rather
+# than by design.
+FAR_EAST = 50
 
 
 def east_of(x: int) -> int:
@@ -518,7 +537,8 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert b_terminated[0].tick == b_hit_tick == 16
     b_damaged = [e for e in damaged if e.owner == PLAYER_TWO and e.tick == b_hit_tick]
     assert len(b_damaged) == 1
-    assert b_damaged[0].damage == (60 - (ALTITUDE + 0)) // 4 * CANNON_MULT  # bare-terrain formula
+    b_target_height = states[FIRE_TICK].robot_for(ROBOT_B_TARGET).height  # type: ignore[union-attr]
+    assert b_damaged[0].damage == (60 - (b_target_height + 0)) // 4 * CANNON_MULT  # bare-terrain formula
     target_after_first_hit = states[b_hit_tick].robot_for(ROBOT_B_TARGET)
     assert target_after_first_hit is not None
     assert target_after_first_hit.strength == 100 - b_damaged[0].damage
@@ -544,7 +564,11 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert c_terminated[0].hit_robot_id is None  # clear path: no collision at all
 
     # ---------------------------------------------------------------
-    # Lane D2: obstructed path (static collision, height >= ALTITUDE).
+    # Lane D2: obstructed path, exactly AT the inclusive boundary --
+    # `blocker-d2`'s height equals `ALTITUDE` exactly (10 == 10), proving
+    # the `>=` comparison in `combat._components_at_inclusive_blocking`
+    # really blocks a projectile at the boundary value itself, not just
+    # comfortably above it.
     # ---------------------------------------------------------------
     d2_distance = D2_BLOCKER_X - D2_SHOOTER_X  # 5
     d2_expected_tick = static_collision_tick(d2_distance)
@@ -562,7 +586,10 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     # ---------------------------------------------------------------
     d3_distance = D3_BLOCKER_X - D3_SHOOTER_X  # 5
     d3_pass_tick = static_collision_tick(d3_distance)  # the tick it WOULD have
-    # collided at, if height 9 blocked -- it does not (9 < ALTITUDE).
+    # collided at, if height 9 blocked -- it does not, proving the boundary
+    # from the opposite side to Lane D2: one unit below `ALTITUDE` (9 < 10)
+    # does not block, while exactly `ALTITUDE` (Lane D2's height-10 blocker)
+    # does.
     projectile_at_blocker_tick = None
     for state in states[: d3_pass_tick + 1]:
         for projectile in state.projectiles:
@@ -610,7 +637,18 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert f_projectile_shape.z == e_projectile.z == ALTITUDE
 
     f_prey_final = final.robot_for(ROBOT_F_PREY)
-    assert f_prey_final is None or f_prey_final.strength < 100  # actually damaged, not a no-op
+    # Normal damage genuinely destroys the prey robot by the fixture's final
+    # tick (not merely "damaged or destroyed, whichever" -- both this
+    # lookup and the occupancy/roster checks below must show it gone).
+    assert f_prey_final is None
+    assert ROBOT_F_PREY not in {robot.entity_id for robot in final.robots}
+    f_prey_occupancy = folded_robot_occupancy(drive.world, final)  # type: ignore[arg-type]
+    assert not f_prey_occupancy.is_occupied(15, F_Y)  # ROBOT_F_PREY's former cell
+    # ROBOT_F_PREY was never mid-capture and carried no order in this lane's
+    # design, so there is no capture-progress reference for `destroy_robot`
+    # to clean up here -- that cleanup path already has its own dedicated
+    # coverage in `test_combat_damage.py`'s
+    # `test_destroy_robot_removes_capture_progress_naming_it`.
 
     # ---------------------------------------------------------------
     # Lane G: a commander on active combat geometry is untargetable.
@@ -633,21 +671,33 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert g_terminated[0].hit_robot_id == ROBOT_G_PREY
 
     # ---------------------------------------------------------------
-    # Lane H: factories/war bases are structurally immune to normal weapons.
+    # Lane H: factories/war bases are structurally immune to normal weapons
+    # -- proven both without and, now, WITH a real geometric collision.
     # ---------------------------------------------------------------
-    h_terminated = _fired_by(terminated, ROBOT_H_SHOOTER) + _fired_by(terminated, ROBOT_H2_SHOOTER)
-    assert len(h_terminated) == 2
-    # Both shots pass straight over their target (height 3 < ALTITUDE) and
-    # expire by range exhaustion, never a structure hit -- there is no
-    # `ProjectileTerminationReason` for "hit a structure" at all, and no
+    h_factory_terminated = _fired_by(terminated, ROBOT_H_SHOOTER)
+    h_warbase_terminated = _fired_by(terminated, ROBOT_H2_SHOOTER)
+    assert len(h_factory_terminated) == 1
+    assert len(h_warbase_terminated) == 1
+    # `factory-h` stays below `ALTITUDE` (height 3): the shot passes
+    # straight over it and expires by range exhaustion, never colliding.
+    assert h_factory_terminated[0].reason is ProjectileTerminationReason.RANGE_EXHAUSTED
+    assert h_factory_terminated[0].hit_robot_id is None
+    # `warbase-h` is at height 12 (>= ALTITUDE): the shot DOES geometrically
+    # collide with it, the same STATIC_COLLISION outcome a blocker would
+    # produce (`combat._components_at_inclusive_blocking` makes no
+    # distinction between a blocker's and a structure's component). The
+    # real proof of structural immunity is what happens next: a normal
+    # weapon hits a structure head-on and nothing is destroyed, because no
     # normal-weapon code path ever calls `destruction.destroy_structure`
     # (see `destruction.py`'s own "Structure-only-via-nuclear is a
     # structural, not a runtime, invariant" docstring section).
-    for event in h_terminated:
-        assert event.reason is ProjectileTerminationReason.RANGE_EXHAUSTED
-        assert event.hit_robot_id is None
+    h_warbase_distance = 65 - 60  # WARBASE_H's cell - ROBOT_H2_SHOOTER.x
+    assert h_warbase_terminated[0].reason is ProjectileTerminationReason.STATIC_COLLISION
+    assert h_warbase_terminated[0].tick == static_collision_tick(h_warbase_distance) == 20
+    assert (h_warbase_terminated[0].x, h_warbase_terminated[0].y) == (65, H_Y)
+    assert h_warbase_terminated[0].hit_robot_id is None
     assert FACTORY_H not in final.structure_destruction
-    assert WARBASE_H not in final.structure_destruction
+    assert WARBASE_H not in final.structure_destruction  # survives its real collision
     assert structures_destroyed  # the suite as a whole does exercise destruction (Lanes I/J)
     assert all(e.structure_id not in (FACTORY_H, WARBASE_H) for e in structures_destroyed)
 
@@ -668,15 +718,19 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
         or (isinstance(e, StructureDestroyedEvent) and e.structure_id == FACTORY_I_IN16)
     ]
     # Carrier -> robots -> structures, in that fixed order (Task 8's
-    # documented `execute_nuclear_detonation` sequence), recoverable purely
-    # from strictly increasing `sequence` numbers.
+    # documented `execute_nuclear_detonation` sequence). Note `events` is
+    # already `order_events`-sorted by `sequence` per tick (see `_drive`),
+    # so `ordered_kinds`' order below reflects real event-sequence order,
+    # not incidental list-construction order; the `sequence` numbers
+    # themselves are only checked here for uniqueness (no ties), not for
+    # sortedness (which `order_events` already guarantees upstream and
+    # this test does not re-verify).
     ordered_kinds = [type(e).__name__ for e in lane_i_destroy_events]
     assert ordered_kinds == ["RobotDestroyedEvent", "RobotDestroyedEvent", "StructureDestroyedEvent"]
     assert lane_i_destroy_events[0].entity_id == ROBOT_I_CARRIER  # type: ignore[attr-defined]
     assert lane_i_destroy_events[1].entity_id == ROBOT_I_IN16  # type: ignore[attr-defined]
     sequences = [e.sequence for e in lane_i_destroy_events]
-    assert sequences == sorted(sequences)
-    assert len(set(sequences)) == len(sequences)  # strictly increasing, no ties
+    assert len(set(sequences)) == len(sequences)  # no ties among the three
 
     # ---------------------------------------------------------------
     # Lane J: nuclear destruction of the opponent's final war base
@@ -751,6 +805,11 @@ def test_snapshot_content_captures_in_flight_projectile_state() -> None:
     assert entry["x"] == live_projectile.x
     assert entry["y"] == live_projectile.y
     assert entry["z"] == live_projectile.z
+    assert entry["dx"] == live_projectile.dx
+    assert entry["dy"] == live_projectile.dy
+    assert entry["owner"] == live_projectile.owner.to_json()
+    assert entry["source_robot_id"] == live_projectile.source_robot_id.to_json()
+    assert entry["created_tick"] == live_projectile.created_tick
     assert entry["travelled_cells"] == live_projectile.travelled_cells
     assert entry["weapon"] == live_projectile.weapon.value
     assert entry["max_range_cells"] == live_projectile.max_range_cells
