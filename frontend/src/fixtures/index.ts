@@ -248,7 +248,7 @@ export const FIXTURES: Fixture[] = [
     messages: [
       ...intro(),
       snapshot(base(500, { robots: [bipodRobot] })),
-      { protocolVersion: 1, type: 'paused', matchId: MATCH, disconnectedPlayerId: 'p2', graceDeadlineMs: 60000 },
+      { protocolVersion: 1, type: 'paused', matchId: MATCH, disconnectedPlayerId: 'p2', graceDeadlineMs: Date.now() + 60000 },
     ],
   },
   {
@@ -294,7 +294,7 @@ export const FIXTURES: Fixture[] = [
     messages: [
       ...intro(),
       snapshot(base(700)),
-      { protocolVersion: 1, type: 'paused', matchId: MATCH, disconnectedPlayerId: 'p2', graceDeadlineMs: 60000 },
+      { protocolVersion: 1, type: 'paused', matchId: MATCH, disconnectedPlayerId: 'p2', graceDeadlineMs: Date.now() + 60000 },
       { protocolVersion: 1, type: 'forfeit', matchId: MATCH, forfeitingPlayerId: 'p2', winnerPlayerId: 'p1', reason: 'disconnect_timeout' },
     ],
   },

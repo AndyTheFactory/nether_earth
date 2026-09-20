@@ -15,7 +15,7 @@ export function runFixtureMessage(store: Store, msg: InboundMessage, nowMs: numb
 }
 
 /** Plays a fixture's messages with a fixed inter-message delay (tick cadence). */
-export function playFixture(store: Store, fixture: Fixture, stepMs = 50, now: () => number = () => performance.now()): () => void {
+export function playFixture(store: Store, fixture: Fixture, stepMs = 50, now: () => number = () => performance.now(), limit = Infinity): () => void {
   store.reset();
   store.setConnection({
     status: 'fixture',
@@ -23,7 +23,7 @@ export function playFixture(store: Store, fixture: Fixture, stepMs = 50, now: ()
   });
   let i = 0;
   const timer = setInterval(() => {
-    if (i >= fixture.messages.length) {
+    if (i >= Math.min(limit, fixture.messages.length)) {
       clearInterval(timer);
       return;
     }
