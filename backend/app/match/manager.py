@@ -37,6 +37,7 @@ from app.match.models import (
     MatchRuntimeState,
     PlayerSlot,
 )
+from app.match.reconnect import ReconnectCoordinator
 from app.match.runtime import MatchRuntimeRegistry, TickObserver
 
 #: Deterministic v1 two-player seat order: the first guest to create/join a
@@ -112,6 +113,17 @@ class MatchManager:
     factory's return type is `runtime.py`'s own ``TickObserver``, and its
     concrete body is supplied by whoever constructs this class
     (``app.main``).
+
+    ``reconnect``, if supplied (M7 Task 7, issue #96), is the async
+    disconnect/reconnect-grace policy layer: ``mark_disconnected``/
+    ``mark_reconnected`` delegate to it, and ``finish_match``/
+    ``dispose_match`` cancel its pending deadline-watcher tasks for the
+    match, mirroring the ``runtime`` parameter's own start/cancel/dispose
+    wiring. Like ``runtime``, this class never awaits anything itself --
+    ``ReconnectCoordinator``'s public methods are synchronous facades over
+    asyncio internals (see its module docstring), so passing
+    ``reconnect=None`` (the default) keeps this class exactly as
+    synchronous/event-loop-free as before Task 7 existed.
     """
 
     def __init__(
@@ -121,11 +133,13 @@ class MatchManager:
         map_data: BootstrapMap | None = None,
         runtime: MatchRuntimeRegistry | None = None,
         on_tick_factory: Callable[[Match], TickObserver | None] | None = None,
+        reconnect: ReconnectCoordinator | None = None,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
         self._map_data = map_data if map_data is not None else _default_bootstrap_map(self._scenario)
         self._runtime = runtime
         self._on_tick_factory = on_tick_factory
+        self._reconnect = reconnect
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
         self._match_id_by_join_code: dict[str, str] = {}
@@ -246,6 +260,8 @@ class MatchManager:
             match.state = MatchRuntimeState.FINISHED
             if self._runtime is not None:
                 self._runtime.cancel(match_id)
+            if self._reconnect is not None:
+                self._reconnect.cancel(match_id)
         return match
 
     def dispose_match(self, match_id: str) -> None:
@@ -265,6 +281,8 @@ class MatchManager:
                 self._match_id_by_session_token.pop(slot.session_token, None)
             if self._runtime is not None:
                 self._runtime.dispose(match_id)
+            if self._reconnect is not None:
+                self._reconnect.dispose(match_id)
 
     # -- lookup ---------------------------------------------------------------
 
@@ -296,22 +314,46 @@ class MatchManager:
     def mark_disconnected(self, session_token: str) -> None:
         """Record that the connection owning ``session_token`` has closed.
 
-        Placeholder bookkeeping hook for Task 7 (issue #95, disconnect grace
-        timer / pause-and-resume policy): this task (M7 Task 5, issue #94)
-        only guarantees that the WebSocket transport calls exactly one
-        well-defined notification point per disconnect. Today this method
-        does nothing beyond a defensive lookup -- it does not pause the
-        match, start a grace timer, or touch ``match.state``. An unknown
-        token (e.g. notification for an already-disposed match) is silently
-        ignored rather than raising, since "the match is already gone" is an
-        expected, non-exceptional outcome for a disconnect notification.
+        Delegates to the ``reconnect`` policy layer (M7 Task 7, issue #96),
+        if one was supplied: it pauses the match on the first currently-
+        disconnected player and starts that player's reconnect grace timer
+        (see ``ReconnectCoordinator.mark_disconnected``). With
+        ``reconnect=None`` this remains the pre-Task-7 no-op bookkeeping
+        call (e.g. tests that only need session/lifecycle bookkeeping and no
+        asyncio at all). An unknown token (e.g. notification for an
+        already-disposed match) is silently ignored rather than raising,
+        since "the match is already gone" is an expected, non-exceptional
+        outcome for a disconnect notification.
         """
         with self._lock:
-            if session_token not in self._match_id_by_session_token:
+            match, player_id = self._lookup_session_locked(session_token)
+            if match is None or player_id is None:
                 return
-            # Task 7 will transition the owning match to
-            # MatchRuntimeState.PAUSED_DISCONNECTED and start its reconnect
-            # grace timer here.
+            if self._reconnect is not None:
+                self._reconnect.mark_disconnected(match, player_id)
+
+    def mark_reconnected(self, session_token: str) -> None:
+        """Record that the connection owning ``session_token`` has reattached.
+
+        Delegates to the ``reconnect`` policy layer (M7 Task 7, issue #96),
+        if one was supplied: it cancels that player's reconnect grace timer
+        and, once both players are connected again, resumes the match (see
+        ``ReconnectCoordinator.mark_reconnected``). A no-op (like
+        ``mark_disconnected``) for an unknown token or ``reconnect=None``.
+
+        Callers (``app.transport.ws``'s ``ClientReconnect`` handling) are
+        expected to call this once per successful reconnect, in addition to
+        -- not instead of -- registering the new socket with
+        ``ConnectionRegistry`` and sending the resync snapshot; this method
+        touches only lifecycle/pause bookkeeping, never the connection
+        table or any wire message itself.
+        """
+        with self._lock:
+            match, player_id = self._lookup_session_locked(session_token)
+            if match is None or player_id is None:
+                return
+            if self._reconnect is not None:
+                self._reconnect.mark_reconnected(match, player_id)
 
     def __len__(self) -> int:
         with self._lock:
@@ -337,6 +379,26 @@ class MatchManager:
             # this class's own public API today, but guarded rather than
             # silently returning a wrong slot if that ever changes.
             raise InvalidSessionTokenError("session token does not resolve to any match")
+        return match, slot.player_id
+
+    def _lookup_session_locked(self, session_token: str) -> tuple[Match | None, PlayerId | None]:
+        """Best-effort, non-raising counterpart to ``_resolve_session_locked``.
+
+        Used only by ``mark_disconnected``/``mark_reconnected``: an unknown
+        or stale token is an expected, silently-ignored outcome for a
+        connection-lifecycle notification (unlike ``resolve_session``, which
+        is used for message *authorization* and must raise loudly on a bad
+        token).
+        """
+        match_id = self._match_id_by_session_token.get(session_token)
+        if match_id is None:
+            return None, None
+        match = self._matches.get(match_id)
+        if match is None:
+            return None, None
+        slot = match.slot_for_token(session_token)
+        if slot is None:
+            return None, None
         return match, slot.player_id
 
     def _generate_unique_join_code(self) -> str:

@@ -11,8 +11,10 @@ from fastapi import FastAPI
 
 from app.match.manager import MatchManager
 from app.match.models import Match
+from app.match.reconnect import ReconnectCoordinator
 from app.match.runtime import MatchRuntimeRegistry, TickObserver
 from app.transport import ConnectionRegistry, create_websocket_router
+from app.transport.disconnects import make_disconnect_notifier
 from app.transport.snapshots import make_tick_broadcaster
 
 
@@ -29,7 +31,16 @@ def create_app() -> FastAPI:
         # match's `MatchRuntime` completes (M7 Task 6, issue #95).
         return make_tick_broadcaster(connection_registry, match.match_id)
 
-    match_manager = MatchManager(runtime=runtime_registry, on_tick_factory=_on_tick_factory)
+    reconnect_coordinator = ReconnectCoordinator(
+        notify=make_disconnect_notifier(connection_registry),
+        runtime_registry=runtime_registry,
+    )
+
+    match_manager = MatchManager(
+        runtime=runtime_registry,
+        on_tick_factory=_on_tick_factory,
+        reconnect=reconnect_coordinator,
+    )
 
     fastapi_app.state.match_manager = match_manager
     fastapi_app.state.runtime_registry = runtime_registry

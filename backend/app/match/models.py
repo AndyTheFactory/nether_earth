@@ -23,11 +23,13 @@ from nether_earth.state import GameState
 class MatchRuntimeState(Enum):
     """Runtime lifecycle state of one match.
 
-    Only ``WAITING`` -> ``ACTIVE`` and ``ACTIVE``/``WAITING`` -> ``FINISHED``
-    transitions are implemented by this task's ``MatchManager``.
-    ``PAUSED_DISCONNECTED`` is part of the state's full vocabulary (required
-    by issue #92's acceptance criteria) but no transition into or out of it
-    is implemented here -- that is Task 7's (disconnect grace) scope.
+    ``WAITING`` -> ``ACTIVE`` and ``ACTIVE``/``WAITING`` -> ``FINISHED``
+    transitions are implemented by ``MatchManager`` (M7 Task 2, issue #92).
+    ``ACTIVE`` <-> ``PAUSED_DISCONNECTED`` and ``PAUSED_DISCONNECTED`` ->
+    ``FINISHED`` (forfeit/no-contest) are implemented by
+    ``app.match.reconnect.ReconnectCoordinator`` (M7 Task 7, issue #96) --
+    the only path into ``PAUSED_DISCONNECTED`` is a disconnect notification;
+    there is no manual pause in v1.
     """
 
     WAITING = "waiting"

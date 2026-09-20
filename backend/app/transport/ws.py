@@ -47,22 +47,25 @@ the "minimal/representative conversion" the task brief calls out as
 sufficient for this task; issue #98 is expected to replace this with a real
 payload -> `Command` subclass mapping.
 
-Disconnect notification: `MatchManager.mark_disconnected` (added by this
-task) is called through a single `teardown_connection()` helper, itself
-invoked from exactly one `finally` block plus (redundantly-but-safely, via
-the same helper) the `leave` handler, regardless of whether the connection
-ends via a clean `leave` message, a WebSocket close/error, or an auth
-rejection after a session was already bound. `teardown_connection()` first
-unregisters this socket from `ConnectionRegistry` and only notifies if that
-unregister reports this socket was still the one currently registered for
-its `(match_id, player_id)` slot -- this closes a race where a stale
+Disconnect notification: `MatchManager.mark_disconnected` (added by Task 5)
+is called through a single `teardown_connection()` helper, itself invoked
+from exactly one `finally` block plus (redundantly-but-safely, via the same
+helper) the `leave` handler, regardless of whether the connection ends via a
+clean `leave` message, a WebSocket close/error, or an auth rejection after a
+session was already bound. `teardown_connection()` first unregisters this
+socket from `ConnectionRegistry` and only notifies if that unregister
+reports this socket was still the one currently registered for its
+`(match_id, player_id)` slot -- this closes a race where a stale
 connection's delayed teardown (e.g. slow TCP close) could otherwise fire a
 spurious disconnect notification for a player who has since reconnected on
 a newer socket (`ConnectionRegistry.unregister`'s return value exists
-specifically to make that race detectable). It is a bookkeeping no-op
-today; Task 7 (issue #95) owns the actual pause/grace-timer policy behind
-it, which is exactly why this race matters now even though nothing
-observable depends on it yet.
+specifically to make that race detectable). `mark_disconnected` now drives
+the real pause/grace-timer policy (`app.match.reconnect.ReconnectCoordinator`,
+M7 Task 7, issue #96), which is exactly why this race matters -- a spurious
+notification here would otherwise pause/grace-timer a player who never
+actually disconnected. The `reconnect` message handler below calls the
+symmetric `MatchManager.mark_reconnected` to cancel that grace timer and,
+once both players are connected again, resume the match.
 """
 
 from __future__ import annotations
@@ -365,6 +368,12 @@ def create_websocket_router(
 
                 if isinstance(message, ClientReconnect):
                     connection_registry.register(match.match_id, engine_player_id.value, websocket)
+                    # Cancels this player's reconnect-grace deadline watcher
+                    # and, once both players are connected again, resumes
+                    # the match (M7 Task 7, issue #96). A no-op if this
+                    # player was never marked disconnected (e.g. a
+                    # reconnect message on an already-connected session).
+                    match_manager.mark_reconnected(message.session_token)
                     # Read `match.game_state` exactly as it stands -- never
                     # advance/mutate the engine merely to produce a
                     # reconnect snapshot. `game_state` is only `None` if the
