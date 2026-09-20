@@ -413,7 +413,11 @@ def test_default_pvp_overlay_ownership_only_names_the_two_extremes() -> None:
         EntityId("warbase-left"): PLAYER_ONE,
         EntityId("warbase-right"): PLAYER_TWO,
     }
-    assert overlay.spawn_positions == {}
+    # Commander spawns are declared as data for both players (M9 / open
+    # question §17): Player 1 from disassembly evidence, Player 2 mirrored.
+    assert set(overlay.spawn_positions) == {"p1_commander", "p2_commander"}
+    for cell in overlay.spawn_positions.values():
+        assert 0 <= cell[0] < base_map.width and 0 <= cell[1] < base_map.height
 
 
 def test_default_pvp_overlay_works_with_exactly_two_war_bases() -> None:

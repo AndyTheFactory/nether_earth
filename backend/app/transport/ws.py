@@ -111,6 +111,7 @@ from app.protocol.snapshot import SnapshotMessage
 from app.transport.commands import CommandPayloadError, payload_to_command
 from app.transport.connections import ConnectionRegistry, broadcast
 from app.transport.snapshots import build_snapshot_message, empty_snapshot_message
+from app.transport.victory import finished_message
 
 logger = logging.getLogger(__name__)
 
@@ -435,7 +436,10 @@ def create_websocket_router(
                     # schema change), addressed to this socket only (every
                     # other connection already saw it live).
                     match_result = match.result
-                    if match_result is not None:
+                    finished = finished_message(match)
+                    if finished is not None:
+                        await websocket.send_text(serialize_server_message(finished))
+                    elif match_result is not None:
                         if match_result.outcome is MatchOutcome.FORFEIT:
                             assert match_result.forfeiting_player_id is not None
                             assert match_result.winner_player_id is not None

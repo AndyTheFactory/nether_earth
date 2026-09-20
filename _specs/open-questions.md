@@ -612,6 +612,51 @@ Horizontal and vertical movement may occur simultaneously. Automatic elevation a
 - No manual pause in v1.
 - Reconnect/deadline state belongs to the runtime layer and must not mutate deterministic engine state while paused.
 
+## 17. Commander starting positions — PROVISIONAL (owner review required)
+
+Neither spec nor map data declared where the two commanders begin. Evidence
+(tier 2, `netherearth-annotated.asm` `La600_start`):
+
+```
+ld hl, 17 ; ld (Lfd0e_player_x), hl   ; set player start x
+ld a, 10  ; ld (Lfd0d_player_y), a    ; set player start y
+xor a     ; ld (Lfd10_player_altitude), a
+```
+
+so Player 1's ship starts at cell (17, 10), altitude 0, i.e. offset (−5, +1)
+from war base 0's capture anchor (22, 9), just outside the base on the side
+facing away from the map interior. The original is single-player, so there is
+no evidence for Player 2.
+
+Provisional data (M9, `map_overlay.default_pvp_overlay`):
+
+- `p1_commander` = extreme-left war-base anchor + (−5, +1) → (17, 10) on the original map (evidence-backed);
+- `p2_commander` = extreme-right war-base anchor + (+5, +1) → (499, 9) (mirrored convention, **not evidence**).
+
+Spawns are overlay data, not engine rules; changing the convention is a data
+edit in one place. Owner must confirm or replace the Player 2 convention.
+
+## 18. War-base heli-pad location and landing height — OPEN (owner review required)
+
+Evidence (tier 2): `Lbb86_assign_warbase_to_player` places the war-base "H"
+decoration at (anchor.x, anchor.y − 4), and the game loop enters construction
+only when the ship is over that decoration at altitude exactly 15 (`cp 15`),
+i.e. on the roof of the 15-high war-base block. The robot then exits at
+(pad.x, pad.y + 4) = the anchor cell (`Lcb52_construction_screen_start_robot`,
+"robot starts 4 positions off the player in the y axis"), which confirms the
+current `*-exit` interaction points.
+
+The engine's locked M3 landing rule (`heli_pad.py`: altitude ==
+`commander_min_altitude` on a heli-pad footprint cell) cannot express a
+roof-top pad, and the M2 data keeps the `*-helipad` points as ground-level
+placeholders at the anchor cell. Options for the owner:
+
+1. keep the ground-level pad at the anchor cell (current, playable; deviates from the original);
+2. move the pad to (anchor.x, anchor.y − 4) and extend the M3 landing rule to "altitude equals the pad cell's component height" (fidelity-correct; M3 rule + M2 data change).
+
+Until decided, M9 acceptance uses option 1 as-is and does not treat pad
+placement as verified.
+
 ## Remaining research
 
 Only three substantive fidelity areas remain:

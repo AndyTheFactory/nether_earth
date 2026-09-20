@@ -20,6 +20,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI
+from nether_earth.events import Event
+from nether_earth.map import WorldMap
+from nether_earth.state import GameState
 
 from app.match.manager import MatchManager
 from app.match.models import Match
@@ -30,10 +33,12 @@ from app.match.reconnect import (
     ReconnectCoordinator,
 )
 from app.match.runtime import TICK_RATE_HZ, MatchRuntimeRegistry, TickCommandObserver, TickObserver
+from app.match.world import load_standard_world
 from app.replay import ReplayWriter, make_replay_lifecycle_notifier, make_replay_tick_recorder
 from app.transport import ConnectionRegistry, create_websocket_router
 from app.transport.disconnects import make_disconnect_notifier
 from app.transport.snapshots import make_tick_broadcaster
+from app.transport.victory import make_victory_finalizer
 
 
 def _combine_disconnect_notifiers(*notifiers: DisconnectNotifier) -> DisconnectNotifier:
@@ -55,12 +60,23 @@ def _combine_disconnect_notifiers(*notifiers: DisconnectNotifier) -> DisconnectN
     return _notify
 
 
+def _compose_tick_observers(*observers: TickObserver) -> TickObserver:
+    """Return a ``TickObserver`` that awaits every one of ``observers`` in order."""
+
+    async def _on_tick(state: GameState, events: tuple[Event, ...]) -> None:
+        for observer in observers:
+            await observer(state, events)
+
+    return _on_tick
+
+
 def create_app(
     *,
     replay_dir: Path | None = None,
     reconnect_grace_seconds: float = DEFAULT_GRACE_SECONDS,
     tick_rate_hz: float = TICK_RATE_HZ,
     _reconnect_monotonic_clock: Callable[[], float] = time.monotonic,
+    world: WorldMap | None = None,
 ) -> FastAPI:
     """Build a fresh, fully-wired app instance.
 
@@ -90,6 +106,11 @@ def create_app(
     """
     fastapi_app = FastAPI(title="Nether Earth", version="0.0.0")
 
+    # The scenario-overlaid real map every match on this app plays on (M9.1
+    # audit gap G1). ``world`` lets a test inject a fixture world; a real
+    # deployment always loads the standard v1 map from ``data/maps``.
+    resolved_world = world if world is not None else load_standard_world()
+
     connection_registry = ConnectionRegistry()
     runtime_registry = MatchRuntimeRegistry(tick_rate_hz=tick_rate_hz)
     replay_writer = ReplayWriter(base_dir=replay_dir)
@@ -99,7 +120,12 @@ def create_app(
         # docstring): broadcasts a fresh authoritative snapshot to every
         # connection registered for `match.match_id` after each tick this
         # match's `MatchRuntime` completes (M7 Task 6, issue #95).
-        return make_tick_broadcaster(connection_registry, match.match_id)
+        # Snapshot first, then victory finalization (M9.1 audit gap G2), so
+        # the final authoritative snapshot always precedes ``finished``.
+        return _compose_tick_observers(
+            make_tick_broadcaster(connection_registry, match.match_id),
+            make_victory_finalizer(match_manager, connection_registry, match),
+        )
 
     def _on_tick_commands_factory(match: Match) -> TickCommandObserver:
         # Bound per match at start time, mirroring `_on_tick_factory` above:
@@ -118,6 +144,7 @@ def create_app(
     )
 
     match_manager = MatchManager(
+        world=resolved_world,
         runtime=runtime_registry,
         on_tick_factory=_on_tick_factory,
         reconnect=reconnect_coordinator,

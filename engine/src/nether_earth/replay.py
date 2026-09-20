@@ -151,13 +151,35 @@ def run_fixture(fixture: ReplayFixture) -> tuple[GameState, tuple[Event, ...]]:
     )
     if fixture.initial_robots:
         state = state.with_robots(fixture.initial_robots)
+    return run_from_state(
+        state,
+        fixture.commands_by_tick,
+        fixture.tick_count,
+        world=fixture.world,
+        robots=fixture.robots,
+    )
 
+
+def run_from_state(
+    state: GameState,
+    commands_by_tick: Mapping[int, tuple[Command, ...]],
+    tick_count: int,
+    *,
+    world: WorldMap | None = None,
+    robots: tuple[RobotFixture, ...] = (),
+) -> tuple[GameState, tuple[Event, ...]]:
+    """Advance ``state`` by ``tick_count`` ticks, feeding ``commands_by_tick`` per tick.
+
+    The single replay loop shared by :func:`run_fixture` (hand-composed
+    fixtures) and by callers that already hold an authoritative tick-0
+    state, e.g. one built by ``scenario.create_initial_state(scenario,
+    world)`` for a persisted real-match artifact (M7 replay verification,
+    M9.6). ``state.tick`` need not be 0; ticks are numbered from
+    ``state.tick + 1`` so ``commands_by_tick`` keys stay absolute.
+    """
     all_events: list[Event] = []
-    for tick in range(1, fixture.tick_count + 1):
-        commands = fixture.commands_by_tick.get(tick, ())
-        state, tick_events = engine.step(
-            state, commands, world=fixture.world, robots=fixture.robots
-        )
+    for tick in range(state.tick + 1, state.tick + tick_count + 1):
+        commands = commands_by_tick.get(tick, ())
+        state, tick_events = engine.step(state, commands, world=world, robots=robots)
         all_events.extend(order_events(tick_events))
-
     return state, tuple(all_events)

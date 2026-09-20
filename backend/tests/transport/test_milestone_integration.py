@@ -64,7 +64,6 @@ from nether_earth.construction_commands import (
 )
 from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
-from nether_earth.map import BootstrapMap
 from nether_earth.orders import SetRobotOrderCommand
 from nether_earth.scenario import default_pvp_scenario
 from pydantic import TypeAdapter
@@ -74,6 +73,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.main import create_app
 from app.match.manager import MatchManager
 from app.match.models import Match, MatchNotFoundError, MatchOutcome, MatchRuntimeState
+from app.match.world import load_standard_world
 from app.protocol.common import CommandPayload
 from app.replay.verify import load_commands_by_tick, verify_replay
 from tests.transport._helpers import (
@@ -402,7 +402,10 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
     ``test_both_players_disconnected_and_never_returning_is_a_no_contest``.
     """
     scenario = default_pvp_scenario()
-    map_data = BootstrapMap(map_id=scenario.map_id, version=scenario.map_version, width=1, height=1)
+    # The app plays every match on the scenario-overlaid standard world
+    # (M9.1 audit gap G1), so replay verification must rebuild the same
+    # tick-0 state from it rather than from a 1x1 placeholder map.
+    world = load_standard_world(scenario)
     replay_dir = tmp_path / "replays"
     app = create_app(
         replay_dir=replay_dir,
@@ -528,11 +531,15 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
                         for line in raw_lines
                         if line.strip() and json.loads(line)["tick"] == representative_tick
                     )
-                    recorded_events = representative_line["events"]
+                    # On the real world (M9.1 gap G1) the same tick also
+                    # emits gameplay events (e.g. a commander move starting),
+                    # so count only the per-command structural verdicts.
+                    recorded_events = [
+                        event
+                        for event in representative_line["events"]
+                        if event["type"] in ("CommandAccepted", "CommandRejected")
+                    ]
                     assert len(recorded_events) == len(_REPRESENTATIVE_COMMANDS), recorded_events
-                    assert all(
-                        event["type"] in ("CommandAccepted", "CommandRejected") for event in recorded_events
-                    ), recorded_events
 
                     # A deliberately structurally-malformed payload (diagonal
                     # move -- schema-valid per-axis, but the engine dataclass's
@@ -740,7 +747,7 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
     # backend module is exercised by this call -- against the artifact
     # `ReplayWriter` wrote as a hook off the exact same `finish_match` call
     # that transitioned match A to FINISHED above.
-    result = verify_replay(replay_dir, match_a_id, scenario=scenario, map_data=map_data)
+    result = verify_replay(replay_dir, match_a_id, scenario=scenario, world=world)
     assert result.matches, (result.reproduced_snapshot, result.persisted_snapshot)
 
     meta = json.loads((replay_dir / match_a_id / "meta.json").read_text(encoding="utf-8"))
