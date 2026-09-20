@@ -27,12 +27,19 @@ finish/replay path (steps 11-13):
   covers step 10 (the no-contest sub-case) on its own, separate match/app
   instance, since it is a second, mutually exclusive termination path.
 
-Timing: every grace period is short (``reconnect_grace_seconds``) and the
-tick rate is the real production 20 Hz default (``app.main.create_app``'s
-own default) -- no arbitrary ``time.sleep`` anywhere; every wait is either a
-blocking ``receive_json()`` on a real broadcast/message the stack itself
-produces, or a deadline-watcher `asyncio.Task` whose deadline was shortened
-at construction time.
+Timing: every grace period is short (``reconnect_grace_seconds``), and the
+main scenario runs at a faster-than-production tick rate
+(``_FAST_TICK_RATE_HZ``, via ``app.main.create_app``'s own ``tick_rate_hz``
+parameter) so the step-7 freeze proof has a meaningfully short, bounded
+window to observe several genuine tick intervals in (see
+``_FAST_TICK_RATE_HZ``'s own docstring) -- no arbitrary ``time.sleep``
+anywhere for *correctness*; every wait that a test's own pass/fail depends
+on is either a blocking ``receive_json()`` on a real broadcast/message the
+stack itself produces, or a deadline-watcher `asyncio.Task` whose deadline
+was shortened at construction time. The one exception (a short, explicit,
+bounded ``asyncio.sleep`` in the step-7 freeze check) exists purely to
+strengthen a *negative* assertion's detection power, not because the test
+needs it to pass -- see that call site's own comment.
 """
 
 from __future__ import annotations
@@ -43,65 +50,123 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from nether_earth.combat import FireCommand
+from nether_earth.commander_movement import (
+    CommanderMoveCommand,
+    CommanderSetVerticalIntentCommand,
+)
+from nether_earth.commands import Command
+from nether_earth.construction_commands import (
+    CancelConstructionCommand,
+    LaunchRobotCommand,
+    SelectModuleCommand,
+)
+from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
 from nether_earth.map import BootstrapMap
+from nether_earth.orders import SetRobotOrderCommand
 from nether_earth.scenario import default_pvp_scenario
+from pydantic import TypeAdapter
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
 from app.main import create_app
 from app.match.manager import MatchManager
 from app.match.models import Match, MatchNotFoundError, MatchOutcome, MatchRuntimeState
-from app.replay.verify import verify_replay
+from app.protocol.common import CommandPayload
+from app.replay.verify import load_commands_by_tick, verify_replay
+from tests.transport._helpers import (
+    _create,
+    _join,
+    _match_manager,
+    _ready,
+    _start_active_match_keeping_sockets_open,
+)
 
 #: Short enough that no real test run waits anywhere near the locked
 #: production 60s default, long enough that "reconnect within grace" (steps
 #: 7-8) has comfortable room against normal test-process scheduling jitter.
 _SHORT_GRACE_SECONDS = 0.2
 
+#: Faster than the real 20Hz production default (M7 Task 10 review, Important
+#: I1): a broken/never-actually-pausing runtime needs several genuinely
+#: elapsed tick intervals inside a short, bounded wait to be reliably caught
+#: (at 20Hz a single tick interval is 50ms -- comparable to the wall-clock
+#: jitter of the handful of synchronous WebSocket round trips this test
+#: already does between its "before" and "after" tick reads, so a real
+#: freeze regression could easily go undetected). At 100Hz, five tick
+#: intervals is only 50ms of real wait -- still short, but long enough that
+#: a genuinely-still-ticking runtime would almost certainly have ticked
+#: several times, while a correctly-paused one ticks zero times.
+_FAST_TICK_RATE_HZ = 40.0
+_FAST_TICK_INTERVAL_S = 1.0 / _FAST_TICK_RATE_HZ
 
-def _match_manager(client: TestClient) -> MatchManager:
-    manager = client.app.state.match_manager
-    assert isinstance(manager, MatchManager)
-    return manager
+#: Validates a representative-command payload against the exact same
+#: `CommandPayload` discriminated union the real WebSocket handler validates
+#: incoming `command` frames against (M7 Task 10 review, Important I2).
+#: `_submit_command` uses this to *prove*, not merely assume, that its
+#: caller's payload cannot itself produce the same `invalid_message` error
+#: code its own probe frame relies on -- see that function's docstring for
+#: why this ambiguity would otherwise be a landmine.
+_COMMAND_PAYLOAD_ADAPTER: TypeAdapter[Any] = TypeAdapter(CommandPayload)
 
-
-def _create(ws: WebSocketTestSession, nickname: str = "alice") -> dict[str, Any]:
-    ws.send_text(json.dumps({"protocolVersion": 1, "type": "create", "nickname": nickname}))
-    return dict(ws.receive_json())
-
-
-def _join(ws: WebSocketTestSession, join_code: str, nickname: str = "bob") -> dict[str, Any]:
-    ws.send_text(
-        json.dumps(
-            {
-                "protocolVersion": 1,
-                "type": "join",
-                "joinCode": join_code,
-                "nickname": nickname,
-            }
-        )
-    )
-    return dict(ws.receive_json())
-
-
-def _ready(
-    ws: WebSocketTestSession, *, match_id: str, player_id: str, session_token: str, ready: bool = True
-) -> None:
-    ws.send_text(
-        json.dumps(
-            {
-                "protocolVersion": 1,
-                "type": "ready",
-                "matchId": match_id,
-                "playerId": player_id,
-                "sessionToken": session_token,
-                "ready": ready,
-            }
-        )
-    )
+#: Step 5's representative commands: (name, wire payload, expected persisted
+#: engine `Command` subclass) -- one per M7 Task 9 adapter family (commander,
+#: M4 construction/economy, M5 movement/orders/capture, M6 combat). The
+#: expected-class column is what C1/C2's artifact assertions (M7 Task 10
+#: review, Critical) check the persisted `commands.jsonl` batch against,
+#: proving each command genuinely reached `engine.step` rather than merely
+#: producing *some* transport-level outcome.
+_REPRESENTATIVE_COMMANDS: tuple[tuple[str, dict[str, Any], type[Command]], ...] = (
+    ("commander_move", {"kind": "commander_move", "dx": 1, "dy": 0}, CommanderMoveCommand),
+    (
+        "commander_set_vertical_intent",
+        {"kind": "commander_set_vertical_intent", "rising": True},
+        CommanderSetVerticalIntentCommand,
+    ),
+    (  # M4 construction/economy
+        "select_module",
+        {"kind": "select_module", "module": "cannon"},
+        SelectModuleCommand,
+    ),
+    ("cancel_construction", {"kind": "cancel_construction"}, CancelConstructionCommand),  # M4
+    ("launch_robot", {"kind": "launch_robot"}, LaunchRobotCommand),  # M4
+    (  # M5 movement
+        "direct_robot_move",
+        {"kind": "direct_robot_move", "dx": 1, "dy": 0},
+        DirectRobotMoveCommand,
+    ),
+    (  # M5 orders
+        "set_robot_order_advance",
+        {
+            "kind": "set_robot_order",
+            "entityId": "no-such-robot",
+            "order": {"kind": "advance", "distanceMiles": 10},
+        },
+        SetRobotOrderCommand,
+    ),
+    (  # M5 orders/capture
+        "set_robot_order_search_capture",
+        {
+            "kind": "set_robot_order",
+            "entityId": "no-such-robot",
+            "order": {"kind": "search_capture", "target": "neutral_factory"},
+        },
+        SetRobotOrderCommand,
+    ),
+    (  # M6 combat
+        "robot_fire",
+        {
+            "kind": "robot_fire",
+            "entityId": "no-such-robot",
+            "weapon": "nuclear",
+            "targetX": 5,
+            "targetY": 5,
+        },
+        FireCommand,
+    ),
+)
 
 
 def _reconnect(ws: WebSocketTestSession, *, match_id: str, player_id: str, session_token: str) -> None:
@@ -116,39 +181,6 @@ def _reconnect(ws: WebSocketTestSession, *, match_id: str, player_id: str, sessi
             }
         )
     )
-
-
-def _start_active_match_keeping_sockets_open(
-    ws_a: WebSocketTestSession, ws_b: WebSocketTestSession, *, nickname_a: str, nickname_b: str
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Create+join+ready both slots to ACTIVE, returning (created, joined).
-
-    Leaves both sockets open (unlike a ``with``-scoped helper) so callers
-    can keep driving the match -- disconnecting one side deliberately while
-    observing broadcasts on the other, exactly like
-    ``test_ws.py``'s own ``_start_active_match_keeping_sockets_open``.
-    """
-    created = _create(ws_a, nickname_a)
-    joined = _join(ws_b, created["joinCode"], nickname_b)
-    ws_a.receive_json()  # ready_state (join broadcast)
-    ws_b.receive_json()  # ready_state (own echo)
-
-    _ready(ws_a, match_id=created["matchId"], player_id="p1", session_token=created["sessionToken"])
-    ws_a.receive_json()
-    ws_b.receive_json()
-
-    _ready(ws_b, match_id=created["matchId"], player_id="p2", session_token=joined["sessionToken"])
-    ws_a.receive_json()  # ready_state from p2 readying up
-    ws_b.receive_json()
-    assert ws_a.receive_json()["type"] == "started"
-    assert ws_b.receive_json()["type"] == "started"
-    snapshot_a = ws_a.receive_json()
-    snapshot_b = ws_b.receive_json()
-    assert snapshot_a["type"] == "snapshot"
-    assert snapshot_a["tick"] == 0
-    assert snapshot_b == snapshot_a
-
-    return created, joined
 
 
 def _submit_command(
@@ -174,7 +206,21 @@ def _submit_command(
     single-threaded-per-connection processing: receiving the probe's own
     ``invalid_message`` error is structural proof the command frame was
     already fully handled one way or the other, never a race.
+
+    That structural proof relies on assuming the probe's own response --
+    not the command's -- is the one carrying ``invalid_message``. This
+    function proves that assumption instead of merely hoping it holds: it
+    validates ``payload`` against the exact same ``CommandPayload``
+    discriminated union the real transport validates incoming ``command``
+    frames against (M7 Task 10 review, Important I2). A schema-invalid
+    payload would itself be rejected at the envelope layer with
+    ``invalid_message`` -- the same code the probe below always produces --
+    which would silently misclassify the command's own rejection as
+    "accepted" and leave the probe's real response corrupting every later
+    read on this connection. Validating up front turns that landmine into
+    a loud, immediate ``pydantic.ValidationError`` at the call site instead.
     """
+    _COMMAND_PAYLOAD_ADAPTER.validate_python(payload)
     ws.send_text(
         json.dumps(
             {
@@ -267,6 +313,74 @@ def _next_non_snapshot(ws: WebSocketTestSession, *, own_match_id: str) -> dict[s
     raise AssertionError("only snapshot messages ever arrived")
 
 
+def _wait_for_snapshot_tick_beyond(
+    ws: WebSocketTestSession, *, own_match_id: str, min_tick: int
+) -> int:
+    """Block on real ``snapshot`` broadcasts on ``ws`` until one reports ``tick > min_tick``.
+
+    This is the C1 fix (M7 Task 10 review, Critical): a command queued into
+    the real ``MatchRuntime``'s pending batch is only actually fed to
+    ``engine.step`` -- and therefore only actually appended to the
+    persisted replay artifact -- at the *next* tick boundary. Disconnecting
+    (or otherwise tearing the match down) before that boundary fires
+    discards the pending batch unseen, so a caller that queued commands and
+    wants to assert on their *persisted, engine-validated* outcome must
+    first prove a tick has genuinely elapsed since submission -- via a real
+    broadcast this test itself blocks on, never a sleep. Returns the tick
+    number of the first qualifying snapshot observed.
+    """
+    for _ in range(1000):
+        message = ws.receive_json()
+        assert message["type"] == "snapshot", message
+        assert message["matchId"] == own_match_id, message
+        if message["tick"] > min_tick:
+            return int(message["tick"])
+    raise AssertionError(f"no snapshot with tick > {min_tick} ever arrived")
+
+
+def _wait_for_persisted_batch(
+    ws: WebSocketTestSession,
+    *,
+    own_match_id: str,
+    replay_dir: Path,
+    match_id: str,
+    after_tick: int,
+    expected_count: int,
+    max_extra_ticks: int = 20,
+) -> tuple[int, dict[int, tuple[Any, ...]]]:
+    """Wait for a persisted tick after ``after_tick`` holding at least ``expected_count`` commands.
+
+    A queued command batch is only fed to ``engine.step`` (and therefore
+    only persisted) at the *next* tick boundary after submission (see
+    ``_wait_for_snapshot_tick_beyond``'s own docstring) -- but "the next
+    tick boundary" is not necessarily the very first one observed after
+    submission if the submitting round trips themselves happened to
+    straddle a tick boundary. This polls forward tick by tick (each step
+    blocking on a real broadcast, never a sleep) up to ``max_extra_ticks``
+    times, which stays short and bounded while tolerating that timing
+    variance rather than assuming the batch always lands in exactly the
+    very next tick (M7 Task 10 review, Critical C1).
+    """
+    current_tick = after_tick
+    for _ in range(max_extra_ticks):
+        current_tick = _wait_for_snapshot_tick_beyond(
+            ws, own_match_id=own_match_id, min_tick=current_tick
+        )
+        commands_by_tick = load_commands_by_tick(replay_dir, match_id)
+        candidates = [
+            tick
+            for tick in commands_by_tick
+            if after_tick < tick <= current_tick and len(commands_by_tick[tick]) >= expected_count
+        ]
+        if candidates:
+            return candidates[0], commands_by_tick
+    raise AssertionError(
+        f"no persisted tick with >= {expected_count} commands appeared within "
+        f"{max_extra_ticks} ticks after {after_tick} -- persisted stream: "
+        f"{sorted(load_commands_by_tick(replay_dir, match_id))}"
+    )
+
+
 def _assert_isolated_probe(ws: WebSocketTestSession, *, own_match_id: str) -> None:
     """Send a malformed probe and assert the socket's queue holds nothing but ``own_match_id``'s own traffic.
 
@@ -308,7 +422,11 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
     scenario = default_pvp_scenario()
     map_data = BootstrapMap(map_id=scenario.map_id, version=scenario.map_version, width=1, height=1)
     replay_dir = tmp_path / "replays"
-    app = create_app(replay_dir=replay_dir, reconnect_grace_seconds=_SHORT_GRACE_SECONDS)
+    app = create_app(
+        replay_dir=replay_dir,
+        reconnect_grace_seconds=_SHORT_GRACE_SECONDS,
+        tick_rate_hz=_FAST_TICK_RATE_HZ,
+    )
 
     with TestClient(app) as client:
         manager = _match_manager(client)
@@ -338,10 +456,13 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
             with client.websocket_connect("/ws") as a_persistent:
                 with client.websocket_connect("/ws") as a_disconnecting:
                     # -- Steps 1-4: match A create/join/ready/start + snapshot --
-                    created_a, _joined_a = _start_active_match_keeping_sockets_open(
+                    created_a, _joined_a, _snapshot_a = _start_active_match_keeping_sockets_open(
                         a_disconnecting, a_persistent, nickname_a="alice", nickname_b="adam"
                     )
                     match_a_id = created_a["matchId"]
+                    match_a_at_start = manager.get_match(match_a_id)
+                    assert match_a_at_start.game_state is not None
+                    tick_before_commands = match_a_at_start.game_state.tick
                     assert match_a_id != created_b["matchId"]
 
                     # -- Step 11 (mid-scenario probe): match B's connections must
@@ -359,99 +480,77 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
                     # connection -- see this module's docstring and
                     # `_submit_command`'s own docstring for why "accepted" (no
                     # error) and an explicit rejection code are both valid,
-                    # expected transport outcomes here.
-                    outcomes: dict[str, str] = {}
-                    outcomes["commander_move"] = _submit_command(
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=0,
-                        payload={"kind": "commander_move", "dx": 1, "dy": 0},
-                    )
-                    outcomes["commander_set_vertical_intent"] = _submit_command(
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=1,
-                        payload={"kind": "commander_set_vertical_intent", "rising": True},
-                    )
-                    outcomes["select_module"] = _submit_command(  # M4 construction/economy
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=2,
-                        payload={"kind": "select_module", "module": "cannon"},
-                    )
-                    outcomes["cancel_construction"] = _submit_command(  # M4
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=3,
-                        payload={"kind": "cancel_construction"},
-                    )
-                    outcomes["launch_robot"] = _submit_command(  # M4
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=4,
-                        payload={"kind": "launch_robot"},
-                    )
-                    outcomes["direct_robot_move"] = _submit_command(  # M5 movement
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=5,
-                        payload={"kind": "direct_robot_move", "dx": 1, "dy": 0},
-                    )
-                    outcomes["set_robot_order_advance"] = _submit_command(  # M5 orders
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=6,
-                        payload={
-                            "kind": "set_robot_order",
-                            "entityId": "no-such-robot",
-                            "order": {"kind": "advance", "distanceMiles": 10},
-                        },
-                    )
-                    outcomes["set_robot_order_search_capture"] = _submit_command(  # M5 orders/capture
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=7,
-                        payload={
-                            "kind": "set_robot_order",
-                            "entityId": "no-such-robot",
-                            "order": {"kind": "search_capture", "target": "neutral_factory"},
-                        },
-                    )
-                    outcomes["robot_fire"] = _submit_command(  # M6 combat
-                        a_disconnecting,
-                        match_id=match_a_id,
-                        player_id="p1",
-                        session_token=created_a["sessionToken"],
-                        sequence=8,
-                        payload={
-                            "kind": "robot_fire",
-                            "entityId": "no-such-robot",
-                            "weapon": "nuclear",
-                            "targetX": 5,
-                            "targetY": 5,
-                        },
-                    )
+                    # expected transport outcomes here. `_REPRESENTATIVE_COMMANDS`
+                    # is a table (M7 Task 10 review, Minor M3) of (name,
+                    # payload, expected persisted engine `Command` subclass) --
+                    # the expected-class column feeds the C1/C2 artifact
+                    # assertions below (M7 Task 10 review, Critical C1/C2).
+                    outcomes = {
+                        name: _submit_command(
+                            a_disconnecting,
+                            match_id=match_a_id,
+                            player_id="p1",
+                            session_token=created_a["sessionToken"],
+                            sequence=sequence,
+                            payload=payload,
+                        )
+                        for sequence, (name, payload, _expected_class) in enumerate(
+                            _REPRESENTATIVE_COMMANDS
+                        )
+                    }
                     for name, outcome in outcomes.items():
                         assert outcome in ("accepted", "invalid_command_payload", "command_rejected"), (
                             name,
                             outcome,
                         )
+
+                    # -- Steps 5/13 (Critical C1/C2, M7 Task 10 review): prove
+                    # the 9 representative commands above actually reached
+                    # `engine.step` and were persisted, rather than being
+                    # silently discarded by an unconsumed pending batch. Block
+                    # on a real broadcast (never a sleep) on `a_persistent`
+                    # until a tick strictly after submission has genuinely
+                    # been observed, which is only possible once the real
+                    # `MatchRuntime` has drained its pending batch into
+                    # `engine.step` and this hook has appended the result to
+                    # `commands.jsonl`.
+                    representative_tick, commands_by_tick = _wait_for_persisted_batch(
+                        a_persistent,
+                        own_match_id=match_a_id,
+                        replay_dir=replay_dir,
+                        match_id=match_a_id,
+                        after_tick=tick_before_commands,
+                        expected_count=len(_REPRESENTATIVE_COMMANDS),
+                    )
+                    tick_after_commands = representative_tick
+                    recorded_commands = commands_by_tick[representative_tick]
+                    assert len(recorded_commands) == len(_REPRESENTATIVE_COMMANDS), recorded_commands
+                    recorded_classes = sorted(type(command).__name__ for command in recorded_commands)
+                    expected_classes = sorted(
+                        expected_class.__name__ for _name, _payload, expected_class in _REPRESENTATIVE_COMMANDS
+                    )
+                    assert recorded_classes == expected_classes, (recorded_classes, expected_classes)
+
+                    # Cross-check the debug event summary `ReplayWriter` also
+                    # persisted for `representative_tick`: `engine.step` emits
+                    # exactly one `CommandAccepted`/`CommandRejected` event per
+                    # input command (see `nether_earth.engine.step`'s own
+                    # docstring), so this independently confirms all 9 really
+                    # reached the engine's per-command validation, not just
+                    # that 9 opaque records exist on disk.
+                    raw_lines = (
+                        (replay_dir / match_a_id / "commands.jsonl").read_text(encoding="utf-8").splitlines()
+                    )
+                    representative_line = next(
+                        json.loads(line)
+                        for line in raw_lines
+                        if line.strip() and json.loads(line)["tick"] == representative_tick
+                    )
+                    recorded_events = representative_line["events"]
+                    assert len(recorded_events) == len(_REPRESENTATIVE_COMMANDS), recorded_events
+                    assert all(
+                        event["type"] in ("CommandAccepted", "CommandRejected") for event in recorded_events
+                    ), recorded_events
 
                     # A deliberately structurally-malformed payload (diagonal
                     # move -- schema-valid per-axis, but the engine dataclass's
@@ -508,13 +607,13 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
                     # -- Step 7: disconnect one player, assert the engine tick
                     # freezes. Read the pre-disconnect tick count directly from
                     # the live `Match` (read-only introspection, never a step)
-                    # right before closing the socket, and again immediately
-                    # after observing the `paused` broadcast -- if the tick loop
-                    # were still advancing, a 20Hz match would have almost
-                    # certainly ticked at least once across the several
-                    # `receive_json()`/assertion calls in between; instead
-                    # `MatchRuntime._run` polls PAUSED_DISCONNECTED as a no-op
-                    # (see `runtime.py`), so the two reads must match exactly.
+                    # right before closing the socket. This read is itself
+                    # racy against the real, concurrently-running tick loop
+                    # (a tick may complete in the instant between this read
+                    # and the socket actually closing) -- see the tolerance
+                    # built into the post-pause assertion below (M7 Task 10
+                    # review, Important I1) for why that race is handled
+                    # explicitly rather than assumed away.
                     match_a = manager.get_match(match_a_id)
                     assert match_a.game_state is not None
                     tick_before_disconnect = match_a.game_state.tick
@@ -528,11 +627,34 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
                 assert isinstance(paused["graceDeadlineMs"], int)
                 assert manager.get_match(match_a_id).state is MatchRuntimeState.PAUSED_DISCONNECTED
 
+                # M7 Task 10 review, Important I1: the `paused` broadcast
+                # above arrives essentially immediately, so reading the tick
+                # right after it is not, on its own, strong evidence of a
+                # freeze -- a 50ms (20Hz default) tick interval is comparable
+                # to the wall-clock cost of the handful of synchronous
+                # `receive_json()`/assertion calls involved, so a genuinely
+                # broken (never-actually-pausing) runtime could easily tick
+                # zero times in that window purely by luck. This app was
+                # built with `tick_rate_hz=_FAST_TICK_RATE_HZ` specifically so
+                # a short, explicit, bounded real wait here (scheduled onto
+                # the app's own event loop, not a plain `time.sleep`) spans
+                # several genuine tick intervals: a still-ticking runtime
+                # would almost certainly advance multiple times in that
+                # window, while a correctly-paused one advances zero times.
+                assert client.portal is not None
+                client.portal.call(asyncio.sleep, 5 * _FAST_TICK_INTERVAL_S)
+
                 match_a_after_pause = manager.get_match(match_a_id)
                 assert match_a_after_pause.game_state is not None
                 tick_after_pause = match_a_after_pause.game_state.tick
-                assert tick_after_pause == tick_before_disconnect, (
-                    "engine tick advanced while the match was PAUSED_DISCONNECTED"
+                # Tolerates at most the one benign tick that may have been
+                # already in flight the instant `tick_before_disconnect` was
+                # read (the race noted above) -- anything beyond that, after
+                # a multi-tick-interval bounded wait, is a genuine freeze
+                # regression, not scheduling jitter.
+                assert tick_after_pause <= tick_before_disconnect + 1, (
+                    "engine tick advanced while the match was PAUSED_DISCONNECTED "
+                    f"(before={tick_before_disconnect}, after={tick_after_pause})"
                 )
 
                 # match B is still ticking/unaffected -- one more cross-match
@@ -616,6 +738,20 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
         with pytest.raises(MatchNotFoundError):
             manager.get_match(match_a_id)
 
+        # M7 Task 10 review, Minor M1: match B is still ACTIVE (its own
+        # sockets closed with the `with (b1, b2)` block above, which -- like
+        # match A's own disconnects -- pauses rather than finishes it), so
+        # disposing it too and asserting neither match's `MatchRuntime`
+        # remains registered makes "runtime tasks/connections are cleaned up
+        # after tests" an explicit assertion here, not just an incidental
+        # property of `TestClient`'s own teardown.
+        client.portal.call(manager.dispose_match, created_b["matchId"])
+        with pytest.raises(MatchNotFoundError):
+            manager.get_match(created_b["matchId"])
+        runtime_registry = client.app.state.runtime_registry
+        assert runtime_registry.get(match_a_id) is None
+        assert runtime_registry.get(created_b["matchId"]) is None
+
     # -- Step 13: replay the persisted authoritative command stream and
     # assert it reproduces an identical final engine state/result. This
     # calls `nether_earth.replay`/`nether_earth.engine` directly -- no
@@ -632,84 +768,25 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
     assert meta["result"]["winner_player_id"] == "p2"
     assert meta["result"]["forfeiting_player_id"] == "p1"
 
-
-def _create_app_with_frozen_reconnect_clock(replay_dir: Path) -> tuple[FastAPI, float]:
-    """Build the exact same composition-root wiring as ``app.main.create_app``, except
-    ``ReconnectCoordinator``'s ``monotonic_clock`` is frozen at a fixed value.
-
-    Real, sequential ``WebSocketDisconnect``s for two players are always
-    real wall-clock microseconds apart, so their two computed grace
-    deadlines are (with the real ``time.monotonic`` clock) never *exactly*
-    equal -- and per ``ReconnectCoordinator._resolve_expiry``'s own
-    docstring, an unequal pair of deadlines always resolves to a normal
-    forfeit for whichever disconnected first, never a no-contest (a
-    genuinely equal pair of deadlines is the only case that resolves to
-    no-contest). Freezing the clock both ``mark_disconnected`` calls read
-    from makes both computed deadlines the exact same numeric value
-    regardless of the real gap between the two disconnects, without any
-    correctness-critical sleep -- exactly the "controllable time/deadlines"
-    the milestone's own acceptance criterion calls for. ``asyncio.sleep``
-    (the actual wait) is left real, so the two independent deadline-watcher
-    tasks still each really wait ``_SHORT_GRACE_SECONDS`` before resolving.
-
-    A hand-assembled fixture (mirroring every hook `create_app` wires) is
-    used here rather than a `monotonic_clock` parameter on `create_app`
-    itself: that injection point is inherently test-only (no real deployment
-    ever wants a frozen clock), so it does not belong on the production
-    factory's public signature the way `replay_dir`/`reconnect_grace_seconds`/
-    `tick_rate_hz` legitimately do.
-
-    Returns ``(app, frozen_time)`` -- ``frozen_time`` is only exposed for
-    tests that want to assert against it directly; this test does not need
-    to.
-    """
-    from app.match.reconnect import ReconnectCoordinator
-    from app.match.runtime import MatchRuntimeRegistry
-    from app.replay import ReplayWriter, make_replay_lifecycle_notifier, make_replay_tick_recorder
-    from app.transport import ConnectionRegistry, create_websocket_router
-    from app.transport.disconnects import make_disconnect_notifier
-    from app.transport.snapshots import make_tick_broadcaster
-
-    frozen_time = 1_000.0
-
-    fastapi_app = FastAPI(title="Nether Earth (test: frozen reconnect clock)")
-    connection_registry = ConnectionRegistry()
-    runtime_registry = MatchRuntimeRegistry()
-    replay_writer = ReplayWriter(base_dir=replay_dir)
-
-    def _on_tick_factory(match: Any) -> Any:
-        return make_tick_broadcaster(connection_registry, match.match_id)
-
-    def _on_tick_commands_factory(match: Any) -> Any:
-        return make_replay_tick_recorder(replay_writer, match.match_id)
-
-    async def _combined_notify(event: Any) -> None:
-        await make_disconnect_notifier(connection_registry)(event)
-        await make_replay_lifecycle_notifier(replay_writer)(event)
-
-    reconnect_coordinator = ReconnectCoordinator(
-        notify=_combined_notify,
-        grace_seconds=_SHORT_GRACE_SECONDS,
-        runtime_registry=runtime_registry,
-        monotonic_clock=lambda: frozen_time,
-    )
-    match_manager = MatchManager(
-        runtime=runtime_registry,
-        on_tick_factory=_on_tick_factory,
-        reconnect=reconnect_coordinator,
-        on_tick_commands_factory=_on_tick_commands_factory,
-        on_match_start=replay_writer.start_match,
-        on_match_finish=replay_writer.finish_match,
-    )
-    reconnect_coordinator.bind_finish_hook(match_manager.finish_match)
-
-    fastapi_app.state.match_manager = match_manager
-    fastapi_app.state.runtime_registry = runtime_registry
-    fastapi_app.state.connection_registry = connection_registry
-    fastapi_app.include_router(
-        create_websocket_router(match_manager, runtime_registry, connection_registry)
-    )
-    return fastapi_app, frozen_time
+    # -- Critical C2 (M7 Task 10 review): without these, the whole scenario
+    # above would pass identically even if `MatchRuntime` had never ticked
+    # at all -- `verify_replay`'s `result.matches` alone proves the persisted
+    # stream and a *fresh* engine run agree with each other, not that either
+    # one is non-trivial. These pin down, independently of `verify_replay`,
+    # that the tick loop genuinely advanced past tick 0 during the active
+    # phase and that the persisted stream is not empty.
+    assert final_tick is not None
+    # `tick_after_commands` is, by `_wait_for_snapshot_tick_beyond`'s own
+    # contract, strictly greater than `tick_before_commands` (>= 0) -- i.e.
+    # the tick counter genuinely advanced past 0 during the active phase --
+    # and the match only finished (forfeit) well after that point, so
+    # `final_tick` must be at least as large.
+    assert tick_after_commands > 0
+    assert final_tick >= tick_after_commands
+    final_commands_by_tick = load_commands_by_tick(replay_dir, match_a_id)
+    assert final_commands_by_tick, "commands.jsonl persisted no ticks at all"
+    assert representative_tick in final_commands_by_tick
+    assert len(final_commands_by_tick[representative_tick]) == len(_REPRESENTATIVE_COMMANDS)
 
 
 def test_both_players_disconnected_and_never_returning_is_a_no_contest(tmp_path: Path) -> None:
@@ -720,12 +797,31 @@ def test_both_players_disconnected_and_never_returning_is_a_no_contest(tmp_path:
     disconnect/reconnect policy, so this is its own focused test rather than
     a continuation of a match that already reached ``FINISHED`` via forfeit.
 
-    See ``_create_app_with_frozen_reconnect_clock``'s own docstring for why
-    a frozen clock (not a real-time race) is what makes this outcome
-    deterministic and repeatable rather than incidentally order-dependent.
+    Real, sequential ``WebSocketDisconnect``s for two players are always
+    real wall-clock microseconds apart, so their two computed grace
+    deadlines are (with the real ``time.monotonic`` clock) never *exactly*
+    equal -- and per ``ReconnectCoordinator._resolve_expiry``'s own
+    docstring, an unequal pair of deadlines always resolves to a normal
+    forfeit for whichever disconnected first, never a no-contest (a
+    genuinely equal pair of deadlines is the only case that resolves to
+    no-contest). ``create_app``'s internal ``_reconnect_monotonic_clock``
+    seam (M7 Task 10 review, Important I3 -- freezing the clock both
+    ``mark_disconnected`` calls read from) makes both computed deadlines the
+    exact same numeric value regardless of the real gap between the two
+    disconnects, without any correctness-critical sleep -- exactly the
+    "controllable time/deadlines" the milestone's own acceptance criterion
+    calls for, and without hand-assembling a second copy of ``create_app``'s
+    wiring the way this test previously did. ``asyncio.sleep`` (the actual
+    wait) is left real, so the two independent deadline-watcher tasks still
+    each really wait ``_SHORT_GRACE_SECONDS`` before resolving.
     """
     replay_dir = tmp_path / "replays"
-    app, _frozen_time = _create_app_with_frozen_reconnect_clock(replay_dir)
+    frozen_time = 1_000.0
+    app = create_app(
+        replay_dir=replay_dir,
+        reconnect_grace_seconds=_SHORT_GRACE_SECONDS,
+        _reconnect_monotonic_clock=lambda: frozen_time,
+    )
 
     with TestClient(app) as client:
         manager = _match_manager(client)
@@ -734,7 +830,7 @@ def test_both_players_disconnected_and_never_returning_is_a_no_contest(tmp_path:
             client.websocket_connect("/ws") as ws_a,
             client.websocket_connect("/ws") as ws_b,
         ):
-            created, _joined = _start_active_match_keeping_sockets_open(
+            created, _joined, _snapshot = _start_active_match_keeping_sockets_open(
                 ws_a, ws_b, nickname_a="carol", nickname_b="dave"
             )
             match_id = created["matchId"]

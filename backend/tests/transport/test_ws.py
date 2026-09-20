@@ -26,7 +26,6 @@ from nether_earth.commander_movement import CommanderMoveCommand
 from nether_earth.commands import Command
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
 from nether_earth.snapshot import to_snapshot
-from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
 from app.main import create_app
@@ -36,6 +35,13 @@ from app.match.reconnect import ReconnectCoordinator
 from app.match.runtime import MatchRuntimeRegistry
 from app.transport import ConnectionRegistry, create_websocket_router
 from app.transport.disconnects import make_disconnect_notifier
+from tests.transport._helpers import (
+    _create,
+    _join,
+    _match_manager,
+    _ready,
+    _start_active_match_keeping_sockets_open,
+)
 
 
 @pytest.fixture
@@ -104,50 +110,6 @@ def short_grace_client() -> Iterator[TestClient]:
     app.include_router(create_websocket_router(match_manager, runtime_registry, connection_registry))
     with TestClient(app) as test_client:
         yield test_client
-
-
-def _match_manager(client: TestClient) -> MatchManager:
-    manager = client.app.state.match_manager
-    assert isinstance(manager, MatchManager)
-    return manager
-
-
-def _create(ws: WebSocketTestSession, nickname: str = "alice") -> dict[str, Any]:
-    ws.send_text(
-        json.dumps({"protocolVersion": 1, "type": "create", "nickname": nickname})
-    )
-    return dict(ws.receive_json())
-
-
-def _join(ws: WebSocketTestSession, join_code: str, nickname: str = "bob") -> dict[str, Any]:
-    ws.send_text(
-        json.dumps(
-            {
-                "protocolVersion": 1,
-                "type": "join",
-                "joinCode": join_code,
-                "nickname": nickname,
-            }
-        )
-    )
-    return dict(ws.receive_json())
-
-
-def _ready(
-    ws: WebSocketTestSession, *, match_id: str, player_id: str, session_token: str, ready: bool = True
-) -> None:
-    ws.send_text(
-        json.dumps(
-            {
-                "protocolVersion": 1,
-                "type": "ready",
-                "matchId": match_id,
-                "playerId": player_id,
-                "sessionToken": session_token,
-                "ready": ready,
-            }
-        )
-    )
 
 
 # -- connect + create/join happy path ----------------------------------------
@@ -992,33 +954,9 @@ def test_connection_registry_unregister_reports_whether_it_was_current() -> None
 
 
 # -- disconnect/reconnect pause, grace, forfeit (M7 Task 7, issue #96) -------
-
-
-def _start_active_match_keeping_sockets_open(
-    ws_a: WebSocketTestSession, ws_b: WebSocketTestSession
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Like ``_start_active_match``, but for callers that keep both sockets
-    open past this call (that helper closes both via its own ``with``
-    block, which is unusable for tests that need to disconnect one side
-    deliberately while observing broadcasts on the other)."""
-    created = _create(ws_a, "alice")
-    joined = _join(ws_b, created["joinCode"], "bob")
-    ws_a.receive_json()
-    ws_b.receive_json()
-
-    _ready(ws_a, match_id=created["matchId"], player_id="p1", session_token=created["sessionToken"])
-    ws_a.receive_json()
-    ws_b.receive_json()
-
-    _ready(ws_b, match_id=created["matchId"], player_id="p2", session_token=joined["sessionToken"])
-    ws_a.receive_json()  # ready_state from p2 readying up
-    ws_b.receive_json()
-    ws_a.receive_json()  # started
-    ws_b.receive_json()
-    ws_a.receive_json()  # initial snapshot
-    ws_b.receive_json()
-
-    return created, joined
+#
+# `_start_active_match_keeping_sockets_open` lives in `tests/transport/_helpers.py`
+# (shared with `test_milestone_integration.py`, M7 Task 10 review, Important I4).
 
 
 def test_disconnect_pauses_match_and_broadcasts_paused_to_the_remaining_player(
@@ -1028,7 +966,7 @@ def test_disconnect_pauses_match_and_broadcasts_paused_to_the_remaining_player(
     manager = _match_manager(client)
     with client.websocket_connect("/ws") as ws_b:
         with client.websocket_connect("/ws") as ws_a:
-            created, _joined = _start_active_match_keeping_sockets_open(ws_a, ws_b)
+            created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
             # ws_a closes here (end of its own, inner `with` block) -- an
             # abrupt disconnect for p1. `ws_b`'s own `with` is still open,
             # so it stays connected to observe the broadcast.
@@ -1050,7 +988,7 @@ def test_reconnect_within_grace_broadcasts_resumed_once_both_players_are_back(
     manager = _match_manager(client)
     with client.websocket_connect("/ws") as ws_b:
         with client.websocket_connect("/ws") as ws_a:
-            created, _joined = _start_active_match_keeping_sockets_open(ws_a, ws_b)
+            created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
 
         paused = ws_b.receive_json()
         assert paused["type"] == "paused"
@@ -1093,7 +1031,7 @@ def test_grace_expiry_broadcasts_forfeit_to_the_remaining_player(
     manager = _match_manager(client)
     with client.websocket_connect("/ws") as ws_b:
         with client.websocket_connect("/ws") as ws_a:
-            created, _joined = _start_active_match_keeping_sockets_open(ws_a, ws_b)
+            created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
             # ws_a closes here: p1 disconnects and never returns.
 
         paused = ws_b.receive_json()
@@ -1211,7 +1149,7 @@ def test_resync_is_sent_before_any_resumed_broadcast_it_triggers(
     manager = _match_manager(client)
     with client.websocket_connect("/ws") as ws_b:
         with client.websocket_connect("/ws") as ws_a:
-            created, _joined = _start_active_match_keeping_sockets_open(ws_a, ws_b)
+            created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
         # ws_a (p1) closed: paused. p2/ws_b never disconnects in this test.
 
         paused = ws_b.receive_json()

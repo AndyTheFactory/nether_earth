@@ -15,6 +15,8 @@ onto the developer's filesystem outside of a ``tmp_path`` -- see
 ``tmp_path``-scoped directory for exactly this reason.
 """
 
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -58,6 +60,7 @@ def create_app(
     replay_dir: Path | None = None,
     reconnect_grace_seconds: float = DEFAULT_GRACE_SECONDS,
     tick_rate_hz: float = TICK_RATE_HZ,
+    _reconnect_monotonic_clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
     """Build a fresh, fully-wired app instance.
 
@@ -75,6 +78,15 @@ def create_app(
     composition-root wiring as a real deployment while substituting a short
     grace period/fast tick interval, instead of duplicating this function's
     wiring in a second, drift-prone copy (M7 Task 10, issue #99).
+
+    ``_reconnect_monotonic_clock`` is a leading-underscore, test-only seam
+    (never overridden by a real deployment, which always wants the real
+    ``time.monotonic``): it exists solely so a test can force two real,
+    sequential disconnects to compute the exact same grace deadline (a
+    genuine tie -- see ``ReconnectCoordinator._resolve_expiry``'s own
+    docstring for why only an exact tie resolves to no-contest) without
+    hand-assembling a second copy of this function's wiring (M7 Task 10
+    review, Important I3).
     """
     fastapi_app = FastAPI(title="Nether Earth", version="0.0.0")
 
@@ -102,6 +114,7 @@ def create_app(
         ),
         grace_seconds=reconnect_grace_seconds,
         runtime_registry=runtime_registry,
+        monotonic_clock=_reconnect_monotonic_clock,
     )
 
     match_manager = MatchManager(
