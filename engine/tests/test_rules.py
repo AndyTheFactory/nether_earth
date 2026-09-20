@@ -160,7 +160,6 @@ def test_default_rules_match_locked_combat_range_and_effect_defaults() -> None:
     assert DEFAULT_RULES.cannon_damage_multiplier == 2
     assert DEFAULT_RULES.missile_damage_multiplier == 3
     assert DEFAULT_RULES.phaser_damage_multiplier == 4
-    assert DEFAULT_RULES.projectile_max_range_cells == 28  # longest range
 
 
 def test_engine_rules_accepts_custom_combat_overrides() -> None:
@@ -189,7 +188,6 @@ def test_engine_rules_accepts_custom_combat_overrides() -> None:
         "cannon_damage_multiplier",
         "missile_damage_multiplier",
         "phaser_damage_multiplier",
-        "projectile_max_range_cells",
     ],
 )
 def test_engine_rules_rejects_non_positive_combat_fields(field_name: str) -> None:

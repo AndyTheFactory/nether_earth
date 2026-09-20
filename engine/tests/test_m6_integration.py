@@ -58,6 +58,11 @@ overclaim, every M6 policy choice still flagged non-canonical by Task 3
   ``robot_height``/``ground_height`` be confirmed on the same disassembly-
   native raw scale once wired to real data -- a noted caveat, not a
   silently-assumed fact.
+- Projectile collision uses single-cell point collision, not
+  `_specs/open-questions.md` §8's evidenced ordered 3x3 first-hit-wins scan
+  (``Lb7a7_potentially_hit_a_robot``'s preceding neighborhood check) -- see
+  ``combat.py``'s module docstring for the full disclosure and rationale;
+  this is a documented simplification, not a fidelity claim.
 """
 
 from __future__ import annotations

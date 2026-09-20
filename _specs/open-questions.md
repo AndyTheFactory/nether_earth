@@ -478,11 +478,33 @@ height scale and not on some other project-specific unit), since this
 research pass only traced the arithmetic/constants, not the numeric ranges
 that will flow through them at runtime.
 
+Follow-up note (M6 final review, engine-wiring observation, not new
+disassembly research): `combat.py`'s ``ground_height_at`` -- the function
+that supplies this formula's ``ground_height`` operand -- returns the
+tallest static ``structures.Component`` height at a robot's cell, but
+`WorldMap.occupancy()` marks every structure cell occupied and
+`movement.py`'s ``validate_robot_move`` rejects any move into an occupied
+cell. A live robot can therefore never legally stand on a structure cell in
+this engine, which means ``ground_height_at`` always returns ``0`` for any
+robot reached through normal movement, and the locked formula
+``(60 - (robot_height + ground_height)) // 4`` collapses in practice to
+``(60 - robot_height) // 4`` for the entire engine as currently wired. The
+function itself is correctly implemented per this section's evidence; this
+is an open question about whether that is the intended end state, not a bug
+report. Left for a future milestone/owner decision: is ``ground_height``
+meant to ever be non-zero given this engine's occupancy model (e.g. via a
+future terrain-elevation model decoupled from movement-blocking structure
+occupancy), or should the damage formula itself be revisited to drop the
+now-always-zero term? Not resolved here -- do not silently pick an answer.
+
 Still open (not resolved by this research pass):
 
 - none of the items originally listed above remain open; all resolved as
   documented in the "Resolved by issue #74 research" block, subject to the
   scale-reconciliation caveat on starting strength noted above.
+- see the follow-up note immediately above regarding ``ground_height_at``'s
+  structural always-zero behavior under this engine's current occupancy
+  model.
 
 ## 10. Resource spending rules — RESOLVED
 

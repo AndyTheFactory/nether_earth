@@ -174,25 +174,24 @@ locked game rules; projectile altitude and damage multipliers are explicitly
 locked Spectrum defaults per the milestone spec. Together these form the
 authoritative rule set for all later combat tasks.
 
-Issue #70 also adds one placeholder field, ``projectile_max_range_cells``,
-for an as-yet-unresolved projectile-lifetime rule. This field will be
-consumed by a later task to gate projectile termination; the default is
-set to the longest locked weapon range (missile at 28 cells), a documented,
-explicitly unverified policy choice (see the module docstring's "documented
-default, not independently verified" precedent for the rationale). Later
-Spectrum evidence on projectile expiry may correct this in one place
-without an architecture change.
-
 Issue #73 (M6.4, `_specs/milestones/06-combat-damage-victory.md`) adds
 ``projectile_advance_ticks``: the cadence (in simulation ticks) at which
 in-flight projectiles advance one cell, consumed by `combat.py`'s
-``is_projectile_advance_tick``/``advance_projectiles``. Unlike
-``projectile_max_range_cells`` above, this value is evidence-backed rather
-than an independent placeholder: issue #72's disassembly research
+``is_projectile_advance_tick``/``advance_projectiles``. This value is
+evidence-backed: issue #72's disassembly research
 (`_specs/open-questions.md` §8) found bullets and robots share the same
 per-game-cycle dispatcher, and issue #61 (M5.2) already mapped that shared
 game-cycle boundary onto this project's locked 20 Hz tick rate as "1 cycle
 = 4 ticks" -- reused here unchanged, default ``4``.
+
+(Issue #70's original placeholder field ``projectile_max_range_cells`` --
+an as-yet-unresolved projectile-lifetime rule -- was removed as dead code
+during the M6 final review: the final per-weapon range design
+(`combat.weapon_range_cells()` plus the electronics range bonus) made it
+obsolete before anything ever consumed it. Per-weapon range is what
+actually gates projectile range/termination; see `combat.py`'s
+:func:`~nether_earth.combat.weapon_range_cells` and
+:func:`~nether_earth.combat.advance_projectiles`.)
 """
 
 from dataclasses import dataclass
@@ -386,16 +385,6 @@ class EngineRules:
       (issue #70, M6.1). Locked Spectrum default: ``3``.
     - ``phaser_damage_multiplier``: the damage multiplier for phaser hits
       (issue #70, M6.1). Locked Spectrum default: ``4``.
-    - ``projectile_max_range_cells``: a documented, unverified placeholder
-      for the maximum distance a projectile may travel before terminating
-      (issue #70, M6.1, consumed by M6.4). Spectrum evidence on whether
-      projectile lifetime is tied to absolute range/distance or a tick
-      duration remains unresolved (`_specs/open-questions.md` §8). This field
-      defaults to ``28`` cells, the longest locked weapon range (missile),
-      as an explicitly provisional policy choice pending later evidence; it
-      is *not* presented as a verified Spectrum constant, only as a named
-      configurable placeholder. Later research may correct it in this one
-      place without an architecture change.
     - ``projectile_advance_ticks``: the number of simulation ticks between
       projectile-advance cadence updates (issue #73, M6.4, per
       `_specs/open-questions.md` §8 "Advance cadence"). The disassembly
@@ -455,7 +444,6 @@ class EngineRules:
     cannon_damage_multiplier: int = 2
     missile_damage_multiplier: int = 3
     phaser_damage_multiplier: int = 4
-    projectile_max_range_cells: int = 28
     projectile_advance_ticks: int = 4
 
     def __post_init__(self) -> None:
@@ -528,7 +516,6 @@ class EngineRules:
             "cannon_damage_multiplier",
             "missile_damage_multiplier",
             "phaser_damage_multiplier",
-            "projectile_max_range_cells",
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")

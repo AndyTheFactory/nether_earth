@@ -53,6 +53,46 @@ a surface but wrong for a projectile's collision rule. Do not "fix" this by
 routing through ``VerticalRange`` -- that would silently reintroduce the
 wrong (exclusive) semantics.
 
+Collision footprint -- single-cell point collision vs. §8's evidenced 3x3 scan
+-------------------------------------------------------------------------------
+`_specs/open-questions.md` §8 records the original disassembly's collision
+check (``Lb7a7_potentially_hit_a_robot``'s preceding scan) as an ordered,
+first-hit-wins 3x3 neighborhood around the projectile's new cell -- resolved
+evidence, not an open question, and the §8 "Recommended engine policy
+surface" note explicitly says this footprint "is not marked non-canonical
+since the 3x3 first-hit scan is directly evidenced." This engine's actual
+implementation (:func:`_projectile_terminal_reason`, via
+:func:`_components_at_inclusive_blocking`/:func:`_robot_hit_at`) deliberately
+narrows this to single-cell point collision: only the projectile's one
+candidate next cell is checked, not its surrounding 3x3 neighborhood. This is
+an undisclosed-until-now simplification of resolved evidence, recorded here
+plainly: it is simpler to implement and reason about, it is sufficient for
+this engine's cardinal-only (non-diagonal) projectile model, and in a
+straight-line trajectory the 3x3 neighborhood's practical effect is
+dominated by the single leading cell anyway (the other eight cells rarely
+change the outcome of a projectile travelling in one of four fixed
+directions). This is a documented policy choice, not an oversight, and it
+mirrors :func:`resolve_fire_direction`'s "documented simplification, not a
+fidelity claim" framing.
+
+Grid symmetry -- why X and Y advance uniformly (§8's Y-axis-doubling question)
+-------------------------------------------------------------------------------
+`_specs/open-questions.md` §8 recommended a documented
+``projectile_y_axis_doubled``-style policy decision for whether this
+engine's Y axis should use the same step-size convention as X for
+projectile movement, since the original disassembly's raw-pixel coordinate
+system gives X (``MAP_LENGTH = 512``) and Y (``MAP_WIDTH = 16``) different
+physical scales. This engine's grid already represents both X and Y as
+uniform logical cells -- there is no raw-pixel/doubled-coordinate
+distinction anywhere in this project's own coordinate representation -- so
+:func:`advance_projectiles` advances a projectile exactly 1 logical cell per
+axis per advance-tick, symmetrically, regardless of which axis it travels
+along. This makes the original's X/Y raw-unit scale distinction moot for
+this engine's own grid: there is no second, smaller-scale axis to reconcile
+against. This is a deliberate policy decision, not an oversight, and per the
+§8 reviewer's own note, no additional ``EngineRules`` field is needed to
+express it -- this paragraph is the decision.
+
 Fire direction resolution
 ---------------------------
 :class:`FireRequest` carries a target cell, not a cardinal direction, and
@@ -244,6 +284,12 @@ class FireCommand(Command):
     shape -- an out-of-bounds or degenerate aim is a gameplay rejection
     (:attr:`FireRejectionReason.TARGET_OUT_OF_RANGE`), not a malformed
     command.
+
+    ``target_x``/``target_y`` are ignored when ``weapon`` is
+    :attr:`~nether_earth.robot_build.ModuleIdentity.NUCLEAR`: a nuclear
+    detonation always centers on the carrier robot's own position, never on
+    the aimed cell (see `engine.py`'s combat step for the code comment that
+    already explains this at the call site).
     """
 
     entity_id: EntityId
@@ -459,6 +505,12 @@ class ProjectileTerminatedEvent(Event):
     tick this event is emitted -- so a consumer could not look it back up.
     This completes the "enough info for the damage layer" intent M6.4 stated
     for this event but did not finish.
+
+    For a :attr:`~ProjectileTerminationReason.OUT_OF_BOUNDS` termination,
+    the reported ``x``/``y`` is the off-map coordinate the projectile would
+    have entered, not a valid in-map cell -- a future consumer (renderer,
+    replay UI) should not assume this event's coordinates always fall
+    within the map's bounds.
     """
 
     entity_id: EntityId
@@ -858,6 +910,19 @@ def ground_height_at(world: WorldMap, x: int, y: int) -> int:
     occupancy invariants -- case of more than one component sharing a
     cell), or ``0`` when no component occupies ``(x, y)`` at all (bare
     terrain).
+
+    Structurally always ``0`` for any robot reached through normal gameplay:
+    :class:`~nether_earth.map.WorldMap`'s ``occupancy()`` marks every
+    structure cell occupied, and
+    :func:`~nether_earth.movement.validate_robot_move` rejects any move into
+    an occupied cell (per M2's occupancy invariants), so a live robot can
+    never legally come to stand on a structure cell -- only a hand-placed
+    test fixture robot can put a robot on such a cell to exercise this
+    function's non-zero branch. This function itself remains correctly
+    implemented and is not being removed: it is exactly right for the case
+    where it is ever needed (e.g. a future terrain-height model that does
+    not block movement the way static-structure occupancy currently does) --
+    it is simply never exercised by live play as this engine is wired today.
     """
     return max((component.height for component in components_at(world, x, y)), default=0)
 
