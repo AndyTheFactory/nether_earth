@@ -20,7 +20,8 @@ hit on bare terrain.
 
 from __future__ import annotations
 
-from nether_earth.capture import CapturableStructureKind
+from nether_earth.capture import CapturableStructureKind, StructureCapturedEvent
+from nether_earth.clock import TICKS_PER_GAME_DAY
 from nether_earth.combat import (
     FireCommand,
     ProjectileFiredEvent,
@@ -34,6 +35,7 @@ from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.orders import SearchDestroy, SearchDestroyTarget
 from nether_earth.replay import ReplayFixture, run_fixture
+from nether_earth.resource_production import DailyProductionApplied
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
@@ -49,7 +51,9 @@ MAP_ID = "test-combat-integration"
 SIZE = 60
 
 WAR_BASE_ONE = EntityId("warbase-p1")
+WAR_BASE_ONE_B = EntityId("warbase-p1-b")
 WAR_BASE_TWO = EntityId("warbase-p2")
+NEUTRAL_WAR_BASE = EntityId("warbase-neutral")
 FACTORY_ONE = EntityId("factory-p1")
 
 #: Far from every war base, so a nuclear detonation here destroys nothing
@@ -69,7 +73,12 @@ CANNON_DAMAGE = 24
 ADVANCE = DEFAULT_RULES.projectile_advance_ticks
 
 
-def _world(*, factory_owner: PlayerId | None = PLAYER_ONE) -> WorldMap:
+def _world(
+    *,
+    factory_owner: PlayerId | None = PLAYER_ONE,
+    extra_war_bases: tuple[WarBase, ...] = (),
+    extra_interaction_points: tuple[InteractionPoint, ...] = (),
+) -> WorldMap:
     """Return the shared 60x60 flat test map.
 
     Both war bases are 3 units tall -- far below ``normal_projectile_altitude``
@@ -93,6 +102,7 @@ def _world(*, factory_owner: PlayerId | None = PLAYER_ONE) -> WorldMap:
                 components=(Component(x=SIZE - 1, y=SIZE - 1, height=3),),
                 owner=PLAYER_TWO,
             ),
+            *extra_war_bases,
         ),
         factories=(
             Factory(
@@ -110,6 +120,7 @@ def _world(*, factory_owner: PlayerId | None = PLAYER_ONE) -> WorldMap:
                 structure_id=FACTORY_ONE,
                 footprint=Footprint(cells=frozenset({FACTORY_CAPTURE_CELL})),
             ),
+            *extra_interaction_points,
         ),
         spawn_positions={},
     )
@@ -357,6 +368,127 @@ def test_nuclear_destruction_of_the_last_war_base_produces_victory_in_the_same_t
     assert victories[0].tick == state.tick  # type: ignore[attr-defined]
 
 
+def _p1_second_war_base() -> WarBase:
+    """A second PLAYER_ONE war base, >16 cells from WAR_BASE_ONE at (0, 0).
+
+    Far enough that one nuclear blast cannot take both: the duplicate-victory
+    scenarios below need PLAYER_ONE to still own *one* war base after the
+    second detonation, so the victory condition stays satisfied at more than
+    one check site in the same tick.
+    """
+    return WarBase(
+        id=WAR_BASE_ONE_B,
+        components=(Component(x=20, y=0, height=3),),
+        owner=PLAYER_ONE,
+    )
+
+
+def test_two_nuclear_fire_commands_in_one_tick_emit_exactly_one_victory_event() -> None:
+    # Regression: each accepted nuclear FireCommand runs its own victory
+    # check. Here BOTH find the condition satisfied -- the first because
+    # PLAYER_TWO's only war base is destroyed (p1 2, p2 0), the second
+    # because destroying one of PLAYER_ONE's two war bases still leaves
+    # exactly one owner (p1 1, p2 0). Without the shared `victory_emitted`
+    # guard this tick announces the match result twice (issue #79:
+    # "repeated/redundant evaluation does not emit duplicate match-result
+    # events").
+    world = _world(extra_war_bases=(_p1_second_war_base(),))
+    first = _nuke_carrier("robot-a", PLAYER_ONE, SIZE - 2, SIZE - 2)
+    second = _nuke_carrier("robot-b", PLAYER_ONE, 20, 1)
+    state = _state((first, second))
+
+    commands = [
+        FireCommand(
+            player=PLAYER_ONE,
+            sequence=0,
+            entity_id=first.entity_id,
+            weapon=ModuleIdentity.NUCLEAR,
+            target_x=SIZE - 1,
+            target_y=SIZE - 1,
+        ),
+        FireCommand(
+            player=PLAYER_ONE,
+            sequence=1,
+            entity_id=second.entity_id,
+            weapon=ModuleIdentity.NUCLEAR,
+            target_x=20,
+            target_y=0,
+        ),
+    ]
+    state, events = step(state, commands, world=world)
+
+    # Both detonations really happened, each destroying a different war base,
+    # and PLAYER_ONE really does still hold one afterwards -- so the victory
+    # condition was genuinely satisfied at both check sites.
+    destroyed_war_bases = {
+        event.structure_id  # type: ignore[attr-defined]
+        for event in _of(events, StructureDestroyedEvent)
+        if event.structure_kind is CapturableStructureKind.WAR_BASE  # type: ignore[attr-defined]
+    }
+    assert destroyed_war_bases == {WAR_BASE_TWO, WAR_BASE_ONE_B}
+    assert WAR_BASE_ONE not in state.structure_destruction
+
+    # ...yet exactly one match result was announced.
+    victories = _of(events, VictoryEvent)
+    assert len(victories) == 1
+    assert victories[0].winner == PLAYER_ONE  # type: ignore[attr-defined]
+
+
+def test_victory_is_announced_once_when_a_nuke_and_a_capture_land_in_one_tick() -> None:
+    # The third independent append site: Step 2d's capture-triggered check.
+    # PLAYER_ONE completes a neutral-war-base capture on exactly the tick a
+    # PLAYER_ONE nuke removes PLAYER_TWO's last war base, so Step 2c2's
+    # nuclear check and Step 2d's capture check both find the same result.
+    neutral = WarBase(
+        id=NEUTRAL_WAR_BASE,
+        components=(Component(x=5, y=5, height=3),),
+        owner=None,
+    )
+    capture_cell = (6, 5)
+    world = _world(
+        extra_war_bases=(neutral,),
+        extra_interaction_points=(
+            InteractionPoint(
+                id="warbase-neutral-capture",
+                kind=InteractionKind.WARBASE_CAPTURE,
+                structure_id=NEUTRAL_WAR_BASE,
+                footprint=Footprint(cells=frozenset({capture_cell})),
+            ),
+        ),
+    )
+    capturer = _gunner("robot-c", PLAYER_ONE, *capture_cell)
+    carrier = _nuke_carrier("robot-a", PLAYER_ONE, SIZE - 2, SIZE - 2)
+    state = _state((carrier, capturer))
+
+    # Occupy the neutral war base until one tick short of completion.
+    for _tick in range(1, DEFAULT_RULES.capture_duration_ticks):
+        state, events = step(state, [], world=world)
+        assert _of(events, VictoryEvent) == []
+
+    command = FireCommand(
+        player=PLAYER_ONE,
+        sequence=0,
+        entity_id=carrier.entity_id,
+        weapon=ModuleIdentity.NUCLEAR,
+        target_x=SIZE - 1,
+        target_y=SIZE - 1,
+    )
+    state, events = step(state, [command], world=world)
+
+    # Both triggers really fired in this one tick.
+    assert WAR_BASE_TWO in state.structure_destruction
+    captured = [
+        event
+        for event in _of(events, StructureCapturedEvent)
+        if event.structure_kind is CapturableStructureKind.WAR_BASE  # type: ignore[attr-defined]
+    ]
+    assert [event.structure_id for event in captured] == [NEUTRAL_WAR_BASE]  # type: ignore[attr-defined]
+
+    victories = _of(events, VictoryEvent)
+    assert len(victories) == 1
+    assert victories[0].winner == PLAYER_ONE  # type: ignore[attr-defined]
+
+
 def test_a_destroyed_factory_stops_being_capturable_on_the_following_tick() -> None:
     # Absent Step 2d's switch from `capture.effective_world` to
     # `destruction.effective_world`, ``advance_capture`` would still see the
@@ -397,9 +529,39 @@ def test_a_destroyed_factory_stops_being_capturable_on_the_following_tick() -> N
     assert state.capture_progress == ()
 
 
+def _run_to_day_boundary(state: GameState, world: WorldMap) -> tuple[GameState, list[object]]:
+    """Step until the next ``TICKS_PER_GAME_DAY`` boundary, collecting production."""
+    produced: list[object] = []
+    while state.tick % TICKS_PER_GAME_DAY != 0 or state.tick == 0:
+        state, events = step(state, [], world=world)
+        produced.extend(_of(events, DailyProductionApplied))
+    return state, produced
+
+
+def test_a_live_factory_produces_its_category_at_a_day_boundary() -> None:
+    # The control for the test below: establish that this exact world/owner
+    # really does pay out, so the "stops producing" assertion means something.
+    world = _world(factory_owner=PLAYER_ONE)
+    state = _state()
+
+    state, produced = _run_to_day_boundary(state, world)
+
+    assert state.tick == TICKS_PER_GAME_DAY
+    by_player = {event.player: event for event in produced}  # type: ignore[attr-defined]
+    assert dict(by_player[PLAYER_ONE].category_amounts)[FactoryType.CHASSIS] == (
+        DEFAULT_RULES.factory_production_amount
+    )
+    pool = state.resource_pool_for(PLAYER_ONE)
+    assert pool is not None
+    assert pool.chassis == DEFAULT_RULES.factory_production_amount
+
+
 def test_a_destroyed_factory_stops_producing_resources() -> None:
-    # Step 9 (daily production) reads `world_for_step`, recomputed after the
-    # combat step -- so a factory nuked this tick cannot pay out again.
+    # Step 9 (daily production) reads `world_for_step`, which Step 2d
+    # recomputes from the latest state -- so a factory nuked earlier in the
+    # match cannot pay out at the next day boundary. Mirrors the shape of
+    # the capture test above: establish the live behavior (the control test
+    # above), destroy, then prove the behavior stops.
     world = _world(factory_owner=PLAYER_ONE)
     carrier = _nuke_carrier("robot-a", PLAYER_ONE, FACTORY_CELL[0], FACTORY_CELL[1] + 1)
     state = _state((carrier,))
@@ -413,14 +575,25 @@ def test_a_destroyed_factory_stops_producing_resources() -> None:
         target_y=FACTORY_CELL[1],
     )
     state, _events = step(state, [command], world=world)
-
     assert FACTORY_ONE in state.structure_destruction
-    world_factories = tuple(
-        factory.id
-        for factory in world.factories
-        if factory.id not in state.structure_destruction
-    )
-    assert world_factories == ()
+
+    chassis_before = state.resource_pool_for(PLAYER_ONE)
+    assert chassis_before is None or chassis_before.chassis == 0
+
+    state, produced = _run_to_day_boundary(state, world)
+
+    assert state.tick == TICKS_PER_GAME_DAY
+    # The war base survived, so PLAYER_ONE still produces *general*
+    # resources -- proving production ran at all, and that only the
+    # destroyed factory's contribution is missing.
+    by_player = {event.player: event for event in produced}  # type: ignore[attr-defined]
+    assert PLAYER_ONE in by_player
+    assert by_player[PLAYER_ONE].general_amount == DEFAULT_RULES.war_base_production_amount
+    assert dict(by_player[PLAYER_ONE].category_amounts)[FactoryType.CHASSIS] == 0
+
+    pool = state.resource_pool_for(PLAYER_ONE)
+    assert pool is not None
+    assert pool.chassis == 0
 
 
 # --------------------------------------------------------------------------

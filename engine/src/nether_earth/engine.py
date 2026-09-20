@@ -425,10 +425,12 @@ def step(
        finalization/session lifecycle is the match/session layer's job).
     10. Steps 7-9 above (heli-pad/construction entry, launch, daily
         production) are evaluated against
-        :func:`~nether_earth.capture.effective_world` -- ``world`` with
-        every runtime capture ownership override (including any that
-        completed earlier in this same tick's Step 2c) layered on top --
-        rather than the raw ``world`` argument, so a structure's new owner
+        :func:`~nether_earth.destruction.effective_world` (M6.10; this was
+        :func:`~nether_earth.capture.effective_world` through M5) -- ``world``
+        with every runtime capture ownership override (including any that
+        completed earlier in this same tick's Step 2c) layered on top, and
+        every destroyed structure filtered out -- rather than the raw
+        ``world`` argument, so a structure's new owner
         is immediately visible to every other ownership-aware subsystem in
         the same tick it changes hands, matching "ownership transfers
         immediately on completion".
@@ -459,10 +461,13 @@ def step(
         what §11 forbids. Autonomous and direct-control moves therefore
         contend as equals in one batch.
     13. Order evaluation reads
-        :func:`~nether_earth.capture.effective_world` (ownership as it
-        stands at the start of the tick, including every previously
-        completed capture) so a Search & Capture order re-resolves
-        "neutral"/"enemy" against live ownership. A capture completing
+        :func:`~nether_earth.destruction.effective_world` (M6.10; this was
+        :func:`~nether_earth.capture.effective_world` through M5) --
+        ownership as it stands at the start of the tick, including every
+        previously completed capture, with every already-destroyed structure
+        filtered out -- so a Search & Capture/Search & Destroy order
+        re-resolves "neutral"/"enemy" against live ownership and never
+        targets a structure that no longer exists. A capture completing
         later in this same tick's Step 2d is reflected on the next tick's
         evaluation, which is the same one-tick visibility every other
         pre-capture step in this function has.
@@ -521,6 +526,16 @@ def step(
         Search & Capture/Search & Destroy target. This includes the world
         handed *into* :func:`~nether_earth.capture.advance_capture`, which
         therefore stays destruction-unaware itself.
+    16. **At most one** :class:`~nether_earth.victory.VictoryEvent` is
+        appended per ``step`` call, per issue #79's locked criteria
+        ("repeated/redundant evaluation does not emit duplicate
+        match-result events"). Three sites can each independently find the
+        same condition in one tick -- Step 2c2's per-``FireCommand``
+        nuclear branch (once per nuclear command in the batch), Step 2c2's
+        autonomous-engagement branch, and Step 2d's capture-triggered check
+        -- so a single ``victory_emitted`` flag, declared once at the top of
+        this function, guards all three appends rather than each site
+        reasoning about the others.
 
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
     always produces an identical ``(new_state, events)`` pair.
@@ -545,6 +560,19 @@ def step(
     starting_tick = state.tick
     tick = state.tick + 1
     rules = DEFAULT_RULES
+
+    # At most ONE VictoryEvent may be appended per `step` call, per issue
+    # #79's locked acceptance criteria ("repeated/redundant evaluation does
+    # not emit duplicate match-result events"; "match result is emitted once
+    # and cannot oscillate/reopen"). Three independent sites below can each
+    # find the same victory condition in one tick -- the per-`FireCommand`
+    # nuclear branch (once per nuclear command in the batch), the autonomous
+    # engagement branch, and Step 2d's capture-triggered check -- so the
+    # single authoritative guard lives here rather than in any one of them.
+    # The evaluation functions themselves are pure, so a later site may
+    # still safely be CALLED once this flag is set; only the append is
+    # suppressed, which keeps each site's own local reasoning unchanged.
+    victory_emitted = False
 
     # When world is None, fall back to commander_movement.py's own
     # permissive ("always allow") defaults by simply not supplying a check
@@ -716,8 +744,9 @@ def step(
                 victory_event = evaluate_victory_after_nuclear_detonation(
                     detonation_events, fire_world, state, tick, sequencer
                 )
-                if victory_event is not None:
+                if victory_event is not None and not victory_emitted:
                     events.append(victory_event)
+                    victory_emitted = True
             else:
                 state, _fire_result, fire_event = apply_fire(
                     request, state, fire_world, tick, rules, sequencer
@@ -750,8 +779,9 @@ def step(
             tick,
             sequencer,
         )
-        if engagement_victory is not None:
+        if engagement_victory is not None and not victory_emitted:
             events.append(engagement_victory)
+            victory_emitted = True
 
     # --- Step 2d: neutral acquisition / enemy capture progress -------------
     # After Step 2c: capture reads robots' authoritative positions, which a
@@ -787,9 +817,14 @@ def step(
         world_for_step = destruction_effective_world(world, state)
 
         if war_base_ownership_changed:
-            victory_event = evaluate_victory(world_for_step, state, tick, sequencer)
-            if victory_event is not None:
-                events.append(victory_event)
+            capture_victory = evaluate_victory(world_for_step, state, tick, sequencer)
+            # Guarded by the same one-per-tick flag as Step 2c2's two nuclear
+            # victory sites: a nuke removing the loser's last war base in
+            # Step 2c2 and a war-base acquisition completing here can both
+            # find the condition in a single tick.
+            if capture_victory is not None and not victory_emitted:
+                events.append(capture_victory)
+                victory_emitted = True
 
     # --- Step 3: undock any DOCKED commander holding rise intent ------------
     for commander in state.commanders:
