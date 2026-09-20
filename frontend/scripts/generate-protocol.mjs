@@ -23,9 +23,15 @@ for (const file of files) {
   rootDefs[exportName] = { $ref: schema.$id };
 }
 
+// A distinctive, self-chosen name (not derived from $id-mangling, which is an internal
+// json-schema-to-typescript detail that can change between versions) so we can
+// structurally find and strip this placeholder's own declaration below.
+const BUNDLE_ROOT_NAME = 'GeneratedProtocolBundleRoot';
+
 const bundleRoot = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: `${PROTOCOL_ORIGIN}_generated_bundle.schema.json`,
+  title: BUNDLE_ROOT_NAME,
   $defs: rootDefs,
 };
 
@@ -43,7 +49,7 @@ const netherEarthResolver = {
 
 await mkdir(outputDir, { recursive: true });
 
-const generated = await compile(bundleRoot, 'ProtocolBundle', {
+const generated = await compile(bundleRoot, BUNDLE_ROOT_NAME, {
   bannerComment: '// Generated from protocol/schemas/*.schema.json. Do not edit by hand.',
   unreachableDefinitions: true,
   $refOptions: {
@@ -55,15 +61,62 @@ const generated = await compile(bundleRoot, 'ProtocolBundle', {
 });
 
 // The synthetic bundle root itself has no meaningful shape (it only exists to hold
-// $defs so cross-file $refs dedupe); drop its generated placeholder declaration
-// (named after the bundle's own $id since it has no "title").
-const withoutBundleRootType = generated
-  .split(/\n(?=export )/)
-  .filter((block) => !/^export (interface|type) (ProtocolBundle|HttpsNetherEarthLocalProtocol\w*BundleSchemaJson)\b/.test(block))
-  .join('\n')
-  // Strip provenance doc-comments pointing at the (now-removed) synthetic bundle root;
-  // they're accurate but reference an internal name that no longer appears in the file.
-  .replace(/\/\*\*\n( \*[^\n]*\n)*? \* This interface was referenced by `HttpsNetherEarthLocalProtocol\w*BundleSchemaJson`'s JSON-Schema\n \* via the `definition` "[^"]*"\.\n \*\/\n/g, '');
+// $defs so cross-file $refs dedupe); drop its generated placeholder declaration and
+// any doc-comment json-schema-to-typescript attached elsewhere that references it by
+// name. This is matched structurally against BUNDLE_ROOT_NAME (a name we chose), not
+// against the tool's internal $id-mangling or exact comment wording, and the number of
+// blocks touched is asserted below so a future json-schema-to-typescript version that
+// changes its output shape fails the build loudly instead of silently leaking the
+// placeholder (or stray internal-name comments) into committed generated/types.ts.
+const rootNamePattern = BUNDLE_ROOT_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const blocks = generated.split(/\n(?=export )/);
 
-await writeFile(outputFile, withoutBundleRootType.trimEnd() + '\n', 'utf8');
+const rootDeclarationBlocks = blocks.filter((block) =>
+  new RegExp(`^export (interface|type) ${rootNamePattern}\\b`).test(block),
+);
+if (rootDeclarationBlocks.length !== 1) {
+  throw new Error(
+    `expected exactly 1 generated declaration named "${BUNDLE_ROOT_NAME}" to strip, found ${rootDeclarationBlocks.length}. ` +
+      'json-schema-to-typescript output shape may have changed; update the bundle-root stripping logic in generate-protocol.mjs.',
+  );
+}
+
+const nameReferencePattern = new RegExp(`\\b${rootNamePattern}\\b`);
+let strippedCommentCount = 0;
+const withoutBundleRootType = blocks
+  .filter((block) => !rootDeclarationBlocks.includes(block))
+  .map((block) => {
+    if (!nameReferencePattern.test(block)) return block;
+    // Blocks come from splitting on `\n(?=export )`, which consumes the newline as
+    // part of the delimiter; a block whose comment ends right at that boundary (or at
+    // end of file) won't have a trailing "\n" of its own, so it's optional here.
+    const stripped = block.replace(/\/\*\*[\s\S]*?\*\/\n?/g, (comment) => {
+      if (!nameReferencePattern.test(comment)) return comment;
+      strippedCommentCount += 1;
+      return '';
+    });
+    if (nameReferencePattern.test(stripped)) {
+      throw new Error(
+        `a reference to "${BUNDLE_ROOT_NAME}" survived comment stripping outside a doc comment; ` +
+          'json-schema-to-typescript output shape may have changed; update generate-protocol.mjs.',
+      );
+    }
+    return stripped;
+  })
+  .join('\n');
+
+// Every one of the bundle root's direct $defs entries gets its own "referenced by
+// <root>" provenance comment from json-schema-to-typescript; assert that held.
+const expectedStrippedComments = Object.keys(rootDefs).length;
+if (strippedCommentCount !== expectedStrippedComments) {
+  throw new Error(
+    `expected to strip ${expectedStrippedComments} "${BUNDLE_ROOT_NAME}" provenance comment(s) (one per bundled schema file), ` +
+      `stripped ${strippedCommentCount}. json-schema-to-typescript output shape may have changed; update generate-protocol.mjs.`,
+  );
+}
+
+// Cosmetic: stripping comments/blocks above can leave behind runs of blank lines.
+const normalized = withoutBundleRootType.replace(/\n{3,}/g, '\n\n');
+
+await writeFile(outputFile, normalized.trimEnd() + '\n', 'utf8');
 console.log(`generated ${outputFile}`);

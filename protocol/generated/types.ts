@@ -2,7 +2,9 @@
 
 export type ClientMessage =
   ClientCreateMatch | ClientJoinMatch | ClientSetReady | ClientLeaveMatch | ClientGameplayCommand;
+
 export type ReconnectMessage = ClientReconnect | ServerResync;
+
 export type ServerMessage =
   | ServerCreated
   | ServerJoined
@@ -141,6 +143,7 @@ export interface PlaceholderCommandPayload {
   kind: "placeholder";
   [k: string]: unknown;
 }
+
 export interface ProtocolCommon {
   /**
    * This interface was referenced by `ProtocolCommon`'s JSON-Schema
@@ -237,6 +240,7 @@ export interface ServerResync {
   playerId: string;
   snapshot: SnapshotMessage;
 }
+
 export interface SnapshotMessage {
   /**
    * This interface was referenced by `ProtocolCommon`'s JSON-Schema
