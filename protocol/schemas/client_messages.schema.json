@@ -64,7 +64,7 @@
     "gameplayCommand": {
       "type": "object",
       "title": "ClientGameplayCommand",
-      "description": "Generic envelope for in-match gameplay commands. The payload shape is a placeholder extended by issue #98; matchId/playerId/sessionToken/clientSequence are stable and do not change when payload variants are added.",
+      "description": "Envelope for in-match gameplay commands. `payload` is the discriminated commandPayload union (issue #98, common.schema.json); matchId/playerId/sessionToken/clientSequence are stable and did not change when the real payload variants were added.",
       "properties": {
         "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
         "type": { "type": "string", "const": "command" },

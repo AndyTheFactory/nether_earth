@@ -22,7 +22,7 @@ from pydantic import ValidationError
 import app.protocol as protocol_package
 from app.protocol import parse_client_message, serialize_server_message
 from app.protocol.client_messages import ClientCreateMatch
-from app.protocol.common import ErrorInfo, PlayerSummary
+from app.protocol.common import ErrorInfo, PlayerSummary, SnapshotState
 from app.protocol.envelope import OutboundMessage, OutboundMessageAdapter
 from app.protocol.reconnect import ClientReconnect, ServerResync
 from app.protocol.server_messages import (
@@ -100,7 +100,23 @@ def test_protocol_package_has_no_match_dependency() -> None:
 
 
 _SNAPSHOT_FOR_RESYNC = SnapshotMessage(
-    protocol_version=1, type="snapshot", match_id="match-1", tick=120, state={"placeholder": True}
+    protocol_version=1,
+    type="snapshot",
+    match_id="match-1",
+    tick=120,
+    state=SnapshotState(
+        tick=120,
+        players=["player-1", "player-2"],
+        seed=0,
+        commanders=[],
+        resource_pools=[],
+        construction_sessions=[],
+        robots=[],
+        structure_ownership=[],
+        capture_progress=[],
+        projectiles=[],
+        structure_destruction=[],
+    ),
 )
 
 _REPRESENTATIVE_OUTBOUND: list[tuple[str, OutboundMessage]] = [
@@ -206,7 +222,19 @@ _REPRESENTATIVE_OUTBOUND: list[tuple[str, OutboundMessage]] = [
             type="snapshot",
             match_id="match-1",
             tick=120,
-            state={"placeholder": True},
+            state=SnapshotState(
+                tick=120,
+                players=["player-1", "player-2"],
+                seed=0,
+                commanders=[],
+                resource_pools=[],
+                construction_sessions=[],
+                robots=[],
+                structure_ownership=[],
+                capture_progress=[],
+                projectiles=[],
+                structure_destruction=[],
+            ),
         ),
     ),
     (

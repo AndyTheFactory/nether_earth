@@ -42,7 +42,7 @@ def test_build_snapshot_message_carries_to_snapshot_verbatim() -> None:
     assert isinstance(message, SnapshotMessage)
     assert message.match_id == "m1"
     assert message.tick == state.tick
-    assert message.state == to_snapshot(state)
+    assert message.state.model_dump() == to_snapshot(state)
 
 
 def test_build_snapshot_message_reflects_a_ticked_state() -> None:
@@ -55,8 +55,8 @@ def test_build_snapshot_message_reflects_a_ticked_state() -> None:
     message = build_snapshot_message("m1", new_state)
 
     assert message.tick == new_state.tick == state.tick + 1
-    assert message.state == to_snapshot(new_state)
-    assert message.state != to_snapshot(state)
+    assert message.state.model_dump() == to_snapshot(new_state)
+    assert message.state.model_dump() != to_snapshot(state)
 
 
 def test_snapshot_message_round_trips_through_serialization_and_schema_validation() -> None:
@@ -75,7 +75,7 @@ def test_snapshot_message_round_trips_through_serialization_and_schema_validatio
     # other outbound message is checked against.
     revalidated = OutboundMessageAdapter.validate_json(wire_text)
     assert isinstance(revalidated, SnapshotMessage)
-    assert revalidated.state == to_snapshot(state)
+    assert revalidated.state.model_dump() == to_snapshot(state)
 
 
 # -- make_tick_broadcaster ----------------------------------------------------

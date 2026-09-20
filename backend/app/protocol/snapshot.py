@@ -1,9 +1,10 @@
 """Authoritative snapshot envelope mirroring `snapshot.schema.json`.
 
-`state` is a placeholder pending issue #98's full field enumeration
-(players/resources/commanders/robots/ownership/projectiles/map+scenario+
-rules versions/result per technical-spec.md #22), exactly as in the source
-schema.
+`state` is the real, fully enumerated `SnapshotState` (issue #98): a thin
+field-shape mirror of `nether_earth.snapshot.to_snapshot`'s own return
+shape, covering every field needed to reconstruct authoritative state on
+reconnect (players/resources/commanders/robots/ownership/capture progress/
+projectiles/structure destruction).
 """
 
 from __future__ import annotations

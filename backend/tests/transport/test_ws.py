@@ -511,7 +511,7 @@ def test_command_for_a_non_active_match_is_rejected_not_crashed(client: TestClie
                     "playerId": "p1",
                     "sessionToken": created["sessionToken"],
                     "clientSequence": 0,
-                    "payload": {"kind": "placeholder"},
+                    "payload": {"kind": "cancel_construction"},
                 }
             )
         )

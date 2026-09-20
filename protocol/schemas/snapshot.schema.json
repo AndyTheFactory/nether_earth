@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nether-earth.local/protocol/snapshot.schema.json",
   "title": "SnapshotMessage",
-  "description": "Authoritative snapshot envelope. `state` is a placeholder pending issue #98's full field enumeration (players/resources/commanders/robots/ownership/projectiles/map+scenario+rules versions/result per technical-spec.md #22).",
+  "description": "Authoritative snapshot envelope. `state` mirrors nether_earth.snapshot.to_snapshot(state)'s full return shape (see common.schema.json's `snapshotState` $def, issue #98).",
   "type": "object",
   "properties": {
     "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },

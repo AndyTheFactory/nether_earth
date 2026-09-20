@@ -14,10 +14,10 @@ from typing import Annotated, Literal
 from pydantic import ConfigDict, Field, TypeAdapter
 
 from app.protocol.common import (
+    CommandPayload,
     JoinCode,
     MatchId,
     Nickname,
-    PlaceholderCommandPayload,
     PlayerId,
     ProtocolModel,
     ProtocolVersion,
@@ -75,9 +75,10 @@ class ClientLeaveMatch(ProtocolModel):
 class ClientGameplayCommand(ProtocolModel):
     """Mirrors client_messages.schema.json `$defs.gameplayCommand`.
 
-    `payload` is a placeholder shape pending issue #98; the envelope fields
-    (matchId/playerId/sessionToken/clientSequence) are stable per that
-    schema's description.
+    `payload` is the real discriminated `commandPayload` union (issue #98,
+    `app.protocol.common.CommandPayload`); the envelope fields
+    (matchId/playerId/sessionToken/clientSequence) are stable and did not
+    change when the real payload variants were added.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -88,7 +89,7 @@ class ClientGameplayCommand(ProtocolModel):
     player_id: PlayerId
     session_token: SessionToken
     client_sequence: SequenceNumber
-    payload: PlaceholderCommandPayload
+    payload: CommandPayload
 
 
 #: Mirrors client_messages.schema.json's top-level `oneOf`.

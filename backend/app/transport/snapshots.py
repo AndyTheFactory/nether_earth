@@ -43,7 +43,7 @@ from nether_earth.snapshot import to_snapshot
 from nether_earth.state import GameState
 
 from app.match.runtime import TickObserver
-from app.protocol.common import PROTOCOL_VERSION
+from app.protocol.common import PROTOCOL_VERSION, SnapshotState
 from app.protocol.snapshot import SnapshotMessage
 from app.transport.connections import ConnectionRegistry, broadcast
 
@@ -51,9 +51,10 @@ from app.transport.connections import ConnectionRegistry, broadcast
 def build_snapshot_message(match_id: str, state: GameState) -> SnapshotMessage:
     """Return the current authoritative snapshot of ``state`` as a wire message.
 
-    A thin field-mapping layer only: ``state`` (``to_snapshot(state)``'s
-    return value) is passed through verbatim as the envelope's ``state``
-    payload -- no field is picked out, renamed, or recomputed here. Callers
+    A thin field-mapping layer only: ``to_snapshot(state)``'s return value is
+    validated into the matching ``SnapshotState`` model (a structural
+    parse, not a value re-derivation -- every field is passed through
+    verbatim; no field is picked out, renamed, or recomputed here). Callers
     are responsible for never calling this with a mutated/advanced
     ``GameState`` merely to produce a snapshot (e.g. the reconnect path reads
     ``match.game_state`` as-is; see ``app.transport.ws``).
@@ -63,7 +64,7 @@ def build_snapshot_message(match_id: str, state: GameState) -> SnapshotMessage:
         type="snapshot",
         match_id=match_id,
         tick=state.tick,
-        state=to_snapshot(state),
+        state=SnapshotState.model_validate(to_snapshot(state)),
     )
 
 
@@ -74,14 +75,29 @@ def empty_snapshot_message(match_id: str) -> SnapshotMessage:
     None`` -- e.g. a reconnect to a still-``WAITING`` match): there is
     genuinely no authoritative gameplay state to report yet. Kept as its own
     helper so this shape is spelled once rather than duplicated at every
-    reconnect/fallback call site.
+    reconnect/fallback call site. ``state`` is a structurally valid, fully
+    empty ``SnapshotState`` (every list field empty, ``seed=0``) now that
+    ``SnapshotState`` is a real, strict model rather than an open
+    placeholder dict (issue #98) -- an empty ``{}`` no longer validates.
     """
     return SnapshotMessage(
         protocol_version=PROTOCOL_VERSION,
         type="snapshot",
         match_id=match_id,
         tick=0,
-        state={},
+        state=SnapshotState(
+            tick=0,
+            players=[],
+            seed=0,
+            commanders=[],
+            resource_pools=[],
+            construction_sessions=[],
+            robots=[],
+            structure_ownership=[],
+            capture_progress=[],
+            projectiles=[],
+            structure_destruction=[],
+        ),
     )
 
 

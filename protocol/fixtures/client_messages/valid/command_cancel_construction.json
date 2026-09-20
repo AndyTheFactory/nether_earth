@@ -4,10 +4,8 @@
   "matchId": "match-1",
   "playerId": "player-1",
   "sessionToken": "session-token-1",
-  "clientSequence": 42,
+  "clientSequence": 51,
   "payload": {
-    "kind": "commander_move",
-    "dx": 1,
-    "dy": 0
+    "kind": "cancel_construction"
   }
 }

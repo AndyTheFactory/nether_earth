@@ -24,13 +24,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from nether_earth.combat import FireCommand
+from nether_earth.commander_movement import (
+    CommanderMoveCommand,
+    CommanderSetVerticalIntentCommand,
+)
 from nether_earth.commands import Command
-from nether_earth.ids import PlayerId
+from nether_earth.construction_commands import (
+    CancelConstructionCommand,
+    DeselectModuleCommand,
+    LaunchRobotCommand,
+    SelectModuleCommand,
+)
+from nether_earth.direct_control import DirectRobotMoveCommand
+from nether_earth.ids import EntityId, PlayerId
 from nether_earth.map import BootstrapMap
+from nether_earth.orders import SetRobotOrderCommand
 from nether_earth.replay import ReplayFixture, run_fixture
+from nether_earth.robot_build import ModuleIdentity
 from nether_earth.scenario import Scenario
 from nether_earth.snapshot import to_snapshot
 
+from app.replay.orders_json import order_from_json
 from app.replay.writer import match_dir
 
 __all__ = [
@@ -48,11 +63,71 @@ def load_meta(base_dir: Path, match_id: str) -> dict[str, Any]:
     return loaded  # type: ignore[no-any-return]
 
 
+#: Inverse of ``writer.py``'s ``_COMMAND_KIND_BY_CLASS``: the JSON ``kind``
+#: tag -> the concrete ``Command`` subclass it reconstructs. Kept as its own
+#: table (rather than importing the forward table and inverting it) so this
+#: module's own ``isinstance``-free reconstruction stays a simple, obviously
+#: total dict lookup.
+_COMMAND_CLASS_BY_KIND: dict[str, type[Command]] = {
+    "commander_move": CommanderMoveCommand,
+    "commander_set_vertical_intent": CommanderSetVerticalIntentCommand,
+    "direct_robot_move": DirectRobotMoveCommand,
+    "robot_fire": FireCommand,
+    "set_robot_order": SetRobotOrderCommand,
+    "select_module": SelectModuleCommand,
+    "deselect_module": DeselectModuleCommand,
+    "cancel_construction": CancelConstructionCommand,
+    "launch_robot": LaunchRobotCommand,
+}
+
+
 def _command_from_json(data: dict[str, Any]) -> Command:
-    """Inverse of ``ReplayWriter``'s ``_command_to_json`` -- see that function's own docstring
-    for why only the generic ``Command`` base contract is supported today.
+    """Inverse of ``ReplayWriter``'s ``_command_to_json`` (issue #98).
+
+    A record with no ``kind`` key is the bare ``Command`` contract (the only
+    shape ``_command_to_json`` ever wrote before this task); one of the nine
+    known ``kind`` tokens reconstructs the matching concrete gameplay
+    ``Command`` subclass with its own fields. Raises ``ValueError`` for an
+    unrecognized ``kind`` -- a persisted artifact from a newer schema this
+    version does not know how to replay, never silently coerced to a
+    different command.
     """
-    return Command(player=PlayerId.from_json(data["player"]), sequence=data["sequence"])
+    player = PlayerId.from_json(data["player"])
+    sequence = data["sequence"]
+    kind = data.get("kind")
+    if kind is None:
+        return Command(player=player, sequence=sequence)
+
+    command_cls = _COMMAND_CLASS_BY_KIND.get(kind)
+    if command_cls is None:
+        raise ValueError(f"unknown persisted Command kind: {kind!r}")
+
+    if command_cls in (CommanderMoveCommand, DirectRobotMoveCommand):
+        return command_cls(player=player, sequence=sequence, dx=data["dx"], dy=data["dy"])
+    if command_cls is CommanderSetVerticalIntentCommand:
+        return CommanderSetVerticalIntentCommand(
+            player=player, sequence=sequence, rising=data["rising"]
+        )
+    if command_cls is FireCommand:
+        return FireCommand(
+            player=player,
+            sequence=sequence,
+            entity_id=EntityId.from_json(data["entity_id"]),
+            weapon=ModuleIdentity(data["weapon"]),
+            target_x=data["target_x"],
+            target_y=data["target_y"],
+        )
+    if command_cls is SetRobotOrderCommand:
+        return SetRobotOrderCommand(
+            player=player,
+            sequence=sequence,
+            entity_id=EntityId.from_json(data["entity_id"]),
+            order=order_from_json(data["order"]),
+        )
+    if command_cls in (SelectModuleCommand, DeselectModuleCommand):
+        return command_cls(player=player, sequence=sequence, module=ModuleIdentity(data["module"]))
+    # CancelConstructionCommand / LaunchRobotCommand: no fields beyond the base contract.
+    return command_cls(player=player, sequence=sequence)
 
 
 def load_commands_by_tick(base_dir: Path, match_id: str) -> dict[int, tuple[Command, ...]]:

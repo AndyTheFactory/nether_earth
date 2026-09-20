@@ -4,10 +4,9 @@
   "matchId": "match-1",
   "playerId": "player-1",
   "sessionToken": "session-token-1",
-  "clientSequence": 42,
+  "clientSequence": 43,
   "payload": {
-    "kind": "commander_move",
-    "dx": 1,
-    "dy": 0
+    "kind": "commander_set_vertical_intent",
+    "rising": true
   }
 }

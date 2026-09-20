@@ -2,8 +2,48 @@
   "protocolVersion": 1,
   "type": "snapshot",
   "matchId": "match-1",
-  "tick": 120,
+  "tick": 1,
   "state": {
-    "placeholder": true
+    "tick": 1,
+    "players": ["p1", "p2"],
+    "seed": 0,
+    "commanders": [
+      {
+        "player_id": "p1",
+        "mode": "free",
+        "x": 1,
+        "y": 1,
+        "altitude": 1,
+        "docked_robot_id": null,
+        "rising": false,
+        "horizontal_transition": {
+          "from_x": 1,
+          "from_y": 1,
+          "to_x": 2,
+          "to_y": 1,
+          "started_tick": 1,
+          "duration_ticks": 4
+        },
+        "vertical_transition": null
+      },
+      {
+        "player_id": "p2",
+        "mode": "free",
+        "x": 8,
+        "y": 8,
+        "altitude": 1,
+        "docked_robot_id": null,
+        "rising": false,
+        "horizontal_transition": null,
+        "vertical_transition": null
+      }
+    ],
+    "resource_pools": [],
+    "construction_sessions": [],
+    "robots": [],
+    "structure_ownership": [],
+    "capture_progress": [],
+    "projectiles": [],
+    "structure_destruction": []
   }
 }

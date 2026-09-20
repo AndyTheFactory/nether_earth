@@ -63,9 +63,22 @@ import time
 from pathlib import Path
 from typing import Any
 
+from nether_earth.combat import FireCommand
+from nether_earth.commander_movement import (
+    CommanderMoveCommand,
+    CommanderSetVerticalIntentCommand,
+)
 from nether_earth.commands import Command
+from nether_earth.construction_commands import (
+    CancelConstructionCommand,
+    DeselectModuleCommand,
+    LaunchRobotCommand,
+    SelectModuleCommand,
+)
+from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.events import Event
 from nether_earth.map import BootstrapMap
+from nether_earth.orders import SetRobotOrderCommand
 from nether_earth.scenario import Scenario
 from nether_earth.snapshot import to_snapshot
 from nether_earth.state import GameState
@@ -80,6 +93,7 @@ from app.match.reconnect import (
     ResumedEvent,
 )
 from app.match.runtime import TickCommandObserver
+from app.replay.orders_json import order_to_json
 
 __all__ = [
     "ARTIFACT_SCHEMA_VERSION",
@@ -169,37 +183,87 @@ def _epoch_ms() -> int:
     return int(time.time() * 1000)
 
 
+#: `command.__class__.__name__` -> the JSON `kind` tag `_command_to_json`
+#: writes for it, matching `app.protocol.common`'s `CommandPayload` `kind`
+#: tokens one for one (issue #98) so a persisted command and the transport
+#: payload that produced it are always spelled identically on disk/wire.
+_COMMAND_KIND_BY_CLASS: dict[type[Command], str] = {
+    CommanderMoveCommand: "commander_move",
+    CommanderSetVerticalIntentCommand: "commander_set_vertical_intent",
+    DirectRobotMoveCommand: "direct_robot_move",
+    FireCommand: "robot_fire",
+    SetRobotOrderCommand: "set_robot_order",
+    SelectModuleCommand: "select_module",
+    DeselectModuleCommand: "deselect_module",
+    CancelConstructionCommand: "cancel_construction",
+    LaunchRobotCommand: "launch_robot",
+}
+
+
 def _command_to_json(command: Command) -> dict[str, Any]:
     """Serialize ``command`` losslessly enough for ``load_commands_by_tick`` to reconstruct it.
 
-    Deliberately narrow: only the generic ``Command`` base contract
-    (``player``, ``sequence``) is handled, because no concrete gameplay
-    ``Command`` subclass is ever submitted through the backend yet --
-    ``app.transport.ws``'s ``ClientGameplayCommand`` handling only ever
-    constructs a bare ``nether_earth.commands.Command`` (full
-    gameplay-command-adapter coverage is issue #98's job, explicitly out of
-    this task's scope).
+    Covers the base ``player``/``sequence`` contract every ``Command``
+    carries, plus every one of the nine concrete gameplay ``Command``
+    subclasses ``engine.step`` dispatches on (issue #98) -- see
+    :data:`_COMMAND_KIND_BY_CLASS`. Each subclass's own gameplay-specific
+    fields are appended after ``kind``, using the exact same JSON tokens as
+    ``app.protocol.common``'s ``CommandPayload``/``app.transport.commands``'
+    adapter, so a replayed command and the transport payload that produced
+    it agree byte-for-byte on shape.
 
-    Raises ``NotImplementedError`` for anything other than exactly
-    ``Command`` (M7 Task 8 review, Important I3): the engine already
-    defines nine concrete ``Command`` subclasses (``LaunchRobotCommand``,
-    ``FireCommand``, ...), and silently emitting only ``player``/
-    ``sequence`` for one of those the moment #98 starts submitting them
-    would produce a persisted artifact that *looks* fine but has quietly
-    lost every gameplay-specific field -- a corrupted replay with no error
-    anywhere. Failing loudly here forces whoever lands #98 to extend this
-    function (and ``load_commands_by_tick``'s ``_command_from_json``)
-    instead of discovering the gap via a silent replay divergence later.
+    Raises ``NotImplementedError`` for anything other than the bare
+    ``Command`` contract or one of the nine known subclasses (M7 Task 8
+    review, Important I3, extended by Task 9 rather than relaxed): a
+    silently-dropped gameplay-specific field would produce a persisted
+    artifact that *looks* fine but has quietly lost information -- a
+    corrupted replay with no error anywhere. A *new* tenth ``Command``
+    subclass added by a future milestone must extend this function (and
+    ``app.replay.verify``'s ``_command_from_json``) explicitly, the same way
+    this task extended it for the first nine.
     """
-    if type(command) is not Command:
+    if type(command) is Command:
+        return {"player": command.player.to_json(), "sequence": command.sequence}
+
+    kind = _COMMAND_KIND_BY_CLASS.get(type(command))
+    if kind is None:
         raise NotImplementedError(
-            f"_command_to_json only supports the base Command contract; got "
-            f"{type(command).__name__!r}. Extend this function (and "
-            "app.replay.verify's _command_from_json) to serialize concrete "
-            "gameplay Command subclasses losslessly before submitting them "
-            "through the backend (see issue #98)."
+            f"_command_to_json does not support {type(command).__name__!r}. Extend "
+            "_COMMAND_KIND_BY_CLASS/_command_to_json (and app.replay.verify's "
+            "_command_from_json) to serialize this concrete gameplay Command "
+            "subclass losslessly before submitting it through the backend."
         )
-    return {"player": command.player.to_json(), "sequence": command.sequence}
+    base: dict[str, Any] = {
+        "player": command.player.to_json(),
+        "sequence": command.sequence,
+        "kind": kind,
+    }
+    base.update(_command_fields_to_json(command))
+    return base
+
+
+def _command_fields_to_json(command: Command) -> dict[str, Any]:
+    """Return the gameplay-specific fields (beyond ``player``/``sequence``/``kind``) for ``command``."""
+    if isinstance(command, (CommanderMoveCommand, DirectRobotMoveCommand)):
+        return {"dx": command.dx, "dy": command.dy}
+    if isinstance(command, CommanderSetVerticalIntentCommand):
+        return {"rising": command.rising}
+    if isinstance(command, FireCommand):
+        return {
+            "entity_id": command.entity_id.to_json(),
+            "weapon": command.weapon.value,
+            "target_x": command.target_x,
+            "target_y": command.target_y,
+        }
+    if isinstance(command, SetRobotOrderCommand):
+        return {"entity_id": command.entity_id.to_json(), "order": order_to_json(command.order)}
+    if isinstance(command, (SelectModuleCommand, DeselectModuleCommand)):
+        return {"module": command.module.value}
+    if isinstance(command, (CancelConstructionCommand, LaunchRobotCommand)):
+        return {}
+    raise AssertionError(  # pragma: no cover - exhaustive over _COMMAND_KIND_BY_CLASS
+        f"unhandled Command subclass: {type(command).__name__}"
+    )
 
 
 def _event_summary(event: Event) -> dict[str, Any]:

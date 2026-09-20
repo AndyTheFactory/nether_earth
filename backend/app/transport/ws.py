@@ -36,16 +36,18 @@ fragile. Either way, no invalid/unauthenticated message ever reaches
 `MatchManager` or `MatchRuntimeRegistry.submit_command` (and therefore never
 reaches `engine.step`).
 
-Gameplay-command-conversion scope: `ClientGameplayCommand.payload` is
-still `PlaceholderCommandPayload` pending issue #98's full command
-enumeration (see `app/protocol/common.py`). This module therefore builds
-only the generic `nether_earth.commands.Command` envelope (`player`,
-`sequence`) from the transport message and hands it to
-`MatchRuntimeRegistry.submit_command` -- it does not (and structurally
-cannot yet) construct a concrete gameplay command subclass. This is exactly
-the "minimal/representative conversion" the task brief calls out as
-sufficient for this task; issue #98 is expected to replace this with a real
-payload -> `Command` subclass mapping.
+Gameplay-command-conversion scope: `ClientGameplayCommand.payload` is the
+real, fully enumerated `CommandPayload` discriminated union (issue #98; see
+`app/protocol/common.py`). This module converts it to the exact matching
+concrete `nether_earth.commands.Command` subclass via
+`app.transport.commands.payload_to_command` -- a pure field-shape adapter
+that makes no gameplay legality decision (see that module's own docstring)
+-- before handing it to `MatchRuntimeRegistry.submit_command`. A payload
+that is schema-valid but structurally malformed for its target `Command`
+(`CommandPayloadError`; e.g. a diagonal move shape JSON Schema's per-axis
+`cellDelta` cannot itself rule out) is rejected the same way a JSON Schema
+violation is: a `ServerError`, no `MatchRuntimeRegistry`/`engine.step`
+involvement at all.
 
 Disconnect notification: `MatchManager.mark_disconnected` (added by Task 5)
 is called through a single `teardown_connection()` helper, itself invoked
@@ -74,7 +76,6 @@ import logging
 from dataclasses import dataclass
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from nether_earth import commands as engine_commands
 
 from app.match.manager import MatchManager
 from app.match.models import (
@@ -107,6 +108,7 @@ from app.protocol.server_messages import (
     ServerStarted,
 )
 from app.protocol.snapshot import SnapshotMessage
+from app.transport.commands import CommandPayloadError, payload_to_command
 from app.transport.connections import ConnectionRegistry, broadcast
 from app.transport.snapshots import build_snapshot_message, empty_snapshot_message
 
@@ -355,9 +357,19 @@ def create_websocket_router(
                     return
 
                 if isinstance(message, ClientGameplayCommand):
-                    command = engine_commands.Command(
-                        player=engine_player_id, sequence=message.client_sequence
-                    )
+                    try:
+                        command = payload_to_command(
+                            message.payload, engine_player_id, message.client_sequence
+                        )
+                    except CommandPayloadError as exc:
+                        await _send_error(
+                            websocket,
+                            match.match_id,
+                            "invalid_command_payload",
+                            f"command payload is structurally invalid for its command "
+                            f"type: {exc}",
+                        )
+                        continue
                     accepted = await runtime_registry.submit_command(match.match_id, command)
                     if not accepted:
                         await _send_error(
