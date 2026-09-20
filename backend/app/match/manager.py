@@ -38,7 +38,7 @@ from app.match.models import (
     PlayerSlot,
 )
 from app.match.reconnect import ReconnectCoordinator
-from app.match.runtime import MatchRuntimeRegistry, TickObserver
+from app.match.runtime import MatchRuntimeRegistry, TickCommandObserver, TickObserver
 
 #: Deterministic v1 two-player seat order: the first guest to create/join a
 #: match always takes PLAYER_ONE, the second always takes PLAYER_TWO. This
@@ -124,6 +124,33 @@ class MatchManager:
     asyncio internals (see its module docstring), so passing
     ``reconnect=None`` (the default) keeps this class exactly as
     synchronous/event-loop-free as before Task 7 existed.
+
+    ``on_tick_commands_factory``, ``on_match_start``, and ``on_match_finish``
+    (M7 Task 8, issue #97) are the filesystem replay writer's hook points,
+    mirroring ``on_tick_factory``'s own closure-per-match style so this
+    class never imports ``app.replay`` (its concrete callback bodies are
+    supplied by whoever constructs this class -- ``app.main``):
+
+    - ``on_tick_commands_factory`` is called once per match at start time,
+      exactly like ``on_tick_factory``, and its return value is passed to
+      ``MatchRuntimeRegistry.start`` as ``on_tick_commands``.
+    - ``on_match_start`` is called synchronously, once, from
+      ``_start_match_locked`` right after ``engine.new_game`` produces the
+      match's tick-0 state -- before the runtime (and therefore before any
+      tick) starts, so a replay writer sees the match's identity/seed/
+      scenario before the first tick it will ever append.
+    - ``on_match_finish`` is called synchronously from ``finish_match``,
+      after ``match.state`` is set to ``FINISHED`` -- this is the single
+      finish path every ``FINISHED`` transition goes through (both the
+      normal caller and the reconnect-policy forfeit/no-contest path via
+      ``ReconnectCoordinator.bind_finish_hook``), so a replay writer bound
+      here finalizes exactly once per match regardless of which path ended
+      it.
+
+    None of these three are awaited -- like every other hook this class
+    already supports, they must be plain synchronous callables so this
+    class stays exactly as synchronous/event-loop-free as before Task 8
+    existed.
     """
 
     def __init__(
@@ -134,12 +161,18 @@ class MatchManager:
         runtime: MatchRuntimeRegistry | None = None,
         on_tick_factory: Callable[[Match], TickObserver | None] | None = None,
         reconnect: ReconnectCoordinator | None = None,
+        on_tick_commands_factory: Callable[[Match], TickCommandObserver | None] | None = None,
+        on_match_start: Callable[[Match, Scenario, BootstrapMap], None] | None = None,
+        on_match_finish: Callable[[Match], None] | None = None,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
         self._map_data = map_data if map_data is not None else _default_bootstrap_map(self._scenario)
         self._runtime = runtime
         self._on_tick_factory = on_tick_factory
         self._reconnect = reconnect
+        self._on_tick_commands_factory = on_tick_commands_factory
+        self._on_match_start = on_match_start
+        self._on_match_finish = on_match_finish
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
         self._match_id_by_join_code: dict[str, str] = {}
@@ -233,6 +266,11 @@ class MatchManager:
             self._map_data, self._scenario, players=players, seed=match.seed
         )
         match.state = MatchRuntimeState.ACTIVE
+        if self._on_match_start is not None:
+            # Before the runtime starts (see below) -- a replay writer must
+            # see the match's identity/seed/scenario before any tick it
+            # will ever be asked to append (M7 Task 8, issue #97).
+            self._on_match_start(match, self._scenario, self._map_data)
         if self._runtime is not None:
             # Whenever `on_tick_factory` actually produced an observer,
             # require an explicit `announce_started()` (see `runtime.py`)
@@ -242,8 +280,16 @@ class MatchManager:
             # once its own "match started" messaging is sent, structurally
             # ruling out that observer's first call racing that messaging.
             on_tick = self._on_tick_factory(match) if self._on_tick_factory is not None else None
+            on_tick_commands = (
+                self._on_tick_commands_factory(match)
+                if self._on_tick_commands_factory is not None
+                else None
+            )
             self._runtime.start(
-                match, on_tick=on_tick, require_announcement=on_tick is not None
+                match,
+                on_tick=on_tick,
+                on_tick_commands=on_tick_commands,
+                require_announcement=on_tick is not None,
             )
 
     # -- lifecycle end / disposal --------------------------------------------
@@ -262,6 +308,15 @@ class MatchManager:
                 self._runtime.cancel(match_id)
             if self._reconnect is not None:
                 self._reconnect.cancel(match_id)
+            if self._on_match_finish is not None:
+                # Single finish path for every `FINISHED` transition (see
+                # this class's docstring) -- a replay writer bound here
+                # finalizes exactly once regardless of which caller reached
+                # `FINISHED` first (idempotent finalize is still the
+                # writer's own responsibility, since `finish_match` itself
+                # is documented as idempotent and may be called again for
+                # an already-`FINISHED` match).
+                self._on_match_finish(match)
         return match
 
     def dispose_match(self, match_id: str) -> None:

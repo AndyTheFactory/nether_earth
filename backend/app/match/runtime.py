@@ -64,6 +64,22 @@ logger = logging.getLogger(__name__)
 #: tick of this match (see `_advance_one_tick`'s note on that cost).
 TickObserver = Callable[[GameState, tuple[Event, ...]], Awaitable[None]]
 
+#: A second, separate observer (M7 Task 8, issue #97): fires once after
+#: every successful `engine.step` call, exactly like `TickObserver`, but
+#: also carries the tick number and the exact accepted command batch that
+#: was applied -- the one thing `TickObserver` does not expose (see that
+#: type's own docstring: only the resulting `GameState`/`Event`s). A
+#: second callback rather than widening `TickObserver`'s own tuple was the
+#: deliberate choice here: `TickObserver` is already depended on by Task
+#: 6/7's callers (`app.transport.snapshots.make_tick_broadcaster`,
+#: `MatchManager.on_tick_factory`) with its exact two-argument shape, and
+#: changing it would force every existing call site to change too for a
+#: capability (the command stream) only the replay writer needs. Awaited
+#: synchronously, immediately after `TickObserver` (see
+#: `_advance_one_tick`), under the same single-owner-task, no-reordering
+#: guarantee.
+TickCommandObserver = Callable[[int, tuple[Command, ...], GameState, tuple[Event, ...]], Awaitable[None]]
+
 #: Authoritative simulation tick rate (`_specs/technical-spec.md` "Authoritative
 #: simulation: 20 Hz"). Named constant, not a magic literal, per the task brief.
 TICK_RATE_HZ: float = 20.0
@@ -123,6 +139,7 @@ class MatchRuntime:
         robots: tuple[RobotFixture, ...] = (),
         pause_poll_interval_s: float = DEFAULT_PAUSE_POLL_INTERVAL_S,
         on_tick: TickObserver | None = None,
+        on_tick_commands: TickCommandObserver | None = None,
         require_announcement: bool = False,
     ) -> None:
         if tick_rate_hz <= 0:
@@ -133,6 +150,7 @@ class MatchRuntime:
         self._world = world
         self._robots = robots
         self._on_tick = on_tick
+        self._on_tick_commands = on_tick_commands
         self._require_announcement = require_announcement
         self._announced = asyncio.Event()
 
@@ -429,6 +447,15 @@ class MatchRuntime:
         # real workload shows this coupling matters.
         if self._on_tick is not None:
             await self._on_tick(new_state, events)
+        # Fires after `on_tick` (order is arbitrary between the two, since
+        # both are simple awaits with no shared mutable state), still
+        # outside `_step_lock` for the same reason `on_tick` sits outside it
+        # -- see the note above. `tick`/`commands` are the exact values this
+        # call applied via `engine.step` above (see `TickCommandObserver`'s
+        # docstring for why this needs its own callback rather than reusing
+        # `on_tick`).
+        if self._on_tick_commands is not None:
+            await self._on_tick_commands(self.tick_count, commands, new_state, events)
 
 
 class MatchRuntimeRegistry:
@@ -456,6 +483,7 @@ class MatchRuntimeRegistry:
         world: WorldMap | None = None,
         robots: tuple[RobotFixture, ...] = (),
         on_tick: TickObserver | None = None,
+        on_tick_commands: TickCommandObserver | None = None,
         require_announcement: bool = False,
     ) -> MatchRuntime:
         """Start (or return the already-running) runtime for ``match``.
@@ -468,8 +496,9 @@ class MatchRuntimeRegistry:
         FastAPI app; a caller with no running loop gets asyncio's own
         ``RuntimeError`` rather than a silently swallowed no-op).
 
-        ``on_tick``/``require_announcement`` are passed straight through to
-        this match's ``MatchRuntime`` -- see :data:`TickObserver` and
+        ``on_tick``/``on_tick_commands``/``require_announcement`` are passed
+        straight through to this match's ``MatchRuntime`` -- see
+        :data:`TickObserver`, :data:`TickCommandObserver`, and
         :meth:`MatchRuntime.announce_started`. If ``require_announcement`` is
         set, the caller must eventually call
         :meth:`announce_started`/``MatchRuntime.announce_started`` for this
@@ -494,6 +523,7 @@ class MatchRuntimeRegistry:
                 robots=robots,
                 pause_poll_interval_s=self._pause_poll_interval_s,
                 on_tick=on_tick,
+                on_tick_commands=on_tick_commands,
                 require_announcement=require_announcement,
             )
             self._runtimes[match.match_id] = runtime

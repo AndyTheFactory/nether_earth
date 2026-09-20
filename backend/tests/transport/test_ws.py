@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -36,8 +37,12 @@ from app.transport.disconnects import make_disconnect_notifier
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
-    app = create_app()
+def client(tmp_path: Path) -> Iterator[TestClient]:
+    # `replay_dir=tmp_path` (M7 Task 8, issue #97): without this, `create_app`
+    # would fall back to `ReplayWriter`'s own repo-relative default and every
+    # match created below would write a real replay artifact onto disk
+    # outside of pytest's tmp directory.
+    app = create_app(replay_dir=tmp_path / "replays")
     with TestClient(app) as test_client:
         yield test_client
 
