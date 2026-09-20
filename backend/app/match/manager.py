@@ -20,6 +20,7 @@ import secrets
 import string
 import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from nether_earth import engine as engine_module
@@ -36,7 +37,7 @@ from app.match.models import (
     MatchRuntimeState,
     PlayerSlot,
 )
-from app.match.runtime import MatchRuntimeRegistry
+from app.match.runtime import MatchRuntimeRegistry, TickObserver
 
 #: Deterministic v1 two-player seat order: the first guest to create/join a
 #: match always takes PLAYER_ONE, the second always takes PLAYER_TWO. This
@@ -101,6 +102,21 @@ class MatchManager:
     and non-blocking (see ``runtime.py``'s module docstring for why), so
     passing ``runtime=None`` (the default) keeps this class exactly as
     synchronous/event-loop-free as it was before Task 4 existed.
+
+    ``on_tick_factory``, if supplied (M7 Task 6, issue #95), is called with
+    the ``Match`` being started exactly once, at the moment its runtime is
+    started, and its return value (a ``TickObserver``, or ``None``) is
+    passed straight through to ``MatchRuntimeRegistry.start``. A factory
+    rather than a single shared ``TickObserver`` because the concrete
+    broadcast callback the transport layer wants to install needs to know
+    *which* match's connections to address (``match.match_id``) -- binding
+    that per match here, at the one place a match's ``match_id`` and its
+    runtime-start call already meet, keeps ``TickObserver`` itself
+    match-agnostic (see ``runtime.py``). This class still never imports
+    anything from ``app.transport``: the factory's *return type* is a plain
+    callable defined in ``runtime.py`` (a sibling module of this one), and
+    its concrete implementation is supplied by whoever constructs this
+    ``MatchManager`` (``app.main``), not by this module.
     """
 
     def __init__(
@@ -109,10 +125,12 @@ class MatchManager:
         scenario: Scenario | None = None,
         map_data: BootstrapMap | None = None,
         runtime: MatchRuntimeRegistry | None = None,
+        on_tick_factory: Callable[[Match], TickObserver | None] | None = None,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
         self._map_data = map_data if map_data is not None else _default_bootstrap_map(self._scenario)
         self._runtime = runtime
+        self._on_tick_factory = on_tick_factory
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
         self._match_id_by_join_code: dict[str, str] = {}
@@ -207,7 +225,8 @@ class MatchManager:
         )
         match.state = MatchRuntimeState.ACTIVE
         if self._runtime is not None:
-            self._runtime.start(match)
+            on_tick = self._on_tick_factory(match) if self._on_tick_factory is not None else None
+            self._runtime.start(match, on_tick=on_tick)
 
     # -- lifecycle end / disposal --------------------------------------------
 

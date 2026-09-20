@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Awaitable, Callable
 
 from nether_earth import engine as engine_module
 from nether_earth.collision import RobotFixture
@@ -45,10 +46,39 @@ from nether_earth.commands import Command
 from nether_earth.events import Event
 from nether_earth.ids import PlayerId
 from nether_earth.map import WorldMap
+from nether_earth.state import GameState
 
 from app.match.models import Match, MatchRuntimeState
 
 logger = logging.getLogger(__name__)
+
+#: Fires once after every successful `engine.step` call, with the resulting
+#: authoritative `GameState` and the ordered `Event` tuple that step produced
+#: (issue #93/#94's `last_events` shape). Deliberately generic over only
+#: types this module already owns/imports (`GameState`, `Event`) so this
+#: module never has to import anything from `app.transport` -- the transport
+#: layer (M7 Task 6, issue #95) supplies the *concrete* callback
+#: (snapshot-building + `broadcast()`) from a higher layer, at whichever call
+#: site actually starts a match's runtime (`MatchManager._start_match_locked`
+#: today; see that module's `on_tick_factory` constructor parameter).
+#:
+#: Broadcast policy (this is the *only* hook that can drive one): every tick
+#: this fires unconditionally for an ACTIVE match, once per successful
+#: `engine.step` -- no throttling/diffing. `MatchRuntime` itself does not
+#: decide what payload shape is sent (snapshot-only vs event+snapshot vs
+#: delta); that choice lives entirely in the callback the transport layer
+#: supplies. `MatchRuntime` only guarantees "invoked exactly once per
+#: completed tick, with that tick's own state/events, in tick order" (see
+#: `_advance_one_tick` -- it is awaited synchronously in the tick loop, so
+#: two calls can never race or be reordered relative to each other or to
+#: `engine.step`).
+#:
+#: Never invoked for a tick that raised (an exception inside `engine.step`
+#: propagates out of `_advance_one_tick` before this would run -- see
+#: `_run`'s exception handling, which logs and re-raises rather than
+#: continuing the loop), so a caller can trust "this callback fired" implies
+#: "this is a real, successfully applied tick".
+TickObserver = Callable[[GameState, tuple[Event, ...]], Awaitable[None]]
 
 #: Authoritative simulation tick rate (`_specs/technical-spec.md` "Authoritative
 #: simulation: 20 Hz"). Named constant, not a magic literal, per the task brief.
@@ -108,6 +138,7 @@ class MatchRuntime:
         world: WorldMap | None = None,
         robots: tuple[RobotFixture, ...] = (),
         pause_poll_interval_s: float = DEFAULT_PAUSE_POLL_INTERVAL_S,
+        on_tick: TickObserver | None = None,
     ) -> None:
         if tick_rate_hz <= 0:
             raise ValueError("tick_rate_hz must be positive")
@@ -116,6 +147,7 @@ class MatchRuntime:
         self._pause_poll_interval_s = pause_poll_interval_s
         self._world = world
         self._robots = robots
+        self._on_tick = on_tick
 
         self._pending: list[Command] = []
         self._last_accepted_sequence: dict[PlayerId, int] = {}
@@ -251,7 +283,23 @@ class MatchRuntime:
 
     async def _run(self) -> None:
         loop = asyncio.get_running_loop()
-        next_tick_at = loop.time()
+        # The first tick's target time is one full interval after the loop
+        # actually starts running, exactly like every subsequent tick -- not
+        # zero. Before the per-tick broadcast hook (`on_tick`, M7 Task 6)
+        # existed, an immediate zero-delay first tick was an invisible
+        # implementation detail; once a tick's completion becomes externally
+        # observable (a broadcast to real connections), firing tick 1 with
+        # no wait at all races the code path that starts this runtime (e.g.
+        # `app.transport.ws`'s own "match started" broadcast, sent
+        # immediately after the synchronous call that schedules this task)
+        # -- the two can interleave in either order depending on scheduling.
+        # Waiting one interval before the very first tick, same as every
+        # later one, removes that race without changing the loop's steady-
+        # state cadence at all.
+        next_tick_at = loop.time() + self._interval_s
+        initial_wait = next_tick_at - loop.time()
+        if initial_wait > 0:
+            await asyncio.sleep(initial_wait)
         consecutive_overruns = 0
         try:
             while True:
@@ -359,6 +407,16 @@ class MatchRuntime:
             self.last_events = events
             self.tick_count += 1
 
+        # Outside `_step_lock`: notifying observers is not part of the
+        # drain/step/bookkeeping sequence the lock's scope documents (see the
+        # class docstring), and a slow observer (e.g. broadcasting over a
+        # WebSocket) must never be able to widen that lock's hold time. The
+        # single-owner-task discipline (`_run` is the sole caller of this
+        # method) still guarantees observers see ticks in strict order with
+        # no interleaving, even though this call sits outside the lock.
+        if self._on_tick is not None:
+            await self._on_tick(new_state, events)
+
 
 class MatchRuntimeRegistry:
     """Owns one :class:`MatchRuntime` per active match, keyed by ``match_id``.
@@ -384,6 +442,7 @@ class MatchRuntimeRegistry:
         *,
         world: WorldMap | None = None,
         robots: tuple[RobotFixture, ...] = (),
+        on_tick: TickObserver | None = None,
     ) -> MatchRuntime:
         """Start (or return the already-running) runtime for ``match``.
 
@@ -395,15 +454,20 @@ class MatchRuntimeRegistry:
         FastAPI app; a caller with no running loop gets asyncio's own
         ``RuntimeError`` rather than a silently swallowed no-op).
 
+        ``on_tick``, if given, is passed straight through to this match's
+        ``MatchRuntime`` (see :data:`TickObserver`) -- the transport layer's
+        per-tick snapshot/event broadcast hook (M7 Task 6, issue #95).
+
         If a runtime for ``match.match_id`` already exists (i.e. this is
-        called a second time for the same match), ``world``/``robots`` are
-        silently ignored and the existing runtime's original values keep
-        being used -- ``MatchManager``'s WAITING -> ACTIVE transition (the
-        only production call site) only ever calls this once per match, so
-        this is not reachable in practice, but a caller relying on a second
-        ``start()`` call to *change* ``world``/``robots`` on a live match
-        would be surprised; construct a new ``MatchRuntimeRegistry``/
-        ``MatchRuntime`` instead if that is ever needed.
+        called a second time for the same match), ``world``/``robots``/
+        ``on_tick`` are silently ignored and the existing runtime's original
+        values keep being used -- ``MatchManager``'s WAITING -> ACTIVE
+        transition (the only production call site) only ever calls this once
+        per match, so this is not reachable in practice, but a caller
+        relying on a second ``start()`` call to *change* ``world``/
+        ``robots``/``on_tick`` on a live match would be surprised; construct
+        a new ``MatchRuntimeRegistry``/``MatchRuntime`` instead if that is
+        ever needed.
         """
         runtime = self._runtimes.get(match.match_id)
         if runtime is None:
@@ -413,6 +477,7 @@ class MatchRuntimeRegistry:
                 world=world,
                 robots=robots,
                 pause_poll_interval_s=self._pause_poll_interval_s,
+                on_tick=on_tick,
             )
             self._runtimes[match.match_id] = runtime
         runtime.start()

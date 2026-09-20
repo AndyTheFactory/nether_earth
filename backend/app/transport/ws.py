@@ -102,6 +102,7 @@ from app.protocol.server_messages import (
 )
 from app.protocol.snapshot import SnapshotMessage
 from app.transport.connections import ConnectionRegistry, broadcast
+from app.transport.snapshots import build_snapshot_message
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +301,12 @@ def create_websocket_router(
                         connection_registry, match.match_id, _ready_state_message(match)
                     )
                     if was_waiting and match.state is MatchRuntimeState.ACTIVE:
-                        tick = match.game_state.tick if match.game_state is not None else 0
+                        # `_start_match_locked` already ran `engine.new_game`
+                        # synchronously before flipping `match.state` to
+                        # ACTIVE (see `app.match.manager`), so `game_state`
+                        # is guaranteed non-None here -- this is the tick-0
+                        # authoritative state, read as-is, never advanced.
+                        assert match.game_state is not None
                         await broadcast(
                             connection_registry,
                             match.match_id,
@@ -308,8 +314,13 @@ def create_websocket_router(
                                 protocol_version=PROTOCOL_VERSION,
                                 type="started",
                                 match_id=match.match_id,
-                                tick=tick,
+                                tick=match.game_state.tick,
                             ),
+                        )
+                        await broadcast(
+                            connection_registry,
+                            match.match_id,
+                            build_snapshot_message(match.match_id, match.game_state),
                         )
                     continue
 
@@ -335,17 +346,24 @@ def create_websocket_router(
 
                 if isinstance(message, ClientReconnect):
                     connection_registry.register(match.match_id, engine_player_id.value, websocket)
-                    tick = match.game_state.tick if match.game_state is not None else 0
-                    snapshot = SnapshotMessage(
-                        protocol_version=PROTOCOL_VERSION,
-                        type="snapshot",
-                        match_id=match.match_id,
-                        tick=tick,
-                        # Placeholder: full authoritative-state serialization
-                        # is issue #98/Task 6's job (SnapshotState is a
-                        # placeholder `dict[str, Any]` today, see
-                        # app.protocol.common).
-                        state={},
+                    # Read `match.game_state` exactly as it stands -- never
+                    # advance/mutate the engine merely to produce a
+                    # reconnect snapshot. `game_state` is only `None` if the
+                    # match has never gone ACTIVE (WAITING -> ACTIVE runs
+                    # `engine.new_game` exactly once, synchronously, before
+                    # any client can observe `MatchRuntimeState.ACTIVE`; see
+                    # `app.match.manager._start_match_locked`), in which case
+                    # there is no authoritative gameplay state yet to send.
+                    snapshot: SnapshotMessage = (
+                        build_snapshot_message(match.match_id, match.game_state)
+                        if match.game_state is not None
+                        else SnapshotMessage(
+                            protocol_version=PROTOCOL_VERSION,
+                            type="snapshot",
+                            match_id=match.match_id,
+                            tick=0,
+                            state={},
+                        )
                     )
                     await websocket.send_text(
                         serialize_server_message(

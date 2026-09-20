@@ -449,6 +449,136 @@ def test_request_cancel_outside_owning_event_loop_raises_loudly() -> None:
         runtime.request_cancel()
 
 
+# -- per-tick observer hook (M7 Task 6, issue #95) ---------------------------
+
+
+async def test_on_tick_fires_after_each_successful_advance_one_tick() -> None:
+    match = _new_active_match()
+    observed: list[tuple[int, int]] = []  # (tick, event_count)
+
+    async def observer(state: Any, events: tuple[Any, ...]) -> None:
+        observed.append((state.tick, len(events)))
+
+    runtime = MatchRuntime(match, on_tick=observer)
+
+    await runtime._advance_one_tick()
+    await runtime._advance_one_tick()
+
+    assert [tick for tick, _ in observed] == [1, 2]
+    assert observed[0][0] == match.game_state.tick - 1  # type: ignore[union-attr]
+
+
+async def test_on_tick_receives_the_states_own_events_tuple() -> None:
+    """The observer's ``events`` argument must be exactly the tick's own
+    ``last_events`` -- not a stale/previous tick's value."""
+    match = _new_active_match()
+    received: list[tuple[Any, ...]] = []
+
+    async def observer(state: Any, events: tuple[Any, ...]) -> None:
+        received.append(events)
+
+    runtime = MatchRuntime(match, on_tick=observer)
+    await runtime._advance_one_tick()
+
+    assert received == [runtime.last_events]
+
+
+async def test_on_tick_fires_from_the_real_scheduled_loop_not_just_direct_calls() -> None:
+    """Regression guard: the hook must genuinely fire from ``_run``'s real
+    scheduled ticks (driven by ``engine.step``), not only when a test calls
+    ``_advance_one_tick`` directly."""
+    match = _new_active_match()
+    tick_counts: list[int] = []
+
+    async def observer(state: Any, events: tuple[Any, ...]) -> None:
+        tick_counts.append(state.tick)
+
+    runtime = MatchRuntime(match, tick_rate_hz=1000.0, on_tick=observer)
+    runtime.start()
+    await asyncio.sleep(0.02)
+    runtime.request_cancel()
+    await runtime.wait_stopped()
+
+    assert len(tick_counts) == runtime.tick_count
+    assert runtime.tick_count > 0
+    # Strictly increasing, in tick order -- no interleaving/reordering.
+    assert tick_counts == sorted(tick_counts)
+    assert tick_counts == list(range(1, runtime.tick_count + 1))
+
+
+async def test_on_tick_is_never_invoked_when_a_tick_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    match = _new_active_match()
+    calls: list[int] = []
+
+    async def observer(state: Any, events: tuple[Any, ...]) -> None:
+        calls.append(1)
+
+    def raising_step(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("boom-for-test")
+
+    monkeypatch.setattr(engine_module, "step", raising_step)
+    runtime = MatchRuntime(match, on_tick=observer)
+
+    with pytest.raises(RuntimeError, match="boom-for-test"):
+        await runtime._advance_one_tick()
+
+    assert calls == []
+
+
+async def test_registry_start_passes_on_tick_through_to_the_runtime() -> None:
+    match = _new_active_match()
+    calls: list[int] = []
+
+    async def observer(state: Any, events: tuple[Any, ...]) -> None:
+        calls.append(state.tick)
+
+    registry = MatchRuntimeRegistry(tick_rate_hz=1000.0)
+    runtime = registry.start(match, on_tick=observer)
+    await asyncio.sleep(0.005)
+    runtime.request_cancel()
+    await runtime.wait_stopped()
+
+    assert len(calls) == runtime.tick_count
+    assert runtime.tick_count > 0
+
+
+async def test_manager_wiring_supplies_on_tick_factory_bound_to_the_started_match() -> None:
+    """``MatchManager.on_tick_factory`` is called once, with the ``Match``
+    being started, and its returned observer is the one actually wired into
+    that match's runtime -- proving the factory-per-match design (rather
+    than one shared observer) actually reaches the runtime layer."""
+    registry = MatchRuntimeRegistry(tick_rate_hz=1000.0)
+    factory_calls: list[str] = []
+    tick_calls: list[str] = []
+
+    def on_tick_factory(match: Match) -> Any:
+        factory_calls.append(match.match_id)
+
+        async def observer(state: Any, events: tuple[Any, ...]) -> None:
+            tick_calls.append(match.match_id)
+
+        return observer
+
+    manager = MatchManager(runtime=registry, on_tick_factory=on_tick_factory)
+    created = manager.create_match("alice")
+    joined = manager.join_match(created.join_code, "bob")
+    manager.set_ready(created.session_token)
+    manager.set_ready(joined.session_token)
+
+    assert factory_calls == [created.match_id]
+
+    runtime = registry.get(created.match_id)
+    assert runtime is not None
+    await asyncio.sleep(0.01)
+    runtime.request_cancel()
+    await runtime.wait_stopped()
+
+    assert tick_calls  # the bound observer actually fired for real ticks
+    assert set(tick_calls) == {created.match_id}
+
+
 async def test_manager_without_runtime_hook_never_touches_asyncio() -> None:
     """No ``runtime`` supplied keeps MatchManager exactly as sync as before."""
     manager = MatchManager()

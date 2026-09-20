@@ -19,17 +19,45 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from nether_earth.snapshot import to_snapshot
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
 from app.main import create_app
 from app.match.manager import MatchManager
+from app.match.runtime import MatchRuntimeRegistry
+from app.transport import ConnectionRegistry, create_websocket_router
 
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     app = create_app()
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def no_tick_client() -> Iterator[TestClient]:
+    """An app whose ``MatchManager`` has no ``MatchRuntimeRegistry`` wired in.
+
+    A match still goes WAITING -> ACTIVE normally (``engine.new_game`` still
+    runs, so ``game_state`` is real and non-None), but no ``MatchRuntime`` is
+    ever started, so ``game_state`` never advances on its own. Used by tests
+    that need a deterministic, non-ticking authoritative state to assert
+    against (e.g. reconnect's "never mutates/advances the engine" and
+    "matches `to_snapshot(match.game_state)` exactly" guarantees) without
+    racing the real 20 Hz tick loop `create_app()` wires up in production.
+    """
+    match_manager = MatchManager()  # no `runtime=` -> no ticking, ever.
+    runtime_registry = MatchRuntimeRegistry()
+    connection_registry = ConnectionRegistry()
+    app = FastAPI()
+    app.state.match_manager = match_manager
+    app.state.runtime_registry = runtime_registry
+    app.state.connection_registry = connection_registry
+    app.include_router(create_websocket_router(match_manager, runtime_registry, connection_registry))
     with TestClient(app) as test_client:
         yield test_client
 
@@ -141,6 +169,55 @@ def test_ready_from_both_players_starts_the_match(client: TestClient) -> None:
         # broadcast to every connection.
         assert ws_a.receive_json()["type"] == "started"
         assert ws_b.receive_json()["type"] == "started"
+
+
+def test_match_start_broadcasts_a_real_initial_authoritative_snapshot(
+    client: TestClient,
+) -> None:
+    """The "started" broadcast is immediately followed by a real snapshot
+    (tick 0, the state `engine.new_game` produced) -- not the empty
+    placeholder, and reconstructable to exactly what the engine computed."""
+    manager = _match_manager(client)
+
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        created = _create(ws_a, "alice")
+        joined = _join(ws_b, created["joinCode"], "bob")
+        ws_a.receive_json()
+        ws_b.receive_json()
+
+        _ready(
+            ws_a,
+            match_id=created["matchId"],
+            player_id="p1",
+            session_token=created["sessionToken"],
+        )
+        ws_a.receive_json()
+        ws_b.receive_json()
+
+        _ready(
+            ws_b,
+            match_id=created["matchId"],
+            player_id="p2",
+            session_token=joined["sessionToken"],
+        )
+        ws_a.receive_json()  # ready_state from p2 readying up
+        ws_b.receive_json()
+        assert ws_a.receive_json()["type"] == "started"
+        assert ws_b.receive_json()["type"] == "started"
+
+        snapshot_a = ws_a.receive_json()
+        snapshot_b = ws_b.receive_json()
+
+    assert snapshot_a["type"] == "snapshot"
+    assert snapshot_b["type"] == "snapshot"
+    assert snapshot_a["matchId"] == created["matchId"]
+    assert snapshot_a["tick"] == 0
+
+    match = manager.get_match(created["matchId"])
+    assert match.game_state is not None
+    expected_state = to_snapshot(match.game_state)
+    assert snapshot_a["state"] == expected_state
+    assert snapshot_b["state"] == expected_state
 
 
 # -- malformed messages never reach the engine --------------------------------
@@ -427,6 +504,133 @@ def test_reconnect_returns_resync_snapshot_and_rebinds_connection(client: TestCl
     assert resync["matchId"] == created["matchId"]
     assert resync["playerId"] == "p1"
     assert resync["snapshot"]["type"] == "snapshot"
+
+
+def _start_active_match(client: TestClient) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Create+join+ready both slots to ACTIVE; return (created, joined) results."""
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        created = _create(ws_a, "alice")
+        joined = _join(ws_b, created["joinCode"], "bob")
+        ws_a.receive_json()
+        ws_b.receive_json()
+
+        _ready(
+            ws_a,
+            match_id=created["matchId"],
+            player_id="p1",
+            session_token=created["sessionToken"],
+        )
+        ws_a.receive_json()
+        ws_b.receive_json()
+
+        _ready(
+            ws_b,
+            match_id=created["matchId"],
+            player_id="p2",
+            session_token=joined["sessionToken"],
+        )
+        ws_a.receive_json()  # ready_state from p2 readying up
+        ws_b.receive_json()
+        ws_a.receive_json()  # started
+        ws_b.receive_json()
+        ws_a.receive_json()  # initial snapshot
+        ws_b.receive_json()
+
+    return created, joined
+
+
+def test_reconnect_snapshot_reconstructs_the_current_authoritative_state(
+    no_tick_client: TestClient,
+) -> None:
+    """A reconnecting client's snapshot must match `to_snapshot(match.game_state)`
+    exactly (the real acceptance criterion: full reconstructability), not the
+    old empty placeholder.
+
+    Uses `no_tick_client` (no live `MatchRuntime`) so `match.game_state` is a
+    fixed, known value -- this test is about the *mapping* being exact, not
+    about racing a real 20 Hz tick loop, which `test_no_cross_match..."/
+    the manager-level runtime tests already cover independently.
+    """
+    client = no_tick_client
+    manager = _match_manager(client)
+    created, _joined = _start_active_match(client)
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "reconnect",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                }
+            )
+        )
+        resync = ws.receive_json()
+
+    match = manager.get_match(created["matchId"])
+    assert match.game_state is not None
+    assert resync["snapshot"]["tick"] == match.game_state.tick
+    assert resync["snapshot"]["state"] == to_snapshot(match.game_state)
+
+
+def test_reconnect_never_advances_or_mutates_engine_state(no_tick_client: TestClient) -> None:
+    """Sending a reconnect must never call `engine.step`/advance the tick --
+    the snapshot is read exactly as `match.game_state` stands."""
+    client = no_tick_client
+    manager = _match_manager(client)
+    created, _joined = _start_active_match(client)
+
+    match_before = manager.get_match(created["matchId"])
+    assert match_before.game_state is not None
+    tick_before = match_before.game_state.tick
+    state_before = to_snapshot(match_before.game_state)
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "reconnect",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                }
+            )
+        )
+        resync = ws.receive_json()
+
+    assert resync["snapshot"]["tick"] == tick_before
+    assert resync["snapshot"]["state"] == state_before
+
+
+def test_reconnect_snapshot_round_trips_through_protocol_validation(
+    no_tick_client: TestClient,
+) -> None:
+    from app.protocol.envelope import OutboundMessageAdapter
+    from app.protocol.reconnect import ServerResync
+
+    client = no_tick_client
+    created, _joined = _start_active_match(client)
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "reconnect",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                }
+            )
+        )
+        raw = ws.receive_text()
+
+    revalidated = OutboundMessageAdapter.validate_json(raw)
+    assert isinstance(revalidated, ServerResync)
+    assert revalidated.snapshot.type == "snapshot"
 
 
 def test_stale_connections_teardown_after_reconnect_does_not_fire_spurious_disconnect(

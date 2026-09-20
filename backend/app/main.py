@@ -10,8 +10,9 @@ instance used by a real deployment (e.g. ``uvicorn app.main:app``).
 from fastapi import FastAPI
 
 from app.match.manager import MatchManager
-from app.match.runtime import MatchRuntimeRegistry
-from app.transport import ConnectionRegistry, create_websocket_router
+from app.match.models import Match
+from app.match.runtime import MatchRuntimeRegistry, TickObserver
+from app.transport import ConnectionRegistry, create_websocket_router, make_tick_broadcaster
 
 
 def create_app() -> FastAPI:
@@ -19,7 +20,15 @@ def create_app() -> FastAPI:
 
     connection_registry = ConnectionRegistry()
     runtime_registry = MatchRuntimeRegistry()
-    match_manager = MatchManager(runtime=runtime_registry)
+
+    def _on_tick_factory(match: Match) -> TickObserver:
+        # Bound per match at start time (see `MatchManager.on_tick_factory`'s
+        # docstring): broadcasts a fresh authoritative snapshot to every
+        # connection registered for `match.match_id` after each tick this
+        # match's `MatchRuntime` completes (M7 Task 6, issue #95).
+        return make_tick_broadcaster(connection_registry, match.match_id)
+
+    match_manager = MatchManager(runtime=runtime_registry, on_tick_factory=_on_tick_factory)
 
     fastapi_app.state.match_manager = match_manager
     fastapi_app.state.runtime_registry = runtime_registry
