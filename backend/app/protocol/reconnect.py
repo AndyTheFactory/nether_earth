@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import ConfigDict, Field, TypeAdapter
 
-from app.protocol.common import MatchId, PlayerId, ProtocolVersion, SessionToken
+from app.protocol.common import MatchId, PlayerId, ProtocolModel, ProtocolVersion, SessionToken
 from app.protocol.snapshot import SnapshotMessage
 
 
-class ClientReconnect(BaseModel):
+class ClientReconnect(ProtocolModel):
     """Mirrors reconnect.schema.json `$defs.clientReconnect`.
 
     Sent by a client re-establishing a WebSocket connection to an existing
@@ -25,14 +25,14 @@ class ClientReconnect(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["reconnect"]
-    matchId: MatchId
-    playerId: PlayerId
-    sessionToken: SessionToken
+    match_id: MatchId
+    player_id: PlayerId
+    session_token: SessionToken
 
 
-class ServerResync(BaseModel):
+class ServerResync(ProtocolModel):
     """Mirrors reconnect.schema.json `$defs.serverResync`.
 
     Sent in response to a successful reconnect, carrying the current
@@ -41,10 +41,10 @@ class ServerResync(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["resync"]
-    matchId: MatchId
-    playerId: PlayerId
+    match_id: MatchId
+    player_id: PlayerId
     snapshot: SnapshotMessage
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import ConfigDict, Field, TypeAdapter
 
 from app.protocol.common import (
     JoinCode,
@@ -19,59 +19,60 @@ from app.protocol.common import (
     Nickname,
     PlaceholderCommandPayload,
     PlayerId,
+    ProtocolModel,
     ProtocolVersion,
     SequenceNumber,
     SessionToken,
 )
 
 
-class ClientCreateMatch(BaseModel):
+class ClientCreateMatch(ProtocolModel):
     """Mirrors client_messages.schema.json `$defs.createMatch`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["create"]
     nickname: Nickname
 
 
-class ClientJoinMatch(BaseModel):
+class ClientJoinMatch(ProtocolModel):
     """Mirrors client_messages.schema.json `$defs.joinMatch`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["join"]
-    joinCode: JoinCode
+    join_code: JoinCode
     nickname: Nickname
 
 
-class ClientSetReady(BaseModel):
+class ClientSetReady(ProtocolModel):
     """Mirrors client_messages.schema.json `$defs.setReady`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["ready"]
-    matchId: MatchId
-    playerId: PlayerId
-    sessionToken: SessionToken
+    match_id: MatchId
+    player_id: PlayerId
+    session_token: SessionToken
     ready: bool
 
 
-class ClientLeaveMatch(BaseModel):
+class ClientLeaveMatch(ProtocolModel):
     """Mirrors client_messages.schema.json `$defs.leaveMatch`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["leave"]
-    matchId: MatchId
-    playerId: PlayerId
-    sessionToken: SessionToken
+    match_id: MatchId
+    player_id: PlayerId
+    session_token: SessionToken
 
 
-class ClientGameplayCommand(BaseModel):
+class ClientGameplayCommand(ProtocolModel):
     """Mirrors client_messages.schema.json `$defs.gameplayCommand`.
 
     `payload` is a placeholder shape pending issue #98; the envelope fields
@@ -81,12 +82,12 @@ class ClientGameplayCommand(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["command"]
-    matchId: MatchId
-    playerId: PlayerId
-    sessionToken: SessionToken
-    clientSequence: SequenceNumber
+    match_id: MatchId
+    player_id: PlayerId
+    session_token: SessionToken
+    client_sequence: SequenceNumber
     payload: PlaceholderCommandPayload
 
 

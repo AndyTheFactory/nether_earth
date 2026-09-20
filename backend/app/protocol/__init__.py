@@ -63,9 +63,13 @@ def parse_client_message(raw: str | bytes) -> InboundMessage:
 def serialize_server_message(message: OutboundMessage) -> str:
     """Serialize a validated server message to schema-valid JSON text.
 
-    `exclude_none=True` drops optional fields left unset (e.g.
-    `ServerError.matchId`, `ErrorInfo.details`) rather than emitting them as
-    JSON `null`, since none of the source schemas' properties accept a
-    `null` type.
+    `by_alias=True` emits each field under its wire (camelCase) alias
+    rather than its Python (snake_case) attribute name -- see
+    `ProtocolModel` in `common.py`. `exclude_none=True` drops optional
+    fields left unset (e.g. `ServerError.match_id`, `ErrorInfo.details`)
+    rather than emitting them as JSON `null`, since none of the source
+    schemas' properties accept a `null` type.
     """
-    return OutboundMessageAdapter.dump_json(message, exclude_none=True).decode("utf-8")
+    return OutboundMessageAdapter.dump_json(message, by_alias=True, exclude_none=True).decode(
+        "utf-8"
+    )

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import ConfigDict, Field, TypeAdapter
 
 from app.protocol.common import (
     ErrorInfo,
@@ -20,6 +20,7 @@ from app.protocol.common import (
     MatchId,
     PlayerId,
     PlayerSummary,
+    ProtocolModel,
     ProtocolVersion,
     SessionToken,
     Tick,
@@ -27,7 +28,7 @@ from app.protocol.common import (
 )
 
 
-class ServerCreated(BaseModel):
+class ServerCreated(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.created`.
 
     Sent to the creating player only, in response to a client create
@@ -36,15 +37,15 @@ class ServerCreated(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["created"]
-    matchId: MatchId
-    joinCode: JoinCode
-    playerId: PlayerId
-    sessionToken: SessionToken
+    match_id: MatchId
+    join_code: JoinCode
+    player_id: PlayerId
+    session_token: SessionToken
 
 
-class ServerJoined(BaseModel):
+class ServerJoined(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.joined`.
 
     Sent to the joining player only; roster/readiness is broadcast
@@ -53,14 +54,14 @@ class ServerJoined(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["joined"]
-    matchId: MatchId
-    playerId: PlayerId
-    sessionToken: SessionToken
+    match_id: MatchId
+    player_id: PlayerId
+    session_token: SessionToken
 
 
-class ServerReadyState(BaseModel):
+class ServerReadyState(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.readyState`.
 
     Broadcast to all connected players whenever match roster or readiness
@@ -69,24 +70,24 @@ class ServerReadyState(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["ready_state"]
-    matchId: MatchId
+    match_id: MatchId
     players: Annotated[list[PlayerSummary], Field(min_length=1, max_length=2)]
 
 
-class ServerStarted(BaseModel):
+class ServerStarted(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.started`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["started"]
-    matchId: MatchId
+    match_id: MatchId
     tick: Tick
 
 
-class ServerPaused(BaseModel):
+class ServerPaused(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.paused`.
 
     Sent when the match pauses because a player disconnected.
@@ -96,14 +97,14 @@ class ServerPaused(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["paused"]
-    matchId: MatchId
-    disconnectedPlayerId: PlayerId
-    graceDeadlineMs: TimestampMs
+    match_id: MatchId
+    disconnected_player_id: PlayerId
+    grace_deadline_ms: TimestampMs
 
 
-class ServerResumed(BaseModel):
+class ServerResumed(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.resumed`.
 
     Sent when simulation resumes because both players are connected again.
@@ -111,13 +112,13 @@ class ServerResumed(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["resumed"]
-    matchId: MatchId
+    match_id: MatchId
     tick: Tick
 
 
-class ServerForfeit(BaseModel):
+class ServerForfeit(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.forfeit`.
 
     Sent when a disconnected player's reconnect grace deadline expires
@@ -126,15 +127,15 @@ class ServerForfeit(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["forfeit"]
-    matchId: MatchId
-    forfeitingPlayerId: PlayerId
-    winnerPlayerId: PlayerId
+    match_id: MatchId
+    forfeiting_player_id: PlayerId
+    winner_player_id: PlayerId
     reason: Literal["disconnect_timeout"]
 
 
-class ServerNoContest(BaseModel):
+class ServerNoContest(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.noContest`.
 
     Sent when both players disconnect and both independent reconnect grace
@@ -143,13 +144,13 @@ class ServerNoContest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["no_contest"]
-    matchId: MatchId
+    match_id: MatchId
     reason: Literal["disconnect_timeout_both"]
 
 
-class ServerFinished(BaseModel):
+class ServerFinished(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.finished`.
 
     Sent when the match ends because a player owns zero war bases (normal
@@ -158,14 +159,14 @@ class ServerFinished(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["finished"]
-    matchId: MatchId
-    winnerPlayerId: PlayerId
+    match_id: MatchId
+    winner_player_id: PlayerId
     tick: Tick
 
 
-class ServerError(BaseModel):
+class ServerError(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.error`.
 
     `matchId` is omitted for errors that occur before a match context
@@ -174,9 +175,9 @@ class ServerError(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["error"]
-    matchId: MatchId | None = None
+    match_id: MatchId | None = None
     error: ErrorInfo
 
 

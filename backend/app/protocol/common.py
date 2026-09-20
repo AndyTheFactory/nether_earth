@@ -9,6 +9,12 @@ Architecture note (AGENTS.md): this module is a transport/serialization
 boundary only. It does not validate gameplay legality; `payload`/`state`
 below are still placeholders pending issue #98's full command/state
 enumeration, exactly as in the JSON Schema they mirror.
+
+Naming: wire JSON is camelCase (per the schemas); Python attribute access on
+every model is snake_case, matching `app.match`'s existing convention
+(`Match.match_id`, `PlayerSlot.session_token`, ...). `ProtocolModel` below
+is the shared base that makes that translation automatic via `pydantic`'s
+`to_camel` alias generator -- individual models never hand-write aliases.
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 #: Mirrors common.schema.json `$defs.protocolVersion` (`const: 1`).
 ProtocolVersion = Literal[1]
@@ -37,7 +44,22 @@ ErrorCode = Annotated[str, Field(min_length=1)]
 SnapshotState = dict[str, Any]
 
 
-class ProtocolEnvelope(BaseModel):
+class ProtocolModel(BaseModel):
+    """Shared base for every protocol model.
+
+    `alias_generator=to_camel` derives each field's wire name (`matchId`)
+    from its Python (snake_case) name (`match_id`) automatically, so the
+    JSON stays schema-conformant while Python call sites use the same
+    snake_case convention as `app.match`. `populate_by_name=True` lets code
+    construct instances with either the snake_case field name or the
+    camelCase alias. Subclasses layer their own `extra=` policy on top (this
+    merges with, rather than replaces, this base's `model_config`).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
+class ProtocolEnvelope(ProtocolModel):
     """The bare envelope: only the required `protocolVersion` const.
 
     Mirrors common.schema.json's top-level object exactly
@@ -50,10 +72,10 @@ class ProtocolEnvelope(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
 
 
-class ErrorInfo(BaseModel):
+class ErrorInfo(ProtocolModel):
     """Mirrors common.schema.json `$defs.errorInfo`."""
 
     model_config = ConfigDict(extra="forbid")
@@ -63,17 +85,17 @@ class ErrorInfo(BaseModel):
     details: dict[str, Any] | None = None
 
 
-class PlayerSummary(BaseModel):
+class PlayerSummary(ProtocolModel):
     """Mirrors common.schema.json `$defs.playerSummary`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    playerId: PlayerId
+    player_id: PlayerId
     nickname: Nickname
     ready: bool
 
 
-class PlaceholderCommandPayload(BaseModel):
+class PlaceholderCommandPayload(ProtocolModel):
     """Mirrors common.schema.json `$defs.placeholderCommandPayload`.
 
     Not a real gameplay command; kept only so the envelope/generation

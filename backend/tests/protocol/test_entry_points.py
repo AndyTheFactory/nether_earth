@@ -100,94 +100,101 @@ def test_protocol_package_has_no_match_dependency() -> None:
 
 
 _SNAPSHOT_FOR_RESYNC = SnapshotMessage(
-    protocolVersion=1, type="snapshot", matchId="match-1", tick=120, state={"placeholder": True}
+    protocol_version=1, type="snapshot", match_id="match-1", tick=120, state={"placeholder": True}
 )
 
 _REPRESENTATIVE_OUTBOUND: list[tuple[str, OutboundMessage]] = [
     (
         "server_messages",
         ServerCreated(
-            protocolVersion=1,
+            protocol_version=1,
             type="created",
-            matchId="match-1",
-            joinCode="ABCD1234",
-            playerId="player-1",
-            sessionToken="session-token-1",
+            match_id="match-1",
+            join_code="ABCD1234",
+            player_id="player-1",
+            session_token="session-token-1",
         ),
     ),
     (
         "server_messages",
         ServerJoined(
-            protocolVersion=1,
+            protocol_version=1,
             type="joined",
-            matchId="match-1",
-            playerId="player-2",
-            sessionToken="session-token-2",
+            match_id="match-1",
+            player_id="player-2",
+            session_token="session-token-2",
         ),
     ),
     (
         "server_messages",
         ServerReadyState(
-            protocolVersion=1,
+            protocol_version=1,
             type="ready_state",
-            matchId="match-1",
+            match_id="match-1",
             players=[
-                PlayerSummary(playerId="player-1", nickname="Alice", ready=True),
-                PlayerSummary(playerId="player-2", nickname="Bob", ready=False),
+                PlayerSummary(player_id="player-1", nickname="Alice", ready=True),
+                PlayerSummary(player_id="player-2", nickname="Bob", ready=False),
             ],
         ),
     ),
-    ("server_messages", ServerStarted(protocolVersion=1, type="started", matchId="match-1", tick=0)),
+    (
+        "server_messages",
+        ServerStarted(protocol_version=1, type="started", match_id="match-1", tick=0),
+    ),
     (
         "server_messages",
         ServerPaused(
-            protocolVersion=1,
+            protocol_version=1,
             type="paused",
-            matchId="match-1",
-            disconnectedPlayerId="player-1",
-            graceDeadlineMs=1717000000000,
+            match_id="match-1",
+            disconnected_player_id="player-1",
+            grace_deadline_ms=1717000000000,
         ),
     ),
     (
         "server_messages",
-        ServerResumed(protocolVersion=1, type="resumed", matchId="match-1", tick=1200),
+        ServerResumed(protocol_version=1, type="resumed", match_id="match-1", tick=1200),
     ),
     (
         "server_messages",
         ServerForfeit(
-            protocolVersion=1,
+            protocol_version=1,
             type="forfeit",
-            matchId="match-1",
-            forfeitingPlayerId="player-1",
-            winnerPlayerId="player-2",
+            match_id="match-1",
+            forfeiting_player_id="player-1",
+            winner_player_id="player-2",
             reason="disconnect_timeout",
         ),
     ),
     (
         "server_messages",
         ServerNoContest(
-            protocolVersion=1, type="no_contest", matchId="match-1", reason="disconnect_timeout_both"
+            protocol_version=1, type="no_contest", match_id="match-1", reason="disconnect_timeout_both"
         ),
     ),
     (
         "server_messages",
         ServerFinished(
-            protocolVersion=1, type="finished", matchId="match-1", winnerPlayerId="player-1", tick=54000
+            protocol_version=1,
+            type="finished",
+            match_id="match-1",
+            winner_player_id="player-1",
+            tick=54000,
         ),
     ),
     (
         "server_messages",
         ServerError(
-            protocolVersion=1,
+            protocol_version=1,
             type="error",
-            matchId="match-1",
+            match_id="match-1",
             error=ErrorInfo(code="invalid_command", message="Unknown command type."),
         ),
     ),
     (
         "server_messages",
         ServerError(
-            protocolVersion=1,
+            protocol_version=1,
             type="error",
             error=ErrorInfo(code="malformed_message", message="Could not parse client message."),
         ),
@@ -195,16 +202,20 @@ _REPRESENTATIVE_OUTBOUND: list[tuple[str, OutboundMessage]] = [
     (
         "snapshot",
         SnapshotMessage(
-            protocolVersion=1, type="snapshot", matchId="match-1", tick=120, state={"placeholder": True}
+            protocol_version=1,
+            type="snapshot",
+            match_id="match-1",
+            tick=120,
+            state={"placeholder": True},
         ),
     ),
     (
         "reconnect",
         ServerResync(
-            protocolVersion=1,
+            protocol_version=1,
             type="resync",
-            matchId="match-1",
-            playerId="player-1",
+            match_id="match-1",
+            player_id="player-1",
             snapshot=_SNAPSHOT_FOR_RESYNC,
         ),
     ),

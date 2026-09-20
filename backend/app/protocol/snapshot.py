@@ -10,18 +10,18 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 
-from app.protocol.common import MatchId, ProtocolVersion, SnapshotState, Tick
+from app.protocol.common import MatchId, ProtocolModel, ProtocolVersion, SnapshotState, Tick
 
 
-class SnapshotMessage(BaseModel):
+class SnapshotMessage(ProtocolModel):
     """Mirrors snapshot.schema.json's top-level object."""
 
     model_config = ConfigDict(extra="forbid")
 
-    protocolVersion: ProtocolVersion
+    protocol_version: ProtocolVersion
     type: Literal["snapshot"]
-    matchId: MatchId
+    match_id: MatchId
     tick: Tick
     state: SnapshotState
