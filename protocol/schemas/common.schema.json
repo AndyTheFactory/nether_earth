@@ -119,7 +119,7 @@
           "title": "AdvanceOrder",
           "properties": {
             "kind": { "type": "string", "const": "advance" },
-            "distanceMiles": { "type": "integer", "minimum": 0, "maximum": 50 }
+            "distanceMiles": { "type": "integer" }
           },
           "required": ["kind", "distanceMiles"],
           "additionalProperties": false
@@ -129,7 +129,7 @@
           "title": "RetreatOrder",
           "properties": {
             "kind": { "type": "string", "const": "retreat" },
-            "distanceMiles": { "type": "integer", "minimum": 0, "maximum": 50 }
+            "distanceMiles": { "type": "integer" }
           },
           "required": ["kind", "distanceMiles"],
           "additionalProperties": false

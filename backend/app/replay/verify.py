@@ -63,22 +63,27 @@ def load_meta(base_dir: Path, match_id: str) -> dict[str, Any]:
     return loaded  # type: ignore[no-any-return]
 
 
-#: Inverse of ``writer.py``'s ``_COMMAND_KIND_BY_CLASS``: the JSON ``kind``
-#: tag -> the concrete ``Command`` subclass it reconstructs. Kept as its own
-#: table (rather than importing the forward table and inverting it) so this
-#: module's own ``isinstance``-free reconstruction stays a simple, obviously
-#: total dict lookup.
-_COMMAND_CLASS_BY_KIND: dict[str, type[Command]] = {
-    "commander_move": CommanderMoveCommand,
-    "commander_set_vertical_intent": CommanderSetVerticalIntentCommand,
-    "direct_robot_move": DirectRobotMoveCommand,
-    "robot_fire": FireCommand,
-    "set_robot_order": SetRobotOrderCommand,
-    "select_module": SelectModuleCommand,
-    "deselect_module": DeselectModuleCommand,
-    "cancel_construction": CancelConstructionCommand,
-    "launch_robot": LaunchRobotCommand,
-}
+#: The nine persisted ``kind`` tokens this function knows how to reconstruct,
+#: mirroring ``writer.py``'s ``_COMMAND_KIND_BY_CLASS`` keys. Used only for
+#: the "unknown kind" error message; the actual reconstruction below
+#: dispatches on the string ``kind`` directly (one explicit branch per
+#: token, each naming its own field set) rather than resolving a class first
+#: and re-dispatching on it, so a type checker can verify each branch's own
+#: constructor call against that exact class's fields (M7 Task 9 review,
+#: Minor M5) instead of an ``in (A, B)`` grouping it cannot see through.
+_KNOWN_COMMAND_KINDS = frozenset(
+    {
+        "commander_move",
+        "commander_set_vertical_intent",
+        "direct_robot_move",
+        "robot_fire",
+        "set_robot_order",
+        "select_module",
+        "deselect_module",
+        "cancel_construction",
+        "launch_robot",
+    }
+)
 
 
 def _command_from_json(data: dict[str, Any]) -> Command:
@@ -98,17 +103,17 @@ def _command_from_json(data: dict[str, Any]) -> Command:
     if kind is None:
         return Command(player=player, sequence=sequence)
 
-    command_cls = _COMMAND_CLASS_BY_KIND.get(kind)
-    if command_cls is None:
-        raise ValueError(f"unknown persisted Command kind: {kind!r}")
-
-    if command_cls in (CommanderMoveCommand, DirectRobotMoveCommand):
-        return command_cls(player=player, sequence=sequence, dx=data["dx"], dy=data["dy"])
-    if command_cls is CommanderSetVerticalIntentCommand:
+    if kind == "commander_move":
+        return CommanderMoveCommand(player=player, sequence=sequence, dx=data["dx"], dy=data["dy"])
+    if kind == "commander_set_vertical_intent":
         return CommanderSetVerticalIntentCommand(
             player=player, sequence=sequence, rising=data["rising"]
         )
-    if command_cls is FireCommand:
+    if kind == "direct_robot_move":
+        return DirectRobotMoveCommand(
+            player=player, sequence=sequence, dx=data["dx"], dy=data["dy"]
+        )
+    if kind == "robot_fire":
         return FireCommand(
             player=player,
             sequence=sequence,
@@ -117,17 +122,28 @@ def _command_from_json(data: dict[str, Any]) -> Command:
             target_x=data["target_x"],
             target_y=data["target_y"],
         )
-    if command_cls is SetRobotOrderCommand:
+    if kind == "set_robot_order":
         return SetRobotOrderCommand(
             player=player,
             sequence=sequence,
             entity_id=EntityId.from_json(data["entity_id"]),
             order=order_from_json(data["order"]),
         )
-    if command_cls in (SelectModuleCommand, DeselectModuleCommand):
-        return command_cls(player=player, sequence=sequence, module=ModuleIdentity(data["module"]))
-    # CancelConstructionCommand / LaunchRobotCommand: no fields beyond the base contract.
-    return command_cls(player=player, sequence=sequence)
+    if kind == "select_module":
+        return SelectModuleCommand(
+            player=player, sequence=sequence, module=ModuleIdentity(data["module"])
+        )
+    if kind == "deselect_module":
+        return DeselectModuleCommand(
+            player=player, sequence=sequence, module=ModuleIdentity(data["module"])
+        )
+    if kind == "cancel_construction":
+        return CancelConstructionCommand(player=player, sequence=sequence)
+    if kind == "launch_robot":
+        return LaunchRobotCommand(player=player, sequence=sequence)
+
+    assert kind not in _KNOWN_COMMAND_KINDS  # every known kind is handled above
+    raise ValueError(f"unknown persisted Command kind: {kind!r}")
 
 
 def load_commands_by_tick(base_dir: Path, match_id: str) -> dict[int, tuple[Command, ...]]:

@@ -207,10 +207,13 @@ def _command_to_json(command: Command) -> dict[str, Any]:
     carries, plus every one of the nine concrete gameplay ``Command``
     subclasses ``engine.step`` dispatches on (issue #98) -- see
     :data:`_COMMAND_KIND_BY_CLASS`. Each subclass's own gameplay-specific
-    fields are appended after ``kind``, using the exact same JSON tokens as
-    ``app.protocol.common``'s ``CommandPayload``/``app.transport.commands``'
-    adapter, so a replayed command and the transport payload that produced
-    it agree byte-for-byte on shape.
+    fields are appended after ``kind``, using the exact same ``kind`` tokens
+    as ``app.protocol.common``'s ``CommandPayload``/``app.transport.commands``'
+    adapter (only the ``kind`` discriminator and field *names* are shared --
+    this is a plain snake_case JSON-Lines record, not the camelCase wire
+    envelope, so it is not byte-for-byte identical to a transport payload),
+    so a persisted command and the transport payload that produced it are
+    never spelled differently for the same logical command.
 
     Raises ``NotImplementedError`` for anything other than the bare
     ``Command`` contract or one of the nine known subclasses (M7 Task 8

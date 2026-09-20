@@ -22,6 +22,8 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from nether_earth.commander_movement import CommanderMoveCommand
+from nether_earth.commands import Command
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
 from nether_earth.snapshot import to_snapshot
 from starlette.testclient import WebSocketTestSession
@@ -520,6 +522,114 @@ def test_command_for_a_non_active_match_is_rejected_not_crashed(client: TestClie
         assert error["error"]["code"] == "command_rejected"
 
 
+def test_valid_commander_move_command_reaches_submit_command_as_the_real_engine_command(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M7 Task 9 review (Important I4): prove the payload -> Command adapter
+    is actually wired into `ClientGameplayCommand` handling, not merely unit
+    tested in isolation. Spies on `MatchRuntimeRegistry.submit_command`
+    (rather than reaching into private queue internals) so this asserts on
+    the exact object `ws.py` builds and submits: a real
+    `CommanderMoveCommand` with the payload's own `dx`/`dy`, never the bare
+    `nether_earth.commands.Command` envelope the pre-#98 handler used to
+    build.
+    """
+    created, _joined = _start_active_match(client)
+    captured: list[Command] = []
+    original_submit_command = MatchRuntimeRegistry.submit_command
+
+    async def spying_submit_command(
+        self: MatchRuntimeRegistry, match_id: str, command: Command
+    ) -> bool:
+        captured.append(command)
+        return await original_submit_command(self, match_id, command)
+
+    monkeypatch.setattr(MatchRuntimeRegistry, "submit_command", spying_submit_command)
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "command",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                    "clientSequence": 0,
+                    "payload": {"kind": "commander_move", "dx": 1, "dy": 0},
+                }
+            )
+        )
+        # A valid, accepted gameplay command produces no ack of its own; a
+        # second, deliberately malformed frame on the same connection forces
+        # strict in-order processing (single-threaded per-connection loop),
+        # so receiving *its* error here guarantees the first command was
+        # already fully handled -- the same synchronization idiom
+        # `test_invalid_json_gets_error_and_connection_stays_open` uses.
+        ws.send_text(json.dumps({"protocolVersion": 1, "type": "not_a_real_type"}))
+        probe_error = ws.receive_json()
+        assert probe_error["error"]["code"] == "invalid_message"
+
+    assert len(captured) == 1
+    command = captured[0]
+    assert isinstance(command, CommanderMoveCommand)
+    assert type(command) is CommanderMoveCommand  # not the bare base Command
+    assert command.dx == 1
+    assert command.dy == 0
+    assert command.player == PLAYER_ONE
+    assert command.sequence == 0
+
+
+def test_malformed_command_payload_produces_error_without_closing_socket(
+    client: TestClient,
+) -> None:
+    """M7 Task 9 review (Important I4): a schema-valid but structurally
+    malformed payload (diagonal move -- `cellDelta` restricts each axis
+    independently, so `dx=1, dy=1` passes schema validation and is only
+    caught by `CommanderMoveCommand.__post_init__`) must be rejected via
+    `app.transport.commands.CommandPayloadError` -> a normal `ServerError`,
+    never a crash or connection close, and must never reach
+    `MatchRuntimeRegistry.submit_command`/`engine.step` at all.
+    """
+    created, _joined = _start_active_match(client)
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "command",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                    "clientSequence": 0,
+                    "payload": {"kind": "commander_move", "dx": 1, "dy": 1},
+                }
+            )
+        )
+        error = ws.receive_json()
+        assert error["type"] == "error"
+        assert error["error"]["code"] == "invalid_command_payload"
+
+        # The connection is still usable afterwards -- not closed.
+        ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "command",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                    "clientSequence": 1,
+                    "payload": {"kind": "commander_move", "dx": 1, "dy": 1},
+                }
+            )
+        )
+        second_error = ws.receive_json()
+        assert second_error["type"] == "error"
+        assert second_error["error"]["code"] == "invalid_command_payload"
+
+
 # -- disconnect notification exactly once --------------------------------------
 
 
@@ -606,6 +716,58 @@ def test_reconnect_returns_resync_snapshot_and_rebinds_connection(client: TestCl
     assert resync["matchId"] == created["matchId"]
     assert resync["playerId"] == "p1"
     assert resync["snapshot"]["type"] == "snapshot"
+
+
+def test_reconnect_to_a_still_waiting_match_returns_a_valid_empty_snapshot_not_a_crash(
+    client: TestClient,
+) -> None:
+    """Regression test for M7 Task 9 review (Important I1).
+
+    `app.transport.snapshots.empty_snapshot_message` is the reconnect-side
+    fallback for a match that has never gone ACTIVE (`match.game_state is
+    None`) -- exercised whenever a player reconnects to a still-`WAITING`
+    match, exactly as here (only `create`, never `ready`, so the match never
+    reaches `ACTIVE`). The interrupted prior attempt at issue #98 left this
+    building `SnapshotMessage(..., state={})`, which validated fine against
+    the old placeholder `dict[str, Any]` `SnapshotState` but raises
+    `pydantic.ValidationError` now that `SnapshotState` is a real,
+    fully-required model -- a live crash on this exact path, caught here by
+    asserting the resync/snapshot round-trips as valid JSON with the full,
+    correctly-empty `SnapshotState` shape (every list field empty, not a
+    bare `{}`), rather than only checking the connection didn't blow up.
+    """
+    with client.websocket_connect("/ws") as first_ws:
+        created = _create(first_ws)
+
+    with client.websocket_connect("/ws") as second_ws:
+        second_ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "reconnect",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                }
+            )
+        )
+        resync = second_ws.receive_json()
+
+    assert resync["type"] == "resync"
+    state = resync["snapshot"]["state"]
+    assert state == {
+        "tick": 0,
+        "players": [],
+        "seed": 0,
+        "commanders": [],
+        "resource_pools": [],
+        "construction_sessions": [],
+        "robots": [],
+        "structure_ownership": [],
+        "capture_progress": [],
+        "projectiles": [],
+        "structure_destruction": [],
+    }
 
 
 def _start_active_match(client: TestClient) -> tuple[dict[str, Any], dict[str, Any]]:

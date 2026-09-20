@@ -9,18 +9,20 @@ installs on a match's ``MatchRuntime`` (``runtime.py`` itself never imports
 this package; see its module docstring).
 
 Broadcast policy: **snapshot-only** (not event+snapshot or a delta).
-``SnapshotState`` is still the Task 3 placeholder
-(`dict[str, Any]`/`additionalProperties: true`; full enumeration is issue
-#98's job), so there is no stable delta/event shape to diff or encode
-against yet -- inventing one now would be exactly the speculative,
-likely-to-be-redone work this task's brief asks to avoid. A full snapshot
-every tick is also the simplest thing that provably satisfies "a
-newly-connected/reconnected client can reconstruct all currently exposed
-state," for every client, not just ones that saw every prior tick.
-**Engine ``Event``s are therefore never transmitted at all** under this
-policy -- "authoritative ordering is preserved" holds vacuously (there is
-nothing to reorder), not because events are delivered in order; a future
-event/delta policy would need its own ordering proof.
+``SnapshotState`` is now the real, fully enumerated shape (issue #98: every
+field of ``nether_earth.snapshot.to_snapshot``'s return value, strictly
+typed) rather than the Task 3 placeholder it started as -- but there is
+still no stable delta/event shape to diff or encode against, since #98's
+scope was the snapshot/command mapping, not a delta protocol; inventing one
+now would be exactly the speculative, likely-to-be-redone work this task's
+brief asks to avoid. A full snapshot every tick is also the simplest thing
+that provably satisfies "a newly-connected/reconnected client can
+reconstruct all currently exposed state," for every client, not just ones
+that saw every prior tick. **Engine ``Event``s are therefore still never
+transmitted at all** under this policy -- "authoritative ordering is
+preserved" holds vacuously (there is nothing to reorder), not because
+events are delivered in order; a future event/delta policy would need its
+own ordering proof.
 
 Cost, deliberately not addressed here (YAGNI): full-snapshot-per-tick scales
 with `O(state_size x connections)` per tick, and (see `runtime.py`'s

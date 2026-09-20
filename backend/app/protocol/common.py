@@ -135,22 +135,36 @@ class AdvanceOrderPayload(ProtocolModel):
 
     No `targetX`: it is engine-bound state (the `PENDING` -> `ACTIVE`
     transition), never a player input -- see `orders.py`'s own docstrings.
+
+    `distance_miles` deliberately carries no `ge`/`le` bound here (issue #98
+    review, Important I2): `orders.py`'s own
+    `MAX_ORDER_DISTANCE_MILES`/`order_is_valid` already enforce the 0-50-mile
+    range, and the locked functional-spec §16 response to an out-of-range
+    order is not "reject the frame" -- it is "accept the command and store
+    `StopAndDefend` with `OrderStatus.FALLBACK`" (a real, observable engine
+    outcome via `RobotOrderChangedEvent`). A transport-layer bound would
+    reject the frame before the engine ever saw it, making that documented
+    fallback unreachable from any real client. Structural validation here is
+    limited to "is this an integer at all" -- the same division of
+    responsibility the module docstring's "no adapter may make a legality
+    decision" rule already establishes for commands.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["advance"]
-    distance_miles: Annotated[int, Field(ge=0, le=50)]
+    distance_miles: int
 
 
 class RetreatOrderPayload(ProtocolModel):
     """Mirrors `$defs.robotOrder`'s `RetreatOrder` variant
-    (`nether_earth.orders.Retreat`)."""
+    (`nether_earth.orders.Retreat`). See `AdvanceOrderPayload`'s docstring
+    for why `distance_miles` carries no `ge`/`le` bound here."""
 
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["retreat"]
-    distance_miles: Annotated[int, Field(ge=0, le=50)]
+    distance_miles: int
 
 
 class SearchCaptureOrderPayload(ProtocolModel):
