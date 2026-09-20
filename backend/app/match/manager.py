@@ -3,8 +3,10 @@
 Scope (issue #92 / M7 Task 2): create/join/ready lifecycle, guest session
 tokens, and the ``WAITING`` -> ``ACTIVE`` transition that calls
 ``nether_earth.engine.new_game`` exactly once. No WebSocket I/O, no
-fixed-tick stepping (``engine.step`` is never called here), no transport
-(Pydantic) models -- those are separate M7 tasks (3, 4, 5).
+fixed-tick stepping (``engine.step`` is never called from this module --
+that is ``app.match.runtime.MatchRuntime``'s job, optionally wired in via
+this class's ``runtime`` constructor parameter, M7 Task 4/issue #93), no
+transport (Pydantic) models -- those are separate M7 tasks (3, 4, 5).
 
 Architecture note (AGENTS.md, non-negotiable): this module never implements
 or checks gameplay rules. It calls ``engine.new_game`` once, at match start,
@@ -34,6 +36,7 @@ from app.match.models import (
     MatchRuntimeState,
     PlayerSlot,
 )
+from app.match.runtime import MatchRuntimeRegistry
 
 #: Deterministic v1 two-player seat order: the first guest to create/join a
 #: match always takes PLAYER_ONE, the second always takes PLAYER_TWO. This
@@ -89,6 +92,15 @@ class MatchManager:
     other's gameplay (there is none here yet), only the bookkeeping mutation
     itself is serialized. This is a plain, synchronous, deterministic
     lifecycle layer; nothing here awaits or does network I/O.
+
+    ``runtime``, if supplied, is an optional hook (M7 Task 4, issue #93) into
+    the async fixed-tick layer: the ``WAITING`` -> ``ACTIVE`` transition
+    starts a ``MatchRuntime`` for the match, and ``finish_match``/
+    ``dispose_match`` cancel it. This class never awaits anything itself --
+    ``MatchRuntimeRegistry``'s start/cancel/dispose methods are synchronous
+    and non-blocking (see ``runtime.py``'s module docstring for why), so
+    passing ``runtime=None`` (the default) keeps this class exactly as
+    synchronous/event-loop-free as it was before Task 4 existed.
     """
 
     def __init__(
@@ -96,9 +108,11 @@ class MatchManager:
         *,
         scenario: Scenario | None = None,
         map_data: BootstrapMap | None = None,
+        runtime: MatchRuntimeRegistry | None = None,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
         self._map_data = map_data if map_data is not None else _default_bootstrap_map(self._scenario)
+        self._runtime = runtime
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
         self._match_id_by_join_code: dict[str, str] = {}
@@ -192,6 +206,8 @@ class MatchManager:
             self._map_data, self._scenario, players=players, seed=match.seed
         )
         match.state = MatchRuntimeState.ACTIVE
+        if self._runtime is not None:
+            self._runtime.start(match)
 
     # -- lifecycle end / disposal --------------------------------------------
 
@@ -205,6 +221,8 @@ class MatchManager:
         with self._lock:
             match = self._get_match_locked(match_id)
             match.state = MatchRuntimeState.FINISHED
+            if self._runtime is not None:
+                self._runtime.cancel(match_id)
         return match
 
     def dispose_match(self, match_id: str) -> None:
@@ -222,6 +240,8 @@ class MatchManager:
             self._match_id_by_join_code.pop(match.join_code, None)
             for slot in match.players.values():
                 self._match_id_by_session_token.pop(slot.session_token, None)
+            if self._runtime is not None:
+                self._runtime.dispose(match_id)
 
     # -- lookup ---------------------------------------------------------------
 
