@@ -1,43 +1,39 @@
 """Engine-state -> protocol-snapshot mapping and the per-tick broadcast hook.
 
 Scope (M7 Task 6, issue #95): a thin field-mapping layer from
-``nether_earth.snapshot.to_snapshot`` (the engine's own canonical, JSON-safe
-serialization of ``GameState``) into ``app.protocol.snapshot.SnapshotMessage``
--- this module never re-derives or duplicates a gameplay value the engine
-already computed, it only wraps ``to_snapshot``'s output in the protocol
-envelope. It also builds the concrete ``app.match.runtime.TickObserver``
-callback the transport layer installs on a match's ``MatchRuntime`` so every
-completed tick gets broadcast to that match's connections -- this is the
-"concrete implementation" half of the observer hook ``runtime.py``
-deliberately stays ignorant of (that module must never import from this
-package; see its module docstring).
+``nether_earth.snapshot.to_snapshot`` into
+``app.protocol.snapshot.SnapshotMessage`` -- no gameplay value is re-derived
+or duplicated here, only wrapped in the protocol envelope. Also builds the
+concrete ``app.match.runtime.TickObserver`` callback the transport layer
+installs on a match's ``MatchRuntime`` (``runtime.py`` itself never imports
+this package; see its module docstring).
 
-Broadcast policy (documented choice, per the task brief -- pick one of
-snapshot-only / event+snapshot / a deterministic delta): **snapshot-only**.
-``SnapshotState`` is still the Task 3 placeholder (`dict[str, Any]`,
-`additionalProperties: true`; full field enumeration is issue #98's job), not
-a delta-shaped type, so a partial/event-based wire format has nothing stable
-to diff against yet -- sending a delta or a separate event stream today would
-mean inventing an ad hoc, currently-undocumented event wire shape ahead of
-issue #98, which is exactly the kind of unscoped/likely-to-be-redone work
-this task's brief asks to avoid. A full snapshot every tick is also the
-simplest thing that provably satisfies this task's actual acceptance
-criterion ("a newly connected/reconnected client can reconstruct all
-currently exposed authoritative state from the snapshot") for every
-connected client, not just ones that received every prior tick's message
-uninterrupted. Cost/perf note (intentionally not addressed by this task,
-YAGNI): broadcasting a full snapshot at 20 Hz to every connection scales
-with `O(match_state_size * connections)` per tick; if profiling ever shows
-this to be a bottleneck, throttling/diffing/delta-encoding is the fix, but
-building that speculatively now would be exactly the kind of infrastructure
-the brief says not to build without it being asked for.
+Broadcast policy: **snapshot-only** (not event+snapshot or a delta).
+``SnapshotState`` is still the Task 3 placeholder
+(`dict[str, Any]`/`additionalProperties: true`; full enumeration is issue
+#98's job), so there is no stable delta/event shape to diff or encode
+against yet -- inventing one now would be exactly the speculative,
+likely-to-be-redone work this task's brief asks to avoid. A full snapshot
+every tick is also the simplest thing that provably satisfies "a
+newly-connected/reconnected client can reconstruct all currently exposed
+state," for every client, not just ones that saw every prior tick.
+**Engine ``Event``s are therefore never transmitted at all** under this
+policy -- "authoritative ordering is preserved" holds vacuously (there is
+nothing to reorder), not because events are delivered in order; a future
+event/delta policy would need its own ordering proof.
 
-Runtime lifecycle state (active/paused/finished) is intentionally never
-folded into this module's snapshot payload -- ``Match.state``
-(``MatchRuntimeState``) is surfaced to clients by other messages
-(``ServerStarted``/``ServerReadyState``/future pause notifications), not by
-mutating or wrapping ``to_snapshot``'s output, which stays exactly what the
-engine considers deterministic gameplay state.
+Cost, deliberately not addressed here (YAGNI): full-snapshot-per-tick scales
+with `O(state_size x connections)` per tick, and (see `runtime.py`'s
+`_advance_one_tick`) the broadcast await sits on the tick loop's own
+critical path, so a slow/backpressured connection also delays this match's
+simulation cadence, not just that connection's own delivery. Throttling,
+diffing, or a per-connection queue are the fixes if profiling ever shows
+either cost matters; neither is built speculatively now.
+
+Runtime lifecycle state (active/paused/finished) is never folded into the
+snapshot payload -- ``Match.state`` is surfaced by other messages
+(``ServerStarted``/``ServerReadyState``/a future pause notification), never
+by wrapping or mutating ``to_snapshot``'s output.
 """
 
 from __future__ import annotations
@@ -68,6 +64,24 @@ def build_snapshot_message(match_id: str, state: GameState) -> SnapshotMessage:
         match_id=match_id,
         tick=state.tick,
         state=to_snapshot(state),
+    )
+
+
+def empty_snapshot_message(match_id: str) -> SnapshotMessage:
+    """Return a ``tick=0``, empty-state snapshot for a match with no ``GameState`` yet.
+
+    Only correct for a match that has never gone ACTIVE (``game_state is
+    None`` -- e.g. a reconnect to a still-``WAITING`` match): there is
+    genuinely no authoritative gameplay state to report yet. Kept as its own
+    helper so this shape is spelled once rather than duplicated at every
+    reconnect/fallback call site.
+    """
+    return SnapshotMessage(
+        protocol_version=PROTOCOL_VERSION,
+        type="snapshot",
+        match_id=match_id,
+        tick=0,
+        state={},
     )
 
 

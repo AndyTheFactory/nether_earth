@@ -12,7 +12,8 @@ from fastapi import FastAPI
 from app.match.manager import MatchManager
 from app.match.models import Match
 from app.match.runtime import MatchRuntimeRegistry, TickObserver
-from app.transport import ConnectionRegistry, create_websocket_router, make_tick_broadcaster
+from app.transport import ConnectionRegistry, create_websocket_router
+from app.transport.snapshots import make_tick_broadcaster
 
 
 def create_app() -> FastAPI:

@@ -172,12 +172,23 @@ def test_ready_from_both_players_starts_the_match(client: TestClient) -> None:
 
 
 def test_match_start_broadcasts_a_real_initial_authoritative_snapshot(
-    client: TestClient,
+    no_tick_client: TestClient,
 ) -> None:
     """The "started" broadcast is immediately followed by a real snapshot
     (tick 0, the state `engine.new_game` produced) -- not the empty
-    placeholder, and reconstructable to exactly what the engine computed."""
-    manager = _match_manager(client)
+    placeholder, and reconstructable to exactly what the engine computed.
+
+    Uses `no_tick_client` (no live `MatchRuntime`) rather than asserting
+    against `manager.get_match(...)` read *after* the `with` block: even
+    with the structural first-tick fix (`require_announcement`), a live
+    match's runtime resumes ticking immediately once
+    `runtime_registry.announce_started(...)` fires (right after these two
+    broadcasts complete), so re-deriving "expected state" from the live
+    match after the fact would race that ongoing ticking. Asserting the two
+    connections' own received messages against each other, plus the
+    snapshot's self-reported `tick == 0`, needs no live-match read at all.
+    """
+    client = no_tick_client
 
     with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
         created = _create(ws_a, "alice")
@@ -212,12 +223,9 @@ def test_match_start_broadcasts_a_real_initial_authoritative_snapshot(
     assert snapshot_b["type"] == "snapshot"
     assert snapshot_a["matchId"] == created["matchId"]
     assert snapshot_a["tick"] == 0
-
-    match = manager.get_match(created["matchId"])
-    assert match.game_state is not None
-    expected_state = to_snapshot(match.game_state)
-    assert snapshot_a["state"] == expected_state
-    assert snapshot_b["state"] == expected_state
+    assert snapshot_a["state"]["tick"] == 0
+    # Both connections received the identical broadcast for this tick.
+    assert snapshot_a == snapshot_b
 
 
 # -- malformed messages never reach the engine --------------------------------

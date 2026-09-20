@@ -102,7 +102,7 @@ from app.protocol.server_messages import (
 )
 from app.protocol.snapshot import SnapshotMessage
 from app.transport.connections import ConnectionRegistry, broadcast
-from app.transport.snapshots import build_snapshot_message
+from app.transport.snapshots import build_snapshot_message, empty_snapshot_message
 
 logger = logging.getLogger(__name__)
 
@@ -303,25 +303,44 @@ def create_websocket_router(
                     if was_waiting and match.state is MatchRuntimeState.ACTIVE:
                         # `_start_match_locked` already ran `engine.new_game`
                         # synchronously before flipping `match.state` to
-                        # ACTIVE (see `app.match.manager`), so `game_state`
-                        # is guaranteed non-None here -- this is the tick-0
-                        # authoritative state, read as-is, never advanced.
-                        assert match.game_state is not None
-                        await broadcast(
-                            connection_registry,
-                            match.match_id,
-                            ServerStarted(
-                                protocol_version=PROTOCOL_VERSION,
-                                type="started",
-                                match_id=match.match_id,
-                                tick=match.game_state.tick,
-                            ),
-                        )
-                        await broadcast(
-                            connection_registry,
-                            match.match_id,
-                            build_snapshot_message(match.match_id, match.game_state),
-                        )
+                        # ACTIVE, so `game_state` is guaranteed non-None here
+                        # -- this is the tick-0 authoritative state, read
+                        # as-is, never advanced. A real exception (not
+                        # `assert`, which `python -O` strips, turning this
+                        # into a confusing downstream `AttributeError`)
+                        # because reaching this branch with no `game_state`
+                        # is an engine-manager invariant violation, not a
+                        # recoverable client-input error.
+                        if match.game_state is None:
+                            raise RuntimeError(
+                                f"match {match.match_id!r} transitioned to ACTIVE "
+                                "with no game_state"
+                            )
+                        try:
+                            await broadcast(
+                                connection_registry,
+                                match.match_id,
+                                ServerStarted(
+                                    protocol_version=PROTOCOL_VERSION,
+                                    type="started",
+                                    match_id=match.match_id,
+                                    tick=match.game_state.tick,
+                                ),
+                            )
+                            await broadcast(
+                                connection_registry,
+                                match.match_id,
+                                build_snapshot_message(match.match_id, match.game_state),
+                            )
+                        finally:
+                            # Structural race fix (issue #95 review, I-1):
+                            # this match's `MatchRuntime` was started with
+                            # `require_announcement=True` (see
+                            # `MatchManager._start_match_locked`), so it
+                            # cannot tick until this fires -- `finally` so a
+                            # broadcast failure can never leave the match
+                            # permanently un-ticking.
+                            runtime_registry.announce_started(match.match_id)
                     continue
 
                 if isinstance(message, ClientLeaveMatch):
@@ -357,13 +376,7 @@ def create_websocket_router(
                     snapshot: SnapshotMessage = (
                         build_snapshot_message(match.match_id, match.game_state)
                         if match.game_state is not None
-                        else SnapshotMessage(
-                            protocol_version=PROTOCOL_VERSION,
-                            type="snapshot",
-                            match_id=match.match_id,
-                            tick=0,
-                            state={},
-                        )
+                        else empty_snapshot_message(match.match_id)
                     )
                     await websocket.send_text(
                         serialize_server_message(

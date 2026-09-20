@@ -103,20 +103,15 @@ class MatchManager:
     passing ``runtime=None`` (the default) keeps this class exactly as
     synchronous/event-loop-free as it was before Task 4 existed.
 
-    ``on_tick_factory``, if supplied (M7 Task 6, issue #95), is called with
-    the ``Match`` being started exactly once, at the moment its runtime is
-    started, and its return value (a ``TickObserver``, or ``None``) is
-    passed straight through to ``MatchRuntimeRegistry.start``. A factory
-    rather than a single shared ``TickObserver`` because the concrete
-    broadcast callback the transport layer wants to install needs to know
-    *which* match's connections to address (``match.match_id``) -- binding
-    that per match here, at the one place a match's ``match_id`` and its
-    runtime-start call already meet, keeps ``TickObserver`` itself
-    match-agnostic (see ``runtime.py``). This class still never imports
-    anything from ``app.transport``: the factory's *return type* is a plain
-    callable defined in ``runtime.py`` (a sibling module of this one), and
-    its concrete implementation is supplied by whoever constructs this
-    ``MatchManager`` (``app.main``), not by this module.
+    ``on_tick_factory``, if supplied (M7 Task 6, issue #95), is called once
+    with the ``Match`` being started, at the moment its runtime starts; its
+    return value (a ``TickObserver`` or ``None``) is passed to
+    ``MatchRuntimeRegistry.start``. A factory rather than one shared
+    ``TickObserver`` so the broadcast callback can bind ``match.match_id``
+    via closure -- this class still never imports ``app.transport``: the
+    factory's return type is `runtime.py`'s own ``TickObserver``, and its
+    concrete body is supplied by whoever constructs this class
+    (``app.main``).
     """
 
     def __init__(
@@ -225,8 +220,17 @@ class MatchManager:
         )
         match.state = MatchRuntimeState.ACTIVE
         if self._runtime is not None:
+            # Whenever `on_tick_factory` actually produced an observer,
+            # require an explicit `announce_started()` (see `runtime.py`)
+            # instead of a timer -- the caller that supplied it (the
+            # transport layer) is expected to call
+            # `MatchRuntimeRegistry.announce_started(match.match_id)` itself
+            # once its own "match started" messaging is sent, structurally
+            # ruling out that observer's first call racing that messaging.
             on_tick = self._on_tick_factory(match) if self._on_tick_factory is not None else None
-            self._runtime.start(match, on_tick=on_tick)
+            self._runtime.start(
+                match, on_tick=on_tick, require_announcement=on_tick is not None
+            )
 
     # -- lifecycle end / disposal --------------------------------------------
 

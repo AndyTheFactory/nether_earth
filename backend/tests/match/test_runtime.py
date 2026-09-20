@@ -506,6 +506,50 @@ async def test_on_tick_fires_from_the_real_scheduled_loop_not_just_direct_calls(
     assert tick_counts == list(range(1, runtime.tick_count + 1))
 
 
+async def test_first_tick_waits_a_full_interval_deterministically() -> None:
+    """Regression test for the first-tick timing fix (issue #95 review, I-2):
+    the very first tick must not fire merely because the loop got a chance
+    to run at all -- it must wait a real tick interval, same as every later
+    tick. Yields the loop a handful of times without ever advancing real
+    wall-clock time by a meaningful amount: if the fix regressed to firing
+    tick 1 immediately upon scheduling (the pre-fix behavior), this would
+    observe ``tick_count > 0`` even though no real time has passed.
+    """
+    match = _new_active_match()
+    runtime = MatchRuntime(match, tick_rate_hz=20.0)  # production tick rate
+    runtime.start()
+
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    assert runtime.tick_count == 0
+
+    runtime.request_cancel()
+    await runtime.wait_stopped()
+
+
+async def test_require_announcement_blocks_all_ticking_until_announced() -> None:
+    """Structural proof for `announce_started` (issue #95 review, I-1): with
+    `require_announcement=True`, no amount of *real* elapsed time ticks the
+    match until `announce_started()` is called -- this is not a shorter
+    delay, it is an unconditional gate. At 1000 Hz (1 ms/tick), 10 ms of
+    real waiting would otherwise produce roughly 10 ticks.
+    """
+    match = _new_active_match()
+    runtime = MatchRuntime(match, tick_rate_hz=1000.0, require_announcement=True)
+    runtime.start()
+
+    await asyncio.sleep(0.01)
+    assert runtime.tick_count == 0  # never announced -> never ticks, ever
+
+    runtime.announce_started()
+    await asyncio.sleep(0.01)
+    assert runtime.tick_count > 0
+
+    runtime.request_cancel()
+    await runtime.wait_stopped()
+
+
 async def test_on_tick_is_never_invoked_when_a_tick_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -571,6 +615,10 @@ async def test_manager_wiring_supplies_on_tick_factory_bound_to_the_started_matc
 
     runtime = registry.get(created.match_id)
     assert runtime is not None
+    # A real observer was supplied, so `MatchManager` started this runtime
+    # with `require_announcement=True` -- it will never tick until this
+    # fires (see `runtime.py`'s structural first-tick fix).
+    registry.announce_started(created.match_id)
     await asyncio.sleep(0.01)
     runtime.request_cancel()
     await runtime.wait_stopped()
