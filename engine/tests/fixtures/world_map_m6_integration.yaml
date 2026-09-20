@@ -1,0 +1,128 @@
+# M6 milestone integration fixture (issue #81, M6.11).
+#
+# One battlefield laid out in independent, non-overlapping "lanes", exactly
+# following `world_map_m5_integration.yaml`'s own documented convention --
+# see that file's header for the precedent this one extends into combat.
+#
+# Unlike the M5 fixture (which needed multi-row lanes for terrain-permission
+# and navigation tests), every M6 combat effect that actually spans more
+# than one cell is either a straight cardinal-direction projectile
+# (`combat.Projectile.dx`/`dy` is always exactly one nonzero axis, so a
+# horizontally-fired shot never leaves its own row) or a nuclear detonation
+# whose *eligible* robots/structures are all deliberately kept on the
+# carrier's own row too (Manhattan distance along one axis only). So this
+# fixture's lanes are separated purely by row (``y``): every robot,
+# structure, and blocker belonging to a given lane lives at that lane's own,
+# unique ``y`` value. Two lanes can therefore never share a cell regardless
+# of the ``x`` range each one uses, and the nuclear lanes (I, J) are spaced
+# 40 rows apart -- more than twice `EngineRules.nuclear_radius_cells` (16)
+# -- so a detonation centred on one lane's row can never reach a
+# neighboring lane's entities even though the blast geometry is a 2-D
+# diamond, not a 1-D segment.
+#
+# Robots are NOT placed here: per `test_m5_integration.py`'s own convention
+# (see that file's docstring), all combat robots are constructed directly in
+# `test_m6_integration.py` via `robot_build.RobotBuild`/
+# `robot_stack.derive_stack_and_height` and injected through
+# `replay.ReplayFixture.initial_robots` -- M6 does not need to re-prove M4's
+# construction/launch flow. This file only declares static world geometry:
+# terrain-height blockers and the war bases/factories the scenario fires at.
+#
+# Lane rows (y) and what each is for:
+# - y=0:   Lane A -- weapon-fit validation (robot built with cannon only;
+#          no world geometry needed).
+# - y=40:  Lane B -- combat-channel occupancy (shooter + a hittable
+#          height-10 target 4 cells east; no world geometry needed).
+# - y=80:  Lane C -- projectile altitude + exact range-exhaustion tick count
+#          (phaser, clear runway; no world geometry needed).
+# - y=120: Lane D2 -- obstructed-path termination. `blocker-d2`'s single
+#          component has height 15 (>= `normal_projectile_altitude` 10), 5
+#          cells east of the shooter: a cannon shot terminates there via
+#          STATIC_COLLISION, never reaching full range.
+# - y=160: Lane D3 -- pass-over boundary + missile range/weapon coverage.
+#          `blocker-d3`'s component has height 9 (< 10), 5 cells east of the
+#          shooter: a missile shot passes straight over it and only
+#          terminates later, by range exhaustion, proving the inclusive
+#          ``>=`` collision boundary from the opposite direction to Lane D2.
+# - y=200: Lane E -- direct-control fire (a commander docked to the firing
+#          robot from tick 0; electronics-equipped, proving the range
+#          bonus; no world geometry needed).
+# - y=240: Lane F -- autonomous Search & Destroy engagement, no FireCommand
+#          ever submitted (no world geometry needed).
+# - y=280: Lane G -- a free (undocked) commander parked directly on the
+#          straight-line path between an autonomous hunter and its prey,
+#          proving a commander is structurally untargetable/unhittable (no
+#          world geometry needed).
+# - y=320: Lane H -- normal-weapon-vs-structure immunity. `factory-h`
+#          (owned by p2) and `warbase-h` (owned by p1 -- deliberately NOT
+#          p2, so this lane's indestructibility does not also permanently
+#          block Lane J's victory condition; see that lane's own note)
+#          each sit 5 cells east of their own dedicated shooter. Both have
+#          height 3 (well under 10), so a normal-weapon shot doesn't even
+#          collide with them structurally -- it passes straight over,
+#          proving there is no code path at all for a cannon/missile/phaser
+#          hit to destroy a structure.
+# - y=360: Lane I -- nuclear radius boundary inclusion/exclusion. All
+#          eligible/ineligible robots and structures for this lane's
+#          detonation are placed on the carrier's own row, at exactly 16
+#          (`nuclear_radius_cells`, included) and 17 (excluded) cells away
+#          in each direction, so eligibility reduces to a pure one-axis
+#          Manhattan-distance check. `factory-i-in16`/`factory-i-out17` are
+#          owned by p2 but are plain factories -- destroying one has no
+#          effect on the war-base-ownership victory condition.
+# - y=400: Lane J -- the victory-triggering detonation. `warbase-j-final`
+#          is p2's ONLY war base anywhere in this fixture (Lane H's
+#          `warbase-h` is p1's, and the home war base below is also p1's),
+#          so destroying it leaves p2 owning zero war bases and p1 owning
+#          at least one -- the locked v1 victory condition.
+# - y=440: p1's untouched home war base, far from every other lane (40+
+#          rows from the nearest nuclear lane), proving p1 never loses its
+#          own war-base count during the scenario.
+id: fixture-m6-integration
+version: 1
+width: 200
+height: 460
+
+war_bases:
+  - id: warbase-p1-home
+    components:
+      - {x: 10, y: 440, height: 3}
+    owner: p1
+
+  - id: warbase-h
+    components:
+      - {x: 65, y: 320, height: 3}
+    owner: p1
+
+  - id: warbase-j-final
+    components:
+      - {x: 110, y: 400, height: 3}
+    owner: p2
+
+factories:
+  - id: factory-h
+    components:
+      - {x: 15, y: 320, height: 3}
+    factory_type: chassis
+    owner: p2
+
+  - id: factory-i-in16
+    components:
+      - {x: 84, y: 360, height: 3}
+    factory_type: chassis
+    owner: p2
+
+  - id: factory-i-out17
+    components:
+      - {x: 83, y: 360, height: 3}
+    factory_type: chassis
+    owner: p2
+
+blockers:
+  - id: blocker-d2
+    components:
+      - {x: 15, y: 120, height: 15}
+
+  - id: blocker-d3
+    components:
+      - {x: 15, y: 160, height: 9}
