@@ -1,17 +1,35 @@
-html,
-body,
-#app {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-}
-
-body {
-  background: #10151d;
-  font-family: system-ui, sans-serif;
-}
-
-canvas {
-  display: block;
-}
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { background: #000; color: #d7d7d7; font-family: 'Courier New', monospace; font-size: 13px; }
+canvas { display: block; position: absolute; inset: 0; }
+#ui { position: absolute; inset: 0; pointer-events: none; }
+#ui > * { pointer-events: auto; }
+button { font-family: inherit; font-size: 12px; background: #000; color: #ffff00; border: 1px solid #ffff00; padding: 3px 8px; margin: 2px; cursor: pointer; }
+button.on { background: #ffff00; color: #000; }
+button:hover { background: #333; }
+button.on:hover { background: #d7d700; }
+input, select { font-family: inherit; font-size: 13px; background: #000; color: #fff; border: 1px solid #00d7d7; padding: 3px 6px; }
+#lobby { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; background: #000; }
+#lobby h1 { color: #ffff00; letter-spacing: 6px; font-size: 32px; margin: 0 0 12px; }
+#lobby .row { display: flex; gap: 8px; align-items: center; }
+#lobby .fixtures { margin-top: 24px; opacity: 0.85; }
+#lobby .hint, #hud .hint, .hint { color: #888; font-size: 11px; }
+#lobby .code { color: #00ffff; letter-spacing: 3px; font-size: 18px; }
+#lobby ul { margin: 4px 0; padding-left: 18px; }
+.err { color: #ff5555; }
+.notice { color: #00ff00; }
+.panel { position: absolute; background: rgba(0, 0, 0, 0.75); border: 1px solid #333; padding: 6px 10px; }
+#hud { top: 8px; left: 8px; right: 8px; }
+#hud .line { line-height: 18px; }
+#hud .clock { color: #ffff00; }
+#hud .phase.active { color: #00ff00; }
+#hud .phase.paused, #hud .phase.waiting { color: #ff5555; }
+.p1 { color: #00ffff; } .p2 { color: #ff00ff; }
+#menus { bottom: 8px; left: 8px; right: 8px; }
+#menus h3 { margin: 0 0 4px; color: #00ffff; font-size: 13px; }
+#menus .preview .mod { padding: 1px 6px; border: 1px solid #888; margin-right: 4px; }
+.mod.bipod { border-color: #00d700 !important; } .mod.tracks { border-color: #d7d700 !important; } .mod.anti_grav { border-color: #00d7d7 !important; }
+.mod.cannon { border-color: #fff !important; } .mod.missile { border-color: #d70000 !important; } .mod.phaser { border-color: #d700d7 !important; } .mod.nuclear { border-color: #ff0000 !important; } .mod.electronics { border-color: #5555ff !important; }
+#overlay { inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.55); border: 0; }
+#overlay .box { background: #000; border: 2px solid #ffff00; padding: 20px 36px; text-align: center; }
+#overlay h2 { margin: 0 0 8px; color: #ffff00; letter-spacing: 4px; }
+#overlay .result h2 { color: #00ff00; }
