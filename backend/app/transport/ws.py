@@ -305,26 +305,33 @@ def create_websocket_router(
                 if isinstance(message, ClientSetReady):
                     was_waiting = match.state is MatchRuntimeState.WAITING
                     match_manager.set_ready(message.session_token, ready=message.ready)
-                    await broadcast(
-                        connection_registry, match.match_id, _ready_state_message(match)
-                    )
-                    if was_waiting and match.state is MatchRuntimeState.ACTIVE:
-                        # `_start_match_locked` already ran `engine.new_game`
-                        # synchronously before flipping `match.state` to
-                        # ACTIVE, so `game_state` is guaranteed non-None here
-                        # -- this is the tick-0 authoritative state, read
-                        # as-is, never advanced. A real exception (not
-                        # `assert`, which `python -O` strips, turning this
-                        # into a confusing downstream `AttributeError`)
-                        # because reaching this branch with no `game_state`
-                        # is an engine-manager invariant violation, not a
-                        # recoverable client-input error.
-                        if match.game_state is None:
-                            raise RuntimeError(
-                                f"match {match.match_id!r} transitioned to ACTIVE "
-                                "with no game_state"
-                            )
-                        try:
+                    just_started = was_waiting and match.state is MatchRuntimeState.ACTIVE
+                    # From `set_ready` onward, every `await` below is a point
+                    # where this handler can be cancelled (client drops mid-
+                    # broadcast). The match's `MatchRuntime` was started with
+                    # `require_announcement=True` (see
+                    # `MatchManager._start_match_locked`) and cannot tick until
+                    # `announce_started` fires, so the `finally` must cover the
+                    # *whole* window -- including the `ready_state` broadcast --
+                    # or a cancellation there wedges an ACTIVE match forever.
+                    try:
+                        await broadcast(
+                            connection_registry, match.match_id, _ready_state_message(match)
+                        )
+                        if just_started:
+                            # `_start_match_locked` already ran `engine.new_game`
+                            # synchronously before flipping `match.state` to
+                            # ACTIVE, so `game_state` is guaranteed non-None
+                            # here -- tick-0 authoritative state, read as-is,
+                            # never advanced. A real exception (not `assert`,
+                            # which `python -O` strips) because reaching this
+                            # branch with no `game_state` is an engine-manager
+                            # invariant violation, not a client-input error.
+                            if match.game_state is None:
+                                raise RuntimeError(
+                                    f"match {match.match_id!r} transitioned to ACTIVE "
+                                    "with no game_state"
+                                )
                             await broadcast(
                                 connection_registry,
                                 match.match_id,
@@ -340,14 +347,8 @@ def create_websocket_router(
                                 match.match_id,
                                 build_snapshot_message(match.match_id, match.game_state),
                             )
-                        finally:
-                            # Structural race fix (issue #95 review, I-1):
-                            # this match's `MatchRuntime` was started with
-                            # `require_announcement=True` (see
-                            # `MatchManager._start_match_locked`), so it
-                            # cannot tick until this fires -- `finally` so a
-                            # broadcast failure can never leave the match
-                            # permanently un-ticking.
+                    finally:
+                        if just_started:
                             runtime_registry.announce_started(match.match_id)
                     continue
 
@@ -383,6 +384,12 @@ def create_websocket_router(
 
                 if isinstance(message, ClientReconnect):
                     connection_registry.register(match.match_id, engine_player_id.value, websocket)
+                    # Idempotent: if the readying handler was cancelled before
+                    # its own `announce_started` could fire, a reconnect must
+                    # not leave the runtime's start gate closed forever. A
+                    # WAITING match has no runtime yet, so skip it there.
+                    if match.state is not MatchRuntimeState.WAITING:
+                        runtime_registry.announce_started(match.match_id)
                     # Read `match.game_state` exactly as it stands -- never
                     # advance/mutate the engine merely to produce a
                     # reconnect snapshot. `game_state` is only `None` if the

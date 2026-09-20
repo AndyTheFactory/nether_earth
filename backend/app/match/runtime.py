@@ -549,12 +549,18 @@ class MatchRuntimeRegistry:
 
     def announce_started(self, match_id: str) -> None:
         """Release ``match_id``'s runtime's first tick, if any (see
-        :meth:`MatchRuntime.announce_started`). A silent no-op for an
-        unknown ``match_id``.
+        :meth:`MatchRuntime.announce_started`).
+
+        An unknown ``match_id`` is logged at warning level rather than
+        silently ignored: a gated runtime that never gets announced sits
+        blocked forever with no other symptom, so a wiring mismatch here
+        must be visible.
         """
         runtime = self._runtimes.get(match_id)
-        if runtime is not None:
-            runtime.announce_started()
+        if runtime is None:
+            logger.warning("announce_started for unknown match %s: no runtime registered", match_id)
+            return
+        runtime.announce_started()
 
     def cancel(self, match_id: str) -> None:
         """Request cancellation of ``match_id``'s runtime, if any (fire-and-forget).
@@ -582,8 +588,10 @@ class MatchRuntimeRegistry:
         for Task 8's benefit in case a truly-final tick before disposal is
         ever desired.
         """
-        self.cancel(match_id)
-        self._runtimes.pop(match_id, None)
+        try:
+            self.cancel(match_id)
+        finally:
+            self._runtimes.pop(match_id, None)
 
     async def wait_stopped(self, match_id: str) -> None:
         """Await ``match_id``'s runtime task's actual completion, if any."""

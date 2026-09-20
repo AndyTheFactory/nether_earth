@@ -80,6 +80,7 @@ from tests.transport._helpers import (
     _create,
     _join,
     _match_manager,
+    _next_non_snapshot,
     _ready,
     _start_active_match_keeping_sockets_open,
 )
@@ -292,25 +293,6 @@ async def _wait_for_match_finished(
                 f"(state is still {match.state})"
             )
         await asyncio.sleep(0.01)
-
-
-def _next_non_snapshot(ws: WebSocketTestSession, *, own_match_id: str) -> dict[str, Any]:
-    """Return the next message on ``ws`` that is not one of its own match's real tick broadcasts.
-
-    The real 20Hz ``MatchRuntime`` can legitimately interleave a fresh
-    ``snapshot`` for ``own_match_id`` between any two messages this test
-    explicitly waits for (e.g. between a reconnect's own `resync` and the
-    `resumed` broadcast it triggers) -- this is real, correct ticking, not
-    something to special-case away structurally, so callers that need a
-    *specific* non-snapshot message skip past any of it here rather than
-    asserting on whatever happens to arrive first.
-    """
-    for _ in range(1000):
-        message = ws.receive_json()
-        if message["type"] != "snapshot":
-            return dict(message)
-        assert message["matchId"] == own_match_id, message
-    raise AssertionError("only snapshot messages ever arrived")
 
 
 def _wait_for_snapshot_tick_beyond(

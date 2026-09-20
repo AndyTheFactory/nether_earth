@@ -97,3 +97,21 @@ def _start_active_match_keeping_sockets_open(
     assert snapshot_b == snapshot_a
 
     return created, joined, snapshot_a
+
+
+def _next_non_snapshot(ws: WebSocketTestSession, *, own_match_id: str) -> dict[str, Any]:
+    """Return the next message on ``ws`` that is not one of its own match's tick broadcasts.
+
+    The real ``MatchRuntime`` wired by ``create_app`` can legitimately
+    interleave a fresh ``snapshot`` for ``own_match_id`` between any two
+    lifecycle messages a test explicitly waits for. That is correct ticking,
+    not something to structurally suppress, so callers needing a *specific*
+    non-snapshot message skip past it here -- while still asserting every
+    skipped snapshot belongs to their own match (cross-match isolation).
+    """
+    for _ in range(1000):
+        message = ws.receive_json()
+        if message["type"] != "snapshot":
+            return dict(message)
+        assert message["matchId"] == own_match_id, message
+    raise AssertionError("only snapshot messages ever arrived")

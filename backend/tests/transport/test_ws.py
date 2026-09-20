@@ -31,14 +31,13 @@ from starlette.websockets import WebSocketDisconnect
 from app.main import create_app
 from app.match.manager import MatchManager
 from app.match.models import MatchOutcome, MatchResult, MatchRuntimeState
-from app.match.reconnect import ReconnectCoordinator
 from app.match.runtime import MatchRuntimeRegistry
 from app.transport import ConnectionRegistry, create_websocket_router
-from app.transport.disconnects import make_disconnect_notifier
 from tests.transport._helpers import (
     _create,
     _join,
     _match_manager,
+    _next_non_snapshot,
     _ready,
     _start_active_match_keeping_sockets_open,
 )
@@ -80,34 +79,15 @@ def no_tick_client() -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def short_grace_client() -> Iterator[TestClient]:
-    """An app wired exactly like ``create_app()`` but with a tiny reconnect grace period.
+def short_grace_client(tmp_path: Path) -> Iterator[TestClient]:
+    """The real ``create_app()`` composition root with a tiny reconnect grace period.
 
     Used by the disconnect/reconnect (M7 Task 7, issue #96) wiring tests
     below: proves ``ServerPaused``/``ServerResumed``/``ServerForfeit`` are
-    actually broadcast end to end (through ``MatchManager.mark_disconnected``/
-    ``mark_reconnected`` -> ``ReconnectCoordinator`` -> ``app.transport.disconnects``
-    -> ``ConnectionRegistry``), without waiting anywhere near the real 60s
-    default grace (see ``ReconnectCoordinator``'s own module docstring for
-    the injectable-timing rationale).
+    actually broadcast end to end through the same hook set production
+    uses, without waiting anywhere near the real 60s default grace.
     """
-    connection_registry = ConnectionRegistry()
-    runtime_registry = MatchRuntimeRegistry()
-    reconnect_coordinator = ReconnectCoordinator(
-        notify=make_disconnect_notifier(connection_registry),
-        grace_seconds=0.05,
-        runtime_registry=runtime_registry,
-    )
-    match_manager = MatchManager(runtime=runtime_registry, reconnect=reconnect_coordinator)
-    # Mirrors `app.main.create_app`'s wiring (M7 Task 7 review, Important
-    # I3): forfeit/no-contest finalization goes through the same
-    # `MatchManager.finish_match` path as every other `FINISHED` transition.
-    reconnect_coordinator.bind_finish_hook(match_manager.finish_match)
-    app = FastAPI()
-    app.state.match_manager = match_manager
-    app.state.runtime_registry = runtime_registry
-    app.state.connection_registry = connection_registry
-    app.include_router(create_websocket_router(match_manager, runtime_registry, connection_registry))
+    app = create_app(replay_dir=tmp_path / "replays", reconnect_grace_seconds=0.05)
     with TestClient(app) as test_client:
         yield test_client
 
@@ -971,7 +951,7 @@ def test_disconnect_pauses_match_and_broadcasts_paused_to_the_remaining_player(
             # abrupt disconnect for p1. `ws_b`'s own `with` is still open,
             # so it stays connected to observe the broadcast.
 
-        paused = ws_b.receive_json()
+        paused = _next_non_snapshot(ws_b, own_match_id=created["matchId"])
         assert paused["type"] == "paused"
         assert paused["matchId"] == created["matchId"]
         assert paused["disconnectedPlayerId"] == "p1"
@@ -990,7 +970,7 @@ def test_reconnect_within_grace_broadcasts_resumed_once_both_players_are_back(
         with client.websocket_connect("/ws") as ws_a:
             created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
 
-        paused = ws_b.receive_json()
+        paused = _next_non_snapshot(ws_b, own_match_id=created["matchId"])
         assert paused["type"] == "paused"
 
         with client.websocket_connect("/ws") as ws_a_again:
@@ -1008,7 +988,7 @@ def test_reconnect_within_grace_broadcasts_resumed_once_both_players_are_back(
             resync = ws_a_again.receive_json()
             assert resync["type"] == "resync"
 
-            resumed = ws_b.receive_json()
+            resumed = _next_non_snapshot(ws_b, own_match_id=created["matchId"])
             assert resumed["type"] == "resumed"
             assert resumed["matchId"] == created["matchId"]
 
@@ -1034,10 +1014,10 @@ def test_grace_expiry_broadcasts_forfeit_to_the_remaining_player(
             created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
             # ws_a closes here: p1 disconnects and never returns.
 
-        paused = ws_b.receive_json()
+        paused = _next_non_snapshot(ws_b, own_match_id=created["matchId"])
         assert paused["type"] == "paused"
 
-        forfeit = ws_b.receive_json()
+        forfeit = _next_non_snapshot(ws_b, own_match_id=created["matchId"])
         assert forfeit["type"] == "forfeit"
         assert forfeit["matchId"] == created["matchId"]
         assert forfeit["forfeitingPlayerId"] == "p1"
@@ -1152,7 +1132,7 @@ def test_resync_is_sent_before_any_resumed_broadcast_it_triggers(
             created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
         # ws_a (p1) closed: paused. p2/ws_b never disconnects in this test.
 
-        paused = ws_b.receive_json()
+        paused = _next_non_snapshot(ws_b, own_match_id=created["matchId"])
         assert paused["type"] == "paused"
 
         with client.websocket_connect("/ws") as ws_a_again:
@@ -1167,8 +1147,11 @@ def test_resync_is_sent_before_any_resumed_broadcast_it_triggers(
                     }
                 )
             )
+            # The resync is sent while the match is still paused (no ticks
+            # possible yet), so it is necessarily the very first frame; the
+            # `resumed` that follows can be preceded by a real tick's snapshot.
             first_message = ws_a_again.receive_json()
-            second_message = ws_a_again.receive_json()
+            second_message = _next_non_snapshot(ws_a_again, own_match_id=created["matchId"])
             assert first_message["type"] == "resync"
             assert second_message["type"] == "resumed"
 
