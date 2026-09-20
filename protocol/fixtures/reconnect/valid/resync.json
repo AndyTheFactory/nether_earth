@@ -1,0 +1,25 @@
+{
+  "protocolVersion": 1,
+  "type": "resync",
+  "matchId": "match-1",
+  "playerId": "player-1",
+  "snapshot": {
+    "protocolVersion": 1,
+    "type": "snapshot",
+    "matchId": "match-1",
+    "tick": 120,
+    "state": {
+      "tick": 120,
+      "players": ["p1", "p2"],
+      "seed": 0,
+      "commanders": [],
+      "resource_pools": [],
+      "construction_sessions": [],
+      "robots": [],
+      "structure_ownership": [],
+      "capture_progress": [],
+      "projectiles": [],
+      "structure_destruction": []
+    }
+  }
+}

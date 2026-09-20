@@ -1,0 +1,116 @@
+{
+  "protocolVersion": 1,
+  "type": "snapshot",
+  "matchId": "match-1",
+  "tick": 42,
+  "state": {
+    "tick": 42,
+    "players": ["p1", "p2"],
+    "seed": 7,
+    "commanders": [
+      {
+        "player_id": "p1",
+        "mode": "docked",
+        "x": 3,
+        "y": 4,
+        "altitude": 8,
+        "docked_robot_id": "robot-1",
+        "rising": false,
+        "horizontal_transition": null,
+        "vertical_transition": null
+      },
+      {
+        "player_id": "p2",
+        "mode": "free",
+        "x": 8,
+        "y": 8,
+        "altitude": 1,
+        "docked_robot_id": null,
+        "rising": true,
+        "horizontal_transition": null,
+        "vertical_transition": {
+          "from_altitude": 1,
+          "to_altitude": 2,
+          "started_tick": 41,
+          "duration_ticks": 2
+        }
+      }
+    ],
+    "resource_pools": [
+      {
+        "player_id": "p1",
+        "general": 50,
+        "chassis": 3,
+        "electronics": 1,
+        "nuclear": 0,
+        "missile": 1,
+        "phaser": 0,
+        "cannon": 2
+      },
+      {
+        "player_id": "p2",
+        "general": 30,
+        "chassis": 0,
+        "electronics": 0,
+        "nuclear": 0,
+        "missile": 0,
+        "phaser": 0,
+        "cannon": 0
+      }
+    ],
+    "construction_sessions": [
+      {
+        "player_id": "p2",
+        "war_base_id": "war-base-2",
+        "entry_tick": 40,
+        "build": { "chassis": "tracks", "weapons": ["cannon"], "electronics": null },
+        "buffer": { "general": 10, "category": { "chassis": 3, "electronics": 1, "nuclear": 0, "missile": 1, "phaser": 0, "cannon": 2 } },
+        "entry_snapshot": { "general": 30, "category": { "chassis": 3, "electronics": 1, "nuclear": 0, "missile": 1, "phaser": 0, "cannon": 2 } }
+      }
+    ],
+    "robots": [
+      {
+        "entity_id": "robot-1",
+        "owner": "p1",
+        "x": 3,
+        "y": 4,
+        "build": { "chassis": "tracks", "weapons": ["cannon"], "electronics": "electronics" },
+        "stack": ["tracks", "cannon", "electronics"],
+        "height": 8,
+        "movement": null,
+        "order": { "kind": "advance", "distance_miles": 10, "target_x": 13 },
+        "active_projectile_id": "projectile-1",
+        "strength": 80
+      }
+    ],
+    "structure_ownership": [
+      { "structure_id": "factory-1", "owner": "p1" }
+    ],
+    "capture_progress": [
+      {
+        "structure_id": "war-base-2",
+        "capturing_player": "p1",
+        "robot_id": "robot-1",
+        "elapsed_ticks": 3,
+        "required_ticks": 10
+      }
+    ],
+    "projectiles": [
+      {
+        "id": "projectile-1",
+        "owner": "p1",
+        "source_robot_id": "robot-1",
+        "weapon": "cannon",
+        "x": 4,
+        "y": 4,
+        "z": 2,
+        "dx": 1,
+        "dy": 0,
+        "travelled_cells": 2,
+        "max_range_cells": 12,
+        "created_tick": 40
+      }
+    ],
+    "structure_destruction": ["factory-9"]
+  }
+}

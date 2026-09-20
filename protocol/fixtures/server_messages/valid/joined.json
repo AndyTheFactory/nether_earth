@@ -1,0 +1,7 @@
+{
+  "protocolVersion": 1,
+  "type": "joined",
+  "matchId": "match-1",
+  "playerId": "player-2",
+  "sessionToken": "session-token-2"
+}

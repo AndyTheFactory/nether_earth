@@ -2,9 +2,452 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nether-earth.local/protocol/common.schema.json",
   "title": "ProtocolCommon",
+  "$defs": {
+    "protocolVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "matchId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "joinCode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "playerId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entityId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sessionToken": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nickname": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "sequenceNumber": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tick": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timestampMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "errorCode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "errorInfo": {
+      "type": "object",
+      "properties": {
+        "code": { "$ref": "#/$defs/errorCode" },
+        "message": { "type": "string", "minLength": 1 },
+        "details": { "type": "object" }
+      },
+      "required": ["code", "message"],
+      "additionalProperties": false
+    },
+    "playerSummary": {
+      "type": "object",
+      "properties": {
+        "playerId": { "$ref": "#/$defs/playerId" },
+        "nickname": { "$ref": "#/$defs/nickname" },
+        "ready": { "type": "boolean" }
+      },
+      "required": ["playerId", "nickname", "ready"],
+      "additionalProperties": false
+    },
+    "cellDelta": {
+      "description": "A single classic 4-directional grid step: exactly one of dx/dy is nonzero, each restricted to {-1,0,1}. Mirrors nether_earth's CommanderMoveCommand/DirectRobotMoveCommand `__post_init__` shape check -- structural, not a legality decision.",
+      "type": "integer",
+      "enum": [-1, 0, 1]
+    },
+    "moduleIdentity": {
+      "description": "Mirrors nether_earth.robot_build.ModuleIdentity's eight canonical values.",
+      "type": "string",
+      "enum": [
+        "bipod",
+        "tracks",
+        "anti_grav",
+        "cannon",
+        "missile",
+        "phaser",
+        "nuclear",
+        "electronics"
+      ]
+    },
+    "weaponIdentity": {
+      "description": "The subset of moduleIdentity that is a weapon (nether_earth.combat.FireCommand.weapon).",
+      "type": "string",
+      "enum": ["cannon", "missile", "phaser", "nuclear"]
+    },
+    "searchCaptureTarget": {
+      "description": "Mirrors nether_earth.orders.SearchCaptureTarget.",
+      "type": "string",
+      "enum": ["neutral_factory", "enemy_factory", "enemy_war_base"]
+    },
+    "searchDestroyTarget": {
+      "description": "Mirrors nether_earth.orders.SearchDestroyTarget.",
+      "type": "string",
+      "enum": ["robot", "factory", "war_base"]
+    },
+    "robotOrder": {
+      "description": "Mirrors nether_earth.orders.Order's five-member union, tagged with an explicit `kind` discriminator (the union itself has no discriminator field in the engine; `kind` is this protocol's own serialization tag, matching nether_earth.snapshot's own `_order_snapshot` tokens). `targetX` is never supplied by a client: it is engine-bound state (PENDING -> ACTIVE), not a player input -- see SetRobotOrderCommand/Advance/Retreat's own docstrings for why a caller-supplied target_x would bypass the 0-50-mile validation.",
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "StopAndDefendOrder",
+          "properties": {
+            "kind": { "type": "string", "const": "stop_and_defend" }
+          },
+          "required": ["kind"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "AdvanceOrder",
+          "properties": {
+            "kind": { "type": "string", "const": "advance" },
+            "distanceMiles": { "type": "integer" }
+          },
+          "required": ["kind", "distanceMiles"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "RetreatOrder",
+          "properties": {
+            "kind": { "type": "string", "const": "retreat" },
+            "distanceMiles": { "type": "integer" }
+          },
+          "required": ["kind", "distanceMiles"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "SearchCaptureOrder",
+          "properties": {
+            "kind": { "type": "string", "const": "search_capture" },
+            "target": { "$ref": "#/$defs/searchCaptureTarget" }
+          },
+          "required": ["kind", "target"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "SearchDestroyOrder",
+          "properties": {
+            "kind": { "type": "string", "const": "search_destroy" },
+            "target": { "$ref": "#/$defs/searchDestroyTarget" }
+          },
+          "required": ["kind", "target"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "commandPayload": {
+      "description": "Discriminated gameplay command payload (issue #98). One variant per concrete nether_earth.commands.Command subclass a player can trigger in v1: commanderMove, commanderSetVerticalIntent, directRobotMove, robotFire, setRobotOrder, selectModule, deselectModule, cancelConstruction, launchRobot. Each variant is a thin field-shape mirror of its engine Command dataclass; it carries no legality decision of its own (see AGENTS.md's adapter rule) -- an illegal command still parses here and is rejected structurally/gameplay-wise by the engine, not by this schema.",
+      "oneOf": [
+        { "$ref": "#/$defs/commanderMoveCommandPayload" },
+        { "$ref": "#/$defs/commanderSetVerticalIntentCommandPayload" },
+        { "$ref": "#/$defs/directRobotMoveCommandPayload" },
+        { "$ref": "#/$defs/robotFireCommandPayload" },
+        { "$ref": "#/$defs/setRobotOrderCommandPayload" },
+        { "$ref": "#/$defs/selectModuleCommandPayload" },
+        { "$ref": "#/$defs/deselectModuleCommandPayload" },
+        { "$ref": "#/$defs/cancelConstructionCommandPayload" },
+        { "$ref": "#/$defs/launchRobotCommandPayload" }
+      ]
+    },
+    "commanderMoveCommandPayload": {
+      "description": "Mirrors nether_earth.commander_movement.CommanderMoveCommand.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "commander_move" },
+        "dx": { "$ref": "#/$defs/cellDelta" },
+        "dy": { "$ref": "#/$defs/cellDelta" }
+      },
+      "required": ["kind", "dx", "dy"],
+      "additionalProperties": false
+    },
+    "commanderSetVerticalIntentCommandPayload": {
+      "description": "Mirrors nether_earth.commander_movement.CommanderSetVerticalIntentCommand.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "commander_set_vertical_intent" },
+        "rising": { "type": "boolean" }
+      },
+      "required": ["kind", "rising"],
+      "additionalProperties": false
+    },
+    "directRobotMoveCommandPayload": {
+      "description": "Mirrors nether_earth.direct_control.DirectRobotMoveCommand. No entityId: exactly one robot is ever directly controllable (the one the issuing player's commander is currently docked to), resolved server-side.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "direct_robot_move" },
+        "dx": { "$ref": "#/$defs/cellDelta" },
+        "dy": { "$ref": "#/$defs/cellDelta" }
+      },
+      "required": ["kind", "dx", "dy"],
+      "additionalProperties": false
+    },
+    "robotFireCommandPayload": {
+      "description": "Mirrors nether_earth.combat.FireCommand. targetX/targetY are ignored by the engine when weapon is nuclear (a nuclear detonation always centers on the carrier robot's own position) but are still required here for shape uniformity with the engine dataclass.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "robot_fire" },
+        "entityId": { "$ref": "#/$defs/entityId" },
+        "weapon": { "$ref": "#/$defs/weaponIdentity" },
+        "targetX": { "type": "integer" },
+        "targetY": { "type": "integer" }
+      },
+      "required": ["kind", "entityId", "weapon", "targetX", "targetY"],
+      "additionalProperties": false
+    },
+    "setRobotOrderCommandPayload": {
+      "description": "Mirrors nether_earth.orders.SetRobotOrderCommand.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "set_robot_order" },
+        "entityId": { "$ref": "#/$defs/entityId" },
+        "order": { "$ref": "#/$defs/robotOrder" }
+      },
+      "required": ["kind", "entityId", "order"],
+      "additionalProperties": false
+    },
+    "selectModuleCommandPayload": {
+      "description": "Mirrors nether_earth.construction_commands.SelectModuleCommand.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "select_module" },
+        "module": { "$ref": "#/$defs/moduleIdentity" }
+      },
+      "required": ["kind", "module"],
+      "additionalProperties": false
+    },
+    "deselectModuleCommandPayload": {
+      "description": "Mirrors nether_earth.construction_commands.DeselectModuleCommand.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "deselect_module" },
+        "module": { "$ref": "#/$defs/moduleIdentity" }
+      },
+      "required": ["kind", "module"],
+      "additionalProperties": false
+    },
+    "cancelConstructionCommandPayload": {
+      "description": "Mirrors nether_earth.construction_commands.CancelConstructionCommand (no fields beyond the discriminator).",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "cancel_construction" }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "launchRobotCommandPayload": {
+      "description": "Mirrors nether_earth.construction_commands.LaunchRobotCommand (no fields beyond the discriminator).",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "launch_robot" }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "snapshotState": {
+      "description": "Mirrors nether_earth.snapshot.to_snapshot(state)'s exact return shape verbatim, including its snake_case keys (this is engine data passed through the transport boundary unmodified, per app.transport.snapshots's 'thin field-mapping layer' contract -- it is deliberately NOT re-cased to camelCase like every other protocol field, so a client can compare it byte-for-byte against engine-side snapshot fixtures/tests). Nested per-entity shapes are typed one level deep (matching to_snapshot's own per-entity helper functions); a few deeply-nested/highly-polymorphic leaves (order variants, resource pool categories, build stacks) are intentionally left as loosely-typed objects/arrays rather than re-deriving the engine's own full nested schema here -- see protocol/README.md.",
+      "type": "object",
+      "properties": {
+        "tick": { "$ref": "#/$defs/tick" },
+        "players": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/playerId" }
+        },
+        "seed": { "type": "integer" },
+        "commanders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "player_id": { "$ref": "#/$defs/playerId" },
+              "mode": { "type": "string", "enum": ["free", "docked"] },
+              "x": { "type": "integer" },
+              "y": { "type": "integer" },
+              "altitude": { "type": "integer" },
+              "docked_robot_id": {
+                "anyOf": [{ "$ref": "#/$defs/entityId" }, { "type": "null" }]
+              },
+              "rising": { "type": "boolean" },
+              "horizontal_transition": {
+                "anyOf": [{ "type": "object" }, { "type": "null" }]
+              },
+              "vertical_transition": {
+                "anyOf": [{ "type": "object" }, { "type": "null" }]
+              }
+            },
+            "required": [
+              "player_id",
+              "mode",
+              "x",
+              "y",
+              "altitude",
+              "docked_robot_id",
+              "rising",
+              "horizontal_transition",
+              "vertical_transition"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "resource_pools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "player_id": { "$ref": "#/$defs/playerId" },
+              "general": { "type": "integer" },
+              "chassis": { "type": "integer" },
+              "electronics": { "type": "integer" },
+              "nuclear": { "type": "integer" },
+              "missile": { "type": "integer" },
+              "phaser": { "type": "integer" },
+              "cannon": { "type": "integer" }
+            },
+            "required": [
+              "player_id", "general", "chassis", "electronics",
+              "nuclear", "missile", "phaser", "cannon"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "construction_sessions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "player_id": { "$ref": "#/$defs/playerId" },
+              "war_base_id": { "$ref": "#/$defs/entityId" },
+              "entry_tick": { "type": "integer" },
+              "build": { "type": "object" },
+              "buffer": { "type": "object" },
+              "entry_snapshot": { "type": "object" }
+            },
+            "required": [
+              "player_id", "war_base_id", "entry_tick", "build", "buffer", "entry_snapshot"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "robots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "entity_id": { "$ref": "#/$defs/entityId" },
+              "owner": { "$ref": "#/$defs/playerId" },
+              "x": { "type": "integer" },
+              "y": { "type": "integer" },
+              "build": { "type": "object" },
+              "stack": { "type": "array", "items": { "$ref": "#/$defs/moduleIdentity" } },
+              "height": { "type": "integer" },
+              "movement": {
+                "anyOf": [{ "type": "object" }, { "type": "null" }]
+              },
+              "order": {
+                "anyOf": [{ "type": "object" }, { "type": "null" }]
+              },
+              "active_projectile_id": {
+                "anyOf": [{ "$ref": "#/$defs/entityId" }, { "type": "null" }]
+              },
+              "strength": { "type": "integer" }
+            },
+            "required": [
+              "entity_id", "owner", "x", "y", "build", "stack", "height",
+              "movement", "order", "active_projectile_id", "strength"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "structure_ownership": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "structure_id": { "$ref": "#/$defs/entityId" },
+              "owner": { "$ref": "#/$defs/playerId" }
+            },
+            "required": ["structure_id", "owner"],
+            "additionalProperties": false
+          }
+        },
+        "capture_progress": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "structure_id": { "$ref": "#/$defs/entityId" },
+              "capturing_player": { "$ref": "#/$defs/playerId" },
+              "robot_id": { "$ref": "#/$defs/entityId" },
+              "elapsed_ticks": { "type": "integer" },
+              "required_ticks": { "type": "integer" }
+            },
+            "required": [
+              "structure_id", "capturing_player", "robot_id", "elapsed_ticks", "required_ticks"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "projectiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "#/$defs/entityId" },
+              "owner": { "$ref": "#/$defs/playerId" },
+              "source_robot_id": { "$ref": "#/$defs/entityId" },
+              "weapon": { "$ref": "#/$defs/weaponIdentity" },
+              "x": { "type": "integer" },
+              "y": { "type": "integer" },
+              "z": { "type": "integer" },
+              "dx": { "$ref": "#/$defs/cellDelta" },
+              "dy": { "$ref": "#/$defs/cellDelta" },
+              "travelled_cells": { "type": "integer" },
+              "max_range_cells": { "type": "integer" },
+              "created_tick": { "type": "integer" }
+            },
+            "required": [
+              "id", "owner", "source_robot_id", "weapon", "x", "y", "z", "dx", "dy",
+              "travelled_cells", "max_range_cells", "created_tick"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "structure_destruction": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/entityId" }
+        }
+      },
+      "required": [
+        "tick", "players", "seed", "commanders", "resource_pools",
+        "construction_sessions", "robots", "structure_ownership",
+        "capture_progress", "projectiles", "structure_destruction"
+      ],
+      "additionalProperties": false
+    }
+  },
   "type": "object",
   "properties": {
-    "protocolVersion": { "type": "integer", "const": 1 }
+    "protocolVersion": { "$ref": "#/$defs/protocolVersion" }
   },
   "required": ["protocolVersion"],
   "additionalProperties": false

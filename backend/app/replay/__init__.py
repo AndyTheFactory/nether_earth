@@ -1,0 +1,38 @@
+"""Filesystem replay/debug logging (M7 Task 8, issue #97).
+
+Public surface: :class:`~app.replay.writer.ReplayWriter` (the artifact
+writer, wired into ``app.main``'s composition root as
+``MatchManager``'s ``on_match_start``/``on_match_finish``/
+``on_tick_commands_factory`` hooks) plus the read-side helpers in
+``app.replay.verify`` used by tests and any future debug tooling to
+reconstruct and independently re-run a persisted match through the engine.
+See ``writer.py``'s module docstring for the on-disk artifact layout and
+atomicity/no-secrets guarantees, and ``verify.py``'s for the
+replay-verification contract.
+"""
+
+from app.replay.verify import (
+    ReplayVerificationResult,
+    load_commands_by_tick,
+    load_meta,
+    verify_replay,
+)
+from app.replay.writer import (
+    ReplayWriter,
+    default_replay_dir,
+    make_replay_lifecycle_notifier,
+    make_replay_tick_recorder,
+    match_dir,
+)
+
+__all__ = [
+    "ReplayVerificationResult",
+    "ReplayWriter",
+    "default_replay_dir",
+    "load_commands_by_tick",
+    "load_meta",
+    "make_replay_lifecycle_notifier",
+    "make_replay_tick_recorder",
+    "match_dir",
+    "verify_replay",
+]

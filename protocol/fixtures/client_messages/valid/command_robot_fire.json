@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "type": "command",
+  "matchId": "match-1",
+  "playerId": "player-1",
+  "sessionToken": "session-token-1",
+  "clientSequence": 47,
+  "payload": {
+    "kind": "robot_fire",
+    "entityId": "robot-1",
+    "weapon": "cannon",
+    "targetX": 5,
+    "targetY": 7
+  }
+}

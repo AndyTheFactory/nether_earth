@@ -1,0 +1,8 @@
+{
+  "protocolVersion": 1,
+  "type": "error",
+  "error": {
+    "code": "malformed_message",
+    "message": "Could not parse client message."
+  }
+}

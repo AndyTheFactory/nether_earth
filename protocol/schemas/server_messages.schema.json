@@ -3,10 +3,159 @@
   "$id": "https://nether-earth.local/protocol/server_messages.schema.json",
   "title": "ServerMessage",
   "type": "object",
-  "properties": {
-    "protocolVersion": { "type": "integer", "const": 1 },
-    "type": { "type": "string", "const": "pong" }
-  },
-  "required": ["protocolVersion", "type"],
-  "additionalProperties": false
+  "oneOf": [
+    { "$ref": "#/$defs/created" },
+    { "$ref": "#/$defs/joined" },
+    { "$ref": "#/$defs/readyState" },
+    { "$ref": "#/$defs/started" },
+    { "$ref": "#/$defs/paused" },
+    { "$ref": "#/$defs/resumed" },
+    { "$ref": "#/$defs/forfeit" },
+    { "$ref": "#/$defs/noContest" },
+    { "$ref": "#/$defs/finished" },
+    { "$ref": "#/$defs/error" }
+  ],
+  "$defs": {
+    "created": {
+      "type": "object",
+      "title": "ServerCreated",
+      "description": "Sent to the creating player only, in response to a client create command.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "created" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "joinCode": { "$ref": "common.schema.json#/$defs/joinCode" },
+        "playerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "sessionToken": { "$ref": "common.schema.json#/$defs/sessionToken" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "joinCode", "playerId", "sessionToken"],
+      "additionalProperties": false
+    },
+    "joined": {
+      "type": "object",
+      "title": "ServerJoined",
+      "description": "Sent to the joining player only, acknowledging their own identity/session. Roster/readiness for both players is broadcast separately via readyState.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "joined" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "playerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "sessionToken": { "$ref": "common.schema.json#/$defs/sessionToken" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "playerId", "sessionToken"],
+      "additionalProperties": false
+    },
+    "readyState": {
+      "type": "object",
+      "title": "ServerReadyState",
+      "description": "Broadcast to all connected players whenever match roster or readiness changes.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "ready_state" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "players": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/playerSummary" },
+          "minItems": 1,
+          "maxItems": 2
+        }
+      },
+      "required": ["protocolVersion", "type", "matchId", "players"],
+      "additionalProperties": false
+    },
+    "started": {
+      "type": "object",
+      "title": "ServerStarted",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "started" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "tick": { "$ref": "common.schema.json#/$defs/tick" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "tick"],
+      "additionalProperties": false
+    },
+    "paused": {
+      "type": "object",
+      "title": "ServerPaused",
+      "description": "Sent when the match pauses because a player disconnected. graceDeadlineMs is wall-clock runtime metadata, not gameplay tick state.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "paused" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "disconnectedPlayerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "graceDeadlineMs": { "$ref": "common.schema.json#/$defs/timestampMs" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "disconnectedPlayerId", "graceDeadlineMs"],
+      "additionalProperties": false
+    },
+    "resumed": {
+      "type": "object",
+      "title": "ServerResumed",
+      "description": "Sent when simulation resumes because both players are connected again.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "resumed" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "tick": { "$ref": "common.schema.json#/$defs/tick" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "tick"],
+      "additionalProperties": false
+    },
+    "forfeit": {
+      "type": "object",
+      "title": "ServerForfeit",
+      "description": "Sent when a disconnected player's reconnect grace deadline expires while the opponent remains eligible to win.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "forfeit" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "forfeitingPlayerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "winnerPlayerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "reason": { "type": "string", "const": "disconnect_timeout" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "forfeitingPlayerId", "winnerPlayerId", "reason"],
+      "additionalProperties": false
+    },
+    "noContest": {
+      "type": "object",
+      "title": "ServerNoContest",
+      "description": "Sent when both players disconnect and both independent reconnect grace deadlines expire without either returning.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "no_contest" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "reason": { "type": "string", "const": "disconnect_timeout_both" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "reason"],
+      "additionalProperties": false
+    },
+    "finished": {
+      "type": "object",
+      "title": "ServerFinished",
+      "description": "Sent when the match ends because a player owns zero war bases (normal victory), per functional-spec.md #4.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "finished" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "winnerPlayerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "tick": { "$ref": "common.schema.json#/$defs/tick" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "winnerPlayerId", "tick"],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "title": "ServerError",
+      "description": "matchId is omitted for errors that occur before a match context exists (e.g. malformed create/join).",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "error" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "error": { "$ref": "common.schema.json#/$defs/errorInfo" }
+      },
+      "required": ["protocolVersion", "type", "error"],
+      "additionalProperties": false
+    }
+  }
 }

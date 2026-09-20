@@ -1,0 +1,9 @@
+{
+  "protocolVersion": 1,
+  "type": "error",
+  "matchId": "match-1",
+  "error": {
+    "code": "invalid_command",
+    "message": "Unknown command type."
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "protocolVersion": 1,
+  "type": "paused",
+  "matchId": "match-1",
+  "disconnectedPlayerId": "player-1",
+  "graceDeadlineMs": 1717000000000
+}

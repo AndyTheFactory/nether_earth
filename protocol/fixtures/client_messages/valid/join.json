@@ -1,0 +1,6 @@
+{
+  "protocolVersion": 1,
+  "type": "join",
+  "joinCode": "ABCD1234",
+  "nickname": "Bob"
+}
