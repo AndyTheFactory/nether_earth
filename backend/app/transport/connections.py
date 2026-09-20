@@ -46,21 +46,34 @@ class ConnectionRegistry:
         """
         self._by_match.setdefault(match_id, {})[player_id] = websocket
 
-    def unregister(self, match_id: str, player_id: str, websocket: WebSocket) -> None:
+    def unregister(self, match_id: str, player_id: str, websocket: WebSocket) -> bool:
         """Remove ``websocket`` from ``(match_id, player_id)``, if it is still current.
 
         A no-op if ``player_id``'s current socket is not ``websocket`` (e.g.
         this call is a stale connection's cleanup racing a newer reconnect
         that already replaced it) -- cleanup must never evict a *newer*
         connection than the one it belongs to.
+
+        Returns ``True`` only if ``websocket`` was in fact the currently
+        registered connection for ``(match_id, player_id)`` and was removed;
+        ``False`` otherwise (already gone, or superseded by a newer
+        connection). Callers that gate a once-per-connection side effect
+        (e.g. a disconnect notification) on "did my teardown actually win"
+        must consult this return value -- see ``app.transport.ws``'s
+        disconnect-notification path, which only fires when this is
+        ``True``, precisely so a stale connection's delayed teardown can
+        never report a spurious disconnect for a player who has already
+        reconnected on a newer socket.
         """
         players = self._by_match.get(match_id)
         if players is None:
-            return
-        if players.get(player_id) is websocket:
+            return False
+        removed = players.get(player_id) is websocket
+        if removed:
             del players[player_id]
         if not players:
             self._by_match.pop(match_id, None)
+        return removed
 
     def connections_for(self, match_id: str) -> tuple[WebSocket, ...]:
         """Return every socket currently registered for ``match_id``."""

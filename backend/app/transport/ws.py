@@ -48,11 +48,21 @@ sufficient for this task; issue #98 is expected to replace this with a real
 payload -> `Command` subclass mapping.
 
 Disconnect notification: `MatchManager.mark_disconnected` (added by this
-task) is called exactly once per connection lifetime, from a single
-`finally` block, regardless of whether the connection ends via a clean
-`leave` message, a WebSocket close/error, or an auth rejection after a
-session was already bound. It is a bookkeeping no-op today; Task 7 (issue
-#95) owns the actual pause/grace-timer policy behind it.
+task) is called through a single `teardown_connection()` helper, itself
+invoked from exactly one `finally` block plus (redundantly-but-safely, via
+the same helper) the `leave` handler, regardless of whether the connection
+ends via a clean `leave` message, a WebSocket close/error, or an auth
+rejection after a session was already bound. `teardown_connection()` first
+unregisters this socket from `ConnectionRegistry` and only notifies if that
+unregister reports this socket was still the one currently registered for
+its `(match_id, player_id)` slot -- this closes a race where a stale
+connection's delayed teardown (e.g. slow TCP close) could otherwise fire a
+spurious disconnect notification for a player who has since reconnected on
+a newer socket (`ConnectionRegistry.unregister`'s return value exists
+specifically to make that race detectable). It is a bookkeeping no-op
+today; Task 7 (issue #95) owns the actual pause/grace-timer policy behind
+it, which is exactly why this race matters now even though nothing
+observable depends on it yet.
 """
 
 from __future__ import annotations
@@ -142,6 +152,26 @@ def create_websocket_router(
                 return
             disconnect_notified = True
             match_manager.mark_disconnected(bound.session_token)
+
+        async def teardown_connection() -> None:
+            """Unregister this socket and notify disconnect iff it was still current.
+
+            ``ConnectionRegistry.unregister`` returns ``True`` only if
+            ``websocket`` was in fact the connection currently registered
+            for ``bound``'s ``(match_id, player_id)`` slot. If a newer
+            connection already took over that slot (e.g. this socket's
+            teardown is a delayed/stale one racing a `reconnect` that
+            already rebound the player elsewhere), this is a silent no-op:
+            the newer connection is still live and must not have a spurious
+            disconnect reported for it. Idempotent -- safe to call more than
+            once for the same connection (a second call finds nothing left
+            to unregister and reports ``False``).
+            """
+            if bound is None:
+                return
+            removed = connection_registry.unregister(bound.match_id, bound.player_id, websocket)
+            if removed:
+                await notify_disconnect_once()
 
         async def _reject_and_close(ws: WebSocket, match_id: str | None, code: str) -> None:
             await _send_error(ws, match_id, code, "session rejected; closing connection")
@@ -284,7 +314,7 @@ def create_websocket_router(
                     continue
 
                 if isinstance(message, ClientLeaveMatch):
-                    await notify_disconnect_once()
+                    await teardown_connection()
                     await websocket.close(code=_NORMAL_CLOSE_CODE)
                     return
 
@@ -332,9 +362,7 @@ def create_websocket_router(
         except WebSocketDisconnect:
             pass
         finally:
-            if bound is not None:
-                connection_registry.unregister(bound.match_id, bound.player_id, websocket)
-            await notify_disconnect_once()
+            await teardown_connection()
 
     return router
 

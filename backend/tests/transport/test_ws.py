@@ -114,7 +114,7 @@ def test_join_returns_joined_and_broadcasts_ready_state_to_creator(client: TestC
 def test_ready_from_both_players_starts_the_match(client: TestClient) -> None:
     with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
         created = _create(ws_a, "alice")
-        _join(ws_b, created["joinCode"], "bob")
+        joined = _join(ws_b, created["joinCode"], "bob")
         ws_a.receive_json()  # ready_state from join
         ws_b.receive_json()  # ready_state from join (own echo)
 
@@ -128,12 +128,11 @@ def test_ready_from_both_players_starts_the_match(client: TestClient) -> None:
         assert ws_a.receive_json()["type"] == "ready_state"
         assert ws_b.receive_json()["type"] == "ready_state"
 
-        joined_session_token = _join_session_token(client, created["matchId"])
         _ready(
             ws_b,
             match_id=created["matchId"],
             player_id="p2",
-            session_token=joined_session_token,
+            session_token=joined["sessionToken"],
         )
         assert ws_a.receive_json()["type"] == "ready_state"
         assert ws_b.receive_json()["type"] == "ready_state"
@@ -142,14 +141,6 @@ def test_ready_from_both_players_starts_the_match(client: TestClient) -> None:
         # broadcast to every connection.
         assert ws_a.receive_json()["type"] == "started"
         assert ws_b.receive_json()["type"] == "started"
-
-
-def _join_session_token(client: TestClient, match_id: str) -> str:
-    manager = _match_manager(client)
-    match = manager.get_match(match_id)
-    from nether_earth.ids import PLAYER_TWO
-
-    return match.players[PLAYER_TWO].session_token
 
 
 # -- malformed messages never reach the engine --------------------------------
@@ -200,6 +191,46 @@ def test_unknown_session_token_is_rejected_and_closes(client: TestClient) -> Non
 
         with pytest.raises(WebSocketDisconnect):
             ws.receive_text()
+
+
+def test_second_create_on_an_already_bound_socket_is_rejected_and_closes(
+    client: TestClient,
+) -> None:
+    with client.websocket_connect("/ws") as ws:
+        _create(ws, "alice")
+
+        ws.send_text(json.dumps({"protocolVersion": 1, "type": "create", "nickname": "again"}))
+        error = ws.receive_json()
+        assert error["type"] == "error"
+        assert error["error"]["code"] == "already_bound"
+
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_text()
+
+
+def test_second_join_on_an_already_bound_socket_is_rejected_and_closes(
+    client: TestClient,
+) -> None:
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        created = _create(ws_a, "alice")
+        _create(ws_b, "someone_else")
+
+        ws_b.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "join",
+                    "joinCode": created["joinCode"],
+                    "nickname": "bob",
+                }
+            )
+        )
+        error = ws_b.receive_json()
+        assert error["type"] == "error"
+        assert error["error"]["code"] == "already_bound"
+
+        with pytest.raises(WebSocketDisconnect):
+            ws_b.receive_text()
 
 
 def test_token_for_wrong_match_is_rejected_and_closes(client: TestClient) -> None:
@@ -396,3 +427,97 @@ def test_reconnect_returns_resync_snapshot_and_rebinds_connection(client: TestCl
     assert resync["matchId"] == created["matchId"]
     assert resync["playerId"] == "p1"
     assert resync["snapshot"]["type"] == "snapshot"
+
+
+def test_stale_connections_teardown_after_reconnect_does_not_fire_spurious_disconnect(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for the reconnect-vs-teardown race (code review finding).
+
+    Reproduces: a player reconnects on a *new* socket, rebinding the same
+    session before the *old* socket's own teardown has run (e.g. a
+    slow/delayed TCP close arriving after the reconnect already succeeded).
+    The old socket's eventual teardown must be a silent no-op for
+    disconnect-notification purposes -- the reconnected player is still
+    live -- and only the socket that is genuinely current at teardown time
+    may trigger ``MatchManager.mark_disconnected``.
+
+    Ordering is pinned deterministically (not via real delayed I/O) by using
+    nested ``with`` blocks: ``fresh_ws`` is opened *first* as the outer
+    connection (so it stays open across the whole test) but does not act
+    until later; ``stale_ws`` is opened and creates the match inside the
+    nested block; ``fresh_ws`` then reconnects (taking over the
+    ``ConnectionRegistry`` slot) while ``stale_ws`` is still open; the
+    nested block then exits, closing ``stale_ws`` -- whose teardown, per
+    ``WebSocketTestSession.__exit__``, is fully awaited before the ``with``
+    statement returns -- while ``fresh_ws`` remains registered as current.
+    Only afterwards does the outer block close ``fresh_ws``.
+    """
+    manager = _match_manager(client)
+    calls: list[str] = []
+    original = manager.mark_disconnected
+
+    def counting(session_token: str) -> None:
+        calls.append(session_token)
+        original(session_token)
+
+    monkeypatch.setattr(manager, "mark_disconnected", counting)
+
+    with client.websocket_connect("/ws") as fresh_ws:
+        with client.websocket_connect("/ws") as stale_ws:
+            created = _create(stale_ws)
+
+            fresh_ws.send_text(
+                json.dumps(
+                    {
+                        "protocolVersion": 1,
+                        "type": "reconnect",
+                        "matchId": created["matchId"],
+                        "playerId": "p1",
+                        "sessionToken": created["sessionToken"],
+                    }
+                )
+            )
+            resync = fresh_ws.receive_json()
+            assert resync["type"] == "resync"
+            # `fresh_ws` has now taken over the (match, player) slot in the
+            # ConnectionRegistry while `stale_ws` is still open.
+
+        # `stale_ws` has just closed (and its teardown fully completed) while
+        # it was no longer the current connection for this player -- it must
+        # NOT have fired a disconnect notification.
+        assert calls == []
+
+    # `fresh_ws` now closes: it *was* the current connection, so exactly one
+    # notification fires here, and only here.
+    assert calls == [created["sessionToken"]]
+
+
+def test_connection_registry_unregister_reports_whether_it_was_current() -> None:
+    """Focused unit test for the return-value contract the race fix relies on."""
+    from app.transport.connections import ConnectionRegistry
+
+    class _FakeWebSocket:
+        """Minimal stand-in; ``ConnectionRegistry`` never calls any method on it."""
+
+    registry = ConnectionRegistry()
+    old_socket = _FakeWebSocket()
+    new_socket = _FakeWebSocket()
+
+    registry.register("m1", "p1", old_socket)  # type: ignore[arg-type]
+
+    # A newer connection (simulating a reconnect) takes over the slot.
+    registry.register("m1", "p1", new_socket)  # type: ignore[arg-type]
+
+    # The old socket's own (now-stale) teardown must report it was NOT the
+    # one removed, and must not evict the newer connection.
+    assert registry.unregister("m1", "p1", old_socket) is False  # type: ignore[arg-type]
+    assert registry.connection_for_player("m1", "p1") is new_socket  # type: ignore[comparison-overlap]
+
+    # The new socket's own teardown is the one that actually wins.
+    assert registry.unregister("m1", "p1", new_socket) is True  # type: ignore[arg-type]
+    assert registry.connection_for_player("m1", "p1") is None
+
+    # Idempotent: a second unregister of an already-removed socket is a
+    # harmless no-op that reports False.
+    assert registry.unregister("m1", "p1", new_socket) is False  # type: ignore[arg-type]
