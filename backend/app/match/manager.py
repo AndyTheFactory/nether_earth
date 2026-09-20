@@ -270,6 +270,26 @@ class MatchManager:
         with self._lock:
             return self._resolve_session_locked(session_token)
 
+    def mark_disconnected(self, session_token: str) -> None:
+        """Record that the connection owning ``session_token`` has closed.
+
+        Placeholder bookkeeping hook for Task 7 (issue #95, disconnect grace
+        timer / pause-and-resume policy): this task (M7 Task 5, issue #94)
+        only guarantees that the WebSocket transport calls exactly one
+        well-defined notification point per disconnect. Today this method
+        does nothing beyond a defensive lookup -- it does not pause the
+        match, start a grace timer, or touch ``match.state``. An unknown
+        token (e.g. notification for an already-disposed match) is silently
+        ignored rather than raising, since "the match is already gone" is an
+        expected, non-exceptional outcome for a disconnect notification.
+        """
+        with self._lock:
+            if session_token not in self._match_id_by_session_token:
+                return
+            # Task 7 will transition the owning match to
+            # MatchRuntimeState.PAUSED_DISCONNECTED and start its reconnect
+            # grace timer here.
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._matches)
