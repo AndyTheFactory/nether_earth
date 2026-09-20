@@ -11,6 +11,7 @@ from nether_earth.destruction import (
     effective_world,
     execute_nuclear_detonation,
 )
+from nether_earth.docking import CommanderUndockedEvent
 from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.map import WorldMap
@@ -263,6 +264,62 @@ def test_detonation_on_missing_carrier_is_noop() -> None:
 
     assert new_state is state
     assert events == ()
+
+
+def test_detonation_relocates_commander_docked_to_a_robot_destroyed_by_the_blast() -> None:
+    """A commander docked to a non-carrier robot caught in the blast radius.
+
+    Exercises `destruction.py`'s docked-commander-safety branch through the
+    nuclear-detonation path specifically (`execute_nuclear_detonation`'s
+    sequencer-threading and carrier -> robots -> structures ordering),
+    mirroring `test_combat_damage.py`'s
+    ``test_destroy_robot_relocates_docked_commander_to_free`` assertion
+    pattern for the single-``destroy_robot`` call path.
+    """
+    carrier = _robot(entity_id="carrier", x=10, y=10)
+    docked_to = _robot(
+        entity_id="docked-to", x=11, y=10, weapons=(ModuleIdentity.CANNON,), height=15
+    )
+    commander = Commander(
+        player_id=PLAYER_TWO,
+        mode=CommanderMode.DOCKED,
+        x=11,
+        y=10,
+        altitude=15,
+        docked_robot_id=docked_to.entity_id,
+    )
+    state = _state((carrier, docked_to), (commander,))
+    world = _world()
+    sequencer = EventSequencer()
+
+    new_state, events = execute_nuclear_detonation(
+        state, world, carrier.entity_id, tick=4, sequencer=sequencer
+    )
+
+    assert new_state.robot_for(docked_to.entity_id) is None
+
+    updated_commander = new_state.commander_for(PLAYER_TWO)
+    assert updated_commander is not None
+    assert updated_commander.mode is CommanderMode.FREE
+    assert updated_commander.docked_robot_id is None
+    assert updated_commander.x == 11
+    assert updated_commander.y == 10
+    assert updated_commander.altitude == 15
+
+    undock_events = [e for e in events if isinstance(e, CommanderUndockedEvent)]
+    assert len(undock_events) == 1
+    assert undock_events[0].robot_id == docked_to.entity_id
+    assert undock_events[0].from_altitude == 15
+    assert undock_events[0].to_altitude == 15
+
+    # The undock event's sequence number must be consistent with the
+    # detonation's overall carrier -> robots -> structures ordering: strictly
+    # increasing and recoverable from event.sequence, not merely tuple index
+    # (mirrors test_mixed_detonation_destroys_carrier_robot_factory_and_war_base_in_order's
+    # sequencer-threading assertion pattern).
+    sequences = [e.sequence for e in events]
+    assert sequences == sorted(sequences)
+    assert len(set(sequences)) == len(sequences)
 
 
 def test_repeated_detonation_sequence_is_deterministic() -> None:
