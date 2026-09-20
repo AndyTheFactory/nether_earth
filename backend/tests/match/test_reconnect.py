@@ -106,6 +106,12 @@ async def test_first_disconnect_pauses_match_and_emits_paused() -> None:
     assert events[0].disconnected_player_id == PLAYER_ONE
     assert events[0].match is match
 
+    # No orphan real `asyncio.sleep(60)` watcher task left pending past this
+    # test (M7 Task 7 review, Minor M3): this coordinator's default grace is
+    # 60s and its `sleep_fn` is the real `asyncio.sleep`, so P1's watcher is
+    # genuinely still waiting at this point.
+    coordinator.cancel(match.match_id)
+
 
 async def test_second_disconnect_does_not_repause_or_renotify() -> None:
     match = _new_active_match()
@@ -119,6 +125,8 @@ async def test_second_disconnect_does_not_repause_or_renotify() -> None:
     assert match.state is MatchRuntimeState.PAUSED_DISCONNECTED
     # Only the first disconnect produces a `PausedEvent`.
     assert [type(e) for e in events] == [PausedEvent]
+
+    coordinator.cancel(match.match_id)  # no orphan watcher tasks (see above)
 
 
 async def test_duplicate_disconnect_notification_for_same_player_is_idempotent() -> None:
@@ -302,8 +310,7 @@ async def test_end_to_end_lone_expiry_forfeits_via_real_scheduling() -> None:
     period (same order of magnitude as `test_runtime.py`'s own real-time
     tests) -- nowhere near a real 60s wait."""
     match = _new_active_match()
-    events, _ = _recording_notifier()
-    events = []
+    events: list[DisconnectEvent] = []
 
     async def notify(event: DisconnectEvent) -> None:
         events.append(event)
@@ -315,6 +322,114 @@ async def test_end_to_end_lone_expiry_forfeits_via_real_scheduling() -> None:
 
     assert match.state is MatchRuntimeState.FINISHED
     assert [type(e) for e in events] == [PausedEvent, ForfeitEvent]
+
+
+async def test_near_simultaneous_both_disconnect_forfeits_correctly_despite_scheduler_jitter() -> None:
+    """Regression for the M7 Task 7 review's Critical finding.
+
+    The bug: comparing a fresh clock reading taken at watcher *wake-up*
+    time against the opponent's deadline is skewed by scheduler jitter
+    (`asyncio.sleep` wakes at `deadline + jitter`, not exactly at
+    `deadline`). When two players' deadlines are closer together than that
+    jitter -- a realistic case: both sockets drop in the same event-loop
+    batch, e.g. a shared upstream network partition -- the earlier-expiring
+    player's watcher could see the opponent's deadline as already "past"
+    and wrongly resolve no-contest for a genuinely-ordered pair.
+
+    This uses real, independently-scheduled `asyncio.Task` watchers (not a
+    direct `_resolve_expiry` call -- that whitebox shortcut is exactly what
+    let the bug through review the first time) with a tiny real grace and
+    the two `mark_disconnected` calls back to back (no artificial delay
+    between them): P1's deadline is set from an earlier `time.monotonic()`
+    reading than P2's, so P1 must forfeit, deterministically, regardless of
+    which watcher's `asyncio.sleep` happens to wake up first.
+    """
+    match = _new_active_match()
+    events: list[DisconnectEvent] = []
+
+    async def notify(event: DisconnectEvent) -> None:
+        events.append(event)
+
+    coordinator = ReconnectCoordinator(notify=notify, grace_seconds=0.03)
+
+    coordinator.mark_disconnected(match, PLAYER_ONE)
+    coordinator.mark_disconnected(match, PLAYER_TWO)  # near-zero separation from P1's call
+    await asyncio.sleep(0.15)
+
+    assert match.state is MatchRuntimeState.FINISHED
+    assert [type(e) for e in events] == [PausedEvent, ForfeitEvent], (
+        "P1 disconnected microseconds before P2, so P1's deadline is genuinely "
+        "earlier; this must resolve as a forfeit of P1, never no-contest, "
+        "regardless of scheduler jitter at watcher wake-up"
+    )
+    forfeit = events[1]
+    assert isinstance(forfeit, ForfeitEvent)
+    assert forfeit.forfeiting_player_id == PLAYER_ONE
+    assert forfeit.winner_player_id == PLAYER_TWO
+
+
+async def test_equal_deadlines_via_real_concurrent_watchers_resolve_no_contest() -> None:
+    """Closes the M7 Task 7 review's Important I4 gap: every prior
+    "both disconnected" test called `_resolve_expiry` directly rather than
+    letting two real `asyncio.Task` watchers race, which is exactly what
+    hid the Critical wake-up-jitter bug from review the first time.
+
+    A genuine tie (equal deadline *values*) is impossible to produce with a
+    real monotonic clock, so this freezes `monotonic_clock` for both
+    `mark_disconnected` calls -- both players get the exact same computed
+    deadline -- while leaving `sleep_fn` at its real default, so both
+    watcher tasks are genuinely independent, concurrently-scheduled
+    `asyncio.Task`s racing in real time. Whichever happens to wake first,
+    the decision (comparing stored deadline *values*, not a wake-up clock
+    reading) must still resolve no-contest.
+    """
+    match = _new_active_match()
+    events: list[DisconnectEvent] = []
+
+    async def notify(event: DisconnectEvent) -> None:
+        events.append(event)
+
+    frozen_clock = _FakeClock(0.0)
+    coordinator = ReconnectCoordinator(
+        notify=notify, grace_seconds=0.02, monotonic_clock=frozen_clock
+    )
+
+    coordinator.mark_disconnected(match, PLAYER_ONE)
+    coordinator.mark_disconnected(match, PLAYER_TWO)  # identical deadline: frozen clock never moved
+    await asyncio.sleep(0.08)
+
+    assert match.state is MatchRuntimeState.FINISHED
+    assert [type(e) for e in events] == [PausedEvent, NoContestEvent]
+
+
+async def test_sleep_fn_injection_point_is_exercised_and_used_for_the_wait() -> None:
+    """Exercises the `sleep_fn` constructor parameter directly (M7 Task 7
+    review, Minor M3: this injection point previously had no test coverage
+    at all, and every whitebox test left a real pending `asyncio.sleep(60)`
+    task behind since only the clock, never the wait itself, was faked).
+    """
+    match = _new_active_match()
+    events: list[DisconnectEvent] = []
+
+    async def notify(event: DisconnectEvent) -> None:
+        events.append(event)
+
+    recorded_delays: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        recorded_delays.append(delay)
+        await asyncio.sleep(0)  # still yields once, like the real `asyncio.sleep`
+
+    clock = _FakeClock(0.0)
+    coordinator = ReconnectCoordinator(
+        notify=notify, grace_seconds=10.0, monotonic_clock=clock, sleep_fn=fake_sleep
+    )
+
+    coordinator.mark_disconnected(match, PLAYER_ONE)
+    await asyncio.sleep(0)
+
+    assert recorded_delays == [10.0]
+    coordinator.cancel(match.match_id)  # no orphan task left pending past this test
 
 
 async def test_end_to_end_reconnect_within_grace_cancels_the_watcher() -> None:

@@ -83,6 +83,7 @@ from app.match.models import (
     Match,
     MatchFullError,
     MatchNotFoundError,
+    MatchOutcome,
     MatchRuntimeState,
 )
 from app.match.runtime import MatchRuntimeRegistry
@@ -99,7 +100,9 @@ from app.protocol.reconnect import ClientReconnect, ServerResync
 from app.protocol.server_messages import (
     ServerCreated,
     ServerError,
+    ServerForfeit,
     ServerJoined,
+    ServerNoContest,
     ServerReadyState,
     ServerStarted,
 )
@@ -368,12 +371,6 @@ def create_websocket_router(
 
                 if isinstance(message, ClientReconnect):
                     connection_registry.register(match.match_id, engine_player_id.value, websocket)
-                    # Cancels this player's reconnect-grace deadline watcher
-                    # and, once both players are connected again, resumes
-                    # the match (M7 Task 7, issue #96). A no-op if this
-                    # player was never marked disconnected (e.g. a
-                    # reconnect message on an already-connected session).
-                    match_manager.mark_reconnected(message.session_token)
                     # Read `match.game_state` exactly as it stands -- never
                     # advance/mutate the engine merely to produce a
                     # reconnect snapshot. `game_state` is only `None` if the
@@ -398,6 +395,54 @@ def create_websocket_router(
                             )
                         )
                     )
+                    # Cancels this player's reconnect-grace deadline watcher
+                    # and, once both players are connected again, resumes
+                    # the match (M7 Task 7, issue #96). A no-op if this
+                    # player was never marked disconnected (e.g. a
+                    # reconnect message on an already-connected session).
+                    # Sequenced *after* the resync send above (M7 Task 7
+                    # review, Minor M1) so this player's own resync is
+                    # structurally guaranteed to precede any `resumed`
+                    # broadcast a resulting resume might trigger, rather
+                    # than relying on incidental ordering.
+                    match_manager.mark_reconnected(message.session_token)
+
+                    # A durable forfeit/no-contest result (M7 Task 7 review,
+                    # Important I2): the winning side of a both-disconnected
+                    # forfeit was, by construction, not connected to receive
+                    # the live `ServerForfeit`/`ServerNoContest` broadcast --
+                    # replay it to whoever reconnects to an already-decided
+                    # match, using the existing message types (no protocol/
+                    # schema change), addressed to this socket only (every
+                    # other connection already saw it live).
+                    match_result = match.result
+                    if match_result is not None:
+                        if match_result.outcome is MatchOutcome.FORFEIT:
+                            assert match_result.forfeiting_player_id is not None
+                            assert match_result.winner_player_id is not None
+                            await websocket.send_text(
+                                serialize_server_message(
+                                    ServerForfeit(
+                                        protocol_version=PROTOCOL_VERSION,
+                                        type="forfeit",
+                                        match_id=match.match_id,
+                                        forfeiting_player_id=match_result.forfeiting_player_id.value,
+                                        winner_player_id=match_result.winner_player_id.value,
+                                        reason="disconnect_timeout",
+                                    )
+                                )
+                            )
+                        else:
+                            await websocket.send_text(
+                                serialize_server_message(
+                                    ServerNoContest(
+                                        protocol_version=PROTOCOL_VERSION,
+                                        type="no_contest",
+                                        match_id=match.match_id,
+                                        reason="disconnect_timeout_both",
+                                    )
+                                )
+                            )
                     continue
         except WebSocketDisconnect:
             pass

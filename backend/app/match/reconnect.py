@@ -29,10 +29,12 @@ Design: one :class:`ReconnectCoordinator` is shared across every match (like
 disconnected player it schedules exactly one `asyncio.Task` (the
 "deadline watcher") that sleeps until that player's deadline and then
 resolves the outcome; reconnecting cancels that player's watcher.
-Resolution compares both players' deadlines *by value* at the moment a
-watcher fires (not by "which task happened to run first") so near-
-simultaneous expiries resolve deterministically into no-contest rather than
-racing to a forfeit -- see :meth:`ReconnectCoordinator._resolve_expiry`.
+Resolution compares both players' deadline **values against each other**
+(never a fresh clock reading taken at watcher wake-up time, which is
+skewed by scheduler jitter -- `asyncio.sleep` wakes at
+``deadline + jitter``, not exactly at ``deadline``) so near-simultaneous
+expiries resolve deterministically, regardless of which watcher happens to
+run first -- see :meth:`ReconnectCoordinator._resolve_expiry`.
 
 This module never imports `app.transport`/FastAPI/websockets (AGENTS.md):
 protocol/broadcast concerns are pushed onto the caller-supplied ``notify``
@@ -45,12 +47,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
+from typing import Any
 
 from nether_earth.ids import PlayerId
 
-from app.match.models import Match, MatchRuntimeState
+from app.match.models import Match, MatchOutcome, MatchResult, MatchRuntimeState
 from app.match.runtime import MatchRuntimeRegistry
 
 logger = logging.getLogger(__name__)
@@ -106,8 +109,11 @@ DisconnectEvent = PausedEvent | ResumedEvent | ForfeitEvent | NoContestEvent
 
 #: Awaited once per event, in the order events are decided. A transport
 #: caller supplies the concrete implementation (translate to a protocol
-#: message, broadcast it) -- see `app.transport.disconnects`.
-DisconnectNotifier = Callable[[DisconnectEvent], Awaitable[None]]
+#: message, broadcast it) -- see `app.transport.disconnects`. Typed as
+#: returning a `Coroutine` (every real implementation is an `async def`
+#: function), not just `Awaitable`, so `_spawn` can pass it straight to
+#: `asyncio.create_task` without a runtime type-narrowing workaround.
+DisconnectNotifier = Callable[[DisconnectEvent], Coroutine[Any, Any, None]]
 
 
 def _other_player(match: Match, player_id: PlayerId) -> PlayerId:
@@ -146,6 +152,12 @@ class ReconnectCoordinator:
     constraint: no real 60s sleeps). Production callers should leave all
     three at their defaults (`time.monotonic`, `asyncio.sleep`,
     `time.time`).
+
+    ``on_finish``, if bound (either at construction or later via
+    :meth:`bind_finish_hook`), is the single finish path a forfeit/
+    no-contest resolution routes through -- see :meth:`bind_finish_hook`'s
+    docstring for why this is a *hook* rather than a plain constructor
+    parameter in the production wiring (``app.main``).
     """
 
     def __init__(
@@ -153,6 +165,7 @@ class ReconnectCoordinator:
         *,
         notify: DisconnectNotifier,
         grace_seconds: float = DEFAULT_GRACE_SECONDS,
+        on_finish: Callable[[str], object] | None = None,
         runtime_registry: MatchRuntimeRegistry | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
         sleep_fn: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -162,6 +175,7 @@ class ReconnectCoordinator:
             raise ValueError("grace_seconds must be positive")
         self._notify = notify
         self._grace_seconds = grace_seconds
+        self._on_finish = on_finish
         self._runtime_registry = runtime_registry
         self._monotonic_clock = monotonic_clock
         self._sleep_fn = sleep_fn
@@ -253,6 +267,26 @@ class ReconnectCoordinator:
             match.state = MatchRuntimeState.ACTIVE
             self._spawn(self._notify(ResumedEvent(match=match)))
 
+    def bind_finish_hook(self, on_finish: Callable[[str], object]) -> None:
+        """Set the single finish path a forfeit/no-contest resolution routes through.
+
+        A separate method (rather than a required constructor parameter)
+        because ``app.main`` wires this coordinator into ``MatchManager``,
+        and the natural finish hook is ``MatchManager.finish_match`` itself
+        -- which does not exist until *after* this coordinator has already
+        been constructed and handed to ``MatchManager``. Calling this once,
+        right after constructing both, breaks that construction-order
+        cycle. Never required: with no hook bound, ``_resolve_expiry``
+        falls back to its own direct ``match.state``/``runtime_registry``
+        finalization (M7 Task 7 review, Important I3 -- the *fallback*
+        keeps `reconnect=None`-style tests working unchanged; the *hook*
+        ensures production forfeit/no-contest finalization goes through the
+        exact same path -- including any future finish-time logic, e.g.
+        Task 8's replay persistence -- as every other ``FINISHED``
+        transition).
+        """
+        self._on_finish = on_finish
+
     # -- disposal -------------------------------------------------------------
 
     def cancel(self, match_id: str) -> None:
@@ -300,14 +334,30 @@ class ReconnectCoordinator:
         """Resolve ``expired_player_id``'s grace-deadline expiry exactly once.
 
         Deterministic even for two near-simultaneous expiries: this compares
-        the *values* of both players' deadlines against the current clock at
-        resolution time, not "which watcher task happened to run first" --
-        see the class docstring. A defensive no-op if this match/player was
-        already resolved or reconnected concurrently (should not be
-        reachable given `mark_reconnected`/`cancel` cancel watcher tasks
-        before removing their bookkeeping, but resolving an outcome twice
-        for the same match would violate "exactly once", so this is guarded
-        explicitly rather than assumed).
+        the *values* of both players' deadlines against **each other**, not
+        against a fresh clock reading taken at whichever moment a watcher
+        happens to wake up. That distinction matters: `asyncio.sleep` wakes
+        at ``deadline + scheduler jitter``, not exactly at ``deadline``, so
+        reading "now" at wake-up time and comparing it to the opponent's
+        deadline is skewed by that jitter -- if the two players' deadlines
+        are closer together than the jitter (a realistic case: both sockets
+        drop in the same event-loop batch, e.g. a shared upstream network
+        partition), the earlier-expiring player's watcher could see the
+        opponent's deadline as already "past" and wrongly resolve
+        no-contest for a genuinely-ordered pair, where the mandated outcome
+        is a normal forfeit (M7 Task 7 review, Critical finding). Comparing
+        ``opponent_deadline`` to ``deadlines[expired_player_id]`` (the
+        expiring player's *own*, already-known deadline value) is
+        jitter-independent and symmetric regardless of which watcher
+        happens to run first, and still correctly reduces to no-contest on
+        a genuine tie (equal deadline values).
+
+        A defensive no-op if this match/player was already resolved or
+        reconnected concurrently (should not be reachable given
+        `mark_reconnected`/`cancel` cancel watcher tasks before removing
+        their bookkeeping, but resolving an outcome twice for the same
+        match would violate "exactly once", so this is guarded explicitly
+        rather than assumed).
         """
         match_id = match.match_id
         deadlines = self._deadlines.get(match_id)
@@ -317,49 +367,80 @@ class ReconnectCoordinator:
             return
 
         opponent_id = _other_player(match, expired_player_id)
-        now = self._monotonic_clock()
+        expired_deadline = deadlines[expired_player_id]
         opponent_deadline = deadlines.get(opponent_id)
         # Opponent is still eligible (connected, i.e. absent from
-        # `deadlines`, or disconnected but their own deadline has not yet
-        # been reached) -> normal forfeit. Both already past their deadline
-        # -> no-contest; never invent a winner.
-        is_no_contest = opponent_deadline is not None and opponent_deadline <= now
-
-        # Finalize match.state (and cancel the tick loop) *before* the
-        # `await self._notify(...)` below, synchronously with no
-        # intervening await -- this is what makes "exactly once" hold even
-        # if the opponent's own watcher is about to fire concurrently: its
-        # own `_resolve_expiry` call will see `match.state is FINISHED` and
-        # return immediately (see the guard above).
-        match.state = MatchRuntimeState.FINISHED
-        if self._runtime_registry is not None:
-            self._runtime_registry.cancel(match_id)
+        # `deadlines`, or disconnected but their own deadline is later than
+        # the expiring player's) -> normal forfeit. Opponent's deadline is
+        # equal to or earlier than the expiring player's own -> no-contest;
+        # never invent a winner. See the docstring above for why this
+        # compares deadline *values*, never a fresh clock read.
+        is_no_contest = opponent_deadline is not None and opponent_deadline <= expired_deadline
 
         watchers = self._watchers.get(match_id, {})
         opponent_task = watchers.pop(opponent_id, None)
         if opponent_task is not None and not opponent_task.done():
             opponent_task.cancel()
-        watchers.pop(expired_player_id, None)
+        # The expiring player's own watcher is (in the normal case) the
+        # task currently executing this very coroutine -- cancelling it
+        # from inside itself would inject a `CancelledError` into this
+        # coroutine's own next `await` (the `self._notify(...)` call
+        # below), aborting the broadcast this method exists to deliver.
+        # Only cancel it if this call did *not* originate from that task
+        # (e.g. a test invoking `_resolve_expiry` directly while the real
+        # watcher is still pending) -- see M7 Task 7 review, Minor M2.
+        own_task = watchers.pop(expired_player_id, None)
+        if own_task is not None and own_task is not asyncio.current_task() and not own_task.done():
+            own_task.cancel()
         if not watchers:
             self._watchers.pop(match_id, None)
         self._deadlines.pop(match_id, None)
 
         event: DisconnectEvent
         if is_no_contest:
+            match.result = MatchResult(
+                outcome=MatchOutcome.NO_CONTEST, reason="disconnect_timeout_both"
+            )
             event = NoContestEvent(match=match)
         else:
+            match.result = MatchResult(
+                outcome=MatchOutcome.FORFEIT,
+                reason="disconnect_timeout",
+                winner_player_id=opponent_id,
+                forfeiting_player_id=expired_player_id,
+            )
             event = ForfeitEvent(
                 match=match,
                 forfeiting_player_id=expired_player_id,
                 winner_player_id=opponent_id,
             )
+
+        # Finalize match.state (and cancel the tick loop) *before* the
+        # `await self._notify(...)` below, synchronously with no
+        # intervening await -- this is what makes "exactly once" hold even
+        # if the opponent's own watcher is about to fire concurrently: its
+        # own `_resolve_expiry` call will see `match.state is FINISHED` and
+        # return immediately (see the guard above). Routed through
+        # `self._on_finish`, if bound, so this is the same finish path
+        # every other `FINISHED` transition uses (M7 Task 7 review,
+        # Important I3) -- the bookkeeping pops above already removed this
+        # match's entries from `_watchers`/`_deadlines`, so a hook that
+        # loops back into `self.cancel(match_id)` (e.g.
+        # `MatchManager.finish_match`) is a harmless no-op here, never a
+        # double-cancel of the still-running current task.
+        if self._on_finish is not None:
+            self._on_finish(match_id)
+        else:
+            match.state = MatchRuntimeState.FINISHED
+            if self._runtime_registry is not None:
+                self._runtime_registry.cancel(match_id)
+
         await self._notify(event)
 
     # -- internal helpers -------------------------------------------------------
 
-    def _spawn(self, coro: Awaitable[None]) -> asyncio.Task[None]:
+    def _spawn(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
         """`asyncio.create_task` plus a done-callback that logs (never swallows) failures."""
-        task = asyncio.ensure_future(coro)
-        assert isinstance(task, asyncio.Task)  # `ensure_future` on a coroutine always returns one.
+        task = asyncio.create_task(coro)
         task.add_done_callback(_log_task_failure)
         return task

@@ -38,6 +38,42 @@ class MatchRuntimeState(Enum):
     FINISHED = "finished"
 
 
+class MatchOutcome(Enum):
+    """How a match ended via the disconnect/reconnect policy.
+
+    Deliberately does **not** cover a normal in-game (engine) victory --
+    that result lives entirely in ``GameState`` and is never duplicated
+    here. This enum only names the two runtime-level outcomes
+    ``app.match.reconnect.ReconnectCoordinator`` (M7 Task 7, issue #96) can
+    produce.
+    """
+
+    FORFEIT = "forfeit"
+    NO_CONTEST = "no_contest"
+
+
+@dataclass(frozen=True, slots=True)
+class MatchResult:
+    """A durable runtime-level result annotation, set once a match ends via
+    forfeit or no-contest (M7 Task 7, issue #96 review, Important I2).
+
+    Exists *alongside*, never instead of, whatever engine victory state
+    ``GameState`` already carries for a normal in-game win -- this is set
+    only by ``ReconnectCoordinator._resolve_expiry``, never by any other
+    ``MatchRuntimeState.FINISHED`` transition. Kept on ``Match`` (rather
+    than only broadcast transiently) so a player who reconnects after the
+    outcome-bearing broadcast has already gone out -- exactly the case for
+    the *winning* side of a both-disconnected forfeit, who by construction
+    was not connected to receive it live -- still learns the result, and so
+    a future replay writer (Task 8) has something durable to persist.
+    """
+
+    outcome: MatchOutcome
+    reason: str
+    winner_player_id: PlayerId | None = None
+    forfeiting_player_id: PlayerId | None = None
+
+
 @dataclass(slots=True)
 class PlayerSlot:
     """One guest player's seat in a match.
@@ -61,6 +97,10 @@ class Match:
     runs ``engine.new_game`` exactly once (``MatchManager`` is the only
     caller of that transition, so this field's ``None``-ness alone is enough
     to tell whether that call has happened yet).
+
+    ``result`` is ``None`` unless the match ended via forfeit/no-contest
+    (see :class:`MatchResult`); a normal in-game engine victory leaves it
+    ``None`` and is read from ``game_state`` instead.
     """
 
     match_id: str
@@ -69,6 +109,7 @@ class Match:
     state: MatchRuntimeState = MatchRuntimeState.WAITING
     players: dict[PlayerId, PlayerSlot] = field(default_factory=dict)
     game_state: GameState | None = None
+    result: MatchResult | None = None
 
     @property
     def is_full(self) -> bool:

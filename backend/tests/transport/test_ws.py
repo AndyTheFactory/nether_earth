@@ -21,13 +21,14 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
 from nether_earth.snapshot import to_snapshot
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
 from app.main import create_app
 from app.match.manager import MatchManager
-from app.match.models import MatchRuntimeState
+from app.match.models import MatchOutcome, MatchResult, MatchRuntimeState
 from app.match.reconnect import ReconnectCoordinator
 from app.match.runtime import MatchRuntimeRegistry
 from app.transport import ConnectionRegistry, create_websocket_router
@@ -85,6 +86,10 @@ def short_grace_client() -> Iterator[TestClient]:
         runtime_registry=runtime_registry,
     )
     match_manager = MatchManager(runtime=runtime_registry, reconnect=reconnect_coordinator)
+    # Mirrors `app.main.create_app`'s wiring (M7 Task 7 review, Important
+    # I3): forfeit/no-contest finalization goes through the same
+    # `MatchManager.finish_match` path as every other `FINISHED` transition.
+    reconnect_coordinator.bind_finish_hook(match_manager.finish_match)
     app = FastAPI()
     app.state.match_manager = match_manager
     app.state.runtime_registry = runtime_registry
@@ -884,3 +889,133 @@ def test_grace_expiry_broadcasts_forfeit_to_the_remaining_player(
 
         match = manager.get_match(created["matchId"])
         assert match.state is MatchRuntimeState.FINISHED
+
+
+def test_reconnect_to_an_already_forfeited_match_replays_the_durable_result(
+    no_tick_client: TestClient,
+) -> None:
+    """M7 Task 7 review, Important I2: the *winning* side of a both-
+    disconnected forfeit was, by construction, not connected to receive the
+    live `ServerForfeit` broadcast (it was disconnected too, just with a
+    later deadline). `Match.result` persists the outcome durably so a
+    reconnect to an already-decided match still delivers it, using the
+    existing `ServerForfeit` message type (no protocol/schema change).
+
+    Sets up the finished/forfeited state directly (rather than racing real
+    grace timers) to test exactly the `ClientReconnect` wiring this finding
+    is about, deterministically.
+    """
+    client = no_tick_client
+    manager = _match_manager(client)
+    created, joined = _start_active_match(client)
+
+    match = manager.get_match(created["matchId"])
+    match.state = MatchRuntimeState.FINISHED
+    match.result = MatchResult(
+        outcome=MatchOutcome.FORFEIT,
+        reason="disconnect_timeout",
+        winner_player_id=PLAYER_TWO,
+        forfeiting_player_id=PLAYER_ONE,
+    )
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "reconnect",
+                    "matchId": created["matchId"],
+                    "playerId": "p2",
+                    "sessionToken": joined["sessionToken"],
+                }
+            )
+        )
+        resync = ws.receive_json()
+        assert resync["type"] == "resync"
+
+        forfeit = ws.receive_json()
+        assert forfeit["type"] == "forfeit"
+        assert forfeit["matchId"] == created["matchId"]
+        assert forfeit["forfeitingPlayerId"] == "p1"
+        assert forfeit["winnerPlayerId"] == "p2"
+        assert forfeit["reason"] == "disconnect_timeout"
+
+
+def test_reconnect_to_an_already_no_contested_match_replays_the_durable_result(
+    no_tick_client: TestClient,
+) -> None:
+    """Same as above, for the no-contest outcome."""
+    client = no_tick_client
+    manager = _match_manager(client)
+    created, _joined = _start_active_match(client)
+
+    match = manager.get_match(created["matchId"])
+    match.state = MatchRuntimeState.FINISHED
+    match.result = MatchResult(outcome=MatchOutcome.NO_CONTEST, reason="disconnect_timeout_both")
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "reconnect",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                }
+            )
+        )
+        resync = ws.receive_json()
+        assert resync["type"] == "resync"
+
+        no_contest = ws.receive_json()
+        assert no_contest["type"] == "no_contest"
+        assert no_contest["matchId"] == created["matchId"]
+        assert no_contest["reason"] == "disconnect_timeout_both"
+
+
+def test_resync_is_sent_before_any_resumed_broadcast_it_triggers(
+    short_grace_client: TestClient,
+) -> None:
+    """M7 Task 7 review, Minor M1: the reconnecting player's own `resync`
+    must be sent before `mark_reconnected` can trigger a `resumed`
+    broadcast, so the sequencing is structural, not incidental.
+
+    Only p1 disconnects, so p1 reconnecting alone completes the resume
+    (p2/`ws_b` never left) -- the resulting `resumed` broadcast reaches
+    every connection for the match, *including* the reconnecting player's
+    own socket (already re-registered before the resync send). This makes
+    the ordering directly observable on that single socket: resync must
+    arrive strictly before resumed on it, never the other way around.
+    """
+    client = short_grace_client
+    manager = _match_manager(client)
+    with client.websocket_connect("/ws") as ws_b:
+        with client.websocket_connect("/ws") as ws_a:
+            created, _joined = _start_active_match_keeping_sockets_open(ws_a, ws_b)
+        # ws_a (p1) closed: paused. p2/ws_b never disconnects in this test.
+
+        paused = ws_b.receive_json()
+        assert paused["type"] == "paused"
+
+        with client.websocket_connect("/ws") as ws_a_again:
+            ws_a_again.send_text(
+                json.dumps(
+                    {
+                        "protocolVersion": 1,
+                        "type": "reconnect",
+                        "matchId": created["matchId"],
+                        "playerId": "p1",
+                        "sessionToken": created["sessionToken"],
+                    }
+                )
+            )
+            first_message = ws_a_again.receive_json()
+            second_message = ws_a_again.receive_json()
+            assert first_message["type"] == "resync"
+            assert second_message["type"] == "resumed"
+
+            # Assert *before* `ws_a_again` closes below -- its own closure
+            # is itself a fresh disconnect that would re-pause the match.
+            match = manager.get_match(created["matchId"])
+            assert match.state is MatchRuntimeState.ACTIVE

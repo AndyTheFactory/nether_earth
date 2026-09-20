@@ -41,6 +41,15 @@ def create_app() -> FastAPI:
         on_tick_factory=_on_tick_factory,
         reconnect=reconnect_coordinator,
     )
+    # Breaks the construction-order cycle (this coordinator must exist
+    # before `MatchManager` can be constructed with it, but the natural
+    # finish hook is `MatchManager.finish_match` itself) -- see
+    # `ReconnectCoordinator.bind_finish_hook`'s docstring (M7 Task 7
+    # review, Important I3). This makes forfeit/no-contest finalization
+    # go through the exact same path (state transition + runtime-loop
+    # cancellation, plus any future finish-time logic such as Task 8's
+    # replay persistence) as every other `FINISHED` transition.
+    reconnect_coordinator.bind_finish_hook(match_manager.finish_match)
 
     fastapi_app.state.match_manager = match_manager
     fastapi_app.state.runtime_registry = runtime_registry
