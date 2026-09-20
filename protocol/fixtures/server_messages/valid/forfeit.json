@@ -1,0 +1,8 @@
+{
+  "protocolVersion": 1,
+  "type": "forfeit",
+  "matchId": "match-1",
+  "forfeitingPlayerId": "player-1",
+  "winnerPlayerId": "player-2",
+  "reason": "disconnect_timeout"
+}

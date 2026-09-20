@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nether-earth.local/protocol/reconnect.schema.json",
+  "title": "ReconnectMessage",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/clientReconnect" },
+    { "$ref": "#/$defs/serverResync" }
+  ],
+  "$defs": {
+    "clientReconnect": {
+      "type": "object",
+      "title": "ClientReconnect",
+      "description": "Sent by a client re-establishing a WebSocket connection to an existing match after a disconnect.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "reconnect" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "playerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "sessionToken": { "$ref": "common.schema.json#/$defs/sessionToken" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "playerId", "sessionToken"],
+      "additionalProperties": false
+    },
+    "serverResync": {
+      "type": "object",
+      "title": "ServerResync",
+      "description": "Sent in response to a successful reconnect, carrying the current authoritative snapshot per the locked disconnect/reconnect policy.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "resync" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "playerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "snapshot": { "$ref": "snapshot.schema.json" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "playerId", "snapshot"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -3,10 +3,79 @@
   "$id": "https://nether-earth.local/protocol/client_messages.schema.json",
   "title": "ClientMessage",
   "type": "object",
-  "properties": {
-    "protocolVersion": { "type": "integer", "const": 1 },
-    "type": { "type": "string", "const": "ping" }
-  },
-  "required": ["protocolVersion", "type"],
-  "additionalProperties": false
+  "oneOf": [
+    { "$ref": "#/$defs/createMatch" },
+    { "$ref": "#/$defs/joinMatch" },
+    { "$ref": "#/$defs/setReady" },
+    { "$ref": "#/$defs/leaveMatch" },
+    { "$ref": "#/$defs/gameplayCommand" }
+  ],
+  "$defs": {
+    "createMatch": {
+      "type": "object",
+      "title": "ClientCreateMatch",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "create" },
+        "nickname": { "$ref": "common.schema.json#/$defs/nickname" }
+      },
+      "required": ["protocolVersion", "type", "nickname"],
+      "additionalProperties": false
+    },
+    "joinMatch": {
+      "type": "object",
+      "title": "ClientJoinMatch",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "join" },
+        "joinCode": { "$ref": "common.schema.json#/$defs/joinCode" },
+        "nickname": { "$ref": "common.schema.json#/$defs/nickname" }
+      },
+      "required": ["protocolVersion", "type", "joinCode", "nickname"],
+      "additionalProperties": false
+    },
+    "setReady": {
+      "type": "object",
+      "title": "ClientSetReady",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "ready" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "playerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "sessionToken": { "$ref": "common.schema.json#/$defs/sessionToken" },
+        "ready": { "type": "boolean" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "playerId", "sessionToken", "ready"],
+      "additionalProperties": false
+    },
+    "leaveMatch": {
+      "type": "object",
+      "title": "ClientLeaveMatch",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "leave" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "playerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "sessionToken": { "$ref": "common.schema.json#/$defs/sessionToken" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "playerId", "sessionToken"],
+      "additionalProperties": false
+    },
+    "gameplayCommand": {
+      "type": "object",
+      "title": "ClientGameplayCommand",
+      "description": "Generic envelope for in-match gameplay commands. The payload shape is a placeholder extended by issue #98; matchId/playerId/sessionToken/clientSequence are stable and do not change when payload variants are added.",
+      "properties": {
+        "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+        "type": { "type": "string", "const": "command" },
+        "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+        "playerId": { "$ref": "common.schema.json#/$defs/playerId" },
+        "sessionToken": { "$ref": "common.schema.json#/$defs/sessionToken" },
+        "clientSequence": { "$ref": "common.schema.json#/$defs/sequenceNumber" },
+        "payload": { "$ref": "common.schema.json#/$defs/commandPayload" }
+      },
+      "required": ["protocolVersion", "type", "matchId", "playerId", "sessionToken", "clientSequence", "payload"],
+      "additionalProperties": false
+    }
+  }
 }

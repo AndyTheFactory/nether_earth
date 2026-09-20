@@ -2,9 +2,92 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nether-earth.local/protocol/common.schema.json",
   "title": "ProtocolCommon",
+  "$defs": {
+    "protocolVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "matchId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "joinCode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "playerId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sessionToken": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nickname": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "sequenceNumber": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tick": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timestampMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "errorCode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "errorInfo": {
+      "type": "object",
+      "properties": {
+        "code": { "$ref": "#/$defs/errorCode" },
+        "message": { "type": "string", "minLength": 1 },
+        "details": { "type": "object" }
+      },
+      "required": ["code", "message"],
+      "additionalProperties": false
+    },
+    "playerSummary": {
+      "type": "object",
+      "properties": {
+        "playerId": { "$ref": "#/$defs/playerId" },
+        "nickname": { "$ref": "#/$defs/nickname" },
+        "ready": { "type": "boolean" }
+      },
+      "required": ["playerId", "nickname", "ready"],
+      "additionalProperties": false
+    },
+    "commandPayload": {
+      "description": "Discriminated gameplay command payload. Issue #98 extends this oneOf with concrete payload variants (commander_input/construction_action/robot_control_action/robot_order/robot_fire) once the M5/M6 engine command surface is enumerated; the client gameplay command envelope in client_messages.schema.json does not need to change when that happens.",
+      "oneOf": [
+        { "$ref": "#/$defs/placeholderCommandPayload" }
+      ]
+    },
+    "placeholderCommandPayload": {
+      "type": "object",
+      "description": "Placeholder payload shape. Not a real gameplay command; kept only so the envelope/generation pipeline has a concrete variant to validate against until issue #98 lands.",
+      "properties": {
+        "kind": { "type": "string", "const": "placeholder" }
+      },
+      "required": ["kind"],
+      "additionalProperties": true
+    },
+    "snapshotState": {
+      "type": "object",
+      "description": "Placeholder authoritative engine state shape. Full field enumeration (players/resources/commanders/robots/ownership/projectiles/map+scenario+rules versions/result per technical-spec.md #22) is added by issue #98.",
+      "additionalProperties": true
+    }
+  },
   "type": "object",
   "properties": {
-    "protocolVersion": { "type": "integer", "const": 1 }
+    "protocolVersion": { "$ref": "#/$defs/protocolVersion" }
   },
   "required": ["protocolVersion"],
   "additionalProperties": false

@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "type": "resync",
+  "matchId": "match-1",
+  "playerId": "player-1",
+  "snapshot": {
+    "protocolVersion": 1,
+    "type": "snapshot",
+    "matchId": "match-1",
+    "tick": 120,
+    "state": {
+      "placeholder": true
+    }
+  }
+}

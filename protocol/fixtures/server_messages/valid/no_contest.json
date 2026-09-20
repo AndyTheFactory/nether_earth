@@ -1,0 +1,6 @@
+{
+  "protocolVersion": 1,
+  "type": "no_contest",
+  "matchId": "match-1",
+  "reason": "disconnect_timeout_both"
+}

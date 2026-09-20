@@ -1,0 +1,6 @@
+{
+  "type": "reconnect",
+  "matchId": "match-1",
+  "playerId": "player-1",
+  "sessionToken": "session-token-1"
+}

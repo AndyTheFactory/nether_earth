@@ -1,0 +1,9 @@
+{
+  "protocolVersion": 1,
+  "type": "ready_state",
+  "matchId": "match-1",
+  "players": [
+    { "playerId": "player-1", "nickname": "Alice", "ready": true },
+    { "playerId": "player-2", "nickname": "Bob", "ready": false }
+  ]
+}

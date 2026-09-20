@@ -1,12 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nether-earth.local/protocol/snapshot.schema.json",
-  "title": "BootstrapSnapshot",
+  "title": "SnapshotMessage",
+  "description": "Authoritative snapshot envelope. `state` is a placeholder pending issue #98's full field enumeration (players/resources/commanders/robots/ownership/projectiles/map+scenario+rules versions/result per technical-spec.md #22).",
   "type": "object",
   "properties": {
-    "protocolVersion": { "type": "integer", "const": 1 },
-    "tick": { "type": "integer", "minimum": 0 }
+    "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+    "type": { "type": "string", "const": "snapshot" },
+    "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
+    "tick": { "$ref": "common.schema.json#/$defs/tick" },
+    "state": { "$ref": "common.schema.json#/$defs/snapshotState" }
   },
-  "required": ["protocolVersion", "tick"],
+  "required": ["protocolVersion", "type", "matchId", "tick", "state"],
   "additionalProperties": false
 }
