@@ -95,10 +95,11 @@ structures (no cross-layer occlusion), and there is no real art yet.
 
 ## Live check status
 
-`npm run live:check` against the real backend passes 15/15 checks: create,
+`npm run live:check` against the real backend passes 16/16 checks: create,
 join, ready and start; commander move and rise; landing on the roof-top
 heli-pad (altitude 15, open-questions §18) opens a construction session; build and launch at the war-base exit; an Advance order
-starts autonomous movement; direct fire creates a projectile; disconnect
+starts autonomous movement; direct fire creates a projectile that moves 2
+cells per advance with cannon range 10 (open-questions §8); disconnect
 pauses with a frozen tick; reconnect resyncs and resumes; client state equals
 the server snapshot byte for byte. The backend plays every match on the
 canonical `pvp-v1` scenario and the original map (Milestone 9).

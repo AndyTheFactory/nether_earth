@@ -549,13 +549,9 @@ Default normal projectile altitude: **10** for cannon, missile, and phaser, inde
 
 Projectile lifecycle must be authoritative world logic. It must not depend on browser viewport dimensions.
 
-Still research/configuration-bound:
+Resolved from the Spectrum code (`open-questions.md` §8): a projectile advances `projectile_cells_per_advance = 2` cells every `projectile_advance_ticks = 4` ticks and ends after 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Buildings use the generic altitude collision; there is no separate building rule.
 
-- exact projectile speed;
-- update cadence;
-- collision profile;
-- exact interaction with structure/components;
-- exact termination rules.
+Open owner decision (`open-questions.md` §8): the Spectrum makes a bullet's first move at fire time, while the engine makes it on the next advance tick.
 
 Nuclear detonation is modeled separately.
 
@@ -804,6 +800,8 @@ Remaining gameplay research areas:
 2. the autonomous fire-decision scan distance (`open-questions.md` §8).
 
 Movement timing (§4) and projectile speed, range, and lifetime (§8) are resolved: projectiles advance 2 cells every 4 ticks; ranges are 10/14/10 cells, +2 with electronics.
+
+Two owner decisions are also pending: scenery blockers (`open-questions.md` §4) and the first projectile move at fire time (`open-questions.md` §8).
 
 Until verified from the fidelity evidence chain, keep these behind isolated engine policies/configuration and do not silently treat guesses as canonical defaults.
 

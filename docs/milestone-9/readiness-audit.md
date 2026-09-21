@@ -75,6 +75,9 @@ overlay declares both spawns as data; Player 2 uses the mirrored offset from
 its own war-base anchor (see `_specs/open-questions.md` §17, recorded as a
 provisional convention requiring owner confirmation, not a locked rule).
 
+CR001 update: the owner locked the mirrored Player 2 spawn as a PvP adaptation
+(§17, CR001.7 #154).
+
 ## 3. Non-blocking gaps (documented, routed to owners)
 
 - **Heli-pad location/height (M2 data + M3 rule).** Disassembly
@@ -85,23 +88,31 @@ provisional convention requiring owner confirmation, not a locked rule).
   change. The current placeholder (pad = anchor ground cell) keeps the
   normal path playable. Owner decision recorded in
   `docs/milestone-9/map-fidelity-pass.md` and `_specs/open-questions.md` §18.
+  CR001 update: resolved. The pad is on the roof and the commander lands at
+  the pad cell's component height, 15 (CR001.6 #153).
 - **Exit cell.** Verified by evidence (robot placed at pad y + 4 = anchor
   cell, `Lcb52_construction_screen_start_robot`); current data already uses
   the anchor cell.
 - **Terrain and scenery blockers** not decoded (documented in the M2 evidence
   doc). The map is more open than the original but the normal path is not
-  blocked. Not a v1 completion-path question.
+  blocked. Not a v1 completion-path question. CR001 update: terrain is
+  decoded (CR001.5 #152). Scenery boxes and walls (element types 17/18/21)
+  are decoded but not modeled as blockers; that needs an owner decision
+  (`_specs/open-questions.md` §4).
 - **Frontend rejection feedback** is snapshot-only by protocol policy (M7/M8
   documented limitation). Not blocking.
 
 ## 4. Open questions affecting the v1 path
 
-`_specs/open-questions.md` §1–§16 are resolved or partially resolved with
-locked engine defaults. §4 and §8 ("partially resolved") lock every value the
-engine consumes; the unresolved remainders are fidelity refinements, not
-completion-path blockers. New §17 (commander spawn) and §18 (heli-pad
-placement/height) are added by this milestone as owner-review items; the
-match is playable under the provisional data either way.
+At the time of this audit, `_specs/open-questions.md` §1–§16 were resolved or
+partially resolved with locked engine defaults, and M9 added §17 (commander
+spawn) and §18 (heli-pad placement/height) as owner-review items.
+
+CR001 update: the owner decisions of 2026-09-21 resolved §4, §8, §17, §18,
+§19 and §20, and CR001 (#148–#155) implemented them. Only research remains:
+combat detail (§9) and the autonomous fire-decision scan (§8). Two owner
+decisions are also pending, and neither blocks the v1 path: scenery blockers
+(§4), and whether a projectile makes its first move on the fire tick (§8).
 
 ## 5. Go/no-go gate for M9.2–M9.8
 
@@ -116,6 +127,6 @@ documentation.
 |---|---|---|
 | Commander collision, auto-dock and follow ignored live `state.robots`; a commander could never dock, so direct control was unreachable in a real match | M3/M4 engine (`engine.step`) | fixed, commit a930be0 |
 | Snapshot and resync frames were serialized with `exclude_none`, dropping required nullable fields (`docked_robot_id`, transitions, `order`); every real-match snapshot failed the protocol schema on the wire | M7 protocol (`app.protocol.serialize_server_message`) | fixed, regression test in `tests/transport/test_snapshots.py` |
-| A nuclear carrier on Stop & Defend detonates at the nearest enemy robot at any distance | M5/M6 rule, unspecified | open, `_specs/open-questions.md` §19 |
+| A nuclear carrier on Stop & Defend detonates at the nearest enemy robot at any distance | M5/M6 rule, unspecified | fixed by CR001.1 (#148): autonomous detonation only on Search & Destroy structure arrival, `_specs/open-questions.md` §19 |
 | Construction buffer is snapshotted at entry, so income arriving while the menu is open needs cancel and re-entry | M4 rule (locked) | documented, no change |
-| A robot launched onto the pad/exit cell encloses a grounded commander until it steps aside | M2 data, tied to §18 | documented |
+| A robot launched onto the pad/exit cell encloses a grounded commander until it steps aside | M2 data, tied to §18 | resolved by CR001.6 (#153): the roof pad and the exit are different cells, so a launched robot no longer lands on the commander |

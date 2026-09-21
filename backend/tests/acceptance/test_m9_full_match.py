@@ -28,7 +28,7 @@ from nether_earth.capture import NeutralStructureAcquiredEvent, StructureCapture
 from nether_earth.combat import ProjectileTerminatedEvent, RobotDamagedEvent
 from nether_earth.commands import Command
 from nether_earth.construction_commands import RobotLaunchedEvent
-from nether_earth.destruction import StructureDestroyedEvent
+from nether_earth.destruction import RobotDestroyedEvent, StructureDestroyedEvent
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId
 from nether_earth.map import WorldMap
 from nether_earth.replay import run_from_state
@@ -223,6 +223,12 @@ def test_committed_fixture_replays_deterministically_without_the_script(world: W
     assert any(e.hit_robot_id is None for e in by_type[ProjectileTerminatedEvent])  # structure shot
     assert any(e.entity_id == P1_STRIKER for e in by_type[RobotDamagedEvent])
     assert [e.structure_id for e in by_type[StructureDestroyedEvent]] == [EntityId("warbase-4")]
+    # CR001 §19: no autonomous detonation. The only robot losses are the striker
+    # and the guard, both in the single directly fired blast that destroys warbase-4.
+    blast_tick = by_type[StructureDestroyedEvent][0].tick
+    destroyed = by_type[RobotDestroyedEvent]
+    assert {e.entity_id for e in destroyed} == {P1_STRIKER, P2_GUARD}
+    assert all(e.tick == blast_tick for e in destroyed)
     victories = by_type[VictoryEvent]
     assert len(victories) == 1 and victories[0].winner == PLAYER_ONE
     assert victories[0].tick == meta["final_tick"]
