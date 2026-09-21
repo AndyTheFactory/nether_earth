@@ -37,9 +37,10 @@ src/net/client.ts        GameClient interface; WebSocketClient + RecordingClient
 src/net/commands.ts      CommandSender: generated envelopes, clientSequence
 src/input/keyboard.ts    key state → explicit move/vertical/action intents; focus loss releases
 src/app/controller.ts    intents + menu actions → protocol commands; live/fixture modes; reconnect
-src/render/projection.ts 2:1 dimetric world→screen, one definition
+src/render/projection.ts Spectrum-orientation world→screen, depth key and zoom, one definition
 src/render/interpolation.ts visual-only interpolation over engine transition records
-src/render/renderer.ts   PixiJS layers: terrain, structures, entities, projectiles, effects, overlay
+src/render/renderer.ts   PixiJS layers: terrain, one depth-sorted scene (structures, units, shots), effects, overlay
+src/render/surface.ts    surface height under a footprint (roofs, heli-pad) for shadows
 src/render/assets.ts     semantic-id asset pipeline with explicit placeholders
 src/ui/*.ts              plain-DOM lobby, HUD, construction/robot/combat menus, overlays
 src/fixtures/index.ts    typed recorded message streams; validated against protocol schemas in tests
@@ -68,7 +69,7 @@ src/generated/maps/*.json map YAML converted by scripts/generate-map.mjs (format
 rising, docked commander, construction (mixed spending, rejection, cancel,
 launch), robot orders/navigation/capture, combat/projectiles/destruction/
 nuclear, lobby waiting, paused, reconnect resync, victory, loss, forfeit,
-no-contest. Every message validates against `protocol/schemas` in
+no-contest, occlusion behind a war base, roof/heli-pad shadows. Every message validates against `protocol/schemas` in
 `fixtures.test.ts`, so a fixture screen and a live screen consume identical
 message shapes.
 
@@ -81,7 +82,14 @@ recorded from the engine; the schema test is what keeps them aligned.
 entries render as procedural Spectrum-palette prisms (see
 `public/assets/README.md` for provenance rules). Presentation conventions:
 
-- 2:1 dimetric projection, +x down-right, +y down-left, 4 px per height unit.
+- Spectrum orientation (`_specs/milestones/cr002/main-screen.png`): the map
+  runs lower-left to upper-right; one cell step is (8,-4) px along +x and
+  (4,8) px along +y, 1 px per height unit, in Spectrum pixels.
+- Zoom: the shorter side of the view shows `VIEW_SPAN_PX` (168) Spectrum
+  pixels, the original's play-window size; the one tunable in `projection.ts`.
+- Structures, scenery, robots, commanders and projectiles share one painter's
+  order, so units behind a block are hidden by it. Shadows land on the
+  surface under them (ground, roof, heli-pad).
 - Ownership: p1 cyan, p2 magenta, neutral white. Factories are yellow with a
   type label; destroyed structures collapse to a dark 1-unit slab.
 - Robot stacks draw the snapshot's `stack` array bottom-up in the order the
@@ -90,8 +98,8 @@ entries render as procedural Spectrum-palette prisms (see
 - Camera follows the local commander (or its docked robot). `G` toggles the
   debug grid, interaction points and capture-progress overlay.
 
-Known presentation limits (not gameplay): entities always draw above static
-structures (no cross-layer occlusion), and there is no real art yet.
+Known presentation limits (not gameplay): text labels (strength, structure
+names) draw above the scene, and there is no real art yet.
 
 ## Live check status
 
