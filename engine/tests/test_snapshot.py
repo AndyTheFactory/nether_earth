@@ -314,10 +314,12 @@ def test_robot_snapshot_includes_order_key_defaulting_to_none() -> None:
         "order",
         "active_projectile_id",
         "strength",
+        "last_fire_tick",
     ]
     assert entry["order"] is None
     assert entry["active_projectile_id"] is None
     assert entry["strength"] == 100
+    assert entry["last_fire_tick"] is None
 
 
 def test_robot_snapshot_serializes_active_projectile_id_when_set() -> None:

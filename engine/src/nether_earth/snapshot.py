@@ -324,6 +324,9 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     damage is per-robot authoritative state, so a snapshot that dropped it
     could not distinguish an undamaged robot from one a hit away from
     destruction.
+
+    Extended again by CR002.2 (#169) with ``last_fire_tick``, appended last:
+    it gates the one-shot-per-game-cycle fire rule.
     """
     return {
         "entity_id": robot.entity_id.to_json(),
@@ -341,6 +344,7 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
             else None
         ),
         "strength": robot.strength,
+        "last_fire_tick": robot.last_fire_tick,
     }
 
 
@@ -388,6 +392,7 @@ def _projectile_snapshot(projectile: Projectile) -> dict[str, Any]:
         "travelled_cells": projectile.travelled_cells,
         "max_range_cells": projectile.max_range_cells,
         "created_tick": projectile.created_tick,
+        "first_advance_tick": projectile.first_advance_tick,
     }
 
 

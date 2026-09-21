@@ -140,11 +140,13 @@ def east_of(x: int) -> int:
 
 
 # `apply_fire`'s projectile-lifecycle documentation (see `combat.py`): a
-# projectile fired at a tick strictly before the first cadence tick (i.e.
-# `fire_tick < ADVANCE`) has its first advance at cadence tick `ADVANCE * 1`,
-# and cadence `k` occurs at tick `ADVANCE * k`, giving `travelled_cells ==
-# k * CELLS_PER_ADVANCE` at that tick (capped at the range). Range exhaustion is detected one cadence tick *after*
-# `travelled_cells` first reaches `max_range_cells` (see
+# projectile makes its first move on the fire tick itself (CR002.2 #169).
+# Every shot below is a direct (combat-mode) FireCommand, which is then held
+# for the rest of its fire cycle (§8), so with `fire_tick < ADVANCE` its
+# next move is at cadence tick `2 * ADVANCE`, and cadence `k >= 2` occurs at
+# tick `ADVANCE * k`, giving `travelled_cells == k * CELLS_PER_ADVANCE` at
+# that tick (capped at the range). Range exhaustion is detected one cadence
+# tick *after* `travelled_cells` first reaches `max_range_cells` (see
 # `combat._range_exhausted`'s docstring: the final in-range cell is still
 # collision-checked on arrival, so expiry is deferred one more cadence).
 # Every fire command below is issued at FIRE_TICK, chosen `< ADVANCE` so
@@ -153,13 +155,22 @@ FIRE_TICK = 1
 assert FIRE_TICK < ADVANCE
 
 
-def _advances_to_cover(distance_cells: int) -> int:
+def _moves_to_cover(distance_cells: int) -> int:
     return -(-distance_cells // CELLS_PER_ADVANCE)
 
 
+def _move_tick(move: int) -> int:
+    """Return the tick of a direct ``FIRE_TICK`` shot's 1-based ``move``.
+
+    The first move is on the fire tick; the fire cycle's closing cadence
+    tick is skipped for a direct shot, so move ``m >= 2`` is at ``ADVANCE * m``.
+    """
+    return FIRE_TICK if move == 1 else ADVANCE * move
+
+
 def range_exhaustion_tick(max_range_cells: int) -> int:
-    """Return the tick a projectile fired at ``FIRE_TICK`` exhausts ``max_range_cells``."""
-    return ADVANCE * (_advances_to_cover(max_range_cells) + 1)
+    """Return the tick a direct shot fired at ``FIRE_TICK`` exhausts ``max_range_cells``."""
+    return _move_tick(_moves_to_cover(max_range_cells)) + ADVANCE
 
 
 def static_collision_tick(distance_cells: int) -> int:
@@ -170,7 +181,7 @@ def static_collision_tick(distance_cells: int) -> int:
     extra deferred cadence tick (see `combat._projectile_terminal_reason`'s
     docstring).
     """
-    return ADVANCE * _advances_to_cover(distance_cells)
+    return _move_tick(_moves_to_cover(distance_cells))
 
 
 TOTAL_TICKS = 136  # ample margin past every lane (Lane D3 ends at tick 32)
@@ -548,7 +559,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert b_terminated[0].reason is ProjectileTerminationReason.ROBOT_HIT
     assert b_terminated[0].hit_robot_id == ROBOT_B_TARGET
     assert b_terminated[0].tick == b_hit_tick == 8
-    b_damaged = [e for e in damaged if e.owner == PLAYER_TWO and e.tick == b_hit_tick]
+    b_damaged = [e for e in damaged if e.entity_id == ROBOT_B_TARGET and e.tick == b_hit_tick]
     assert len(b_damaged) == 1
     b_target_height = states[FIRE_TICK].robot_for(ROBOT_B_TARGET).height  # type: ignore[union-attr]
     assert b_damaged[0].damage == (60 - (b_target_height + 0)) // 4 * CANNON_MULT  # bare-terrain formula
@@ -569,7 +580,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert projectile_right_after_fire is not None
     assert projectile_right_after_fire.z == ALTITUDE == 10
     c_expected_tick = range_exhaustion_tick(PHASER_RANGE)
-    assert c_expected_tick == 24  # 4 * (10 / 2 + 1), shown explicitly for readability
+    assert c_expected_tick == 24  # 5th move at 4 * 5, expiry one cadence later
     c_terminated = _fired_by(terminated, ROBOT_C_SHOOTER)
     assert len(c_terminated) == 1
     assert c_terminated[0].tick == c_expected_tick
@@ -585,7 +596,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     # ---------------------------------------------------------------
     d2_distance = D2_BLOCKER_X - D2_SHOOTER_X  # 5
     d2_expected_tick = static_collision_tick(d2_distance)
-    assert d2_expected_tick == 12  # 4 * ceil(5 / 2)
+    assert d2_expected_tick == 12  # 3rd move (fire tick, 8, 12): ceil(5 / 2) moves
     d2_terminated = _fired_by(terminated, ROBOT_D2_SHOOTER)
     assert len(d2_terminated) == 1
     assert d2_terminated[0].tick == d2_expected_tick
@@ -611,7 +622,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert projectile_at_blocker_tick is not None
     assert projectile_at_blocker_tick.x >= D3_BLOCKER_X  # already at/past the low blocker
     d3_expected_tick = range_exhaustion_tick(MISSILE_RANGE)
-    assert d3_expected_tick == 32  # 4 * (14 / 2 + 1)
+    assert d3_expected_tick == 32  # 7th move at 4 * 7, expiry one cadence later
     d3_terminated = _fired_by(terminated, ROBOT_D3_SHOOTER)
     assert len(d3_terminated) == 1
     assert d3_terminated[0].tick == d3_expected_tick
@@ -772,7 +783,8 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     mid_flight_snapshot = json.loads(snapshot_to_json_string(states[SNAPSHOT_TICK]))
     projectile_entries = {p["id"]: p for p in mid_flight_snapshot["projectiles"]}
     c_entry = projectile_entries[c_projectile_id.to_json()]
-    expected_travelled = SNAPSHOT_TICK // ADVANCE * CELLS_PER_ADVANCE  # cadence ticks so far
+    # The fire-tick move, then one move per cadence tick from 2 * ADVANCE on.
+    expected_travelled = SNAPSHOT_TICK // ADVANCE * CELLS_PER_ADVANCE
     assert c_entry["weapon"] == ModuleIdentity.PHASER.value
     assert c_entry["x"] == 10 + expected_travelled
     assert c_entry["y"] == C_Y

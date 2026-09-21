@@ -459,6 +459,7 @@ export interface SnapshotState {
     } | null;
     active_projectile_id: string | null;
     strength: number;
+    last_fire_tick: number | null;
   }[];
   structure_ownership: {
     /**
@@ -534,6 +535,7 @@ export interface SnapshotState {
     travelled_cells: number;
     max_range_cells: number;
     created_tick: number;
+    first_advance_tick: number;
   }[];
   structure_destruction: string[];
 }

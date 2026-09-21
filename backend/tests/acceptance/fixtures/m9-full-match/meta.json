@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "rules_version": "cr001",
-  "rules_hash": "94de8caaa43340d8e6d992a93e27fe864ec78df61f18d356a3e5443df5b8490f",
-  "match_id": "3bdef09af31e439ea393852bc0b9006e",
+  "rules_hash": "0a599027daae06c52cc396b6c77314a62f53317fbedd108b85cc66b5bba0188e",
+  "match_id": "dbd14717e2ad4cbeb28d8eb3e5bafc1c",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -13,9 +13,9 @@
     "p1": "alice",
     "p2": "bob"
   },
-  "created_at_epoch_ms": 1789997569493,
+  "created_at_epoch_ms": 1790005163477,
   "status": "finished",
-  "finished_at_epoch_ms": 1789997602178,
+  "finished_at_epoch_ms": 1790005195586,
   "final_tick": 22703,
   "result": {
     "outcome": "victory",
@@ -108,7 +108,8 @@
           "kind": "stop_and_defend"
         },
         "active_projectile_id": null,
-        "strength": 100
+        "strength": 100,
+        "last_fire_tick": null
       }
     ],
     "structure_ownership": [

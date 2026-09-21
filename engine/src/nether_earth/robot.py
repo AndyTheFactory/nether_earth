@@ -206,6 +206,7 @@ class Robot:
     order: Order | None = None
     active_projectile_id: EntityId | None = None
     strength: int = 100
+    last_fire_tick: int | None = None
 
     def __post_init__(self) -> None:
         if self.height <= 0:
