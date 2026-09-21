@@ -38,9 +38,13 @@ export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonl
   return z;
 }
 
-export function drawCommander(g: Graphics, x: number, y: number, altitude: number, owner: string, height = 4): void {
-  // ground shadow so altitude reads against the terrain
-  drawDiamond(g, x, y, 0x000000, 0.35);
+/**
+ * `surfaceZ` is the top of whatever lies under the commander (ground,
+ * structure roof, heli-pad; see surface.ts): its shadow is drawn there so
+ * altitude reads against the surface. No shadow when resting on it.
+ */
+export function drawCommander(g: Graphics, x: number, y: number, altitude: number, owner: string, surfaceZ = 0, height = 4): void {
+  if (altitude > surfaceZ) drawDiamond(g, x, y, 0x000000, 0.35, undefined, surfaceZ);
   drawPrism(g, x, y, altitude, height, colorFor('commander'));
   // ownership pennant on top
   drawPrism(g, x, y, altitude + height, 1, ownerColor(owner));

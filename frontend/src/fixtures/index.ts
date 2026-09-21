@@ -231,6 +231,45 @@ export const FIXTURES: Fixture[] = [
     ],
   },
   {
+    id: 'occlusion',
+    title: 'Occlusion behind a war base (CR002.14)',
+    description: 'One robot walks behind war base 1 (hidden), one stands at its far side (partly hidden), one in front (visible).',
+    playerId: 'p1',
+    messages: [
+      ...intro(),
+      snapshot(
+        base(300, {
+          commanders: [commander('p1', 23, 6, 20), commander('p2', 494, 10, 0)],
+          robots: [
+            robot('robot-6', 'p1', 21, 0, ['bipod', 'cannon'], {
+              movement: { entity_id: 'robot-6', from_x: 20, from_y: 0, to_x: 21, to_y: 0, started_tick: 290, duration_ticks: 16 },
+            }),
+            robot('robot-7', 'p2', 28, 3, ['bipod', 'phaser']),
+            robot('robot-8', 'p1', 21, 10, ['bipod', 'cannon']),
+          ],
+        }),
+      ),
+    ],
+  },
+  {
+    id: 'surface-shadows',
+    title: 'Shadows on roofs and the heli-pad (CR002.15)',
+    description: 'Commander hovering over the heli-pad (shadow on the war-base roof); a shot over a low block (shadow on its top).',
+    playerId: 'p1',
+    messages: [
+      ...intro(),
+      snapshot(
+        base(400, {
+          commanders: [commander('p1', 22, 5, 24), commander('p2', 494, 10, 0)],
+          robots: [robot('robot-10', 'p1', 21, 10, ['bipod', 'cannon'], { active_projectile_id: 'proj-3' })],
+          projectiles: [
+            { id: 'proj-3', owner: 'p1', source_robot_id: 'robot-10', weapon: 'cannon', x: 21, y: 7, z: 10, dx: 0, dy: -1, travelled_cells: 3, max_range_cells: 10, created_tick: 396 },
+          ],
+        }),
+      ),
+    ],
+  },
+  {
     id: 'lifecycle-waiting',
     title: 'Lobby: waiting for opponent (M7)',
     description: 'Match created, join code shown, one player ready.',
