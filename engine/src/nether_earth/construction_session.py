@@ -387,7 +387,6 @@ class SelectModuleRejectionReason(str, Enum):
 
     NO_ACTIVE_SESSION = "no_active_session"
     DUPLICATE_MODULE = "duplicate_module"
-    CHASSIS_ALREADY_SELECTED = "chassis_already_selected"
     ELECTRONICS_ALREADY_SELECTED = "electronics_already_selected"
     WEAPON_CAP_REACHED = "weapon_cap_reached"
     INSUFFICIENT_RESOURCES = "insufficient_resources"
@@ -395,25 +394,41 @@ class SelectModuleRejectionReason(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class SelectModuleResult:
-    """Outcome of :func:`select_module`. Accept/reject shape, mirrors :class:`ConstructionEntryResult`."""
+    """Outcome of :func:`select_module`. Accept/reject shape, mirrors :class:`ConstructionEntryResult`.
+
+    ``removed_chassis`` is set when picking a chassis replaced a fitted one
+    (CR002.20). The Spectrum removes and refunds the old chassis *before*
+    trying to pay for the new one, so a swap whose new chassis is then
+    unaffordable is a rejection that still carries a ``state``: the old
+    chassis removed and refunded, the new one not fitted. That is the only
+    rejection with a ``state``.
+    """
 
     accepted: bool
     state: GameState | None = None
     reason: SelectModuleRejectionReason | None = None
+    removed_chassis: ModuleIdentity | None = None
 
     def __post_init__(self) -> None:
         if self.accepted and (self.state is None or self.reason is not None):
             raise ValueError("an accepted SelectModuleResult must carry a state and no rejection reason")
-        if not self.accepted and (self.state is not None or self.reason is None):
-            raise ValueError("a rejected SelectModuleResult must carry a reason and no state")
+        if not self.accepted and self.reason is None:
+            raise ValueError("a rejected SelectModuleResult must carry a reason")
+        if not self.accepted and (self.state is None) != (self.removed_chassis is None):
+            raise ValueError("a rejected SelectModuleResult carries a state only when it removed a chassis")
 
     @classmethod
-    def accept(cls, state: GameState) -> SelectModuleResult:
-        return cls(accepted=True, state=state, reason=None)
+    def accept(cls, state: GameState, removed_chassis: ModuleIdentity | None = None) -> SelectModuleResult:
+        return cls(accepted=True, state=state, reason=None, removed_chassis=removed_chassis)
 
     @classmethod
-    def reject(cls, reason: SelectModuleRejectionReason) -> SelectModuleResult:
-        return cls(accepted=False, state=None, reason=reason)
+    def reject(
+        cls,
+        reason: SelectModuleRejectionReason,
+        state: GameState | None = None,
+        removed_chassis: ModuleIdentity | None = None,
+    ) -> SelectModuleResult:
+        return cls(accepted=False, state=state, reason=reason, removed_chassis=removed_chassis)
 
 
 def select_module(
@@ -427,18 +442,29 @@ def select_module(
     Validates incrementally against
     :class:`~nether_earth.robot_build.RobotBuild`'s eventual constraints
     (`_specs/functional-spec.md` §11) before spending anything: no
-    duplicate module identity, no second chassis, no second electronics, no
-    more than three weapons. Only once the selection is structurally legal
-    is :func:`~nether_earth.construction_economy.spend_module` called
-    against the session's temporary buffer; an
+    duplicate module identity, no second electronics, no more than three
+    weapons. Only once the selection is structurally legal is
+    :func:`~nether_earth.construction_economy.spend_module` called against
+    the session's temporary buffer; an
     :data:`~nether_earth.construction_economy.SpendRejectionReason.INSUFFICIENT_RESOURCES`
     result from that call is surfaced as
-    :data:`SelectModuleRejectionReason.INSUFFICIENT_RESOURCES` here. Every
-    rejection path leaves ``state`` (and the session within it) completely
-    unchanged -- no partial state change.
+    :data:`SelectModuleRejectionReason.INSUFFICIENT_RESOURCES` here.
+
+    Picking a chassis while another is fitted swaps it (CR002.20), exactly
+    as the Spectrum's ``Lca0f_waiting_for_key_press_loop`` does: the fitted
+    chassis is first refunded into the buffer
+    (``Lcac1_update_resources_buffer_when_removing_a_piece``, i.e.
+    :func:`~nether_earth.construction_economy.refund_module` against the
+    entry snapshot) and removed from the build, then the new chassis is paid
+    for as an ordinary add (``Lca57_construction_add_piece``). If the new
+    chassis is unaffordable even after that refund, the Spectrum beeps
+    (``Lcaac``) *without* restoring the old chassis, so the result is a
+    rejection whose ``state`` has no chassis and the old one refunded (see
+    :class:`SelectModuleResult`). Weapons and electronics are untouched.
+    Every other rejection leaves ``state`` completely unchanged.
 
     Never touches ``state.resource_pools`` (the player's actual pool); only
-    the session's ``buffer``/``build`` are updated on success.
+    the session's ``buffer``/``build`` are updated.
     """
     session = state.construction_session_for(player_id)
     if session is None:
@@ -447,28 +473,44 @@ def select_module(
     build = session.build
     if build.contains(module):
         return SelectModuleResult.reject(SelectModuleRejectionReason.DUPLICATE_MODULE)
-    if module in CHASSIS_MODULES and build.chassis is not None:
-        return SelectModuleResult.reject(SelectModuleRejectionReason.CHASSIS_ALREADY_SELECTED)
     if module in ELECTRONICS_MODULES and build.electronics is not None:
         return SelectModuleResult.reject(SelectModuleRejectionReason.ELECTRONICS_ALREADY_SELECTED)
     if module in WEAPON_MODULES and len(build.weapons) >= 3:
         return SelectModuleResult.reject(SelectModuleRejectionReason.WEAPON_CAP_REACHED)
 
-    spend_result = spend_module(session.buffer, module, rules)
+    buffer = session.buffer
+    removed_chassis = build.chassis if module in CHASSIS_MODULES else None
+    if removed_chassis is not None:
+        pre_construction_amount = session.entry_snapshot.amount(resource_category(removed_chassis))
+        buffer = refund_module(buffer, removed_chassis, rules, pre_construction_amount)
+        build = build.with_module_removed(removed_chassis)
+
+    spend_result = spend_module(buffer, module, rules)
     if not spend_result.accepted:
         assert spend_result.reason is SpendRejectionReason.INSUFFICIENT_RESOURCES
-        return SelectModuleResult.reject(SelectModuleRejectionReason.INSUFFICIENT_RESOURCES)
+        if removed_chassis is None:
+            return SelectModuleResult.reject(SelectModuleRejectionReason.INSUFFICIENT_RESOURCES)
+        return SelectModuleResult.reject(
+            SelectModuleRejectionReason.INSUFFICIENT_RESOURCES,
+            state=_replace_session(state, _with_build(session, build, buffer)),
+            removed_chassis=removed_chassis,
+        )
 
     assert spend_result.pool is not None
-    new_session = ConstructionSession(
+    new_session = _with_build(session, build.with_module_added(module), spend_result.pool)
+    return SelectModuleResult.accept(_replace_session(state, new_session), removed_chassis)
+
+
+def _with_build(session: ConstructionSession, build: BuildInProgress, buffer: ResourcePool) -> ConstructionSession:
+    """Return ``session`` with a new build-in-progress and temporary buffer."""
+    return ConstructionSession(
         player_id=session.player_id,
         war_base_id=session.war_base_id,
         entry_tick=session.entry_tick,
-        build=build.with_module_added(module),
-        buffer=spend_result.pool,
+        build=build,
+        buffer=buffer,
         entry_snapshot=session.entry_snapshot,
     )
-    return SelectModuleResult.accept(_replace_session(state, new_session))
 
 
 class DeselectModuleRejectionReason(str, Enum):

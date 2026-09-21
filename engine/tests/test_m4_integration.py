@@ -374,9 +374,10 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
        all, spending its entire cost from general -- the simpler "zero
        stock" variant, kept alongside missile's partial-stock case for
        contrast.
-    6. A second chassis and a fourth weapon are both attempted and both
-       rejected (invalid build shape) without mutating the session (item 8,
-       first half).
+    6. A fourth weapon is attempted and rejected (invalid build shape)
+       without mutating the session (item 8, first half). A different
+       chassis is then picked, which swaps it (CR002.20), and picking the
+       original back restores the exact same session buffer.
     7. The whole session is cancelled unlaunched; the player's actual
        resource pool is asserted unchanged from its post-production value
        (item 9).
@@ -508,18 +509,30 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
 
     # --- Phase 6: invalid selections are rejected, session untouched -----
     session_before_invalid = state.construction_session_for(PLAYER_ONE)
-    second_chassis = SelectModuleCommand(player=PLAYER_ONE, sequence=6, module=ModuleIdentity.TRACKS)
-    fourth_weapon = SelectModuleCommand(player=PLAYER_ONE, sequence=7, module=ModuleIdentity.NUCLEAR)
-    state, events = step(state, [second_chassis, fourth_weapon], world=world)
+    fourth_weapon = SelectModuleCommand(player=PLAYER_ONE, sequence=6, module=ModuleIdentity.NUCLEAR)
+    state, events = step(state, [fourth_weapon], world=world)
     all_events.extend(events)
     assert not any(isinstance(e, ModuleSelectedEvent) for e in events)
     session_after_invalid = state.construction_session_for(PLAYER_ONE)
     assert session_after_invalid == session_before_invalid
 
+    # Picking another chassis swaps it (CR002.20); swapping back is exact.
+    swap_to_tracks = SelectModuleCommand(player=PLAYER_ONE, sequence=7, module=ModuleIdentity.TRACKS)
+    state, events = step(state, [swap_to_tracks], world=world)
+    all_events.extend(events)
+    session = state.construction_session_for(PLAYER_ONE)
+    assert session is not None
+    assert session.build.chassis == ModuleIdentity.TRACKS
+    assert session.build.weapons == session_before_invalid.build.weapons
+    swap_back = SelectModuleCommand(player=PLAYER_ONE, sequence=8, module=ModuleIdentity.BIPOD)
+    state, events = step(state, [swap_back], world=world)
+    all_events.extend(events)
+    assert state.construction_session_for(PLAYER_ONE) == session_before_invalid
+
     # --- Phase 7: cancel unlaunched, actual resources byte-for-byte same -
     actual_pool_before_cancel = state.resource_pool_for(PLAYER_ONE)
     assert actual_pool_before_cancel == p1_pool_after_production
-    cancel = CancelConstructionCommand(player=PLAYER_ONE, sequence=8)
+    cancel = CancelConstructionCommand(player=PLAYER_ONE, sequence=9)
     state, events = step(state, [cancel], world=world)
     all_events.extend(events)
     cancelled = [e for e in events if isinstance(e, ConstructionCancelledEvent)]
