@@ -192,6 +192,8 @@ The manual's "10/14 miles" weapon ranges equal these cell counts, which shows th
 
 **Settled with no change needed:** there is no separate building collision rule; the generic altitude collision covers buildings.
 
+**Open — first move at fire time (needs an owner decision, not blocking CR001):** `Lb6d6_weapon_fire` makes the bullet's first 2-cell move at fire time. The engine creates the projectile at fire time and makes its first move on the next advance tick (every 4 ticks). The distance travelled is the same either way; only the timing of hits and termination differs, by up to one cycle (4 ticks). CR001.3 (#150) did not scope this. The decision needed is whether to move the first step to the fire tick.
+
 **Still open (research only; not blocking):** the autonomous fire-decision scan (`Lb626_check_directions_with_enemy_robots`) looks 8 cells in each direction, 10 in the facing direction, and 12 facing with electronics, along the robot's lane and the lanes on either side. The engine uses weapon range for engagement. Whether to adopt the scan distances is not decided.
 
 The research history below is kept for provenance.
@@ -699,16 +701,16 @@ i.e. on the roof of the 15-high war-base block. The robot then exits at
 "robot starts 4 positions off the player in the y axis"), which confirms the
 current `*-exit` interaction points.
 
-The engine's locked M3 landing rule (`heli_pad.py`: altitude ==
-`commander_min_altitude` on a heli-pad footprint cell) cannot express a
-roof-top pad, and the M2 data keeps the `*-helipad` points as ground-level
-placeholders at the anchor cell. Options for the owner:
+Before CR001, the M3 landing rule (`heli_pad.py`: altitude ==
+`commander_min_altitude` on a heli-pad footprint cell) could not express a
+roof-top pad, and the M2 data kept the `*-helipad` points as ground-level
+placeholders at the anchor cell. Options that were put to the owner:
 
-1. keep the ground-level pad at the anchor cell (current, playable; deviates from the original);
+1. keep the ground-level pad at the anchor cell (the pre-CR001 data; playable, but deviates from the original);
 2. move the pad to (anchor.x, anchor.y − 4) and extend the M3 landing rule to "altitude equals the pad cell's component height" (fidelity-correct; M3 rule + M2 data change).
 
-Until decided, M9 acceptance uses option 1 as-is and does not treat pad
-placement as verified.
+The owner chose option 2 (see Resolution above). CR001.6 (#153) implemented
+it; the M9 acceptance script and the live two-client check land on the roof pad.
 
 ## 19. Autonomous use of the nuclear weapon — RESOLVED (CR001, owner decision 2026-09-21)
 
@@ -722,9 +724,9 @@ Stop & Defend, Destroy robots, Advance, Retreat, and Capture never detonate. `La
 Engine consequence: nuclear must be removed from the generic autonomous weapon walk (`autonomous_combat.py`). Detonation becomes an order-completion effect of Search & Destroy against a structure.
 
 
-Found by the M9.4 scripted match. The spec defines what a detonation does
-(`functional-spec.md` §17.3) but not when an autonomous order uses it. The
-current M5/M6 engine policy composes two rules:
+Research history. Found by the M9.4 scripted match. The spec defined what a
+detonation does (`functional-spec.md` §17.3) but not when an autonomous order
+uses it. Before CR001.1 (#148), the M5/M6 engine policy composed two rules:
 
 - Stop & Defend targets the nearest hostile robot at **any** distance (`orders._defensive_intent`);
 - autonomous fire walks weapons in canonical order (cannon, missile, phaser, nuclear) and nuclear has **no range gate** (`autonomous_combat.py`).
@@ -735,14 +737,16 @@ out of range or its projectile channel is busy. Every completed Advance or
 Retreat and every fallback order becomes Stop & Defend, so this is reachable
 in a normal match and destroys the carrier plus everything within 16 cells.
 
-Options for the owner:
+Options that were put to the owner:
 
 1. autonomous orders never detonate; nuclear is a direct-control decision only;
 2. autonomous detonation only when the target (robot or structure) is within the nuclear radius;
 3. keep the current policy (not recommended: effectively a self-destruct).
 
-M9 does not change the rule. The acceptance script keeps its striker under
-direct control or tolerates the autonomous detonation.
+The owner chose to match the original (see Resolution above). CR001.1 (#148)
+implemented it. The M9 acceptance script no longer tolerates an autonomous
+detonation: it asserts the striker is alive before its direct nuclear fire, and
+the fixture replay asserts that the only robot losses happen in that one blast.
 
 ## 20. Nuclear blast shape — RESOLVED (CR001, owner decision 2026-09-21)
 
@@ -759,6 +763,12 @@ Found while researching §19. The earlier locked "8 miles = 16 cells, destroys e
 
 1. **Combat detail**: exact accuracy, rounding, strength, and electronics modifiers (#9).
 2. **Autonomous fire-decision scan**: the 8/10/12-cell scan distances (§8), not yet decided.
+
+These are research items. Two owner decisions found during CR001 are also
+pending. They need no more research, and neither blocks CR001:
+
+- **Scenery blockers** (§4): whether the decoded boxes and walls (element types 17, 18, 21) become map `blockers`.
+- **First projectile move at fire time** (§8): whether the engine moves a new projectile on the fire tick, as the Spectrum does.
 
 ## Resolution process
 

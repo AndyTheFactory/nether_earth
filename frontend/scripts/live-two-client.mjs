@@ -1,7 +1,7 @@
 // M8.11/M9.7 live two-client check against a real backend over the shared protocol.
 // Usage: NE_WS_URL=ws://localhost:8010/ws node scripts/live-two-client.mjs
 // Exercises: create/join/ready/start, commander input reflected in snapshots,
-// construction + order command submission, disconnect → paused, reconnect →
+// construction + order command submission, projectile speed/range (CR001 §8), disconnect → paused, reconnect →
 // resync + resumed, and client-state/server-snapshot equality (no divergence).
 const URL = process.env.NE_WS_URL ?? 'ws://localhost:8010/ws';
 const V = 1;
@@ -142,6 +142,16 @@ async function main() {
   a.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon: 'cannon', targetX: robot.x + 5, targetY: robot.y });
   await a.wait((m) => m.type === 'snapshot' && a.latest.projectiles.length === 1, 5000, 'projectile fired');
   check('direct fire produces an authoritative projectile', a.latest.projectiles[0].source_robot_id === robot.entity_id);
+  // CR001 §8: a projectile moves 2 cells per advance; a cannon without electronics ranges 10 cells.
+  const shot = a.latest.projectiles[0];
+  const shotNow = () => a.latest.projectiles.find((p) => p.id === shot.id);
+  await a.wait((m) => m.type === 'snapshot' && (!shotNow() || shotNow().travelled_cells > shot.travelled_cells), 5000, 'projectile advanced');
+  const moved = shotNow();
+  check(
+    'projectile advances 2 cells per advance with cannon range 10',
+    moved !== undefined && shot.max_range_cells === 10 && moved.travelled_cells - shot.travelled_cells === 2 && Math.abs(moved.x - shot.x) + Math.abs(moved.y - shot.y) === 2,
+    moved ? `range ${shot.max_range_cells}, (${shot.x}, ${shot.y}) → (${moved.x}, ${moved.y}) at tick ${a.latest.tick}` : 'projectile terminated before its next advance',
+  );
   await sleep(200);
   check('commander/construction/order/fire commands accepted by protocol (no error frame)', a.inbox.filter((m) => m.type === 'error').length === errorsBefore);
 

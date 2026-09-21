@@ -32,8 +32,12 @@ are reachable along normal terrain, and the two neutral interior bases are
 capturable. The two deviations (pad placement; missing terrain/scenery)
 make the game *more* permissive than the original, never less.
 
+CR001 update: the pad is on the roof and the terrain is decoded. The only
+remaining deviation is that scenery boxes and walls are not blockers, which
+needs an owner decision (open-questions §4).
+
 ## Corrections routed to owners (not patched in M9)
 
-1. **M3 + M2 data** — roof-top heli-pad and altitude-15 landing (open-questions §18).
-2. **M2 data** — terrain and scenery decode (already listed in the M2 evidence doc "Unknown / not attempted").
-3. **Scenario data** — Player 2 spawn convention confirmation (open-questions §17).
+1. **M3 + M2 data** — roof-top heli-pad and altitude-15 landing (open-questions §18). Done in CR001.6 (#153).
+2. **M2 data** — terrain and scenery decode (already listed in the M2 evidence doc "Unknown / not attempted"). Terrain done in CR001.5 (#152). Scenery blockers are pending an owner decision (open-questions §4).
+3. **Scenario data** — Player 2 spawn convention confirmation (open-questions §17). Locked in CR001.7 (#154).

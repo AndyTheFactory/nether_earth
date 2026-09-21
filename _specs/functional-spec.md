@@ -400,7 +400,7 @@ A robot can have only one active normal projectile channel; it cannot fire anoth
 
 All normal projectiles use Spectrum default flight altitude **10**, independent of robot height and weapon type.
 
-Exact projectile speed, tick cadence, collision profile, and termination behavior remain fidelity research items and must be authoritative world/game rules, not browser viewport rules.
+Projectile speed, cadence, and range are resolved from the Spectrum code (`open-questions.md` §8): a projectile advances 2 cells every 4 ticks (one Spectrum game cycle) and travels 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Buildings use the generic altitude collision; there is no separate building rule. Whether the first move happens at fire time, as in the Spectrum, or on the next advance tick is an open owner decision (`open-questions.md` §8). Projectile behavior is an authoritative world/game rule, not a browser viewport rule.
 
 ### 17.2 Damage
 
@@ -456,5 +456,7 @@ Only these substantive areas remain unresolved:
 2. the autonomous fire-decision scan distance (the Spectrum scans 8 cells, 10 in the facing direction, 12 with electronics; see `open-questions.md` §8).
 
 Movement timing (§4) and projectile speed/range/lifetime (§8) are resolved.
+
+Two owner decisions are also pending: whether the decoded scenery boxes and walls become movement blockers (`open-questions.md` §4), and whether a projectile makes its first move on the fire tick (`open-questions.md` §8).
 
 Until verified, these values/algorithms must remain isolated and configurable rather than silently guessed.
