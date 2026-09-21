@@ -184,9 +184,25 @@ actually gates projectile range/termination; see `combat.py`'s
 :func:`~nether_earth.combat.advance_projectiles`.)
 """
 
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import asdict, dataclass
 
-__all__ = ["CELLS_PER_MILE", "DEFAULT_RULES", "EngineRules", "miles_to_cells"]
+__all__ = [
+    "CELLS_PER_MILE",
+    "DEFAULT_RULES",
+    "RULES_VERSION",
+    "EngineRules",
+    "miles_to_cells",
+    "rules_content_hash",
+]
+
+#: Version of the engine's gameplay rules, recorded in every replay artifact.
+#: Bump it whenever a rule change (an ``EngineRules`` value or rule logic)
+#: makes older replays non-reproducible. ``rules_content_hash`` catches
+#: ``EngineRules`` value changes on its own; logic changes are caught only by
+#: this bump.
+RULES_VERSION = "cr001"
 
 
 #: How many grid cells one in-game *mile* spans.
@@ -536,3 +552,14 @@ class EngineRules:
 #: ``EngineRules()`` copies, so a single object identity represents "the
 #: default rules" wherever it is passed around.
 DEFAULT_RULES = EngineRules()
+
+
+def rules_content_hash(rules: EngineRules = DEFAULT_RULES) -> str:
+    """Return the SHA-256 hex digest of ``rules`` as canonical JSON.
+
+    Canonical form: every field, keys sorted, no whitespace. Deterministic
+    across processes and platforms, so a replay can record it and a verifier
+    can compare it against the running engine's rules.
+    """
+    canonical = json.dumps(asdict(rules), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

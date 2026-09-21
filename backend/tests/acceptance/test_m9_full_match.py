@@ -40,7 +40,12 @@ from nether_earth.victory import VictoryEvent
 from app.match.models import Match, MatchOutcome, MatchRuntimeState
 from app.match.world import load_standard_world
 from app.protocol import serialize_server_message
-from app.replay.verify import load_commands_by_tick, load_meta, verify_replay
+from app.replay.verify import (
+    ReplayRulesMismatchError,
+    load_commands_by_tick,
+    load_meta,
+    verify_replay,
+)
 from app.transport.snapshots import build_snapshot_message
 from tests.acceptance.m9_script import (
     P1_SCOUT,
@@ -221,3 +226,21 @@ def test_committed_fixture_replays_deterministically_without_the_script(world: W
     victories = by_type[VictoryEvent]
     assert len(victories) == 1 and victories[0].winner == PLAYER_ONE
     assert victories[0].tick == meta["final_tick"]
+
+
+def test_committed_fixture_verifies_against_the_running_engine_rules(world: WorldMap) -> None:
+    result = verify_replay(FIXTURE_DIR, FIXTURE_MATCH, scenario=default_pvp_scenario(), world=world)
+    assert result.matches
+
+
+def test_pre_cr001_fixture_is_rejected_as_a_rules_mismatch(world: WorldMap, tmp_path: Path) -> None:
+    """A fixture with the old backend-owned ``m7`` header fails on rules identity, not divergence."""
+    legacy = tmp_path / FIXTURE_MATCH
+    shutil.copytree(FIXTURE_DIR / FIXTURE_MATCH, legacy)
+    meta = json.loads((legacy / "meta.json").read_text(encoding="utf-8"))
+    meta["rules_version"] = "m7"
+    del meta["rules_hash"]
+    (legacy / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    with pytest.raises(ReplayRulesMismatchError, match="rules version 'm7'"):
+        verify_replay(tmp_path, FIXTURE_MATCH, scenario=default_pvp_scenario(), world=world)
