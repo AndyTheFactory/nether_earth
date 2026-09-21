@@ -122,6 +122,11 @@ M9 complete ─────────────► M10 Hardening, Deployment
 - Change request, spec: `cr002-spectrum-fidelity-ui.md` (reference screenshots in `cr002/`). Start dependency: M10 merged, `v1.0.0-rc1` tagged.
 - Implements the owner decisions of 2026-09-21: scenery blockers, fire-tick projectile move, 2×2 robots/commander/heli-pad, construction-menu fixes, and the Spectrum look and feel (orientation, zoom, fonts, radar, construction screen, flags, occlusion, shadows).
 
+### CR003 — Playtest Fixes
+
+- Change request, spec: `cr003-playtest-fixes.md` (reference image in `cr003/`). Start dependency: CR002 work merged on `main`.
+- Implements the owner decisions of 2026-09-22: faster commander descent, capture orders that keep hunting, Spectrum robot piece heights (fixes Search & Destroy), smooth commander movement, the right-hand robot menu, and the left map-edge wall.
+
 ## Cross-milestone ownership rules
 
 To prevent duplicate logic across milestones:
