@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from nether_earth.autonomous_combat import (
     consume_engagement_intent,
     consume_engagement_intents,
@@ -10,6 +12,7 @@ from nether_earth.combat import FireRequest, ProjectileFiredEvent, apply_fire
 from nether_earth.destruction import RobotDestroyedEvent, StructureDestroyedEvent
 from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
+from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import WorldMap
 from nether_earth.orders import (
     EngagementIntent,
@@ -23,7 +26,7 @@ from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState, create_game_state
-from nether_earth.structures import Component, Factory, FactoryType, WarBase
+from nether_earth.structures import Component, Factory, FactoryType, Footprint, WarBase
 from nether_earth.terrain import TerrainGrid, TerrainType
 
 # --------------------------------------------------------------------------
@@ -190,8 +193,20 @@ def test_search_and_destroy_style_intent_against_structure_with_nuclear_detonate
     robot = _robot(entity_id="carrier", x=10, y=10, weapons=(ModuleIdentity.NUCLEAR,))
     factory = _factory("factory-1", x=12, y=10, owner=PLAYER_TWO)
     state = _state((robot,))
-    world = _world(factories=(factory,))
-    # The carrier stands on its target cell: distance 0 (OQ §19).
+    # The carrier stands on its target cell, the factory's capture cell
+    # (OQ §19), which is also its blast anchor (OQ §20): dx = 0,
+    # dy = |10 + 1 - 10| = 1, in range.
+    world = replace(
+        _world(factories=(factory,)),
+        interaction_points=(
+            InteractionPoint(
+                id="factory-1-capture",
+                kind=InteractionKind.FACTORY_CAPTURE,
+                structure_id=factory.id,
+                footprint=Footprint(cells=frozenset({(10, 10)})),
+            ),
+        ),
+    )
     intent = _intent(
         robot,
         target_kind=EngagementTargetKind.FACTORY,

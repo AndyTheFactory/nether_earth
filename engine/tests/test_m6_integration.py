@@ -7,7 +7,7 @@ projectile altitude/range/collision (static and robot, clear-path and
 obstructed), damage/destruction, direct-control fire, autonomous Search &
 Destroy engagement (proven to share the exact same firing path as direct
 control), commander untargetability, structural immunity of factories/war
-bases to normal weapons, nuclear detonation (radius boundary, deterministic
+bases to normal weapons, nuclear detonation (blast-shape boundary, deterministic
 carrier -> robots -> structures ordering, structure cleanup), and nuclear
 destruction of a player's last war base triggering same-step victory --
 per `_specs/milestones/06-combat-damage-victory.md`'s own "Milestone
@@ -27,10 +27,10 @@ overclaim, every M6 policy choice still flagged non-canonical by Task 3
 (#72) or Task 5 (#74) -- see the milestone's own "Fidelity gate" and
 `_specs/open-questions.md` §8/§9):
 
-- Nuclear-radius eligibility uses simple Manhattan distance
-  (``destruction.py``'s ``_manhattan``/``execute_nuclear_detonation``
-  docstring, issue #78) -- a documented configured policy, not a verified
-  reproduction of the original ZX Spectrum's blast geometry.
+- Nuclear blast eligibility follows the Spectrum code's per-kind shapes
+  (``destruction.py``'s ``execute_nuclear_detonation``, CR001.2 / issue
+  #149, `_specs/open-questions.md` §20): a trimmed 9x9 robot window and a
+  per-kind building range test destroying at most one building.
 - Fire direction is resolved by a dominant-axis-with-x-tiebreak rule
   (``combat.resolve_fire_direction``) because this engine's ``Robot`` has
   no facing field to copy, unlike the original disassembly -- a documented
@@ -116,7 +116,10 @@ CANNON_RANGE = DEFAULT_RULES.cannon_range_cells  # 20
 MISSILE_RANGE = DEFAULT_RULES.missile_range_cells  # 28
 PHASER_RANGE = DEFAULT_RULES.phaser_range_cells  # 20
 ELECTRONICS_BONUS = DEFAULT_RULES.electronics_range_bonus_cells  # 6
-NUCLEAR_RADIUS = DEFAULT_RULES.nuclear_radius_cells  # 16
+#: Half-width of the carrier's own row of the nuclear robot window (9 -> 4).
+NUCLEAR_ROW_REACH = DEFAULT_RULES.nuclear_robot_window_row_widths[
+    len(DEFAULT_RULES.nuclear_robot_window_row_widths) // 2
+] // 2  # 4
 ALTITUDE = DEFAULT_RULES.normal_projectile_altitude  # 10
 CANNON_MULT = DEFAULT_RULES.cannon_damage_multiplier  # 2
 
@@ -209,15 +212,15 @@ ROBOT_H_SHOOTER = EntityId("robot-h-shooter")
 ROBOT_H2_SHOOTER = EntityId("robot-h2-shooter")
 
 ROBOT_I_CARRIER = EntityId("robot-i-carrier")
-ROBOT_I_IN16 = EntityId("robot-i-in16")
-ROBOT_I_OUT17 = EntityId("robot-i-out17")
+ROBOT_I_IN = EntityId("robot-i-in")
+ROBOT_I_OUT = EntityId("robot-i-out")
 
 ROBOT_J_CARRIER = EntityId("robot-j-carrier")
 
 FACTORY_H = EntityId("factory-h")
 WARBASE_H = EntityId("warbase-h")
-FACTORY_I_IN16 = EntityId("factory-i-in16")
-FACTORY_I_OUT17 = EntityId("factory-i-out17")
+FACTORY_I_IN = EntityId("factory-i-in")
+FACTORY_I_OUT = EntityId("factory-i-out")
 WARBASE_J_FINAL = EntityId("warbase-j-final")
 WARBASE_HOME = EntityId("warbase-p1-home")
 
@@ -228,15 +231,17 @@ D3_SHOOTER_X = 10
 D3_BLOCKER_X = 15
 
 # Lane I geometry: everything on the carrier's own row, exactly at the
-# nuclear-radius boundary in each direction.
+# blast-shape boundary in each direction (`_specs/open-questions.md` §20).
 I_CARRIER_X = 100
-I_ROBOT_IN_X = I_CARRIER_X + NUCLEAR_RADIUS  # 116, included
-I_ROBOT_OUT_X = I_CARRIER_X + NUCLEAR_RADIUS + 1  # 117, excluded
-I_FACTORY_IN_X = I_CARRIER_X - NUCLEAR_RADIUS  # 84, included
-I_FACTORY_OUT_X = I_CARRIER_X - NUCLEAR_RADIUS - 1  # 83, excluded
+I_ROBOT_IN_X = I_CARRIER_X + NUCLEAR_ROW_REACH  # 104, included
+I_ROBOT_OUT_X = I_CARRIER_X + NUCLEAR_ROW_REACH + 1  # 105, excluded
+# Factory dy = |I_Y + 1 - I_Y| = 1; dx must stay < 5 (sum then 5 < 7).
+I_FACTORY_IN_X = I_CARRIER_X - 4  # 96, included
+I_FACTORY_OUT_X = I_CARRIER_X - 5  # 95, excluded (dx not < 5)
 
 J_CARRIER_X = 100
-J_WARBASE_X = 110  # 10 cells away, well inside the 16-cell radius
+# War-base dy = |J_Y + 1 + 4 - J_Y| = 5, dx = 4: sum 9 < 10, in range.
+J_WARBASE_X = 104
 
 
 def _robot(
@@ -324,10 +329,10 @@ def _initial_robots() -> tuple[Robot, ...]:
         # Lane H: structural immunity.
         _robot(ROBOT_H_SHOOTER, PLAYER_ONE, 10, H_Y, weapons=(ModuleIdentity.CANNON,)),
         _robot(ROBOT_H2_SHOOTER, PLAYER_ONE, 60, H_Y, weapons=(ModuleIdentity.CANNON,)),
-        # Lane I: nuclear radius boundary.
+        # Lane I: nuclear blast-shape boundary.
         _robot(ROBOT_I_CARRIER, PLAYER_ONE, I_CARRIER_X, I_Y, weapons=(ModuleIdentity.NUCLEAR,)),
-        _hittable(ROBOT_I_IN16, PLAYER_TWO, I_ROBOT_IN_X, I_Y),
-        _hittable(ROBOT_I_OUT17, PLAYER_TWO, I_ROBOT_OUT_X, I_Y),
+        _hittable(ROBOT_I_IN, PLAYER_TWO, I_ROBOT_IN_X, I_Y),
+        _hittable(ROBOT_I_OUT, PLAYER_TWO, I_ROBOT_OUT_X, I_Y),
         # Lane J: victory-triggering nuclear detonation.
         _robot(ROBOT_J_CARRIER, PLAYER_ONE, J_CARRIER_X, J_Y, weapons=(ModuleIdentity.NUCLEAR,)),
     )
@@ -400,7 +405,7 @@ def _commands_by_tick() -> dict[int, tuple[Command, ...]]:
     fire(ROBOT_H_SHOOTER, ModuleIdentity.CANNON, 15, H_Y)  # FACTORY_H's cell
     fire(ROBOT_H2_SHOOTER, ModuleIdentity.CANNON, 65, H_Y)  # WARBASE_H's cell
 
-    # Lane I: nuclear detonation testing the radius boundary.
+    # Lane I: nuclear detonation testing the blast-shape boundary.
     fire(ROBOT_I_CARRIER, ModuleIdentity.NUCLEAR, I_CARRIER_X, I_Y)
 
     # Lane J: nuclear detonation destroying p2's last war base.
@@ -707,20 +712,20 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert all(e.structure_id not in (FACTORY_H, WARBASE_H) for e in structures_destroyed)
 
     # ---------------------------------------------------------------
-    # Lane I: nuclear radius boundary + deterministic ordering.
+    # Lane I: blast-shape boundary + deterministic ordering.
     # ---------------------------------------------------------------
     assert final.robot_for(ROBOT_I_CARRIER) is None  # carrier always destroyed
-    assert final.robot_for(ROBOT_I_IN16) is None  # exactly at the radius: included
-    assert final.robot_for(ROBOT_I_OUT17) is not None  # one cell further: excluded
-    assert FACTORY_I_IN16 in final.structure_destruction
-    assert FACTORY_I_OUT17 not in final.structure_destruction
+    assert final.robot_for(ROBOT_I_IN) is None  # window edge: included
+    assert final.robot_for(ROBOT_I_OUT) is not None  # one cell further: excluded
+    assert FACTORY_I_IN in final.structure_destruction
+    assert FACTORY_I_OUT not in final.structure_destruction
 
     lane_i_tick_events = [e for e in events if getattr(e, "tick", None) == FIRE_TICK]
     lane_i_destroy_events = [
         e
         for e in lane_i_tick_events
-        if (isinstance(e, RobotDestroyedEvent) and e.entity_id in (ROBOT_I_CARRIER, ROBOT_I_IN16))
-        or (isinstance(e, StructureDestroyedEvent) and e.structure_id == FACTORY_I_IN16)
+        if (isinstance(e, RobotDestroyedEvent) and e.entity_id in (ROBOT_I_CARRIER, ROBOT_I_IN))
+        or (isinstance(e, StructureDestroyedEvent) and e.structure_id == FACTORY_I_IN)
     ]
     # Carrier -> robots -> structures, in that fixed order (Task 8's
     # documented `execute_nuclear_detonation` sequence). Note `events` is
@@ -733,7 +738,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     ordered_kinds = [type(e).__name__ for e in lane_i_destroy_events]
     assert ordered_kinds == ["RobotDestroyedEvent", "RobotDestroyedEvent", "StructureDestroyedEvent"]
     assert lane_i_destroy_events[0].entity_id == ROBOT_I_CARRIER  # type: ignore[attr-defined]
-    assert lane_i_destroy_events[1].entity_id == ROBOT_I_IN16  # type: ignore[attr-defined]
+    assert lane_i_destroy_events[1].entity_id == ROBOT_I_IN  # type: ignore[attr-defined]
     sequences = [e.sequence for e in lane_i_destroy_events]
     assert len(set(sequences)) == len(sequences)  # no ties among the three
 

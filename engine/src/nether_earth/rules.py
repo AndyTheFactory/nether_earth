@@ -150,7 +150,8 @@ pairs (``-``) are chassis terrain *legality*, owned by `movement.py`'s
 Issue #70 (M6.1, `_specs/milestones/06-combat-damage-victory.md`, "Locked
 combat rules") adds the nine combat metadata fields: ``cannon_range_cells``,
 ``missile_range_cells``, ``phaser_range_cells``,
-``electronics_range_bonus_cells``, ``nuclear_radius_cells``,
+``electronics_range_bonus_cells``, ``nuclear_radius_cells`` (replaced by
+per-kind blast-shape fields in CR001.2, `_specs/open-questions.md` §20),
 ``normal_projectile_altitude``, ``cannon_damage_multiplier``,
 ``missile_damage_multiplier``, ``phaser_damage_multiplier``. These are the
 canonical locked Spectrum weapon range/effect defaults from the milestone
@@ -193,7 +194,7 @@ __all__ = ["CELLS_PER_MILE", "DEFAULT_RULES", "EngineRules", "miles_to_cells"]
 #:
 #: `_specs/open-questions.md` §3 locks this as a resolved rule: "1 mile = 2
 #: cells". Every spec-facing distance in this game is stated in miles
-#: (``Advance 0-50 miles``, weapon ranges, the nuclear blast radius) while
+#: (``Advance 0-50 miles``, weapon ranges, the former nuclear blast radius) while
 #: every engine-facing distance is stated in cells, so the conversion is
 #: needed by more than one subsystem. §3 requires it to exist exactly once
 #: in shared game-rule/helper code -- this module -- rather than being
@@ -335,10 +336,22 @@ class EngineRules:
       by an electronics module when fitted, in grid cells (issue #70, M6.1).
       Locked Spectrum default: 3 miles = 6 cells. This is a nominal bonus;
       exact electronics accuracy and resistance mechanics remain research-owned.
-    - ``nuclear_radius_cells``: the blast radius of a nuclear detonation,
-      in grid cells (issue #70, M6.1). Locked Spectrum default: 8 miles =
-      16 cells. All robots and structures within this radius of the
-      detonation point are destroyed; the carrier robot is always destroyed.
+    - Nuclear blast shape (CR001.2, issue #149, `_specs/open-questions.md`
+      §20, from `Lb99f_fire_nuclear_bomb`), replacing the former uniform
+      ``nuclear_radius_cells``:
+
+      - ``nuclear_robot_window_row_widths``: row widths, top to bottom, of
+        the carrier-centred robot window; default ``(5, 7, 9, 9, 9, 9, 9, 7,
+        5)`` (the 9x9 ``ld bc, #0909`` window with trimmed corner rows).
+        Every robot inside it, of either side, is destroyed.
+      - ``nuclear_building_dy_offset`` (``1``, the code's ``inc a``) and
+        ``nuclear_war_base_extra_dy_offset`` (``4``, ``add a, 4``): added to
+        the carrier's y before measuring dy to a building anchor.
+      - ``nuclear_war_base_axis_limit`` / ``nuclear_war_base_sum_limit``
+        (``7`` / ``10``, ``ld de, #070a``) and ``nuclear_factory_axis_limit``
+        / ``nuclear_factory_sum_limit`` (``5`` / ``7``, ``ld de, #0507``):
+        a building is in range when ``dx < axis``, ``dy < axis`` and
+        ``dx + dy < sum`` (all exclusive). At most one building is destroyed.
     - ``normal_projectile_altitude``: the fixed altitude at which normal
       (cannon/missile/phaser) projectiles travel, in the same altitude units
       as the commander vertical envelope (issue #70, M6.1). Locked Spectrum
@@ -408,7 +421,13 @@ class EngineRules:
     missile_range_cells: int = miles_to_cells(14)
     phaser_range_cells: int = miles_to_cells(10)
     electronics_range_bonus_cells: int = miles_to_cells(3)
-    nuclear_radius_cells: int = miles_to_cells(8)
+    nuclear_robot_window_row_widths: tuple[int, ...] = (5, 7, 9, 9, 9, 9, 9, 7, 5)
+    nuclear_building_dy_offset: int = 1
+    nuclear_war_base_extra_dy_offset: int = 4
+    nuclear_war_base_axis_limit: int = 7
+    nuclear_war_base_sum_limit: int = 10
+    nuclear_factory_axis_limit: int = 5
+    nuclear_factory_sum_limit: int = 7
     normal_projectile_altitude: int = 10
     cannon_damage_multiplier: int = 2
     missile_damage_multiplier: int = 3
@@ -482,7 +501,10 @@ class EngineRules:
             "missile_range_cells",
             "phaser_range_cells",
             "electronics_range_bonus_cells",
-            "nuclear_radius_cells",
+            "nuclear_war_base_axis_limit",
+            "nuclear_war_base_sum_limit",
+            "nuclear_factory_axis_limit",
+            "nuclear_factory_sum_limit",
             "normal_projectile_altitude",
             "cannon_damage_multiplier",
             "missile_damage_multiplier",
@@ -492,6 +514,13 @@ class EngineRules:
                 raise ValueError(f"{field_name} must be a positive integer")
         if self.projectile_advance_ticks <= 0:
             raise ValueError("projectile_advance_ticks must be a positive integer")
+        widths = self.nuclear_robot_window_row_widths
+        if len(widths) % 2 == 0 or any(width <= 0 or width % 2 == 0 for width in widths):
+            raise ValueError(
+                "nuclear_robot_window_row_widths must be an odd number of positive odd widths"
+            )
+        if self.nuclear_building_dy_offset < 0 or self.nuclear_war_base_extra_dy_offset < 0:
+            raise ValueError("nuclear building dy offsets must be non-negative")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

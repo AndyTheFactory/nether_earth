@@ -56,18 +56,22 @@ WAR_BASE_TWO = EntityId("warbase-p2")
 NEUTRAL_WAR_BASE = EntityId("warbase-neutral")
 FACTORY_ONE = EntityId("factory-p1")
 
-#: Far from every war base, so a nuclear detonation here destroys nothing
-#: structural and cannot incidentally trigger the victory condition.
+#: Far from every war base, the firefight zone for normal-weapon tests.
 QUIET_X, QUIET_Y = 30, 30
 
-#: `DEFAULT_RULES.nuclear_radius_cells` is 16 cells, so both war bases sit
-#: well outside a blast centred on the quiet zone -- while the factory, 10
-#: cells away, sits inside it. The factory is deliberately off the ``y ==
-#: QUIET_Y`` firing row: standing on a structure raises the damage formula's
-#: ``ground_height`` term, which would silently change every expected
-#: damage number in this module.
+#: The factory is deliberately off the ``y == QUIET_Y`` firing row: standing
+#: on a structure raises the damage formula's ``ground_height`` term, which
+#: would silently change every expected damage number in this module. Its
+#: capture cell is also its nuclear-blast anchor (`_specs/open-questions.md`
+#: §20).
 FACTORY_CELL = (25, 25)
 FACTORY_CAPTURE_CELL = (26, 25)
+
+#: Nuclear detonation point near the factory: factory dx = |28 - 26| = 2,
+#: dy = |26 + 1 - 25| = 2 (in range: < 5 each, sum < 7), and both war bases
+#: are far outside their shape -- so a blast here destroys only the factory
+#: and cannot trigger the victory condition.
+NUKE_X, NUKE_Y = 28, 26
 
 CANNON_DAMAGE = 24
 ADVANCE = DEFAULT_RULES.projectile_advance_ticks
@@ -114,6 +118,11 @@ def _world(
         ),
         blockers=(),
         interaction_points=(
+            # Each home war base's capture point sits on its own (occupied)
+            # component cell: unreachable for capture, but it gives the base
+            # its nuclear-blast anchor (`_specs/open-questions.md` §20).
+            _war_base_anchor(WAR_BASE_ONE, (0, 0)),
+            _war_base_anchor(WAR_BASE_TWO, (SIZE - 1, SIZE - 1)),
             InteractionPoint(
                 id="factory-p1-capture",
                 kind=InteractionKind.FACTORY_CAPTURE,
@@ -123,6 +132,15 @@ def _world(
             *extra_interaction_points,
         ),
         spawn_positions={},
+    )
+
+
+def _war_base_anchor(war_base_id: EntityId, cell: tuple[int, int]) -> InteractionPoint:
+    return InteractionPoint(
+        id=f"{war_base_id.value}-capture",
+        kind=InteractionKind.WARBASE_CAPTURE,
+        structure_id=war_base_id,
+        footprint=Footprint(cells=frozenset({cell})),
     )
 
 
@@ -309,8 +327,8 @@ def test_a_lethal_hit_destroys_the_target_robot_through_engine_step() -> None:
 
 def test_nuclear_fire_command_detonates_within_the_single_step_that_processed_it() -> None:
     world = _world()
-    carrier = _nuke_carrier("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
-    bystander = _gunner("robot-z", PLAYER_TWO, QUIET_X + 2, QUIET_Y)
+    carrier = _nuke_carrier("robot-a", PLAYER_ONE, NUKE_X, NUKE_Y)
+    bystander = _gunner("robot-z", PLAYER_TWO, NUKE_X + 2, NUKE_Y)
     far_away = _gunner("robot-y", PLAYER_TWO, 0, 0)
     state = _state((carrier, bystander, far_away))
 
@@ -319,8 +337,8 @@ def test_nuclear_fire_command_detonates_within_the_single_step_that_processed_it
         sequence=0,
         entity_id=carrier.entity_id,
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=QUIET_X + 2,
-        target_y=QUIET_Y,
+        target_x=NUKE_X + 2,
+        target_y=NUKE_Y,
     )
     state, events = step(state, [command], world=world)
 
@@ -328,7 +346,7 @@ def test_nuclear_fire_command_detonates_within_the_single_step_that_processed_it
     assert destroyed_ids == {carrier.entity_id, bystander.entity_id}
     assert state.robot_for(carrier.entity_id) is None
     assert state.robot_for(bystander.entity_id) is None
-    # Outside the 16-cell radius, untouched.
+    # Outside the 9x9 robot window, untouched.
     assert state.robot_for(far_away.entity_id) is not None
 
     structures = _of(events, StructureDestroyedEvent)
@@ -369,9 +387,10 @@ def test_nuclear_destruction_of_the_last_war_base_produces_victory_in_the_same_t
 
 
 def _p1_second_war_base() -> WarBase:
-    """A second PLAYER_ONE war base, >16 cells from WAR_BASE_ONE at (0, 0).
+    """A second PLAYER_ONE war base, 20 cells from WAR_BASE_ONE at (0, 0).
 
-    Far enough that one nuclear blast cannot take both: the duplicate-victory
+    Far enough that one nuclear blast cannot take both (and a blast destroys
+    at most one building anyway): the duplicate-victory
     scenarios below need PLAYER_ONE to still own *one* war base after the
     second detonation, so the victory condition stays satisfied at more than
     one check site in the same tick.
@@ -392,7 +411,10 @@ def test_two_nuclear_fire_commands_in_one_tick_emit_exactly_one_victory_event() 
     # guard this tick announces the match result twice (issue #79:
     # "repeated/redundant evaluation does not emit duplicate match-result
     # events").
-    world = _world(extra_war_bases=(_p1_second_war_base(),))
+    world = _world(
+        extra_war_bases=(_p1_second_war_base(),),
+        extra_interaction_points=(_war_base_anchor(WAR_BASE_ONE_B, (20, 0)),),
+    )
     first = _nuke_carrier("robot-a", PLAYER_ONE, SIZE - 2, SIZE - 2)
     second = _nuke_carrier("robot-b", PLAYER_ONE, 20, 1)
     state = _state((first, second))
@@ -495,7 +517,7 @@ def test_a_destroyed_factory_stops_being_capturable_on_the_following_tick() -> N
     # nuked factory and keep accruing capture progress against it.
     world = _world(factory_owner=PLAYER_ONE)
     invader = _gunner("robot-z", PLAYER_TWO, *FACTORY_CAPTURE_CELL)
-    carrier = _nuke_carrier("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
+    carrier = _nuke_carrier("robot-a", PLAYER_ONE, NUKE_X, NUKE_Y)
     state = _state((carrier, invader))
 
     state, _events = step(state, [], world=world)
@@ -506,14 +528,14 @@ def test_a_destroyed_factory_stops_being_capturable_on_the_following_tick() -> N
         sequence=0,
         entity_id=carrier.entity_id,
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=QUIET_X,
-        target_y=QUIET_Y + 1,
+        target_x=NUKE_X,
+        target_y=NUKE_Y + 1,
     )
     state, _events = step(state, [command], world=world)
 
     assert FACTORY_ONE in state.structure_destruction
     # `destroy_structure` cleared the in-flight attempt (the invader was
-    # inside the blast radius too and is gone).
+    # inside the robot window too and is gone).
     assert state.capture_progress_for(FACTORY_ONE) is None
 
     # A *fresh* invader walks onto the very same capture cell. Only a
