@@ -622,7 +622,7 @@ def exit_construction(
 
     The session removal is :func:`cancel_construction` (``resource_pools``
     untouched). The player's commander gets
-    ``rules.commander_construction_exit_elevate_updates`` automatic-ascent
+    ``rules.commander_exit_elevate_updates`` automatic-ascent
     updates; while any remain, the commander does not re-enter construction
     (``engine.step`` Step 7), so it lifts off the pad instead of re-opening
     the screen on the next tick. A no-op if ``player_id`` has no session.
@@ -633,7 +633,7 @@ def exit_construction(
     commander = state.commander_for(player_id)
     if commander is None:
         return state
-    lifted = commander.with_elevate_updates(rules.commander_construction_exit_elevate_updates)
+    lifted = commander.with_elevate_updates(rules.commander_exit_elevate_updates)
     return state.with_commanders(
         tuple(lifted if c.player_id == player_id else c for c in state.commanders)
     )

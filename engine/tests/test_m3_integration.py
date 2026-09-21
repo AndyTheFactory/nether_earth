@@ -412,18 +412,27 @@ def test_friendly_dock_follow_and_undock_through_ascent() -> None:
     assert followed.mode is CommanderMode.DOCKED
 
     # Undock: holding rise intent while docked flips mode back to FREE and
-    # starts one ascent step (+2), in the same authoritative tick.
+    # starts the exit lift (CR002.24) in the same authoritative tick; the
+    # lift climbs +2 on the following vertical update.
     rise = CommanderSetVerticalIntentCommand(player=PLAYER_ONE, sequence=0, rising=True)
     state, events = step(state, [rise], world=world, robots=(moved_robot,))
     undocked_events = [e for e in events if isinstance(e, CommanderUndockedEvent)]
     assert len(undocked_events) == 1
     assert undocked_events[0].robot_id == robot_id
     assert undocked_events[0].from_altitude == HEIGHT
-    assert undocked_events[0].to_altitude == HEIGHT + ASCENT
+    assert undocked_events[0].to_altitude == HEIGHT
     freed = state.commander_for(PLAYER_ONE)
     assert freed.mode is CommanderMode.FREE
     assert freed.docked_robot_id is None
-    assert freed.altitude == HEIGHT + ASCENT
+    assert freed.altitude == HEIGHT
+    assert freed.elevate_updates_remaining == DEFAULT_RULES.commander_exit_elevate_updates
+
+    for _ in range(V_TICKS):
+        state, events = step(state, [], world=world, robots=(moved_robot,))
+        assert not any(isinstance(e, CommanderDockedEvent) for e in events)
+    lifted = state.commander_for(PLAYER_ONE)
+    assert lifted.mode is CommanderMode.FREE
+    assert lifted.altitude == HEIGHT + ASCENT
 
 
 # ---------------------------------------------------------------------------
@@ -552,7 +561,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
        it automatically by descending exactly onto its top.
     4. p2 continues descending onto an *enemy*-owned robot fixture at the
        same time, resting at its top without ever docking.
-    5. p1 undocks (through one ascent step) and starts climbing away.
+    5. p1 undocks (starting the CR002.24 exit lift) and climbs away.
 
     Landing on the friendly war-base heli-pad (bullet 9 of the milestone
     scenario) is deliberately *not* chained onto this same flight: it is
@@ -613,7 +622,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     assert p2_state.docked_robot_id is None
 
     # Undock p1 through ascent: hold rise while DOCKED flips it back to
-    # FREE and starts one ascent step in the same authoritative tick.
+    # FREE and starts the exit lift (CR002.24) in the same authoritative tick.
     rise = CommanderSetVerticalIntentCommand(player=PLAYER_ONE, sequence=2, rising=True)
     state, events = step(state, [], world=world, robots=robots)  # settle any pending completions
     all_events.extend(events)

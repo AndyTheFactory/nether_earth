@@ -881,9 +881,7 @@ def step(
     for commander in state.commanders:
         if commander.mode is not CommanderMode.DOCKED or not commander.rising:
             continue
-        updated, undock_event = apply_undock(
-            commander, state, tick, rules, vertical_check, sequencer
-        )
+        updated, undock_event = apply_undock(commander, tick, rules, sequencer)
         state = _replace_commander(state, updated)
         if undock_event is not None:
             events.append(undock_event)
