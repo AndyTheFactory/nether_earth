@@ -3,8 +3,8 @@
 Real-map checks only (``data/maps/zx-spectrum-original.yaml`` with the
 standard PvP overlay). Each assertion is tied to evidence recorded in
 ``docs/milestone-9/map-fidelity-pass.md`` and ``data/maps/zx-spectrum-original.md``;
-anything the evidence does not settle (terrain, scenery) is deliberately
-*not* asserted here. The roof-top heli-pad is resolved by open-questions §18.
+anything the evidence does not settle (scenery) is deliberately *not*
+asserted here. The roof-top heli-pad is resolved by open-questions §18.
 """
 
 from __future__ import annotations
@@ -154,15 +154,15 @@ def test_every_interaction_point_references_a_real_structure(world: WorldMap) ->
         assert world.structure_by_id(point.structure_id) is not None, point.id.value
 
 
-# -- terrain (documented gap: only NORMAL is encoded) ---------------------------
+# -- terrain (decoded in CR001.5; scenery is still a documented gap) ----------
 
 
-def test_terrain_is_uniformly_normal_as_documented(world: WorldMap) -> None:
-    # The evidence doc leaves rough/ditch placement undecoded; the map must
-    # not silently gain terrain that the fidelity pass never verified.
-    for x in range(world.width):
-        for y in range(world.height):
-            assert world.terrain.terrain_at(x, y) is TerrainType.NORMAL
+def test_terrain_is_decoded_and_scenery_still_absent(world: WorldMap) -> None:
+    # CR001.5 (#152) decodes rough/mountain/ditch from the Spectrum map
+    # tables (counts pinned in test_original_map.py). Scenery blocks
+    # (element types 17/18/21) are still not modeled; see open-questions §4.
+    assert world.terrain.default is TerrainType.NORMAL
+    assert set(world.terrain.cells.values()) == {TerrainType.ROUGH, TerrainType.MOUNTAIN, TerrainType.DITCH}
     assert world.blockers == ()
 
 
