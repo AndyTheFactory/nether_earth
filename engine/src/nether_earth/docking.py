@@ -136,13 +136,15 @@ def attempt_auto_dock(
     ``collision.py``'s half-open touching-vs-overlap semantics -- resting,
     not overlapping) the top of a same-``(x, y)`` :class:`RobotFixture` whose
     ``owner`` matches ``commander.player_id``. Concretely this is
-    ``commander.altitude == robot.height`` at a matching ``(x, y)``: the
-    robot's ground-rooted range is ``[0, height)``, and a commander at
-    ``altitude == height`` occupies ``[height, height + commander_height)``,
+    ``commander.altitude == robot.top`` at a matching ``(x, y)``: the
+    robot's ground-rooted range is ``[0, top)``, and a commander at
+    ``altitude == top`` occupies ``[top, top + commander_height)``,
     which touches without overlapping -- exactly the "resting on top"
     condition `_specs/functional-spec.md` §8.4 ("automatic when descending
     onto the top of a friendly robot") and §8.3's height-aware collision
-    model describe.
+    model describe. ``top`` is the robot's stack height plus the terrain
+    altitude under its body (CR002.25, :attr:`RobotFixture.top`), so a
+    robot on rough or a mountain is docked 2, 3 or 6 higher.
 
     2×2 bodies (CR002.4, `_specs/open-questions.md` §21): ``(x, y)`` is the
     anchor of both bodies, and docking needs the *same* anchor -- the bodies
@@ -168,7 +170,7 @@ def attempt_auto_dock(
     - ``commander.elevate_updates_remaining > 0`` (an exit lift is running,
       CR002.24; see :func:`apply_undock`);
     - no robot fixture is at ``commander``'s ``(x, y)`` with
-      ``height == commander.altitude``;
+      ``top == commander.altitude``;
     - the matching fixture at that position is **enemy**-owned
       (``robot.owner != commander.player_id``) -- per
       `_specs/open-questions.md` §14, enemy robots are collision surfaces
@@ -194,7 +196,7 @@ def attempt_auto_dock(
     for robot in robots:
         if robot.x != commander.x or robot.y != commander.y:
             continue
-        if robot.height != commander.altitude:
+        if robot.top != commander.altitude:
             continue
         if robot.owner != commander.player_id:
             # Enemy robot: physical collision surface only. No docking.
@@ -251,8 +253,11 @@ def follow_docked_robot(
     effective ``(x, y, altitude)`` is derived from the robot fixture/state it
     is docked to (`_specs/functional-spec.md` §8.4, "commander follows the
     robot"). This sets ``x``/``y`` to ``robot.x``/``robot.y`` and ``altitude``
-    to ``robot.height`` (resting exactly on top, the same touching condition
-    :func:`attempt_auto_dock` used to dock in the first place); ``mode`` and
+    to ``robot.top`` (resting exactly on top, the same touching condition
+    :func:`attempt_auto_dock` used to dock in the first place; the Spectrum's
+    ``Lb495`` sets the ship's altitude to ``ROBOT_STRUCT_HEIGHT +
+    ROBOT_STRUCT_ALTITUDE`` after each step of a directly controlled
+    robot); ``mode`` and
     ``docked_robot_id`` are left unchanged -- this function only repositions,
     it never itself docks or undocks.
 
@@ -267,7 +272,7 @@ def follow_docked_robot(
     naturally lives at the call site (which already has to look the robot up
     by id to pass it in).
     """
-    return commander.with_position(robot.x, robot.y).with_altitude(robot.height)
+    return commander.with_position(robot.x, robot.y).with_altitude(robot.top)
 
 
 # --------------------------------------------------------------------------

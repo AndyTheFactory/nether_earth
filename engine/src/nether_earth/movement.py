@@ -36,9 +36,9 @@ What this module deliberately reuses rather than re-implements
 - **commander blocking (M3)**: queried through `collision.py`'s
   :func:`~nether_earth.collision.commander_blocks_cell`, the stable query
   that module's docstring explicitly reserved for M5 robot movement, using
-  `collision.py`'s own ground-rooted
-  :func:`~nether_earth.collision.robot_vertical_range` rather than
-  re-deriving vertical-range overlap semantics here.
+  `collision.py`'s :func:`~nether_earth.collision.robot_top` (the robot's
+  top on the terrain under it, CR002.25) rather than re-deriving
+  vertical-range overlap semantics here.
 
 What this module deliberately does NOT own
 -------------------------------------------
@@ -102,7 +102,7 @@ from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 
-from nether_earth.collision import commander_blocks_cell, robot_vertical_range
+from nether_earth.collision import VerticalRange, commander_blocks_cell, robot_top
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.map import WorldMap
@@ -501,7 +501,13 @@ def _in_bounds(world: WorldMap, x: int, y: int) -> bool:
 
 
 def commander_blocks_robot_cell(
-    state: GameState, robot: Robot, x: int, y: int, rules: EngineRules = DEFAULT_RULES
+    state: GameState,
+    robot: Robot,
+    x: int,
+    y: int,
+    rules: EngineRules = DEFAULT_RULES,
+    *,
+    world: WorldMap,
 ) -> bool:
     """Return whether any commander blocks ``robot``'s 2×2 body from standing at ``(x, y)``.
 
@@ -518,9 +524,12 @@ def commander_blocks_robot_cell(
     :func:`~nether_earth.collision.commander_blocks_cell` -- the query that
     module reserved for exactly this caller -- over ``state.commanders`` in
     canonical (player-id sorted) order, against the robot's own
-    ground-rooted vertical range from
-    :func:`~nether_earth.collision.robot_vertical_range`. No overlap math
-    is re-derived here.
+    ground-rooted vertical range ``[0, top)``, where ``top`` is
+    :func:`~nether_earth.collision.robot_top` at the robot's current anchor
+    (terrain altitude plus stack height, CR002.25; ``Lb513`` subtracts
+    ``ROBOT_STRUCT_HEIGHT`` and ``ROBOT_STRUCT_ALTITUDE``). ``world`` is the
+    physical world the move is validated against. No overlap math is
+    re-derived here.
 
     Public because it is a *cell* property rather than a move property, so
     the navigation policy layer (M5.6, `navigation.py`) searches over it
@@ -537,7 +546,7 @@ def commander_blocks_robot_cell(
     :func:`~nether_earth.collision.commander_horizontal_move_allowed`,
     which forwards ``rules`` into the identical call.
     """
-    vertical_range = robot_vertical_range(robot)
+    vertical_range = VerticalRange(bottom=0, top=robot_top(world, robot))
     return any(
         commander_blocks_cell(state, commander, x, y, vertical_range, rules=rules)
         for commander in state.commanders
@@ -600,7 +609,7 @@ def validate_robot_move(
     if folded_robot_occupancy(world, state).blocks_unit(dest_x, dest_y, ignore=robot.entity_id):
         return RobotMoveResult.reject(request, MovementRejectionReason.OCCUPIED)
 
-    if commander_blocks_robot_cell(state, robot, dest_x, dest_y, rules):
+    if commander_blocks_robot_cell(state, robot, dest_x, dest_y, rules, world=world):
         return RobotMoveResult.reject(request, MovementRejectionReason.COMMANDER_BLOCKED)
 
     if not destination_check(state, robot, dest_x, dest_y):

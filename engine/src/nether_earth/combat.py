@@ -1126,7 +1126,7 @@ def apply_damage(
     new_strength = robot.strength - damage
 
     if new_strength <= 0:
-        return destroy_robot(state, target_robot_id, tick, rules, sequencer)
+        return destroy_robot(state, target_robot_id, tick, rules, sequencer, world=world)
 
     updated_robot = robot.with_strength(new_strength)
     new_state = state.with_robots(

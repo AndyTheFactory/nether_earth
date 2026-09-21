@@ -274,7 +274,7 @@ def _enterable(
         return False
     if view.occupancy.blocks_unit(x, y, ignore=robot.entity_id):
         return False
-    if commander_blocks_robot_cell(state, robot, x, y, rules):
+    if commander_blocks_robot_cell(state, robot, x, y, rules, world=world):
         return False
     return not any(
         view.reservations.is_reserved_by_other(robot.entity_id, cell_x, cell_y)
