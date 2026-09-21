@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "rules_version": "cr001",
-  "rules_hash": "414bb767952e0f285b7e94d1d393b695738a04d1f468652b6e2ada5959a0773c",
-  "match_id": "34902c9e4a144336a4f9fa9d6fe9ff89",
+  "rules_hash": "94de8caaa43340d8e6d992a93e27fe864ec78df61f18d356a3e5443df5b8490f",
+  "match_id": "3fe2a9757c7a485cbe2b460255bf9906",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -13,10 +13,10 @@
     "p1": "alice",
     "p2": "bob"
   },
-  "created_at_epoch_ms": 1789985362104,
+  "created_at_epoch_ms": 1789996689460,
   "status": "finished",
-  "finished_at_epoch_ms": 1789985403490,
-  "final_tick": 21989,
+  "finished_at_epoch_ms": 1789996722592,
+  "final_tick": 22053,
   "result": {
     "outcome": "victory",
     "reason": "zero_war_bases",
@@ -24,7 +24,7 @@
     "forfeiting_player_id": null
   },
   "final_snapshot": {
-    "tick": 21989,
+    "tick": 22053,
     "players": [
       "p1",
       "p2"
@@ -40,7 +40,8 @@
         "docked_robot_id": null,
         "rising": false,
         "horizontal_transition": null,
-        "vertical_transition": null
+        "vertical_transition": null,
+        "elevate_updates_remaining": 0
       },
       {
         "player_id": "p2",
@@ -56,7 +57,8 @@
           "to_altitude": 0,
           "started_tick": 456,
           "duration_ticks": 4
-        }
+        },
+        "elevate_updates_remaining": 0
       }
     ],
     "resource_pools": [
@@ -81,40 +83,7 @@
         "cannon": 0
       }
     ],
-    "construction_sessions": [
-      {
-        "player_id": "p1",
-        "war_base_id": "warbase-1",
-        "entry_tick": 11860,
-        "build": {
-          "chassis": null,
-          "weapons": [],
-          "electronics": null
-        },
-        "buffer": {
-          "general": 7,
-          "category": {
-            "chassis": 0,
-            "electronics": 0,
-            "nuclear": 0,
-            "missile": 8,
-            "phaser": 0,
-            "cannon": 0
-          }
-        },
-        "entry_snapshot": {
-          "general": 7,
-          "category": {
-            "chassis": 0,
-            "electronics": 0,
-            "nuclear": 0,
-            "missile": 8,
-            "phaser": 0,
-            "cannon": 0
-          }
-        }
-      }
-    ],
+    "construction_sessions": [],
     "robots": [
       {
         "entity_id": "robot-p1-1",

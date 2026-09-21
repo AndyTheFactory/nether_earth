@@ -110,6 +110,11 @@ class Api:
 
     def fly_commander_to(self, player: PlayerId, x: int, y: int, altitude: int) -> Iterator[Predicate]:
         """Hold rise until at least ``altitude``, fly to ``(x, y)`` still rising, then release."""
+        if self.state.construction_session_for(player) is not None:
+            # The construction screen is modal (CR002.13): a commander left on
+            # its pad re-enters it, and can only take off via EXIT MENU.
+            self.cmd(CancelConstructionCommand, player)
+            yield lambda s: s.construction_session_for(player) is None
         commander = self.state.commander_for(player)
         assert commander is not None
         enclosing = next(
@@ -294,8 +299,9 @@ def player_one(api: Api) -> Actor:
     # Wait for enough general resources (daily war-base production) for the
     # striker. A session's buffer is snapshotted at entry (M4 rule), so the
     # income that arrived while the menu was open is only spendable after
-    # cancelling and re-entering -- the commander is still on the pad, so
-    # re-entry is immediate.
+    # leaving and re-entering -- EXIT MENU lifts the commander off the pad
+    # (CR002.12/13) and, left alone, gravity lands it back on the pad, which
+    # re-opens the screen with a fresh buffer.
     yield lambda s: (p := s.resource_pool_for(PLAYER_ONE)) is not None and p.general >= STRIKER_COST
     api.cmd(CancelConstructionCommand, PLAYER_ONE)
     yield lambda s: (
