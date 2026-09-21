@@ -12,7 +12,7 @@ def test_default_pvp_scenario_matches_locked_v1_values() -> None:
     scenario = default_pvp_scenario()
 
     assert scenario.player_starting_warbases == 1
-    assert scenario.starting_general_resources == 30
+    assert scenario.starting_general_resources == 20
     assert scenario.factory_initial_ownership == "neutral"
     assert scenario.victory_rule == VICTORY_RULE_ZERO_WAR_BASES
     assert scenario.victory_rule

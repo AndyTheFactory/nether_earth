@@ -612,6 +612,75 @@ Horizontal and vertical movement may occur simultaneously. Automatic elevation a
 - No manual pause in v1.
 - Reconnect/deadline state belongs to the runtime layer and must not mutate deterministic engine state while paused.
 
+## 17. Commander starting positions — PROVISIONAL (owner review required)
+
+Neither spec nor map data declared where the two commanders begin. Evidence
+(tier 2, `netherearth-annotated.asm` `La600_start`):
+
+```
+ld hl, 17 ; ld (Lfd0e_player_x), hl   ; set player start x
+ld a, 10  ; ld (Lfd0d_player_y), a    ; set player start y
+xor a     ; ld (Lfd10_player_altitude), a
+```
+
+so Player 1's ship starts at cell (17, 10), altitude 0, i.e. offset (−5, +1)
+from war base 0's capture anchor (22, 9), just outside the base on the side
+facing away from the map interior. The original is single-player, so there is
+no evidence for Player 2.
+
+Provisional data (M9, `map_overlay.default_pvp_overlay`):
+
+- `p1_commander` = extreme-left war-base anchor + (−5, +1) → (17, 10) on the original map (evidence-backed);
+- `p2_commander` = extreme-right war-base anchor + (+5, +1) → (499, 9) (mirrored convention, **not evidence**).
+
+Spawns are overlay data, not engine rules; changing the convention is a data
+edit in one place. Owner must confirm or replace the Player 2 convention.
+
+## 18. War-base heli-pad location and landing height — OPEN (owner review required)
+
+Evidence (tier 2): `Lbb86_assign_warbase_to_player` places the war-base "H"
+decoration at (anchor.x, anchor.y − 4), and the game loop enters construction
+only when the ship is over that decoration at altitude exactly 15 (`cp 15`),
+i.e. on the roof of the 15-high war-base block. The robot then exits at
+(pad.x, pad.y + 4) = the anchor cell (`Lcb52_construction_screen_start_robot`,
+"robot starts 4 positions off the player in the y axis"), which confirms the
+current `*-exit` interaction points.
+
+The engine's locked M3 landing rule (`heli_pad.py`: altitude ==
+`commander_min_altitude` on a heli-pad footprint cell) cannot express a
+roof-top pad, and the M2 data keeps the `*-helipad` points as ground-level
+placeholders at the anchor cell. Options for the owner:
+
+1. keep the ground-level pad at the anchor cell (current, playable; deviates from the original);
+2. move the pad to (anchor.x, anchor.y − 4) and extend the M3 landing rule to "altitude equals the pad cell's component height" (fidelity-correct; M3 rule + M2 data change).
+
+Until decided, M9 acceptance uses option 1 as-is and does not treat pad
+placement as verified.
+
+## 19. Autonomous use of the nuclear weapon — OPEN (owner review required)
+
+Found by the M9.4 scripted match. The spec defines what a detonation does
+(`functional-spec.md` §17.3) but not when an autonomous order uses it. The
+current M5/M6 engine policy composes two rules:
+
+- Stop & Defend targets the nearest hostile robot at **any** distance (`orders._defensive_intent`);
+- autonomous fire walks weapons in canonical order (cannon, missile, phaser, nuclear) and nuclear has **no range gate** (`autonomous_combat.py`).
+
+Consequence: a nuclear carrier on Stop & Defend detonates on the first tick
+any enemy robot exists anywhere on the map, or whenever its normal weapon is
+out of range or its projectile channel is busy. Every completed Advance or
+Retreat and every fallback order becomes Stop & Defend, so this is reachable
+in a normal match and destroys the carrier plus everything within 16 cells.
+
+Options for the owner:
+
+1. autonomous orders never detonate; nuclear is a direct-control decision only;
+2. autonomous detonation only when the target (robot or structure) is within the nuclear radius;
+3. keep the current policy (not recommended: effectively a self-destruct).
+
+M9 does not change the rule. The acceptance script keeps its striker under
+direct control or tolerates the autonomous detonation.
+
 ## Remaining research
 
 Only three substantive fidelity areas remain:

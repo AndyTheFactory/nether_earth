@@ -1,4 +1,4 @@
-// M8.11 live two-client check against a real backend over the shared protocol.
+// M8.11/M9.7 live two-client check against a real backend over the shared protocol.
 // Usage: NE_WS_URL=ws://localhost:8010/ws node scripts/live-two-client.mjs
 // Exercises: create/join/ready/start, commander input reflected in snapshots,
 // construction + order command submission, disconnect → paused, reconnect →
@@ -102,26 +102,42 @@ async function main() {
   // representative commander input: move east, then rise
   a.command({ kind: 'commander_move', dx: 1, dy: 0 });
   a.command({ kind: 'commander_set_vertical_intent', rising: true });
-  if (before) {
-    await a.wait((m) => m.type === 'snapshot' && me()?.x > before.x, 5000, 'commander moved');
-    check('commander move reflected in authoritative snapshot', me().x === before.x + 1, `x ${before.x} → ${me().x}`);
-    await a.wait((m) => m.type === 'snapshot' && me()?.altitude > 0, 5000, 'commander rose');
-    check('commander rise reflected in authoritative snapshot', true, `alt ${me().altitude}`);
-  } else {
-    blocked('commander move/rise reflected in snapshot', 'backend seeds no commanders (engine.new_game spawning is out of scope; M9 wires the real map/scenario)');
-  }
+  await a.wait((m) => m.type === 'snapshot' && me()?.x > before.x, 5000, 'commander moved');
+  check('commander move reflected in authoritative snapshot', me().x === before.x + 1, `x ${before.x} → ${me().x}`);
+  await a.wait((m) => m.type === 'snapshot' && me()?.altitude > 0, 5000, 'commander rose');
+  check('commander rise reflected in authoritative snapshot', true, `alt ${me().altitude}`);
   a.command({ kind: 'commander_set_vertical_intent', rising: false });
+  await a.wait((m) => m.type === 'snapshot' && me()?.altitude === 0, 15000, 'commander landed');
 
-  // construction + robot-control commands: accepted by transport (no error frame).
+  // Real construction flow (M9): walk to the own war base's heli-pad (canonical
+  // scenario: Player 1 spawns at (17, 10), warbase-1 pad at (22, 9)), enter
+  // construction on landing, build, launch, and order the robot.
+  const PAD = { x: 22, y: 9 };
+  const step = async () => {
+    const c = me();
+    const dx = Math.sign(PAD.x - c.x);
+    const dy = dx === 0 ? Math.sign(PAD.y - c.y) : 0;
+    a.command({ kind: 'commander_move', dx, dy });
+    await a.wait((m) => m.type === 'snapshot' && !me().horizontal_transition && (me().x !== c.x || me().y !== c.y), 5000, 'commander step');
+  };
+  while (me().x !== PAD.x || me().y !== PAD.y) await step();
+  await a.wait((m) => m.type === 'snapshot' && a.latest.construction_sessions.some((s) => s.player_id === a.session.playerId), 5000, 'construction session');
+  check('landing on the heli-pad opens a construction session', true, `tick ${a.latest.tick}`);
   a.command({ kind: 'select_module', module: 'bipod' });
+  a.command({ kind: 'select_module', module: 'cannon' });
+  await a.wait((m) => m.type === 'snapshot' && a.latest.construction_sessions[0]?.build.weapons.includes('cannon'), 5000, 'modules selected');
   a.command({ kind: 'launch_robot' });
-  a.command({ kind: 'set_robot_order', entityId: 'robot-1', order: { kind: 'advance', distanceMiles: 10 } });
-  a.command({ kind: 'robot_fire', entityId: 'robot-1', weapon: 'cannon', targetX: 5, targetY: 5 });
-  await sleep(400);
+  await a.wait((m) => m.type === 'snapshot' && a.latest.robots.length === 1, 5000, 'robot launched');
+  const robot = a.latest.robots[0];
+  check('robot built and launched at the war-base exit', robot.owner === a.session.playerId, `${robot.entity_id} at (${robot.x}, ${robot.y})`);
+  a.command({ kind: 'set_robot_order', entityId: robot.entity_id, order: { kind: 'advance', distanceMiles: 10 } });
+  await a.wait((m) => m.type === 'snapshot' && a.latest.robots[0]?.order?.kind === 'advance' && a.latest.robots[0]?.movement, 5000, 'robot moving');
+  check('robot order accepted and autonomous movement started', true, `order ${a.latest.robots[0].order.kind}`);
+  a.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon: 'cannon', targetX: robot.x + 5, targetY: robot.y });
+  await a.wait((m) => m.type === 'snapshot' && a.latest.projectiles.length === 1, 5000, 'projectile fired');
+  check('direct fire produces an authoritative projectile', a.latest.projectiles[0].source_robot_id === robot.entity_id);
+  await sleep(200);
   check('commander/construction/order/fire commands accepted by protocol (no error frame)', a.inbox.filter((m) => m.type === 'error').length === errorsBefore);
-  if (a.latest.construction_sessions.length === 0 && a.latest.robots.length === 0) {
-    blocked('construction session / robot order state change', 'no world map or heli-pads are loaded by the backend, so the engine cannot open a construction session live');
-  }
 
   // disconnect B → A sees paused; snapshots stop
   const tickAtPause = a.latest.tick;

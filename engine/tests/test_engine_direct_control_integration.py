@@ -175,13 +175,15 @@ def test_leaving_direct_control_via_undock_stops_further_direct_moves() -> None:
     """Undocking (the existing M3/M4 transition) is the "leave direct control" step."""
     robot = _robot()
     # Docked and holding rise intent: engine.step's Step 3 undocks in the
-    # same tick this state is stepped, per docking.py's apply_undock.
+    # same tick this state is stepped, per docking.py's apply_undock. A
+    # docked commander physically rests on the robot's top (docking.py's
+    # touching condition), so its altitude is the robot's height.
     commander = Commander(
         player_id=PLAYER_ONE,
         mode=CommanderMode.DOCKED,
         x=5,
         y=5,
-        altitude=4,
+        altitude=robot.height,
         docked_robot_id=ROBOT_ID,
         rising=True,
     )

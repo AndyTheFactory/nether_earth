@@ -25,8 +25,8 @@ from dataclasses import dataclass
 
 from nether_earth import engine as engine_module
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, PlayerId
-from nether_earth.map import BootstrapMap
-from nether_earth.scenario import Scenario, default_pvp_scenario
+from nether_earth.map import BootstrapMap, WorldMap
+from nether_earth.scenario import Scenario, create_initial_state, default_pvp_scenario
 
 from app.match.models import (
     InvalidNicknameError,
@@ -158,6 +158,7 @@ class MatchManager:
         *,
         scenario: Scenario | None = None,
         map_data: BootstrapMap | None = None,
+        world: WorldMap | None = None,
         runtime: MatchRuntimeRegistry | None = None,
         on_tick_factory: Callable[[Match], TickObserver | None] | None = None,
         reconnect: ReconnectCoordinator | None = None,
@@ -166,7 +167,21 @@ class MatchManager:
         on_match_finish: Callable[[Match], None] | None = None,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
-        self._map_data = map_data if map_data is not None else _default_bootstrap_map(self._scenario)
+        # ``world`` (M9.1 audit gap G1): the scenario-overlaid real map. When
+        # supplied it is the source of truth for both the tick-0 state
+        # (``scenario.create_initial_state``: commanders, resource pools,
+        # starting ownership) and every ``engine.step`` in ``MatchRuntime``.
+        # ``None`` keeps the M7 placeholder behaviour for unit tests that only
+        # exercise lifecycle bookkeeping.
+        self._world = world
+        if map_data is not None:
+            self._map_data = map_data
+        elif world is not None:
+            self._map_data = BootstrapMap(
+                map_id=world.map_id, version=world.version, width=world.width, height=world.height
+            )
+        else:
+            self._map_data = _default_bootstrap_map(self._scenario)
         self._runtime = runtime
         self._on_tick_factory = on_tick_factory
         self._reconnect = reconnect
@@ -262,9 +277,12 @@ class MatchManager:
         caller checks ``match.state is WAITING`` before invoking this.
         """
         players = tuple(_SEAT_ORDER)
-        match.game_state = engine_module.new_game(
-            self._map_data, self._scenario, players=players, seed=match.seed
-        )
+        if self._world is not None:
+            match.game_state = create_initial_state(self._scenario, self._world, seed=match.seed)
+        else:
+            match.game_state = engine_module.new_game(
+                self._map_data, self._scenario, players=players, seed=match.seed
+            )
         match.state = MatchRuntimeState.ACTIVE
         if self._on_match_start is not None:
             # Before the runtime starts (see below) -- a replay writer must
@@ -287,6 +305,7 @@ class MatchManager:
             )
             self._runtime.start(
                 match,
+                world=self._world,
                 on_tick=on_tick,
                 on_tick_commands=on_tick_commands,
                 require_announcement=on_tick is not None,

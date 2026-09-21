@@ -95,15 +95,13 @@ structures (no cross-layer occlusion), and there is no real art yet.
 
 ## Live check status
 
-`npm run live:check` against the M7 backend passes create/join/ready/start,
-command acceptance, disconnect → paused with a frozen tick, reconnect → resync
-+ resumed, and byte-identical client/server state. Two steps report
-**BLOCKED**: the backend currently starts matches with a 1x1 bootstrap map and
-no commanders (`app/match/manager.py` `_default_bootstrap_map`,
-`engine.new_game` does not spawn commanders), so commander movement,
-construction sessions and robot orders cannot change authoritative state live
-yet. Those paths are proven through fixtures; wiring the real map/scenario into
-the backend is Milestone 9 scope (`_specs/milestones/09-pvp-vertical-slice.md`).
+`npm run live:check` against the real backend passes 15/15 checks: create,
+join, ready and start; commander move and rise; heli-pad landing opens a
+construction session; build and launch at the war-base exit; an Advance order
+starts autonomous movement; direct fire creates a projectile; disconnect
+pauses with a frozen tick; reconnect resyncs and resumes; client state equals
+the server snapshot byte for byte. The backend plays every match on the
+canonical `pvp-v1` scenario and the original map (Milestone 9).
 
 Module costs are not exposed by the protocol; the construction panel shows the
 authoritative session buffer and committed pool instead of a second cost table.

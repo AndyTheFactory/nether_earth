@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
+from nether_earth.interactions import InteractionKind
 
 if TYPE_CHECKING:
     from nether_earth.map import WorldMap
@@ -185,5 +186,44 @@ def default_pvp_overlay(world_map: "WorldMap") -> ScenarioOverlay:
             leftmost.id: PLAYER_ONE,
             rightmost.id: PLAYER_TWO,
         },
-        spawn_positions={},
+        spawn_positions={
+            f"{PLAYER_ONE.value}_commander": _commander_spawn_cell(world_map, leftmost, mirrored=False),
+            f"{PLAYER_TWO.value}_commander": _commander_spawn_cell(world_map, rightmost, mirrored=True),
+        },
     )
+
+
+#: Player 1's commander start relative to its war base's capture anchor cell.
+#: Evidence (`_specs/open-questions.md` §17): the ZX Spectrum start routine
+#: (`La600_start`) sets the ship to x=17, y=10, altitude 0 while war base 0's
+#: anchor is (22, 9) -- an offset of (-5, +1), i.e. just outside the base on
+#: the side facing away from the map interior.
+_SPAWN_OFFSET_FROM_ANCHOR: tuple[int, int] = (-5, 1)
+
+
+def _commander_spawn_cell(
+    world_map: "WorldMap", war_base: "WarBase", *, mirrored: bool
+) -> tuple[int, int]:
+    """Return the commander start cell for ``war_base``'s owner.
+
+    The cell is the war base's ``warbase_capture`` anchor plus
+    :data:`_SPAWN_OFFSET_FROM_ANCHOR`; ``mirrored`` flips the x offset so
+    Player 2 starts outside its extreme-right base just as Player 1 starts
+    outside its extreme-left one. The original game is single-player, so the
+    mirrored convention is provisional owner-review data
+    (`_specs/open-questions.md` §17), kept in one place here so changing it
+    is a data edit. The result is clamped into the map so an odd map cannot
+    yield an out-of-bounds spawn (``apply_overlay`` would reject it).
+    """
+    capture_points = world_map.interaction_points_for(war_base.id, kind=InteractionKind.WARBASE_CAPTURE)
+    if capture_points:
+        anchor_x, anchor_y = min(capture_points[0].footprint.cells)
+    else:
+        anchor_x = min(component.x for component in war_base.components)
+        anchor_y = max(component.y for component in war_base.components)
+    dx, dy = _SPAWN_OFFSET_FROM_ANCHOR
+    x = anchor_x - dx if mirrored else anchor_x + dx
+    y = anchor_y + dy
+    x = min(max(x, 0), world_map.width - 1)
+    y = min(max(y, 0), world_map.height - 1)
+    return (x, y)

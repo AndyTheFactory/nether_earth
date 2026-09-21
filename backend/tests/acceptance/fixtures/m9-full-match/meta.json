@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "rules_version": "m7",
+  "match_id": "fcefd44b2094447589a92306f823608a",
+  "scenario_id": "pvp-v1",
+  "map_id": "zx-spectrum-original",
+  "map_version": 1,
+  "map_width": 512,
+  "map_height": 16,
+  "seed": 20260920,
+  "players": {
+    "p1": "alice",
+    "p2": "bob"
+  },
+  "created_at_epoch_ms": 1789933132656,
+  "status": "finished",
+  "finished_at_epoch_ms": 1789933174349,
+  "final_tick": 19285,
+  "result": {
+    "outcome": "victory",
+    "reason": "zero_war_bases",
+    "winner_player_id": "p1",
+    "forfeiting_player_id": null
+  },
+  "final_snapshot": {
+    "tick": 19285,
+    "players": [
+      "p1",
+      "p2"
+    ],
+    "seed": 20260920,
+    "commanders": [
+      {
+        "player_id": "p1",
+        "mode": "free",
+        "x": 22,
+        "y": 9,
+        "altitude": 0,
+        "docked_robot_id": null,
+        "rising": false,
+        "horizontal_transition": null,
+        "vertical_transition": {
+          "from_altitude": 1,
+          "to_altitude": 0,
+          "started_tick": 11844,
+          "duration_ticks": 4
+        }
+      },
+      {
+        "player_id": "p2",
+        "mode": "free",
+        "x": 497,
+        "y": 11,
+        "altitude": 0,
+        "docked_robot_id": null,
+        "rising": false,
+        "horizontal_transition": null,
+        "vertical_transition": {
+          "from_altitude": 1,
+          "to_altitude": 0,
+          "started_tick": 448,
+          "duration_ticks": 4
+        }
+      }
+    ],
+    "resource_pools": [
+      {
+        "player_id": "p1",
+        "general": 27,
+        "chassis": 0,
+        "electronics": 0,
+        "nuclear": 0,
+        "missile": 12,
+        "phaser": 0,
+        "cannon": 0
+      },
+      {
+        "player_id": "p2",
+        "general": 45,
+        "chassis": 0,
+        "electronics": 0,
+        "nuclear": 0,
+        "missile": 0,
+        "phaser": 0,
+        "cannon": 0
+      }
+    ],
+    "construction_sessions": [
+      {
+        "player_id": "p1",
+        "war_base_id": "warbase-1",
+        "entry_tick": 11528,
+        "build": {
+          "chassis": null,
+          "weapons": [],
+          "electronics": null
+        },
+        "buffer": {
+          "general": 7,
+          "category": {
+            "chassis": 0,
+            "electronics": 0,
+            "nuclear": 0,
+            "missile": 8,
+            "phaser": 0,
+            "cannon": 0
+          }
+        },
+        "entry_snapshot": {
+          "general": 7,
+          "category": {
+            "chassis": 0,
+            "electronics": 0,
+            "nuclear": 0,
+            "missile": 8,
+            "phaser": 0,
+            "cannon": 0
+          }
+        }
+      },
+      {
+        "player_id": "p2",
+        "war_base_id": "warbase-4",
+        "entry_tick": 34,
+        "build": {
+          "chassis": null,
+          "weapons": [],
+          "electronics": null
+        },
+        "buffer": {
+          "general": 15,
+          "category": {
+            "chassis": 0,
+            "electronics": 0,
+            "nuclear": 0,
+            "missile": 0,
+            "phaser": 0,
+            "cannon": 0
+          }
+        },
+        "entry_snapshot": {
+          "general": 15,
+          "category": {
+            "chassis": 0,
+            "electronics": 0,
+            "nuclear": 0,
+            "missile": 0,
+            "phaser": 0,
+            "cannon": 0
+          }
+        }
+      }
+    ],
+    "robots": [
+      {
+        "entity_id": "robot-p1-1",
+        "owner": "p1",
+        "x": 261,
+        "y": 8,
+        "build": {
+          "chassis": "bipod",
+          "weapons": [
+            "cannon"
+          ],
+          "electronics": "electronics"
+        },
+        "stack": [
+          "bipod",
+          "cannon",
+          "electronics"
+        ],
+        "height": 8,
+        "movement": null,
+        "order": {
+          "kind": "stop_and_defend"
+        },
+        "active_projectile_id": null,
+        "strength": 100
+      }
+    ],
+    "structure_ownership": [
+      {
+        "structure_id": "factory-1",
+        "owner": "p1"
+      },
+      {
+        "structure_id": "warbase-1",
+        "owner": "p1"
+      },
+      {
+        "structure_id": "warbase-2",
+        "owner": "p1"
+      }
+    ],
+    "capture_progress": [],
+    "projectiles": [],
+    "structure_destruction": [
+      "warbase-4"
+    ]
+  }
+}

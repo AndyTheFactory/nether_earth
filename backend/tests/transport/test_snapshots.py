@@ -108,3 +108,20 @@ async def test_tick_broadcaster_sends_the_current_snapshot_to_its_own_match_only
     assert payload["type"] == "snapshot"
     assert payload["matchId"] == "match-a"
     assert payload["state"] == to_snapshot(state)
+
+
+def test_real_match_snapshot_keeps_required_nullable_fields_on_the_wire() -> None:
+    """A snapshot with commanders/robots carries `null` for required nullable fields (M9.6)."""
+    from nether_earth.scenario import create_initial_state, default_pvp_scenario
+
+    from app.match.world import load_standard_world
+
+    world = load_standard_world()
+    state = create_initial_state(default_pvp_scenario(), world, seed=3)
+    wire_text = serialize_server_message(build_snapshot_message("m1", state))
+    payload = json.loads(wire_text)
+    assert payload["state"] == to_snapshot(state)
+    assert payload["state"]["commanders"][0]["docked_robot_id"] is None
+    revalidated = OutboundMessageAdapter.validate_json(wire_text)
+    assert isinstance(revalidated, SnapshotMessage)
+    assert revalidated.state.model_dump() == to_snapshot(state)

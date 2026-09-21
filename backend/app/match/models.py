@@ -50,6 +50,12 @@ class MatchOutcome(Enum):
 
     FORFEIT = "forfeit"
     NO_CONTEST = "no_contest"
+    #: Normal in-game victory (a player owns zero war bases), recorded by
+    #: ``app.transport.victory`` from the engine's ``VictoryEvent`` so a
+    #: reconnecting client and the replay artifact both see the outcome
+    #: (M9.1 audit gap G2). The engine itself remains the only authority on
+    #: *whether* victory occurred; this only mirrors its event.
+    VICTORY = "victory"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +78,9 @@ class MatchResult:
     reason: str
     winner_player_id: PlayerId | None = None
     forfeiting_player_id: PlayerId | None = None
+    #: Authoritative engine tick the victory was evaluated on (``VICTORY``
+    #: only); ``None`` for runtime-level outcomes.
+    decided_tick: int | None = None
 
 
 @dataclass(slots=True)
@@ -98,9 +107,9 @@ class Match:
     caller of that transition, so this field's ``None``-ness alone is enough
     to tell whether that call has happened yet).
 
-    ``result`` is ``None`` unless the match ended via forfeit/no-contest
-    (see :class:`MatchResult`); a normal in-game engine victory leaves it
-    ``None`` and is read from ``game_state`` instead.
+    ``result`` is ``None`` until the match ends: forfeit/no-contest are set
+    by ``ReconnectCoordinator``, a normal engine victory by
+    ``app.transport.victory`` (see :class:`MatchResult`).
     """
 
     match_id: str

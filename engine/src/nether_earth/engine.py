@@ -220,6 +220,24 @@ def new_game(
     return create_game_state(0, resolved_players, seed=seed, commanders=commanders)
 
 
+def _robot_fixtures(
+    state: GameState, fixtures: tuple[RobotFixture, ...]
+) -> tuple[RobotFixture, ...]:
+    """Return ``fixtures`` plus one :class:`RobotFixture` per live robot in ``state``.
+
+    ``Robot`` already carries the ground-rooted ``height`` the collision and
+    docking math needs (see ``collision.robot_vertical_range``); a fixture is
+    just its ``(id, owner, x, y, height)`` projection, taken from the
+    authoritative cell (a robot mid-move still stands on its origin cell
+    until the move completes -- `movement.py`). Caller-supplied fixtures
+    come first so the M3 tests' explicit surfaces keep their precedence.
+    """
+    return fixtures + tuple(
+        RobotFixture(id=robot.entity_id, owner=robot.owner, x=robot.x, y=robot.y, height=robot.height)
+        for robot in state.robots
+    )
+
+
 def _always_allow_horizontal(
     state: GameState, mover: Commander, dest_x: int, dest_y: int
 ) -> bool:
@@ -581,6 +599,13 @@ def step(
     # collision functions with world=None would crash.
     horizontal_check: HorizontalMoveCheck
     vertical_check: VerticalMoveCheck
+    # Real robots (M4+) are physical surfaces for the commander exactly like
+    # the M3 ``robots`` fixtures: fold ``state.robots`` in here for collision
+    # and again below (post-move positions) for auto-dock/follow. Found by
+    # the M9.1 audit: without this a live commander flew through robots and
+    # could never dock on one, so direct control was unreachable in a match.
+    fixture_robots = robots
+    robots = _robot_fixtures(state, fixture_robots)
     if world is not None:
         horizontal_check = functools.partial(
             commander_horizontal_move_allowed, world=world, robots=robots
@@ -852,6 +877,7 @@ def step(
                 events.append(vertical_event)
 
     # --- Step 5: friendly auto-dock check for every FREE commander ---------
+    robots = _robot_fixtures(state, fixture_robots)
     for commander in state.commanders:
         if commander.mode is not CommanderMode.FREE:
             continue

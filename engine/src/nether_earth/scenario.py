@@ -16,8 +16,14 @@ until later milestones (M2+).
 from dataclasses import dataclass
 from typing import Literal
 
+from nether_earth.capture import StructureOwnership
+from nether_earth.commander import Commander, CommanderMode
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, PlayerId
+from nether_earth.map import WorldMap
+from nether_earth.resource_pool import starting_player_resource_pool
+from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState, create_game_state
+from nether_earth.structures import Factory, WarBase
 
 #: Locked v1 victory-rule identifier (`_specs/technical-spec.md` §6,
 #: `_specs/functional-spec.md` §4.2): a player wins when the opponent owns
@@ -52,7 +58,7 @@ class Scenario:
     map_id: str
     map_version: int
     player_starting_warbases: int
-    starting_general_resources: int = 30
+    starting_general_resources: int = 20
     factory_initial_ownership: FactoryOwnershipDefault | FactoryOwnershipOverrides = "neutral"
     victory_rule: str = VICTORY_RULE_ZERO_WAR_BASES
 
@@ -75,16 +81,18 @@ def default_pvp_scenario() -> Scenario:
     """Return the locked v1 two-player PvP scenario.
 
     Values are locked by `_specs/technical-spec.md` §6 and
-    `_specs/functional-spec.md` §4.1/§10.1: one starting war base per
-    player, 30 starting general resources, neutral factories, and the
-    "opponent owns zero war bases" victory rule.
+    `_specs/functional-spec.md` §4/§10.1: one starting war base per
+    player, 20 starting general resources (the same value ``rules.py``'s
+    ``starting_general_resources`` seeds into each pool -- M9.2 keeps the
+    two in lock-step via ``engine/tests/test_m9_scenario.py``), neutral
+    factories, and the "opponent owns zero war bases" victory rule.
     """
     return Scenario(
         id="pvp-v1",
         map_id="zx-spectrum-original",
         map_version=1,
         player_starting_warbases=1,
-        starting_general_resources=30,
+        starting_general_resources=20,
         factory_initial_ownership="neutral",
         victory_rule=VICTORY_RULE_ZERO_WAR_BASES,
     )
@@ -103,13 +111,100 @@ def initialize_players(scenario: Scenario) -> tuple[PlayerId, ...]:
     return (PLAYER_ONE, PLAYER_TWO)
 
 
-def create_initial_state(scenario: Scenario) -> GameState:
+def commander_spawn_key(player_id: PlayerId) -> str:
+    """Return the ``WorldMap.spawn_positions`` key naming ``player_id``'s commander start cell.
+
+    Spawn cells are scenario-overlay data (`_specs/milestones/02-map-world-model.md`
+    "scenario spawn/reference positions"; `map_overlay.ScenarioOverlay`), keyed
+    ``"<player id>_commander"`` (e.g. ``"p1_commander"``), the convention
+    ``map_overlay.default_pvp_overlay`` declares.
+    """
+    return f"{player_id.value}_commander"
+
+
+def create_initial_state(
+    scenario: Scenario,
+    world: WorldMap | None = None,
+    *,
+    seed: int = 0,
+    rules: EngineRules = DEFAULT_RULES,
+) -> GameState:
     """Build the deterministic tick-0 :class:`GameState` for ``scenario``.
 
-    This proves that scenario-driven initialization is deterministic: the
-    same scenario always yields a canonical-equivalent ``GameState`` with
-    tick 0 and the canonically ordered player set from
-    :func:`initialize_players`. Composing resources/economy onto
-    ``GameState`` is out of scope for this issue (see issue #7 and later).
+    With ``world`` omitted this is the bare M1 contract: tick 0, the
+    canonically ordered player set from :func:`initialize_players`, nothing
+    else (kept for the M1 tests and for callers that compose commanders/
+    robots by hand, e.g. the M3-M6 milestone fixtures).
+
+    With ``world`` supplied (a :class:`~nether_earth.map.WorldMap` that
+    already has the scenario overlay applied -- see
+    ``map_overlay.apply_overlay``/``default_pvp_overlay``), this composes
+    the full authoritative starting state `_specs/functional-spec.md` §5
+    step 5 requires ("Server initializes map, scenario, resources,
+    commanders, factories, and game clock"):
+
+    - one ``FREE`` :class:`~nether_earth.commander.Commander` per player at
+      ``rules.commander_min_altitude`` on the cell
+      ``world.spawn_positions[commander_spawn_key(player)]`` -- a missing
+      spawn entry is a scenario-data error, not a silent default;
+    - one :func:`~nether_earth.resource_pool.starting_player_resource_pool`
+      per player (``rules.starting_general_resources``, which
+      ``Scenario.starting_general_resources`` must match -- checked here so
+      scenario metadata and the rule that actually seeds pools cannot
+      drift apart);
+    - one :class:`~nether_earth.capture.StructureOwnership` record per war
+      base/factory the overlaid ``world`` marks as owned, so the snapshot
+      clients consume is self-contained (the frontend reads ownership from
+      ``state.structure_ownership`` only) and
+      ``capture.effective_world(world, state)`` is the identity at tick 0.
+
+    ``world`` must describe ``scenario``'s map (same id/version). Pure and
+    deterministic: equal inputs always yield an equal ``GameState``.
     """
-    return create_game_state(0, initialize_players(scenario))
+    players = initialize_players(scenario)
+    if world is None:
+        return create_game_state(0, players, seed=seed)
+
+    if world.map_id != scenario.map_id or world.version != scenario.map_version:
+        raise ValueError(
+            f"world {world.map_id!r} v{world.version} does not match scenario "
+            f"{scenario.map_id!r} v{scenario.map_version}"
+        )
+    if scenario.starting_general_resources != rules.starting_general_resources:
+        raise ValueError(
+            f"scenario.starting_general_resources={scenario.starting_general_resources} "
+            f"differs from rules.starting_general_resources={rules.starting_general_resources}"
+        )
+
+    commanders: list[Commander] = []
+    for player in players:
+        key = commander_spawn_key(player)
+        if key not in world.spawn_positions:
+            raise ValueError(
+                f"world {world.map_id!r} declares no spawn position {key!r} for {player.value!r}"
+            )
+        x, y = world.spawn_positions[key]
+        commanders.append(
+            Commander(
+                player_id=player,
+                mode=CommanderMode.FREE,
+                x=x,
+                y=y,
+                altitude=rules.commander_min_altitude,
+            )
+        )
+
+    ownable: tuple[WarBase | Factory, ...] = (*world.war_bases, *world.factories)
+    ownership = tuple(
+        StructureOwnership(structure_id=structure.id, owner=structure.owner)
+        for structure in ownable
+        if structure.owner is not None
+    )
+    return create_game_state(
+        0,
+        players,
+        seed=seed,
+        commanders=tuple(commanders),
+        resource_pools=tuple(starting_player_resource_pool(player, rules) for player in players),
+        structure_ownership=ownership,
+    )

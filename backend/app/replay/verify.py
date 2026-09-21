@@ -38,11 +38,11 @@ from nether_earth.construction_commands import (
 )
 from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.ids import EntityId, PlayerId
-from nether_earth.map import BootstrapMap
+from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.orders import SetRobotOrderCommand
-from nether_earth.replay import ReplayFixture, run_fixture
+from nether_earth.replay import ReplayFixture, run_fixture, run_from_state
 from nether_earth.robot_build import ModuleIdentity
-from nether_earth.scenario import Scenario
+from nether_earth.scenario import Scenario, create_initial_state
 from nether_earth.snapshot import to_snapshot
 
 from app.replay.orders_json import order_from_json
@@ -189,7 +189,8 @@ def verify_replay(
     match_id: str,
     *,
     scenario: Scenario,
-    map_data: BootstrapMap,
+    map_data: BootstrapMap | None = None,
+    world: WorldMap | None = None,
 ) -> ReplayVerificationResult:
     """Reconstruct ``match_id``'s persisted command stream and replay it through the engine directly.
 
@@ -218,14 +219,27 @@ def verify_replay(
             "(status is still 'in_progress' -- verify only a finished artifact)"
         )
 
-    fixture = ReplayFixture(
-        scenario=scenario,
-        map_data=map_data,
-        seed=meta["seed"],
-        tick_count=tick_count,
-        commands_by_tick=commands_by_tick,
-    )
-    final_state, _events = run_fixture(fixture)
+    if world is not None:
+        # A real match (M9.1 gap G1): the same ``create_initial_state`` +
+        # ``engine.step`` path ``MatchManager``/``MatchRuntime`` used live.
+        if world.map_id != meta["map_id"] or world.version != meta["map_version"]:
+            raise ValueError(
+                f"world {world.map_id!r} v{world.version} does not match artifact "
+                f"{meta['map_id']!r} v{meta['map_version']}"
+            )
+        initial = create_initial_state(scenario, world, seed=meta["seed"])
+        final_state, _events = run_from_state(initial, commands_by_tick, tick_count, world=world)
+    else:
+        if map_data is None:
+            raise ValueError("verify_replay needs either world= or map_data=")
+        fixture = ReplayFixture(
+            scenario=scenario,
+            map_data=map_data,
+            seed=meta["seed"],
+            tick_count=tick_count,
+            commands_by_tick=commands_by_tick,
+        )
+        final_state, _events = run_fixture(fixture)
     reproduced_snapshot = to_snapshot(final_state)
     persisted_snapshot = meta.get("final_snapshot")
 
