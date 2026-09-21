@@ -21,6 +21,9 @@ class ConfigError(ValueError):
     """Raised when the environment does not describe a safe, usable configuration."""
 
 
+DEFAULT_MAX_MATCHES = 200
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     production: bool = False
@@ -28,6 +31,8 @@ class Settings:
     #: origin is the only one allowed to open ``/ws`` when set.
     public_base_url: str | None = None
     replay_dir: Path | None = None
+    #: Upper bound on matches held in memory at once (any state).
+    max_matches: int = DEFAULT_MAX_MATCHES
 
     @property
     def allowed_origins(self) -> frozenset[str]:
@@ -41,6 +46,19 @@ def _origin_of(url: str) -> str:
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ConfigError(f"NETHER_EARTH_PUBLIC_BASE_URL must be an http(s) URL, got {url!r}")
     return f"{parts.scheme}://{parts.netloc}".lower()
+
+
+def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
+    raw = env.get(name) or None
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be an integer, got {raw!r}") from None
+    if value <= 0:
+        raise ConfigError(f"{name} must be > 0, got {raw!r}")
+    return value
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -63,5 +81,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     replay_dir = Path(replay_raw) if replay_raw else default_replay_dir()
 
     return Settings(
-        production=production, public_base_url=public_base_url, replay_dir=replay_dir
+        production=production,
+        public_base_url=public_base_url,
+        replay_dir=replay_dir,
+        max_matches=_positive_int(env, "NETHER_EARTH_MAX_MATCHES", DEFAULT_MAX_MATCHES),
     )

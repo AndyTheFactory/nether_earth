@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -174,8 +175,16 @@ def default_replay_dir() -> Path:
     return Path(override) if override else _package_relative_default_replay_dir()
 
 
+#: Production match ids are server-generated ``uuid4().hex`` strings. Only
+#: allowing a separator- and dot-free charset here means no value can ever
+#: steer a replay path outside ``base_dir`` (``..``, ``/``, absolute paths).
+_MATCH_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
 def match_dir(base_dir: Path, match_id: str) -> Path:
     """Return the directory a match's artifact lives in under ``base_dir``."""
+    if not _MATCH_ID_RE.fullmatch(match_id):
+        raise ValueError(f"refusing unsafe replay match id {match_id!r}")
     return base_dir / match_id
 
 

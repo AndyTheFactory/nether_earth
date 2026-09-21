@@ -167,6 +167,7 @@ def create_app(
         on_tick_commands_factory=_on_tick_commands_factory,
         on_match_start=replay_writer.start_match,
         on_match_finish=replay_writer.finish_match,
+        max_matches=settings.max_matches,
     )
     # Breaks the construction-order cycle (this coordinator must exist
     # before `MatchManager` can be constructed with it, but the natural
@@ -184,7 +185,12 @@ def create_app(
     fastapi_app.state.connection_registry = connection_registry
 
     fastapi_app.include_router(
-        create_websocket_router(match_manager, runtime_registry, connection_registry)
+        create_websocket_router(
+            match_manager,
+            runtime_registry,
+            connection_registry,
+            allowed_origins=settings.allowed_origins,
+        )
     )
 
     @fastapi_app.get("/health", tags=["operations"])

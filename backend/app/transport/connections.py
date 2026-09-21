@@ -15,13 +15,23 @@ is no global socket set, only per-match dictionaries.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import weakref
 
 from fastapi import WebSocket
 
 from app.protocol import OutboundMessage, serialize_server_message
+from app.transport.limits import SEND_TIMEOUT_S
 
 logger = logging.getLogger(__name__)
+
+#: Sockets whose send timed out (M10.4/M10.6). Skipped by every later send
+#: and closed in the background; the connection's own handler then sees the
+#: close and runs the normal disconnect -> pause -> grace policy. Weak, so a
+#: finished connection never lingers here.
+_stalled: weakref.WeakSet[WebSocket] = weakref.WeakSet()
+_background: set[asyncio.Task[None]] = set()
 
 
 class ConnectionRegistry:
@@ -106,13 +116,41 @@ async def broadcast(registry: ConnectionRegistry, match_id: str, message: Outbou
     Never touches any other match's connections -- see
     :meth:`ConnectionRegistry.connections_for`.
     """
-    for websocket in registry.connections_for(match_id):
-        await _send(websocket, message)
+    connections = registry.connections_for(match_id)
+    if not connections:
+        return
+    text = serialize_server_message(message)
+    for websocket in connections:
+        await _send_text(websocket, text)
 
 
 async def _send(websocket: WebSocket, message: OutboundMessage) -> None:
-    text = serialize_server_message(message)
+    await _send_text(websocket, serialize_server_message(message))
+
+
+async def _send_text(websocket: WebSocket, text: str) -> None:
+    """Send ``text``; never raise, and never block the caller past ``SEND_TIMEOUT_S``.
+
+    Callers include each match's tick loop (snapshot broadcast), so a peer
+    that stops reading must not be able to freeze the match for its
+    opponent: a timed-out socket is marked stalled and closed instead.
+    """
+    if websocket in _stalled:
+        return
     try:
-        await websocket.send_text(text)
+        await asyncio.wait_for(websocket.send_text(text), SEND_TIMEOUT_S)
+    except TimeoutError:
+        _stalled.add(websocket)
+        logger.warning("closing stalled websocket: a send blocked for over %ss", SEND_TIMEOUT_S)
+        task = asyncio.get_running_loop().create_task(_close_quietly(websocket))
+        _background.add(task)
+        task.add_done_callback(_background.discard)
     except Exception:
         logger.debug("dropping send to a closed/closing websocket connection", exc_info=True)
+
+
+async def _close_quietly(websocket: WebSocket) -> None:
+    try:
+        await asyncio.wait_for(websocket.close(code=1011), SEND_TIMEOUT_S)
+    except Exception:
+        logger.debug("close of stalled websocket failed", exc_info=True)

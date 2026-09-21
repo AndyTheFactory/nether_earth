@@ -19,6 +19,7 @@ from __future__ import annotations
 import secrets
 import string
 import threading
+import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ from app.match.models import (
     MatchNotFoundError,
     MatchRuntimeState,
     PlayerSlot,
+    ServerBusyError,
 )
 from app.match.reconnect import ReconnectCoordinator
 from app.match.runtime import MatchRuntimeRegistry, TickCommandObserver, TickObserver
@@ -165,6 +167,7 @@ class MatchManager:
         on_tick_commands_factory: Callable[[Match], TickCommandObserver | None] | None = None,
         on_match_start: Callable[[Match, Scenario, BootstrapMap], None] | None = None,
         on_match_finish: Callable[[Match], None] | None = None,
+        max_matches: int | None = None,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
         # ``world`` (M9.1 audit gap G1): the scenario-overlaid real map. When
@@ -188,6 +191,9 @@ class MatchManager:
         self._on_tick_commands_factory = on_tick_commands_factory
         self._on_match_start = on_match_start
         self._on_match_finish = on_match_finish
+        # Capacity bound (M10.4): matches in any state count, so abandoned
+        # lobbies cannot grow memory without limit. ``None`` = unbounded.
+        self._max_matches = max_matches
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
         self._match_id_by_join_code: dict[str, str] = {}
@@ -199,6 +205,8 @@ class MatchManager:
         """Create a new ``WAITING`` match with ``nickname`` as its first (PLAYER_ONE) slot."""
         nickname = _validate_nickname(nickname)
         with self._lock:
+            if self._max_matches is not None and len(self._matches) >= self._max_matches:
+                raise ServerBusyError("server is at match capacity; try again later")
             match_id = uuid.uuid4().hex
             join_code = self._generate_unique_join_code()
             match_seed = seed if seed is not None else secrets.randbits(63)
@@ -488,8 +496,18 @@ def _generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+#: Bidirectional-text override/isolate controls: they can visually disguise
+#: a nickname in other players' UIs and in replay artifacts.
+_BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
+
 def _validate_nickname(nickname: str) -> str:
     nickname = nickname.strip()
     if not nickname:
         raise InvalidNicknameError("nickname must be a non-empty string")
+    if any(
+        unicodedata.category(ch) in ("Cc", "Cs", "Co", "Cn") or ch in _BIDI_CONTROLS
+        for ch in nickname
+    ):
+        raise InvalidNicknameError("nickname must not contain control characters")
     return nickname

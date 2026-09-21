@@ -152,4 +152,8 @@ class InvalidSessionTokenError(MatchError):
 
 
 class InvalidNicknameError(MatchError):
-    """Raised when a supplied nickname is empty/whitespace-only."""
+    """Raised when a supplied nickname is empty/whitespace-only or has control characters."""
+
+
+class ServerBusyError(MatchError):
+    """Raised when creating a match would exceed the configured match capacity."""
