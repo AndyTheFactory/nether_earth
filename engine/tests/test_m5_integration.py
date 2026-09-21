@@ -62,13 +62,13 @@ MAP_VERSION = 1
 
 SEED = 68680919
 
-BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod
-TRACKS_TICKS = DEFAULT_RULES.robot_move_ticks_tracks
-ANTI_TICKS = DEFAULT_RULES.robot_move_ticks_anti_grav
-ROUGH_BIPOD = DEFAULT_RULES.robot_rough_multiplier_bipod
-ROUGH_TRACKS = DEFAULT_RULES.robot_rough_multiplier_tracks
-ROUGH_ANTI = DEFAULT_RULES.robot_rough_multiplier_anti_grav
-DITCH_ANTI = DEFAULT_RULES.robot_ditch_multiplier_anti_grav
+BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod_normal
+TRACKS_TICKS = DEFAULT_RULES.robot_move_ticks_tracks_normal
+ANTI_TICKS = DEFAULT_RULES.robot_move_ticks_anti_grav_normal
+ROUGH_BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod_rough
+ROUGH_TRACKS_TICKS = DEFAULT_RULES.robot_move_ticks_tracks_rough
+ROUGH_ANTI_TICKS = DEFAULT_RULES.robot_move_ticks_anti_grav_rough
+DITCH_ANTI_TICKS = DEFAULT_RULES.robot_move_ticks_anti_grav_ditch
 CAPTURE_TICKS = DEFAULT_RULES.capture_duration_ticks
 
 # --------------------------------------------------------------------------
@@ -392,7 +392,7 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     bipod_moves = move_started_by_robot[ROBOT_BIPOD]
     assert bipod_moves[0].duration_ticks == BIPOD_TICKS
     assert bipod_moves[0].to_x == 1 and bipod_moves[0].to_y == 0  # into NORMAL
-    assert bipod_moves[1].duration_ticks == BIPOD_TICKS * ROUGH_BIPOD
+    assert bipod_moves[1].duration_ticks == ROUGH_BIPOD_TICKS
     assert bipod_moves[1].to_x == 2 and bipod_moves[1].to_y == 0  # into ROUGH
     # Bipod cannot enter the ditch at x=3: no further move is ever started,
     # so it remains stuck at the rough cell for the rest of the run.
@@ -403,7 +403,7 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
 
     tracks_moves = move_started_by_robot[ROBOT_TRACKS]
     assert tracks_moves[0].duration_ticks == TRACKS_TICKS
-    assert tracks_moves[1].duration_ticks == TRACKS_TICKS * ROUGH_TRACKS
+    assert tracks_moves[1].duration_ticks == ROUGH_TRACKS_TICKS
     assert len(tracks_moves) == 2  # tracks cannot enter the ditch either
     tracks_robot = final.robot_for(ROBOT_TRACKS)
     assert tracks_robot is not None
@@ -411,8 +411,8 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
 
     antigrav_moves = move_started_by_robot[ROBOT_ANTIGRAV]
     assert antigrav_moves[0].duration_ticks == ANTI_TICKS  # normal
-    assert antigrav_moves[1].duration_ticks == ANTI_TICKS * ROUGH_ANTI  # rough
-    assert antigrav_moves[2].duration_ticks == ANTI_TICKS * DITCH_ANTI  # ditch
+    assert antigrav_moves[1].duration_ticks == ROUGH_ANTI_TICKS  # rough
+    assert antigrav_moves[2].duration_ticks == DITCH_ANTI_TICKS  # ditch
     # Anti-grav may enter every terrain type and completes the full
     # Advance(3 miles = 6 cells) order, transitioning to Stop & Defend.
     antigrav_robot = final.robot_for(ROBOT_ANTIGRAV)

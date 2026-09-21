@@ -3,7 +3,7 @@
 // occupancy, collision, or interaction legality from it.
 import zxOriginal from '../generated/maps/zx-spectrum-original.json';
 
-export type TerrainType = 'normal' | 'rough' | 'ditch';
+export type TerrainType = 'normal' | 'rough' | 'mountain' | 'ditch';
 
 export interface MapComponent {
   x: number;

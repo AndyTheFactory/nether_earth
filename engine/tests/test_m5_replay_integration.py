@@ -88,7 +88,7 @@ SEED = 20260919
 #: One cell of ordinary-terrain movement for the tracks chassis every robot
 #: in this module uses. A move started on tick ``t`` resolves on tick
 #: ``t + TRACKS_MOVE_TICKS``.
-TRACKS_MOVE_TICKS = DEFAULT_RULES.robot_move_ticks_tracks
+TRACKS_MOVE_TICKS = DEFAULT_RULES.robot_move_ticks_tracks_normal
 
 
 def _footprint(cell: tuple[int, int]) -> Footprint:

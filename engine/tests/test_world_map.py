@@ -66,6 +66,27 @@ def test_fixture_terrain_query() -> None:
     assert world_map.terrain.terrain_at(0, 0) is TerrainType.NORMAL
 
 
+def test_loader_accepts_mountain_terrain_cells(tmp_path: Path) -> None:
+    """CR001.4 (#151): ``mountain`` is a valid YAML terrain class (§4)."""
+    path = _write_yaml(
+        tmp_path,
+        "mountain.yaml",
+        "id: mountain-map\n"
+        "version: 1\n"
+        "width: 3\n"
+        "height: 2\n"
+        "terrain:\n"
+        "  default: normal\n"
+        "  cells:\n"
+        "    - {x: 1, y: 0, type: mountain}\n"
+        "    - {x: 2, y: 1, type: rough}\n",
+    )
+    world_map = load_world_map(path)
+    assert world_map.terrain.terrain_at(1, 0) is TerrainType.MOUNTAIN
+    assert world_map.terrain.terrain_at(2, 1) is TerrainType.ROUGH
+    assert world_map.terrain.terrain_at(0, 0) is TerrainType.NORMAL
+
+
 def test_fixture_structure_query() -> None:
     world_map = load_world_map(FIXTURE_PATH)
     box = world_map.structure_by_id(EntityId("box-1"))

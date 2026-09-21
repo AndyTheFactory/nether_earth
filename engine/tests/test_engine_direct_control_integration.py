@@ -13,6 +13,8 @@ rejected by the very same checks a non-direct-control
 
 from __future__ import annotations
 
+import pytest
+
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.engine import new_game, step
@@ -28,7 +30,7 @@ from nether_earth.scenario import Scenario
 from nether_earth.state import GameState
 from nether_earth.terrain import TerrainGrid, TerrainType
 
-BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod
+BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod_normal
 ROBOT_ID = EntityId("robot-1")
 
 
@@ -287,6 +289,48 @@ def test_direct_move_cannot_bypass_terrain_legality() -> None:
     updated_robot = state.robot_for(ROBOT_ID)
     assert updated_robot is not None
     assert (updated_robot.x, updated_robot.y) == (5, 5)
+
+
+@pytest.mark.parametrize(
+    ("chassis", "terrain", "ticks"),
+    [
+        (ModuleIdentity.BIPOD, TerrainType.NORMAL, 24),
+        (ModuleIdentity.BIPOD, TerrainType.ROUGH, 32),
+        (ModuleIdentity.BIPOD, TerrainType.MOUNTAIN, None),
+        (ModuleIdentity.BIPOD, TerrainType.DITCH, None),
+        (ModuleIdentity.TRACKS, TerrainType.NORMAL, 16),
+        (ModuleIdentity.TRACKS, TerrainType.ROUGH, 24),
+        (ModuleIdentity.TRACKS, TerrainType.MOUNTAIN, 28),
+        (ModuleIdentity.TRACKS, TerrainType.DITCH, None),
+        (ModuleIdentity.ANTI_GRAV, TerrainType.NORMAL, 12),
+        (ModuleIdentity.ANTI_GRAV, TerrainType.ROUGH, 12),
+        (ModuleIdentity.ANTI_GRAV, TerrainType.MOUNTAIN, 16),
+        (ModuleIdentity.ANTI_GRAV, TerrainType.DITCH, 12),
+    ],
+)
+def test_direct_move_uses_the_locked_terrain_tick_table(
+    chassis: ModuleIdentity, terrain: TerrainType, ticks: int | None
+) -> None:
+    """`_specs/open-questions.md` §4 table through ``engine.step`` (``None`` = blocked)."""
+    robot = _robot(chassis=chassis)
+    commander = _docked_commander()
+    world = _world(terrain_cells={(6, 5): terrain})
+    state = _base_state().with_robots((robot,)).with_commanders((commander,))
+
+    state, events = step(state, [_direct_move(1, 0)], world=world)
+
+    started = [e for e in events if isinstance(e, RobotMoveStartedEvent)]
+    if ticks is None:
+        assert started == []
+        return
+    assert [e.duration_ticks for e in started] == [ticks]
+    for _ in range(ticks - 1):
+        state, events = step(state, [], world=world)
+        assert not any(isinstance(e, RobotMoveCompletedEvent) for e in events)
+    state, events = step(state, [], world=world)
+    assert any(isinstance(e, RobotMoveCompletedEvent) for e in events)
+    moved = state.robot_for(ROBOT_ID)
+    assert moved is not None and (moved.x, moved.y) == (6, 5)
 
 
 # --------------------------------------------------------------------------

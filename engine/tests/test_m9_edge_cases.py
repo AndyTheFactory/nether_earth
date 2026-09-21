@@ -235,7 +235,7 @@ def test_same_tick_destination_claims_are_exclusive_and_seed_deterministic(world
     second, _ = _step(_contention_state(world, seed), world, commands)
     assert to_snapshot(first) == to_snapshot(second)
     # The loser may retry once the winner's move completes.
-    final, _ = _step(first, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks + 1)
+    final, _ = _step(first, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks_normal + 1)
     positions = {r.entity_id.value: (r.x, r.y) for r in final.robots}
     assert len(set(positions.values())) == 2 and (201, 15) in positions.values()
 
@@ -271,13 +271,13 @@ def test_leaving_the_capture_cell_resets_progress_to_zero(world: WorldMap) -> No
     # Interrupt: drive one cell off the footprint.
     state, events = _step(state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=0, dx=1, dy=0),))
     assert _events(events, RobotMoveStartedEvent)
-    state, _ = _step(state, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks)
+    state, _ = _step(state, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks_normal)
     assert state.capture_progress_for(EntityId("warbase-2")) is None
     assert state.structure_ownership_for(EntityId("warbase-2")) is None
 
     # Return: progress restarts from zero -- full duration again.
     state, _ = _step(state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=1, dx=-1, dy=0),))
-    state, _ = _step(state, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks)
+    state, _ = _step(state, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks_normal)
     assert (state.robot_for(EntityId("capturer")).x, state.robot_for(EntityId("capturer")).y) == cell  # type: ignore[union-attr]
     state, events = _step(state, world, ticks=CAPTURE_TICKS // 2)
     assert not _events(events, StructureCapturedEvent)

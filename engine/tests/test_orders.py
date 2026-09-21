@@ -408,7 +408,7 @@ def test_advance_with_a_move_already_in_flight_submits_no_second_request() -> No
         to_x=1,
         to_y=5,
         started_tick=0,
-        duration_ticks=DEFAULT_RULES.robot_move_ticks_tracks,
+        duration_ticks=DEFAULT_RULES.robot_move_ticks_tracks_normal,
     )
     robot = _robot(x=0, y=5, order=Advance(3, target_x=6), movement=transition)
     evaluation = evaluate_order(robot, _state((robot,)), world)

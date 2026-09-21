@@ -13,14 +13,13 @@ What this module owns
 ----------------------
 - chassis/terrain capability (:data:`CHASSIS_TERRAIN_PERMISSIONS`,
   :func:`chassis_can_enter`), locked by
-  `_specs/functional-spec.md` / `_specs/open-questions.md` §4: bipod and
-  tracks may enter ``NORMAL`` and ``ROUGH`` but never ``DITCH``; anti-grav
-  may enter all three;
+  `_specs/functional-spec.md` §13 / `_specs/open-questions.md` §4: bipod
+  may enter ``NORMAL`` and ``ROUGH``; tracks additionally ``MOUNTAIN``;
+  anti-grav may enter all four classes including ``DITCH``;
 - the integer per-cell movement duration (:func:`move_duration_ticks`),
-  read from centralized :class:`~nether_earth.rules.EngineRules` data --
-  never a literal at a call site (see `rules.py`'s module docstring for
-  the still-open `_specs/open-questions.md` §4 fidelity status of those
-  defaults, owned by issue #61);
+  read from the per-(chassis, terrain) tick fields of centralized
+  :class:`~nether_earth.rules.EngineRules` data -- never a literal at a
+  call site (see `rules.py`'s module docstring for the §4 evidence);
 - the move-start / move-complete / rejection contract
   (:class:`RobotMoveRequest`, :class:`RobotMoveResult`,
   :class:`MovementRejectionReason`, the three events, and
@@ -131,9 +130,11 @@ __all__ = [
 
 #: The locked per-chassis terrain permissions
 #: (`_specs/milestones/05-orders-navigation-capture.md` "Terrain
-#: capability", `_specs/open-questions.md` §4): bipod and tracks traverse
-#: ordinary and rough terrain but never a ditch/ravine; anti-grav traverses
-#: every terrain type. This is rule *legality*, not tunable numeric
+#: capability", `_specs/open-questions.md` §4): bipod traverses ordinary
+#: and rough terrain; tracks also mountain; neither enters a ditch/ravine;
+#: anti-grav traverses every terrain type. (The Spectrum blocks map element
+#: types >= 8 for bipod, >= 12 for tracks, >= 15 for anti-grav, per
+#: ``Lb513_get_robot_movement_possibilities``.) This is rule *legality*, not tunable numeric
 #: configuration, so it lives here (the one module that owns movement
 #: legality) rather than in `rules.py`, which is deliberately a flat set of
 #: tunable numeric scalars. Electronics never appears in this table:
@@ -142,9 +143,11 @@ __all__ = [
 CHASSIS_TERRAIN_PERMISSIONS: Mapping[ModuleIdentity, frozenset[TerrainType]] = MappingProxyType(
     {
         ModuleIdentity.BIPOD: frozenset({TerrainType.NORMAL, TerrainType.ROUGH}),
-        ModuleIdentity.TRACKS: frozenset({TerrainType.NORMAL, TerrainType.ROUGH}),
+        ModuleIdentity.TRACKS: frozenset(
+            {TerrainType.NORMAL, TerrainType.ROUGH, TerrainType.MOUNTAIN}
+        ),
         ModuleIdentity.ANTI_GRAV: frozenset(
-            {TerrainType.NORMAL, TerrainType.ROUGH, TerrainType.DITCH}
+            {TerrainType.NORMAL, TerrainType.ROUGH, TerrainType.MOUNTAIN, TerrainType.DITCH}
         ),
     }
 )
@@ -175,35 +178,31 @@ def chassis_can_enter(chassis: ModuleIdentity, terrain: TerrainType) -> bool:
 # Movement duration (centralized configuration)
 # --------------------------------------------------------------------------
 
-_BASE_MOVE_TICKS: Mapping[ModuleIdentity, Callable[[EngineRules], int]] = MappingProxyType(
-    {
-        ModuleIdentity.BIPOD: lambda rules: rules.robot_move_ticks_bipod,
-        ModuleIdentity.TRACKS: lambda rules: rules.robot_move_ticks_tracks,
-        ModuleIdentity.ANTI_GRAV: lambda rules: rules.robot_move_ticks_anti_grav,
-    }
-)
-
-_TERRAIN_MULTIPLIERS: Mapping[
+#: Per-(chassis, terrain) tick-field accessors, keyed exactly like
+#: :data:`CHASSIS_TERRAIN_PERMISSIONS` (a blocked pair has no entry).
+_MOVE_TICKS: Mapping[
     ModuleIdentity, Mapping[TerrainType, Callable[[EngineRules], int]]
 ] = MappingProxyType(
     {
         ModuleIdentity.BIPOD: MappingProxyType(
             {
-                TerrainType.NORMAL: lambda rules: 1,
-                TerrainType.ROUGH: lambda rules: rules.robot_rough_multiplier_bipod,
+                TerrainType.NORMAL: lambda rules: rules.robot_move_ticks_bipod_normal,
+                TerrainType.ROUGH: lambda rules: rules.robot_move_ticks_bipod_rough,
             }
         ),
         ModuleIdentity.TRACKS: MappingProxyType(
             {
-                TerrainType.NORMAL: lambda rules: 1,
-                TerrainType.ROUGH: lambda rules: rules.robot_rough_multiplier_tracks,
+                TerrainType.NORMAL: lambda rules: rules.robot_move_ticks_tracks_normal,
+                TerrainType.ROUGH: lambda rules: rules.robot_move_ticks_tracks_rough,
+                TerrainType.MOUNTAIN: lambda rules: rules.robot_move_ticks_tracks_mountain,
             }
         ),
         ModuleIdentity.ANTI_GRAV: MappingProxyType(
             {
-                TerrainType.NORMAL: lambda rules: 1,
-                TerrainType.ROUGH: lambda rules: rules.robot_rough_multiplier_anti_grav,
-                TerrainType.DITCH: lambda rules: rules.robot_ditch_multiplier_anti_grav,
+                TerrainType.NORMAL: lambda rules: rules.robot_move_ticks_anti_grav_normal,
+                TerrainType.ROUGH: lambda rules: rules.robot_move_ticks_anti_grav_rough,
+                TerrainType.MOUNTAIN: lambda rules: rules.robot_move_ticks_anti_grav_mountain,
+                TerrainType.DITCH: lambda rules: rules.robot_move_ticks_anti_grav_ditch,
             }
         ),
     }
@@ -217,11 +216,9 @@ def move_duration_ticks(
 ) -> int:
     """Return the integer tick duration of one ``chassis`` move into ``terrain``.
 
-    The duration is ``chassis``' base ticks-per-cell times that chassis'
-    multiplier for ``terrain`` (``1`` for ordinary terrain), with both
-    halves read from ``rules`` -- see `rules.py` for the centralized
-    fields and their documented, issue-#61-owned fidelity status. No
-    movement call site may inline a tick literal instead of calling this.
+    The duration is ``rules``' ``robot_move_ticks_<chassis>_<terrain>``
+    field (`_specs/open-questions.md` §4; see `rules.py`). No movement
+    call site may inline a tick literal instead of calling this.
 
     Raises ``ValueError`` if ``chassis`` cannot enter ``terrain`` at all
     (there is no meaningful duration for an impossible move; callers must
@@ -232,9 +229,7 @@ def move_duration_ticks(
         raise ValueError(
             f"{chassis.value!r} cannot enter {terrain.value!r} terrain: no movement duration"
         )
-    base = _BASE_MOVE_TICKS[chassis](rules)
-    multiplier = _TERRAIN_MULTIPLIERS[chassis][terrain](rules)
-    return base * multiplier
+    return _MOVE_TICKS[chassis][terrain](rules)
 
 
 def robot_move_duration_ticks(

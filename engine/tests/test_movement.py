@@ -118,9 +118,11 @@ def _east(entity_id: str = "robot-player-one-1") -> RobotMoveRequest:
 def test_chassis_terrain_permissions_match_locked_rules_exactly() -> None:
     assert CHASSIS_TERRAIN_PERMISSIONS == {
         ModuleIdentity.BIPOD: frozenset({TerrainType.NORMAL, TerrainType.ROUGH}),
-        ModuleIdentity.TRACKS: frozenset({TerrainType.NORMAL, TerrainType.ROUGH}),
+        ModuleIdentity.TRACKS: frozenset(
+            {TerrainType.NORMAL, TerrainType.ROUGH, TerrainType.MOUNTAIN}
+        ),
         ModuleIdentity.ANTI_GRAV: frozenset(
-            {TerrainType.NORMAL, TerrainType.ROUGH, TerrainType.DITCH}
+            {TerrainType.NORMAL, TerrainType.ROUGH, TerrainType.MOUNTAIN, TerrainType.DITCH}
         ),
     }
 
@@ -130,12 +132,15 @@ def test_chassis_terrain_permissions_match_locked_rules_exactly() -> None:
     [
         (ModuleIdentity.BIPOD, TerrainType.NORMAL, True),
         (ModuleIdentity.BIPOD, TerrainType.ROUGH, True),
+        (ModuleIdentity.BIPOD, TerrainType.MOUNTAIN, False),
         (ModuleIdentity.BIPOD, TerrainType.DITCH, False),
         (ModuleIdentity.TRACKS, TerrainType.NORMAL, True),
         (ModuleIdentity.TRACKS, TerrainType.ROUGH, True),
+        (ModuleIdentity.TRACKS, TerrainType.MOUNTAIN, True),
         (ModuleIdentity.TRACKS, TerrainType.DITCH, False),
         (ModuleIdentity.ANTI_GRAV, TerrainType.NORMAL, True),
         (ModuleIdentity.ANTI_GRAV, TerrainType.ROUGH, True),
+        (ModuleIdentity.ANTI_GRAV, TerrainType.MOUNTAIN, True),
         (ModuleIdentity.ANTI_GRAV, TerrainType.DITCH, True),
     ],
 )
@@ -169,33 +174,78 @@ def test_ordinary_terrain_speed_order_is_bipod_slower_than_tracks_than_anti_grav
     assert bipod > tracks > anti_grav
 
 
-def test_rough_terrain_penalizes_bipod_more_than_tracks() -> None:
-    bipod_penalty = move_duration_ticks(
+#: `_specs/open-questions.md` §4 / `_specs/technical-spec.md` §13 locked
+#: ticks per cell for every enterable (chassis, terrain) pair.
+LOCKED_MOVE_TICKS = (
+    (ModuleIdentity.BIPOD, TerrainType.NORMAL, 24),
+    (ModuleIdentity.BIPOD, TerrainType.ROUGH, 32),
+    (ModuleIdentity.TRACKS, TerrainType.NORMAL, 16),
+    (ModuleIdentity.TRACKS, TerrainType.ROUGH, 24),
+    (ModuleIdentity.TRACKS, TerrainType.MOUNTAIN, 28),
+    (ModuleIdentity.ANTI_GRAV, TerrainType.NORMAL, 12),
+    (ModuleIdentity.ANTI_GRAV, TerrainType.ROUGH, 12),
+    (ModuleIdentity.ANTI_GRAV, TerrainType.MOUNTAIN, 16),
+    (ModuleIdentity.ANTI_GRAV, TerrainType.DITCH, 12),
+)
+
+BLOCKED_PAIRS = (
+    (ModuleIdentity.BIPOD, TerrainType.MOUNTAIN),
+    (ModuleIdentity.BIPOD, TerrainType.DITCH),
+    (ModuleIdentity.TRACKS, TerrainType.DITCH),
+)
+
+
+@pytest.mark.parametrize(("chassis", "terrain", "ticks"), LOCKED_MOVE_TICKS)
+def test_move_duration_matches_locked_tick_table(
+    chassis: ModuleIdentity, terrain: TerrainType, ticks: int
+) -> None:
+    assert move_duration_ticks(chassis, terrain) == ticks
+
+
+def test_tick_table_covers_exactly_the_permitted_pairs() -> None:
+    table_pairs = {(chassis, terrain) for chassis, terrain, _ in LOCKED_MOVE_TICKS}
+    permitted = {
+        (chassis, terrain)
+        for chassis, terrains in CHASSIS_TERRAIN_PERMISSIONS.items()
+        for terrain in terrains
+    }
+    assert table_pairs == permitted
+    assert table_pairs.isdisjoint(BLOCKED_PAIRS)
+    assert len(table_pairs) + len(BLOCKED_PAIRS) == len(CHASSIS) * len(TerrainType)
+
+
+def test_rough_terrain_costs_bipod_and_tracks_the_same_eight_ticks() -> None:
+    """Functional spec §13: tracks stay faster; both lose 8 ticks per cell on rough."""
+    for chassis in (ModuleIdentity.BIPOD, ModuleIdentity.TRACKS):
+        penalty = move_duration_ticks(chassis, TerrainType.ROUGH) - move_duration_ticks(
+            chassis, TerrainType.NORMAL
+        )
+        assert penalty == 8
+    assert move_duration_ticks(ModuleIdentity.TRACKS, TerrainType.ROUGH) < move_duration_ticks(
         ModuleIdentity.BIPOD, TerrainType.ROUGH
-    ) - move_duration_ticks(ModuleIdentity.BIPOD, TerrainType.NORMAL)
-    tracks_penalty = move_duration_ticks(
-        ModuleIdentity.TRACKS, TerrainType.ROUGH
-    ) - move_duration_ticks(ModuleIdentity.TRACKS, TerrainType.NORMAL)
-
-    assert bipod_penalty > tracks_penalty > 0
+    )
 
 
-@pytest.mark.parametrize("chassis", [ModuleIdentity.BIPOD, ModuleIdentity.TRACKS])
+@pytest.mark.parametrize(("chassis", "terrain"), BLOCKED_PAIRS)
 def test_move_duration_rejects_terrain_the_chassis_cannot_enter(
-    chassis: ModuleIdentity,
+    chassis: ModuleIdentity, terrain: TerrainType
 ) -> None:
     with pytest.raises(ValueError):
-        move_duration_ticks(chassis, TerrainType.DITCH)
+        move_duration_ticks(chassis, terrain)
 
 
 def test_move_duration_comes_from_rules_not_literals() -> None:
     rules = EngineRules(
-        robot_move_ticks_bipod=5,
-        robot_rough_multiplier_bipod=4,
+        robot_move_ticks_bipod_normal=5,
+        robot_move_ticks_bipod_rough=20,
+        robot_move_ticks_tracks_mountain=7,
+        robot_move_ticks_anti_grav_ditch=3,
     )
 
     assert move_duration_ticks(ModuleIdentity.BIPOD, TerrainType.NORMAL, rules) == 5
     assert move_duration_ticks(ModuleIdentity.BIPOD, TerrainType.ROUGH, rules) == 20
+    assert move_duration_ticks(ModuleIdentity.TRACKS, TerrainType.MOUNTAIN, rules) == 7
+    assert move_duration_ticks(ModuleIdentity.ANTI_GRAV, TerrainType.DITCH, rules) == 3
 
 
 def test_robot_move_duration_ticks_uses_the_robots_own_chassis() -> None:
@@ -287,6 +337,30 @@ def test_anti_grav_may_enter_a_ditch() -> None:
     robot = _robot(chassis=ModuleIdentity.ANTI_GRAV)
 
     assert validate_robot_move(_east(), _state((robot,)), world).accepted
+
+
+def test_bipod_cannot_enter_a_mountain() -> None:
+    world = _world(terrain_cells={(6, 5): TerrainType.MOUNTAIN})
+    robot = _robot(chassis=ModuleIdentity.BIPOD, electronics=ModuleIdentity.ELECTRONICS)
+
+    result = validate_robot_move(_east(), _state((robot,)), world)
+
+    assert result.reason is MovementRejectionReason.TERRAIN_IMPASSABLE
+
+
+@pytest.mark.parametrize(
+    ("chassis", "ticks"), [(ModuleIdentity.TRACKS, 28), (ModuleIdentity.ANTI_GRAV, 16)]
+)
+def test_tracks_and_anti_grav_enter_a_mountain_at_locked_speed(
+    chassis: ModuleIdentity, ticks: int
+) -> None:
+    world = _world(terrain_cells={(6, 5): TerrainType.MOUNTAIN})
+    robot = _robot(chassis=chassis)
+
+    _, result, event = apply_robot_move(_east(), _state((robot,)), world, tick=10)
+
+    assert result.accepted
+    assert event is not None and event.duration_ticks == ticks
 
 
 @pytest.mark.parametrize("chassis", CHASSIS)
@@ -432,13 +506,13 @@ def test_accepted_move_starts_a_transition_without_moving_the_robot() -> None:
         to_x=6,
         to_y=5,
         started_tick=10,
-        duration_ticks=DEFAULT_RULES.robot_move_ticks_bipod,
+        duration_ticks=DEFAULT_RULES.robot_move_ticks_bipod_normal,
     )
     assert isinstance(event, RobotMoveStartedEvent)
     assert (event.from_x, event.to_x, event.duration_ticks) == (
         5,
         6,
-        DEFAULT_RULES.robot_move_ticks_bipod,
+        DEFAULT_RULES.robot_move_ticks_bipod_normal,
     )
 
 
@@ -471,7 +545,7 @@ def test_rejected_move_causes_no_partial_state_mutation() -> None:
 
 def test_transition_completes_exactly_at_the_configured_duration_boundary() -> None:
     state, _result, _event = apply_robot_move(_east(), _state((_robot(),)), _world(), tick=0)
-    duration = DEFAULT_RULES.robot_move_ticks_bipod
+    duration = DEFAULT_RULES.robot_move_ticks_bipod_normal
 
     robot = state.robot_for(EntityId("robot-player-one-1"))
     assert robot is not None
@@ -500,7 +574,7 @@ def test_advance_all_transitions_walks_robots_in_canonical_order() -> None:
 
     sequencer = EventSequencer()
     state, events = advance_all_robot_transitions(
-        state, DEFAULT_RULES.robot_move_ticks_bipod, sequencer
+        state, DEFAULT_RULES.robot_move_ticks_bipod_normal, sequencer
     )
 
     assert [event.entity_id.value for event in events] == [
@@ -615,7 +689,7 @@ def test_move_state_survives_a_snapshot_round_trip_shape() -> None:
         "to_x": 6,
         "to_y": 5,
         "started_tick": 7,
-        "duration_ticks": DEFAULT_RULES.robot_move_ticks_bipod,
+        "duration_ticks": DEFAULT_RULES.robot_move_ticks_bipod_normal,
     }
 
 
@@ -632,7 +706,7 @@ def test_engine_step_completes_an_in_flight_move() -> None:
     state, _result, _event = apply_robot_move(_east(), _state((_robot(),)), world, tick=0)
 
     events: list[object] = []
-    for _ in range(DEFAULT_RULES.robot_move_ticks_bipod):
+    for _ in range(DEFAULT_RULES.robot_move_ticks_bipod_normal):
         state, tick_events = engine.step(state, (), world)
         events.extend(tick_events)
 

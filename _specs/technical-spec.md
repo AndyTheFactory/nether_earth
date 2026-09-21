@@ -223,6 +223,7 @@ Required terrain types:
 ```python
 NORMAL
 ROUGH
+MOUNTAIN
 DITCH
 ```
 

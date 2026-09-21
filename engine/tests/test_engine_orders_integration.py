@@ -39,7 +39,7 @@ from nether_earth.state import GameState, create_game_state
 from nether_earth.structures import Component, Factory, FactoryType, Footprint, WarBase
 from nether_earth.terrain import TerrainGrid, TerrainType
 
-TRACKS_TICKS = DEFAULT_RULES.robot_move_ticks_tracks
+TRACKS_TICKS = DEFAULT_RULES.robot_move_ticks_tracks_normal
 
 NEUTRAL_FACTORY = EntityId("factory-neutral")
 NEUTRAL_FACTORY_CAPTURE_CELL = (6, 5)
