@@ -9,7 +9,10 @@ export interface MoveIntent {
   dy: Axis;
 }
 
-const KEY_TO_AXIS: Record<string, MoveIntent> = {
+// World axes, not screen axes. In the Spectrum orientation (projection.ts)
+// +x reads as screen-right and -y as screen-up, so each key moves along the
+// world axis closest to its on-screen direction (checked in projection.test.ts).
+export const KEY_TO_AXIS: Readonly<Record<string, MoveIntent>> = {
   ArrowUp: { dx: 0, dy: -1 },
   ArrowDown: { dx: 0, dy: 1 },
   ArrowLeft: { dx: -1, dy: 0 },

@@ -4,11 +4,14 @@ import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
 import { surfaceHeightAt, terrainAt } from '../world/map.ts';
-import { CELL_H, CELL_W, depthKey, project } from './projection.ts';
+import { TILE_H, TILE_W, depthKey, project, unproject, type ScreenPoint } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
 import { colorFor, ownerColor, PALETTE, shade, type SemanticAsset } from './assets.ts';
+
+/** Screen pixels per world (Spectrum) pixel. */
+const ZOOM = 2;
 
 interface Effect {
   x: number;
@@ -28,7 +31,11 @@ export class WorldRenderer {
   private projectiles = new Graphics();
   private effects = new Graphics();
   private overlay = new Graphics();
+  // Text stays unscaled: labels live in a sibling layer that tracks the
+  // world's offset, positioned via labelAt().
+  private readonly labels = new Container();
   private overlayLabels = new Container();
+  private zoom = ZOOM;
   private cam = { x: 24, y: 8 };
   private lastStructureKey = '';
   private lastResync = -1;
@@ -39,8 +46,9 @@ export class WorldRenderer {
     private readonly app: Application,
     private readonly map: MapData,
   ) {
-    this.world.addChild(this.terrain, this.structures, this.structureLabels, this.entities, this.projectiles, this.effects, this.overlay, this.overlayLabels);
-    app.stage.addChild(this.world);
+    this.world.addChild(this.terrain, this.structures, this.entities, this.projectiles, this.effects, this.overlay);
+    this.labels.addChild(this.structureLabels, this.overlayLabels);
+    app.stage.addChild(this.world, this.labels);
     this.drawTerrain();
   }
 
@@ -103,7 +111,7 @@ export class WorldRenderer {
     const p = project(cx, cy, top + 3);
     const t = new Text({ text, style: { fontFamily: 'monospace', fontSize: 10, fill: color } });
     t.anchor.set(0.5, 1);
-    t.position.set(p.x, p.y);
+    this.labelAt(t, p);
     this.structureLabels.addChild(t);
   }
 
@@ -147,7 +155,7 @@ export class WorldRenderer {
       const sp = project(p.x, p.y, r.height + 3);
       const label = new Text({ text: `${r.strength}`, style: { fontFamily: 'monospace', fontSize: 9, fill: ownerColor(r.owner) } });
       label.anchor.set(0.5, 1);
-      label.position.set(sp.x, sp.y);
+      this.labelAt(label, sp);
       this.overlayLabels.addChild(label);
     }
 
@@ -185,9 +193,9 @@ export class WorldRenderer {
       const { x, y } = interpolateProjectile(pr, snap.tick, tick);
       const p = project(x, y, pr.z);
       const col = colorFor(`projectile.${pr.weapon}` as SemanticAsset);
-      this.projectiles.circle(p.x, p.y, pr.weapon === 'nuclear' ? 5 : 3).fill(col);
+      this.projectiles.circle(p.x, p.y, pr.weapon === 'nuclear' ? 2.5 : 1.5).fill(col);
       const sh = project(x, y, 0);
-      this.projectiles.circle(sh.x, sh.y, 2).fill({ color: 0x000000, alpha: 0.4 });
+      this.projectiles.circle(sh.x, sh.y, 1).fill({ color: 0x000000, alpha: 0.4 });
     }
 
     this.drawEffects(nowMs);
@@ -222,9 +230,9 @@ export class WorldRenderer {
     for (const f of this.fx) {
       const t = (nowMs - f.startMs) / f.durationMs;
       const p = project(f.x, f.y, f.z);
-      if (f.kind === 'hit') this.effects.circle(p.x, p.y, 4 + t * 8).fill({ color: PALETTE.brightWhite, alpha: 1 - t });
-      else if (f.kind === 'explosion') this.effects.circle(p.x, p.y, 8 + t * 20).fill({ color: PALETTE.brightRed, alpha: 1 - t });
-      else this.effects.circle(p.x, p.y, 20 + t * 16 * CELL_W).fill({ color: PALETTE.brightYellow, alpha: 0.7 * (1 - t) });
+      if (f.kind === 'hit') this.effects.circle(p.x, p.y, 2 + t * 4).fill({ color: PALETTE.brightWhite, alpha: 1 - t });
+      else if (f.kind === 'explosion') this.effects.circle(p.x, p.y, 4 + t * 10).fill({ color: PALETTE.brightRed, alpha: 1 - t });
+      else this.effects.circle(p.x, p.y, 10 + t * 8 * TILE_W).fill({ color: PALETTE.brightYellow, alpha: 0.7 * (1 - t) });
     }
   }
 
@@ -245,7 +253,7 @@ export class WorldRenderer {
         const t = new Text({ text: `${x}`, style: { fontFamily: 'monospace', fontSize: 8, fill: 0xffffff } });
         const p = project(x, -0.5);
         t.anchor.set(0.5, 1);
-        t.position.set(p.x, p.y);
+        this.labelAt(t, p);
         this.overlayLabels.addChild(t);
       }
     }
@@ -261,15 +269,20 @@ export class WorldRenderer {
 
   private applyCamera(): void {
     const p = project(this.cam.x, this.cam.y);
-    this.world.position.set(this.app.screen.width / 2 - p.x, this.app.screen.height / 2 - p.y - CELL_H * 2);
+    this.world.scale.set(this.zoom);
+    // Centre slightly above the ground point so standing entities sit mid-view.
+    this.world.position.set(Math.round(this.app.screen.width / 2 - p.x * this.zoom), Math.round(this.app.screen.height / 2 - (p.y - TILE_H) * this.zoom));
+    this.labels.position.copyFrom(this.world.position);
+  }
+
+  /** Place unscaled text at a world-space point. */
+  private labelAt(t: Text, p: ScreenPoint): void {
+    t.position.set(p.x * this.zoom, p.y * this.zoom);
   }
 
   /** Cell under a screen point, for click-to-target aiming. */
   screenToCell(sx: number, sy: number): { x: number; y: number } {
-    const lx = sx - this.world.position.x;
-    const ly = sy - this.world.position.y;
-    const a = lx / (CELL_W / 2);
-    const b = ly / (CELL_H / 2);
-    return { x: Math.round((a + b) / 2), y: Math.round((b - a) / 2) };
+    const w = unproject((sx - this.world.position.x) / this.zoom, (sy - this.world.position.y) / this.zoom);
+    return { x: Math.round(w.x), y: Math.round(w.y) };
   }
 }
