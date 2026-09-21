@@ -246,6 +246,9 @@ STRIKER_MODULES = (
     ModuleIdentity.ELECTRONICS,
 )
 STRIKER_COST = 30
+#: The striker's autonomous Advance stops this many columns west of the
+#: warbase-4 anchor, clear of the scenery walls in front of the base.
+STRIKER_STAGING_OFFSET = 24
 
 P1_SCOUT = EntityId("robot-p1-1")
 P1_STRIKER = EntityId("robot-p1-2")
@@ -317,14 +320,24 @@ def player_one(api: Api) -> Actor:
     yield from api.undock(PLAYER_ONE)
     yield from api.land_on_heli_pad(PLAYER_ONE, "warbase-1")
     enemy = api.war_base("warbase-4")
-    yield from api.advance_to_column(PLAYER_ONE, P1_STRIKER, enemy[0])
+    yield from api.advance_to_column(PLAYER_ONE, P1_STRIKER, enemy[0] - STRIKER_STAGING_OFFSET)
     # The blast reaches a war base only from near its anchor (dy measured from
     # carrier.y + 5 must stay < 7; open-questions §20), so direct-drive the
     # striker up to the row just below the anchor, level with the guard.
+    # The scenery walls west of warbase-4 (CR002.1 blockers) leave one open
+    # gap on the row above the anchor, so drive through it and come down
+    # beside the base instead of crossing the capture anchor itself.
     yield from api.land_on_robot(PLAYER_ONE, P1_STRIKER)
+    gap_row = enemy[1] - 1
+    yield from api.drive_to(PLAYER_ONE, enemy[0] - 3, gap_row)
     yield from api.drive_to(PLAYER_ONE, enemy[0], enemy[1] + 1)
-    # Let the guard's aligned shot land before detonating.
-    yield lambda s: (g := s.robot_for(P2_GUARD)) is None or g.active_projectile_id is not None
+    # Let the guard's aligned shot land before detonating. Coming down from
+    # the gap row, the striker is already level with the guard (and in its
+    # range) a few cells west of the anchor, so the shot may have landed
+    # before the striker got here.
+    yield lambda s: s.robot_for(P2_GUARD) is None or any(
+        label == "p2 guard fired directly" for _, label in api.milestones
+    )
     yield lambda s: (g := s.robot_for(P2_GUARD)) is None or g.active_projectile_id is None
     api.mark("p1 striker in position")
     # The completed Advance became Stop & Defend, which never detonates
