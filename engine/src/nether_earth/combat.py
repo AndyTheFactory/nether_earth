@@ -63,8 +63,10 @@ surface" note explicitly says this footprint "is not marked non-canonical
 since the 3x3 first-hit scan is directly evidenced." This engine's actual
 implementation (:func:`_projectile_terminal_reason`, via
 :func:`_components_at_inclusive_blocking`/:func:`_robot_hit_at`) deliberately
-narrows this to single-cell point collision: only the projectile's one
-candidate next cell is checked, not its surrounding 3x3 neighborhood. This is
+narrows this to single-cell point collision: only the cells the projectile
+enters are checked -- since CR001 (#150) each of the up to
+``projectile_cells_per_advance`` (2) cells of one advance, in travel order,
+so the intermediate cell is never skipped -- not a 3x3 neighborhood. This is
 an undisclosed-until-now simplification of resolved evidence, recorded here
 plainly: it is simpler to implement and reason about, it is sufficient for
 this engine's cardinal-only (non-diagonal) projectile model, and in a
@@ -85,9 +87,10 @@ system gives X (``MAP_LENGTH = 512``) and Y (``MAP_WIDTH = 16``) different
 physical scales. This engine's grid already represents both X and Y as
 uniform logical cells -- there is no raw-pixel/doubled-coordinate
 distinction anywhere in this project's own coordinate representation -- so
-:func:`advance_projectiles` advances a projectile exactly 1 logical cell per
-axis per advance-tick, symmetrically, regardless of which axis it travels
-along. This makes the original's X/Y raw-unit scale distinction moot for
+:func:`advance_projectiles` advances a projectile the same
+``projectile_cells_per_advance`` (2) logical cells per advance-tick,
+symmetrically, regardless of which axis it travels along (CR001 confirmed
+one raw coordinate unit is one map cell on both axes). This makes the original's X/Y raw-unit scale distinction moot for
 this engine's own grid: there is no second, smaller-scale axis to reconcile
 against. This is a deliberate policy decision, not an oversight, and per the
 §8 reviewer's own note, no additional ``EngineRules`` field is needed to
@@ -804,7 +807,7 @@ def advance_projectiles(
     rules: EngineRules = DEFAULT_RULES,
     sequencer: EventSequencer | None = None,
 ) -> tuple[GameState, tuple[Event, ...]]:
-    """Advance every in-flight projectile by one cell, if ``tick`` is a cadence tick.
+    """Advance every in-flight projectile, if ``tick`` is a cadence tick.
 
     Returns ``(state, ())`` unchanged immediately when
     :func:`is_projectile_advance_tick` is ``False`` for ``tick`` -- no
@@ -821,10 +824,17 @@ def advance_projectiles(
        this tick). See :func:`_projectile_terminal_reason`'s docstring for
        why this must be checked before, and separately from, the rest of
        the termination checks.
-    2. Otherwise, its candidate next cell is computed
-       (``x + dx``, ``y + dy``, ``travelled_cells + 1``) and checked for
-       termination via :func:`_projectile_terminal_reason` (bounds, static
-       collision, robot collision, in that fixed order).
+    2. Otherwise, it moves along its firing axis by
+       ``rules.projectile_cells_per_advance`` cells (default 2, CR001 /
+       `_specs/open-questions.md` §8), capped so ``travelled_cells`` never
+       exceeds ``max_range_cells``. The cells are entered one at a time, in
+       travel order, and each is checked for termination via
+       :func:`_projectile_terminal_reason` (bounds, static collision, robot
+       collision, in that fixed order); the first terminal cell ends the
+       projectile there. So a robot or obstacle in the intermediate cell is
+       never skipped. (This per-cell walk is used instead of the Spectrum's
+       3x3 first-hit scan around the new position, which would widen the
+       collision footprint to the neighbouring lanes.)
 
     A terminated projectile is dropped from the result and its firing
     robot's combat channel is cleared (unless that robot no longer exists
@@ -862,14 +872,30 @@ def advance_projectiles(
                 updated_robots[cleared_robot.entity_id] = cleared_robot
             continue
 
-        new_x = projectile.x + projectile.dx
-        new_y = projectile.y + projectile.dy
-        new_travelled = projectile.travelled_cells + 1
-
-        outcome = _projectile_terminal_reason(projectile, new_x, new_y, state, world, rules)
+        # Move one cell at a time, up to ``projectile_cells_per_advance``
+        # cells but never past ``max_range_cells``, checking each cell in
+        # travel order so a robot or obstacle in an intermediate cell is
+        # never skipped (CR001, #150).
+        steps = min(
+            rules.projectile_cells_per_advance,
+            projectile.max_range_cells - projectile.travelled_cells,
+        )
+        new_x, new_y = projectile.x, projectile.y
+        outcome = None
+        for _ in range(steps):
+            new_x += projectile.dx
+            new_y += projectile.dy
+            outcome = _projectile_terminal_reason(projectile, new_x, new_y, state, world, rules)
+            if outcome is not None:
+                break
         if outcome is None:
             surviving_projectiles.append(
-                replace(projectile, x=new_x, y=new_y, travelled_cells=new_travelled)
+                replace(
+                    projectile,
+                    x=new_x,
+                    y=new_y,
+                    travelled_cells=projectile.travelled_cells + steps,
+                )
             )
             continue
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nether_earth.rules import DEFAULT_RULES, EngineRules, miles_to_cells
+from nether_earth.rules import DEFAULT_RULES, EngineRules
 
 
 def test_default_rules_match_locked_spectrum_values() -> None:
@@ -152,17 +152,17 @@ def test_engine_rules_rejects_non_positive_module_height(field_name: str) -> Non
 
 
 def test_default_rules_match_locked_combat_range_and_effect_defaults() -> None:
-    """Issue #70 (M6.1): locked weapon ranges and effects.
+    """Issue #70 (M6.1), ranges revised by CR001 (#150).
 
-    All values are Spectrum-compatible locked defaults from
-    `_specs/milestones/06-combat-damage-victory.md` "Canonical default
-    ranges/effects", converted from miles to cells via the shared
-    mile-to-cell conversion (1 mile = 2 cells).
+    Weapon ranges are the Spectrum code values defined directly in cells
+    (`_specs/open-questions.md` §8): cannon 10, missile 14, phaser 10,
+    electronics +2.
     """
-    assert DEFAULT_RULES.cannon_range_cells == miles_to_cells(10)
-    assert DEFAULT_RULES.missile_range_cells == miles_to_cells(14)
-    assert DEFAULT_RULES.phaser_range_cells == miles_to_cells(10)
-    assert DEFAULT_RULES.electronics_range_bonus_cells == miles_to_cells(3)
+    assert DEFAULT_RULES.cannon_range_cells == 10
+    assert DEFAULT_RULES.missile_range_cells == 14
+    assert DEFAULT_RULES.phaser_range_cells == 10
+    assert DEFAULT_RULES.electronics_range_bonus_cells == 2
+    assert DEFAULT_RULES.projectile_cells_per_advance == 2
     assert DEFAULT_RULES.normal_projectile_altitude == 10
     assert DEFAULT_RULES.cannon_damage_multiplier == 2
     assert DEFAULT_RULES.missile_damage_multiplier == 3
@@ -180,7 +180,7 @@ def test_engine_rules_accepts_custom_combat_overrides() -> None:
     assert rules.missile_range_cells == 30
     assert rules.normal_projectile_altitude == 15
     # Others remain at defaults
-    assert rules.phaser_range_cells == miles_to_cells(10)
+    assert rules.phaser_range_cells == 10
 
 
 @pytest.mark.parametrize(
@@ -198,6 +198,7 @@ def test_engine_rules_accepts_custom_combat_overrides() -> None:
         "cannon_damage_multiplier",
         "missile_damage_multiplier",
         "phaser_damage_multiplier",
+        "projectile_cells_per_advance",
     ],
 )
 def test_engine_rules_rejects_non_positive_combat_fields(field_name: str) -> None:

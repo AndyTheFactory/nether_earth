@@ -45,21 +45,19 @@ overclaim, every M6 policy choice still flagged non-canonical by Task 3
   (``Lb0fa_robot_update``/``Lb116_robot_destroyed``), which this milestone
   deliberately does not implement (`destroy_robot`'s own docstring) -- a
   documented simplification, not a fidelity claim.
-- This scenario's range-exhaustion assertions (Lanes C/D3, 20/28 cells) rest
-  on this project's locked mile-derived range constants; `_specs/open-
-  questions.md` §8's "Raw disassembly range figures vs. this project's
-  locked mile-derived ranges" section leaves those locked values explicitly
-  NOT reconciled against the disassembly's much smaller raw
-  ``BULLET_STRUCT_RANGE`` counters (5/7 cells) -- a still-open research
-  question, not silently resolved by this test.
+- This scenario's range-exhaustion assertions (Lanes C/D3, 10/14 cells)
+  rest on the Spectrum code-derived ranges and the 2-cells-per-advance
+  projectile speed adopted by CR001 (#150, `_specs/open-questions.md` §8
+  resolution).
 - This scenario hardcodes ``strength=100`` and asserts exact damage values
   off it; `_specs/open-questions.md` §9 records the starting-strength
   figure as resolved only "subject to the scale-reconciliation caveat" that
   ``robot_height``/``ground_height`` be confirmed on the same disassembly-
   native raw scale once wired to real data -- a noted caveat, not a
   silently-assumed fact.
-- Projectile collision uses single-cell point collision, not
-  `_specs/open-questions.md` §8's evidenced ordered 3x3 first-hit-wins scan
+- Projectile collision checks each cell entered, in travel order (single-
+  cell point collision per cell), not `_specs/open-questions.md` §8's
+  evidenced ordered 3x3 first-hit-wins scan
   (``Lb7a7_potentially_hit_a_robot``'s preceding neighborhood check) -- see
   ``combat.py``'s module docstring for the full disclosure and rationale;
   this is a documented simplification, not a fidelity claim.
@@ -112,10 +110,11 @@ SEED = 60680919
 # --------------------------------------------------------------------------
 
 ADVANCE = DEFAULT_RULES.projectile_advance_ticks  # 4
-CANNON_RANGE = DEFAULT_RULES.cannon_range_cells  # 20
-MISSILE_RANGE = DEFAULT_RULES.missile_range_cells  # 28
-PHASER_RANGE = DEFAULT_RULES.phaser_range_cells  # 20
-ELECTRONICS_BONUS = DEFAULT_RULES.electronics_range_bonus_cells  # 6
+CELLS_PER_ADVANCE = DEFAULT_RULES.projectile_cells_per_advance  # 2
+CANNON_RANGE = DEFAULT_RULES.cannon_range_cells  # 10
+MISSILE_RANGE = DEFAULT_RULES.missile_range_cells  # 14
+PHASER_RANGE = DEFAULT_RULES.phaser_range_cells  # 10
+ELECTRONICS_BONUS = DEFAULT_RULES.electronics_range_bonus_cells  # 2
 #: Half-width of the carrier's own row of the nuclear robot window (9 -> 4).
 NUCLEAR_ROW_REACH = DEFAULT_RULES.nuclear_robot_window_row_widths[
     len(DEFAULT_RULES.nuclear_robot_window_row_widths) // 2
@@ -143,8 +142,8 @@ def east_of(x: int) -> int:
 # `apply_fire`'s projectile-lifecycle documentation (see `combat.py`): a
 # projectile fired at a tick strictly before the first cadence tick (i.e.
 # `fire_tick < ADVANCE`) has its first advance at cadence tick `ADVANCE * 1`,
-# and cadence `k` occurs at tick `ADVANCE * k`, giving `travelled_cells == k`
-# at that tick. Range exhaustion is detected one cadence tick *after*
+# and cadence `k` occurs at tick `ADVANCE * k`, giving `travelled_cells ==
+# k * CELLS_PER_ADVANCE` at that tick (capped at the range). Range exhaustion is detected one cadence tick *after*
 # `travelled_cells` first reaches `max_range_cells` (see
 # `combat._range_exhausted`'s docstring: the final in-range cell is still
 # collision-checked on arrival, so expiry is deferred one more cadence).
@@ -154,9 +153,13 @@ FIRE_TICK = 1
 assert FIRE_TICK < ADVANCE
 
 
+def _advances_to_cover(distance_cells: int) -> int:
+    return -(-distance_cells // CELLS_PER_ADVANCE)
+
+
 def range_exhaustion_tick(max_range_cells: int) -> int:
     """Return the tick a projectile fired at ``FIRE_TICK`` exhausts ``max_range_cells``."""
-    return ADVANCE * (max_range_cells + 1)
+    return ADVANCE * (_advances_to_cover(max_range_cells) + 1)
 
 
 def static_collision_tick(distance_cells: int) -> int:
@@ -167,12 +170,12 @@ def static_collision_tick(distance_cells: int) -> int:
     extra deferred cadence tick (see `combat._projectile_terminal_reason`'s
     docstring).
     """
-    return ADVANCE * distance_cells
+    return ADVANCE * _advances_to_cover(distance_cells)
 
 
-TOTAL_TICKS = range_exhaustion_tick(MISSILE_RANGE) + 20  # 4*(28+1)+20 = 136, ample margin
-SNAPSHOT_TICK = 40  # well inside Lane C's clear flight (< its tick-84 termination)
-LANE_B_REFIRE_TICK = 20  # after Lane B's first shot hits at tick 16 (see below)
+TOTAL_TICKS = 136  # ample margin past every lane (Lane D3 ends at tick 32)
+SNAPSHOT_TICK = 12  # inside Lane C's clear flight (< its tick-24 termination)
+LANE_B_REFIRE_TICK = 20  # after Lane B's first shot hits at tick 8 (see below)
 
 # --------------------------------------------------------------------------
 # Entity ids and lane rows
@@ -411,7 +414,7 @@ def _commands_by_tick() -> dict[int, tuple[Command, ...]]:
     # Lane J: nuclear detonation destroying p2's last war base.
     fire(ROBOT_J_CARRIER, ModuleIdentity.NUCLEAR, J_CARRIER_X, J_Y)
 
-    # Lane B: re-fire after the first shot's tick-16 hit freed the channel.
+    # Lane B: re-fire after the first shot's tick-8 hit freed the channel.
     add(
         LANE_B_REFIRE_TICK,
         FireCommand(
@@ -544,7 +547,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     b_terminated = _fired_by(terminated, ROBOT_B_SHOOTER)
     assert b_terminated[0].reason is ProjectileTerminationReason.ROBOT_HIT
     assert b_terminated[0].hit_robot_id == ROBOT_B_TARGET
-    assert b_terminated[0].tick == b_hit_tick == 16
+    assert b_terminated[0].tick == b_hit_tick == 8
     b_damaged = [e for e in damaged if e.owner == PLAYER_TWO and e.tick == b_hit_tick]
     assert len(b_damaged) == 1
     b_target_height = states[FIRE_TICK].robot_for(ROBOT_B_TARGET).height  # type: ignore[union-attr]
@@ -566,7 +569,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert projectile_right_after_fire is not None
     assert projectile_right_after_fire.z == ALTITUDE == 10
     c_expected_tick = range_exhaustion_tick(PHASER_RANGE)
-    assert c_expected_tick == 84  # 4 * (20 + 1), shown explicitly for readability
+    assert c_expected_tick == 24  # 4 * (10 / 2 + 1), shown explicitly for readability
     c_terminated = _fired_by(terminated, ROBOT_C_SHOOTER)
     assert len(c_terminated) == 1
     assert c_terminated[0].tick == c_expected_tick
@@ -582,13 +585,13 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     # ---------------------------------------------------------------
     d2_distance = D2_BLOCKER_X - D2_SHOOTER_X  # 5
     d2_expected_tick = static_collision_tick(d2_distance)
-    assert d2_expected_tick == 20
+    assert d2_expected_tick == 12  # 4 * ceil(5 / 2)
     d2_terminated = _fired_by(terminated, ROBOT_D2_SHOOTER)
     assert len(d2_terminated) == 1
     assert d2_terminated[0].tick == d2_expected_tick
     assert d2_terminated[0].reason is ProjectileTerminationReason.STATIC_COLLISION
     assert (d2_terminated[0].x, d2_terminated[0].y) == (D2_BLOCKER_X, D2_Y)
-    # It never reached anywhere near cannon's full 20-cell range.
+    # It never reached cannon's full 10-cell range.
     assert d2_distance < CANNON_RANGE
 
     # ---------------------------------------------------------------
@@ -608,7 +611,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     assert projectile_at_blocker_tick is not None
     assert projectile_at_blocker_tick.x >= D3_BLOCKER_X  # already at/past the low blocker
     d3_expected_tick = range_exhaustion_tick(MISSILE_RANGE)
-    assert d3_expected_tick == 116  # 4 * (28 + 1)
+    assert d3_expected_tick == 32  # 4 * (14 / 2 + 1)
     d3_terminated = _fired_by(terminated, ROBOT_D3_SHOOTER)
     assert len(d3_terminated) == 1
     assert d3_terminated[0].tick == d3_expected_tick
@@ -703,7 +706,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     # structural, not a runtime, invariant" docstring section).
     h_warbase_distance = 65 - 60  # WARBASE_H's cell - ROBOT_H2_SHOOTER.x
     assert h_warbase_terminated[0].reason is ProjectileTerminationReason.STATIC_COLLISION
-    assert h_warbase_terminated[0].tick == static_collision_tick(h_warbase_distance) == 20
+    assert h_warbase_terminated[0].tick == static_collision_tick(h_warbase_distance) == 12
     assert (h_warbase_terminated[0].x, h_warbase_terminated[0].y) == (65, H_Y)
     assert h_warbase_terminated[0].hit_robot_id is None
     assert FACTORY_H not in final.structure_destruction
@@ -769,7 +772,7 @@ def test_full_milestone_scenario_composes_all_m6_rules() -> None:
     mid_flight_snapshot = json.loads(snapshot_to_json_string(states[SNAPSHOT_TICK]))
     projectile_entries = {p["id"]: p for p in mid_flight_snapshot["projectiles"]}
     c_entry = projectile_entries[c_projectile_id.to_json()]
-    expected_travelled = SNAPSHOT_TICK // ADVANCE  # cadence tick count so far
+    expected_travelled = SNAPSHOT_TICK // ADVANCE * CELLS_PER_ADVANCE  # cadence ticks so far
     assert c_entry["weapon"] == ModuleIdentity.PHASER.value
     assert c_entry["x"] == 10 + expected_travelled
     assert c_entry["y"] == C_Y

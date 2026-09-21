@@ -254,9 +254,9 @@ def test_fire_command_from_a_player_who_does_not_own_the_robot_is_a_no_op() -> N
 def test_projectile_advances_over_ticks_and_damages_the_robot_it_hits() -> None:
     world = _world()
     shooter = _gunner("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
-    # Four advance intervals away, so the projectile travels for several
-    # cadence ticks before connecting.
-    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 4, QUIET_Y)
+    # Four advance intervals away (2 cells per advance), so the projectile
+    # travels for several cadence ticks before connecting.
+    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 8, QUIET_Y)
     state = _state((shooter, target))
 
     command = FireCommand(
@@ -274,7 +274,7 @@ def test_projectile_advances_over_ticks_and_damages_the_robot_it_hits() -> None:
         state, events = step(state, [], world=world)
         assert _of(events, RobotDamagedEvent) == []
     assert len(state.projectiles) == 1
-    assert state.projectiles[0].x == QUIET_X + 3
+    assert state.projectiles[0].x == QUIET_X + 6
 
     state, events = step(state, [], world=world)
 
