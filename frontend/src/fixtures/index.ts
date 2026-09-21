@@ -32,7 +32,7 @@ function robot(entity_id: string, owner: string, x: number, y: number, stack: Ro
   const weapons = stack.filter((m) => m === 'cannon' || m === 'missile' || m === 'phaser' || m === 'nuclear');
   const electronics = stack.includes('electronics') ? 'electronics' : null;
   const height = stack.reduce((h, m) => h + (m === 'bipod' || m === 'tracks' || m === 'anti_grav' ? 4 : 2), 0);
-  return { entity_id, owner, x, y, build: { chassis, weapons, electronics }, stack, height, movement: null, order: null, active_projectile_id: null, strength: 100, ...extra };
+  return { entity_id, owner, x, y, build: { chassis, weapons, electronics }, stack, height, movement: null, order: null, active_projectile_id: null, strength: 100, last_fire_tick: null, ...extra };
 }
 
 function base(tick: number, patch: Partial<SnapshotState> = {}): SnapshotState {
@@ -216,8 +216,8 @@ export const FIXTURES: Fixture[] = [
             { ...enemyRobot, x: 44, y: 10, strength: 20, active_projectile_id: 'proj-2' },
           ],
           projectiles: [
-            { id: 'proj-1', owner: 'p1', source_robot_id: 'robot-1', weapon: 'cannon', x: 36, y: 10, z: 10, dx: 1, dy: 0, travelled_cells: 6, max_range_cells: 10, created_tick: 1994 },
-            { id: 'proj-2', owner: 'p2', source_robot_id: 'robot-9', weapon: 'phaser', x: 40, y: 10, z: 10, dx: -1, dy: 0, travelled_cells: 4, max_range_cells: 10, created_tick: 1998 },
+            { id: 'proj-1', owner: 'p1', source_robot_id: 'robot-1', weapon: 'cannon', x: 36, y: 10, z: 10, dx: 1, dy: 0, travelled_cells: 6, max_range_cells: 10, created_tick: 1994, first_advance_tick: 1996 },
+            { id: 'proj-2', owner: 'p2', source_robot_id: 'robot-9', weapon: 'phaser', x: 40, y: 10, z: 10, dx: -1, dy: 0, travelled_cells: 4, max_range_cells: 10, created_tick: 1998, first_advance_tick: 2000 },
           ],
         }),
       ),
@@ -263,7 +263,7 @@ export const FIXTURES: Fixture[] = [
           commanders: [commander('p1', 22, 5, 24), commander('p2', 494, 10, 0)],
           robots: [robot('robot-10', 'p1', 21, 10, ['bipod', 'cannon'], { active_projectile_id: 'proj-3' })],
           projectiles: [
-            { id: 'proj-3', owner: 'p1', source_robot_id: 'robot-10', weapon: 'cannon', x: 21, y: 7, z: 10, dx: 0, dy: -1, travelled_cells: 3, max_range_cells: 10, created_tick: 396 },
+            { id: 'proj-3', owner: 'p1', source_robot_id: 'robot-10', weapon: 'cannon', x: 21, y: 7, z: 10, dx: 0, dy: -1, travelled_cells: 3, max_range_cells: 10, created_tick: 396, first_advance_tick: 400 },
           ],
         }),
       ),
