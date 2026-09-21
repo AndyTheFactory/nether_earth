@@ -801,7 +801,7 @@ Remaining gameplay research areas:
 
 Movement timing (§4) and projectile speed, range, and lifetime (§8) are resolved: projectiles advance 2 cells every 4 ticks; ranges are 10/14/10 cells, +2 with electronics.
 
-One owner decision is also pending: scenery blockers (`open-questions.md` §4). The first projectile move is decided: on the fire tick (`open-questions.md` §8, CR002.2 #169).
+The two owner decisions from CR001 are decided: scenery elements are map blockers (`open-questions.md` §4, CR002.1 #168), and a projectile makes its first move on the fire tick (`open-questions.md` §8, CR002.2 #169).
 
 Until verified from the fidelity evidence chain, keep these behind isolated engine policies/configuration and do not silently treat guesses as canonical defaults.
 

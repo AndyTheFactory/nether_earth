@@ -457,6 +457,6 @@ Only these substantive areas remain unresolved:
 
 Movement timing (§4) and projectile speed/range/lifetime (§8) are resolved.
 
-One owner decision is also pending: whether the decoded scenery boxes and walls become movement blockers (`open-questions.md` §4). A projectile makes its first move on the fire tick (`open-questions.md` §8, CR002.2 #169).
+The two owner decisions from CR001 are decided: the decoded scenery boxes and walls are blockers (`open-questions.md` §4, CR002.1 #168), and a projectile makes its first move on the fire tick (`open-questions.md` §8, CR002.2 #169).
 
 Until verified, these values/algorithms must remain isolated and configurable rather than silently guessed.
