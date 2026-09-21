@@ -35,6 +35,7 @@ sign-off before being treated as final authoritative geometry:
   "Heli-pad / exit interaction points" below.
 - **Terrain**: decoded from the disassembly in CR001.5 (#152) — see
   "Terrain" below. Tier-2 evidence, spot-checked against the speccy.cz image.
+  Piece heights per cell were added in CR002.21 (#203), see "Terrain heights".
 - **Blockers/scenery** (boxes and fences): decoded from the disassembly in
   CR002.1 (#168). See "Blockers/scenery" below. Tier-2 evidence.
 
@@ -312,6 +313,31 @@ edge.
 The image is not precise enough to confirm individual cells. The cell-level
 values rest on the disassembly decode.
 
+### Terrain heights — DECODED (tier 2; CR002.21, issue #203)
+
+Each terrain cell also carries its piece height, `height`, read by the decoder
+from `Ld7bc_map_piece_heights` (23 entries, indexed by element type, checked
+against a literal copy in the decoder):
+
+```
+Ld7bc_map_piece_heights:  ; 23 elements
+    db #00, #00, #02, #02, #02, #02, #03, #03, #06, #06, #06, #06, #00, #00, #00, #07
+    db #0f, #07, #0f, #00, #00, #63, #00
+```
+
+So rough types 2–5 are 2 high (320 cells), rough types 6/7 are 3 high
+(24 cells), mountains (types 8–11) are 6 high (436 cells), and ditches
+(types 12–14) are 0. The heights depend on the element type and not only on the
+terrain class, since rough pieces come in two heights. That is why they are
+written per cell. `terrain.debris_height: 3` is the height of the piece a
+nuclear blast leaves (`Lba44_robots_handled` writes type 6 or 7 at random;
+both are 3 high). The ship collision (`Lb052_check_player_collision`),
+gravity (`Lafc3_gravity`), bullets (`Lb724_bullet_update_internal`) and the
+robot altitude used by damage (`Lb495`) read these heights through
+`Lb08a_get_map_altitude`/`Lb5d6_map_altitude_2x2`. See
+`_specs/open-questions.md`, "Remaining research" item 4. The map stays
+`version: 1`: the fields are additive and default to 0.
+
 ## Blockers/scenery — DECODED (tier 2; CR002.1, issue #168)
 
 `python data/maps/decode_zx_terrain.py <netherearth-annotated.asm> blockers`
@@ -365,7 +391,7 @@ not require this map to declare any.
 ## Reproducibility
 
 `data/maps/zx-spectrum-original.yaml` is deterministic data. The structures
-and interaction points were derived by hand. The `terrain.cells` block is the
+and interaction points were derived by hand. The `terrain` section (cells with their heights, and `debris_height`) is the
 output of `python data/maps/decode_zx_terrain.py <netherearth-annotated.asm>`,
 and the `blockers` section is the output of the same command with the extra
 argument `blockers`. Both must be regenerated, not edited by hand. Running either derivation again
