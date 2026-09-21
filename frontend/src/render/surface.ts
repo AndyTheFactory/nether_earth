@@ -1,7 +1,10 @@
 // Surface height under a footprint (CR002.15), for drawing shadows where
-// they land: on open ground, a structure or scenery block, or the heli-pad
-// roof. Reads static map data plus the snapshot's destruction list only;
-// presentation, never collision or legality.
+// they land: on open ground, a terrain piece, a structure or scenery block,
+// or the heli-pad roof. Reads static map data plus the snapshot's
+// destruction/debris lists only; presentation, never collision or legality.
+// Terrain pieces carry the map's `Ld7bc_map_piece_heights` height (rough
+// 2/3, mountain 6) and nuclear debris the rough piece height (CR002.21), the
+// same data the engine's `collision.surface_height_at` reads.
 import type { MapData } from '../world/map.ts';
 
 /** Destroyed structures are drawn (and cast shadows onto) low rubble of this height. */
@@ -10,6 +13,8 @@ export const RUBBLE_HEIGHT = 1;
 interface Column {
   structureId: string;
   height: number;
+  /** Height once `structureId` is gone: rubble for buildings, rough debris for scenery. */
+  goneHeight: number;
 }
 
 /** Inclusive cell range covered by a `size`-wide footprint centred on `c` (size 0 = a point). */
@@ -24,20 +29,29 @@ export class SurfaceMap {
   private readonly cells = new Map<string, Column[]>();
 
   constructor(map: MapData) {
-    for (const s of [...map.war_bases, ...map.factories, ...map.blockers]) {
-      for (const c of s.components) {
-        const k = `${c.x},${c.y}`;
-        const col = this.cells.get(k) ?? [];
-        col.push({ structureId: s.id, height: c.height });
-        this.cells.set(k, col);
-      }
+    const add = (x: number, y: number, column: Column) => {
+      const k = `${x},${y}`;
+      this.cells.set(k, [...(this.cells.get(k) ?? []), column]);
+    };
+    for (const c of map.terrain.cells) {
+      if (c.height) add(c.x, c.y, { structureId: '', height: c.height, goneHeight: c.height });
+    }
+    for (const s of [...map.war_bases, ...map.factories]) {
+      for (const c of s.components) add(c.x, c.y, { structureId: s.id, height: c.height, goneHeight: RUBBLE_HEIGHT });
+    }
+    for (const b of map.blockers) {
+      for (const c of b.components) add(c.x, c.y, { structureId: b.id, height: c.height, goneHeight: map.terrain.debris_height });
     }
   }
 
-  /** Top of whatever stands on cell (x, y); 0 on open ground. */
+  /**
+   * Top of whatever stands on cell (x, y); 0 on open ground. `destroyed`
+   * holds destroyed buildings and debris blockers (snapshot
+   * `structure_destruction` + `scenery_debris`).
+   */
   heightAt(x: number, y: number, destroyed: ReadonlySet<string> = new Set()): number {
     let top = 0;
-    for (const c of this.cells.get(`${x},${y}`) ?? []) top = Math.max(top, destroyed.has(c.structureId) ? RUBBLE_HEIGHT : c.height);
+    for (const c of this.cells.get(`${x},${y}`) ?? []) top = Math.max(top, destroyed.has(c.structureId) ? c.goneHeight : c.height);
     return top;
   }
 
