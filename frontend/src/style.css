@@ -9,6 +9,7 @@
   --font-tall: 'NetherEarthTall', 'Courier New', monospace;
   --cyan: #00ffff; --yellow: #ffff00; --white: #ffffff; --magenta: #ff00ff; --green: #00ff00; --red: #ff5555;
   --rs: 2; --radar-h: 32px; /* radar pixel scale and strip height, set by ui/radar.ts */
+  --mu: 2px; /* robot menu column pixel (#menus) */
 }
 
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
@@ -47,9 +48,36 @@ b { color: var(--yellow); }
 #hud .phase.paused, #hud .phase.waiting { color: var(--red); }
 .p1 { color: var(--cyan); } .p2 { color: var(--magenta); }
 #hud .p1 { color: var(--cyan); } #hud .p2 { color: var(--magenta); }
-/* The menus sit just above the radar strip. */
-#menus { bottom: calc(var(--radar-h) + 2px * var(--rs) + 24px); left: 8px; right: 8px; color: var(--cyan); }
-#menus h3 { font-family: var(--font-tall); margin: 0 0 4px; color: var(--white); font-size: 32px; line-height: 32px; }
+/* Docked robot menu (CR003.6, cr003/robot-menu.png): the Spectrum's right-hand
+   HUD column. --mu is one Spectrum pixel; the column is 80 px of text plus 4 px
+   padding each side, and ui/radar.ts keeps the radar clear of it (MENU_COLUMN_UNITS). */
+#menus {
+  top: 8px; right: 8px; box-sizing: border-box; width: calc(var(--mu) * 88); max-height: calc(100% - 16px); overflow-y: auto;
+  padding: calc(var(--mu) * 4); background: #000; border: 0; color: var(--cyan);
+  font-family: var(--font-8); font-size: calc(var(--mu) * 8); line-height: calc(var(--mu) * 8);
+  display: flex; flex-direction: column; gap: calc(var(--mu) * 8);
+}
+#menus .mclock { background: #ff0000; color: var(--white); white-space: pre; }
+#menus .mopts { display: flex; flex-direction: column; align-items: flex-start; gap: calc(var(--mu) * 8); padding-left: calc(var(--mu) * 8); margin: calc(var(--mu) * 8) 0; }
+#menus .mblk {
+  display: flex; flex-direction: column; width: calc(var(--mu) * 64); margin: 0; padding: 0; border: 0;
+  background: #0000ff; color: var(--cyan); font: inherit; white-space: pre; text-align: left;
+}
+#menus .mblk .l1 { align-self: flex-start; }
+#menus .mblk .l2 { align-self: flex-end; }
+#menus .mblk.on { color: var(--white); }
+#menus button.mblk:hover { background: #0000ff; outline: calc(var(--mu) * 1) solid var(--white); }
+#menus .mrow { display: flex; flex-wrap: wrap; gap: calc(var(--mu) * 2); }
+#menus .msm { margin: 0; font: inherit; padding: 0 calc(var(--mu) * 2); border-width: calc(var(--mu) * 1); }
+#menus .mhint { color: #888; font-size: 8px; line-height: 8px; }
+#menus .morders, #menus .mstrength { text-align: center; }
+#menus .mhead { color: var(--yellow); }
+#menus .mval { color: var(--white); }
+/* The play view's HUD text stays left of the column while it is shown. */
+#ui:has(> #menus:not([style*="none"])) #hud { right: calc(var(--mu) * 96); }
+/* Short or phone-sized screens: one CSS px per Spectrum pixel keeps the column narrow. */
+@media (min-width: 1400px) and (min-height: 860px) { :root { --mu: 3px; } }
+@media (max-width: 720px), (max-height: 520px) { :root { --mu: 1px; } }
 /* ROBOT CONSTRUCTION screen (CR002.9): full screen, black, Spectrum layout.
    --u is one Spectrum pixel, an integer number of CSS px set by ui/construction.ts. */
 #construction { position: absolute; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; --u: 2px; }
