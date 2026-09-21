@@ -197,7 +197,8 @@ def default_pvp_overlay(world_map: "WorldMap") -> ScenarioOverlay:
 #: Evidence (`_specs/open-questions.md` §17): the ZX Spectrum start routine
 #: (`La600_start`) sets the ship to x=17, y=10, altitude 0 while war base 0's
 #: anchor is (22, 9) -- an offset of (-5, +1), i.e. just outside the base on
-#: the side facing away from the map interior.
+#: the side facing away from the map interior. Player 2 uses the x-mirror of
+#: this offset (locked PvP adaptation, §17).
 _SPAWN_OFFSET_FROM_ANCHOR: tuple[int, int] = (-5, 1)
 
 
@@ -209,10 +210,10 @@ def _commander_spawn_cell(
     The cell is the war base's ``warbase_capture`` anchor plus
     :data:`_SPAWN_OFFSET_FROM_ANCHOR`; ``mirrored`` flips the x offset so
     Player 2 starts outside its extreme-right base just as Player 1 starts
-    outside its extreme-left one. The original game is single-player, so the
-    mirrored convention is provisional owner-review data
-    (`_specs/open-questions.md` §17), kept in one place here so changing it
-    is a data edit. The result is clamped into the map so an odd map cannot
+    outside its extreme-left one. The original game is single-player, so
+    Player 2's mirrored start is a locked PvP adaptation confirmed by the
+    owner (`_specs/open-questions.md` §17, CR001), not Spectrum evidence; it
+    stays overlay data kept in one place here. The result is clamped into the map so an odd map cannot
     yield an out-of-bounds spawn (``apply_overlay`` would reject it).
     """
     capture_points = world_map.interaction_points_for(war_base.id, kind=InteractionKind.WARBASE_CAPTURE)

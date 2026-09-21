@@ -29,10 +29,12 @@ from nether_earth.map_overlay import (
     apply_overlay,
     default_pvp_overlay,
 )
+from nether_earth.scenario import create_initial_state, default_pvp_scenario
 from nether_earth.structures import Component, Factory, WarBase
 from nether_earth.terrain import TerrainGrid
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "world_map_basic.yaml"
+ORIGINAL_MAP_PATH = Path(__file__).resolve().parents[2] / "data" / "maps" / "zx-spectrum-original.yaml"
 
 
 def _war_base(entity_id: str, *xs: int) -> WarBase:
@@ -479,3 +481,21 @@ def test_default_pvp_overlay_rejects_map_with_no_war_bases() -> None:
 
     with pytest.raises(OverlayValidationError, match="at least two war bases"):
         default_pvp_overlay(base_map)
+
+
+def test_default_pvp_overlay_pins_locked_commander_spawns_on_original_map() -> None:
+    """Open question §17 (RESOLVED, CR001): locked commander start cells.
+
+    Player 1 starts at (17, 10), altitude 0 (Spectrum ``La600_start``);
+    Player 2 starts at the x-mirrored offset from the extreme-right war base,
+    (499, 9), altitude 0 -- a locked PvP adaptation confirmed by the owner.
+    """
+    base_map = load_world_map(ORIGINAL_MAP_PATH)
+    overlay = default_pvp_overlay(base_map)
+    assert dict(overlay.spawn_positions) == {"p1_commander": (17, 10), "p2_commander": (499, 9)}
+
+    world = apply_overlay(base_map, overlay)
+    state = create_initial_state(default_pvp_scenario(), world, seed=0)
+    commanders = {commander.player_id: commander for commander in state.commanders}
+    assert (commanders[PLAYER_ONE].x, commanders[PLAYER_ONE].y, commanders[PLAYER_ONE].altitude) == (17, 10, 0)
+    assert (commanders[PLAYER_TWO].x, commanders[PLAYER_TWO].y, commanders[PLAYER_TWO].altitude) == (499, 9, 0)
