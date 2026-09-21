@@ -111,6 +111,12 @@ M9 complete ─────────────► M10 Hardening, Deployment
 - Start dependency: M9 complete.
 - Owns production deployment, security/operational hardening, observability, soak testing, release gates, and v1 operational readiness.
 
+### CR001 — Open Questions Resolution
+
+- Change request, spec: `cr001-open-questions.md`. Start dependency: M9 merged.
+- Implements the owner decisions for open questions 4, 8, 17, 18, 19, and 20, changing behavior delivered by M2, M3, M5, and M6.
+- Must complete before the M9.8 gate and before M10 freezes rules.
+
 ## Cross-milestone ownership rules
 
 To prevent duplicate logic across milestones:
@@ -134,6 +140,7 @@ Current open questions map to milestones as follows:
 - M5: questions 3, 4, 5, 6, 7, 11
 - M6: questions 3, 8, 9
 - M7: question 16
+- CR001: questions 4, 8, 17, 18, 19, 20 (owner decisions 2026-09-21)
 
 Question 3 (miles-to-grid conversion) is resolved in M5 because movement/orders need it first; M6 consumes that resolved conversion for weapon ranges and nuclear radius.
 

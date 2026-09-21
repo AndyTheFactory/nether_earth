@@ -106,12 +106,15 @@ Gameplay time is derived from simulation ticks, never wall-clock timers.
 
 Derived distance defaults:
 
-- cannon range 10 miles = 20 cells;
-- missile range 14 miles = 28 cells;
-- phaser range 10 miles = 20 cells;
-- electronics nominal +3 miles = +6 cells;
-- nuke radius 8 miles = 16 cells;
 - Advance/Retreat 0–50 miles = 0–100 cells.
+
+Weapon ranges and the nuclear blast are defined directly in cells from the ZX Spectrum code, not converted from miles (see `open-questions.md` §8 and §20). The manual's "10/14 mile" weapon figures equal the code's cell counts:
+
+- cannon range 10 cells;
+- missile range 14 cells;
+- phaser range 10 cells;
+- electronics +2 cells;
+- nuclear blast: per-kind shapes, see §17.3.
 
 ### 7.2 Terrain
 
@@ -119,7 +122,10 @@ Required terrain classes:
 
 - normal;
 - rough;
+- mountain;
 - ditch/ravine.
+
+These correspond to the Spectrum map element types: normal = types 0–1 (height 0), rough = types 2–7 (height 2–3), mountain = types 8–11 (height 6), ditch = types 12–14 (height 0). See `open-questions.md` §4.
 
 Terrain is a cell property rather than a generic solid entity.
 
@@ -147,6 +153,10 @@ The commander:
 - can block robots and the opposing commander;
 - docks automatically onto friendly robots;
 - is used to enter construction by landing on the player's war-base heli-pad.
+
+The heli-pad is on the war-base roof, at (anchor.x, anchor.y − 4). Landing means the commander is over a pad cell at an altitude equal to that cell's component height (15 on the original war base). The launched robot exits at the anchor cell. See `open-questions.md` §18.
+
+Starting positions: Player 1 starts at the extreme-left war-base anchor + (−5, +1), altitude 0 (from the Spectrum code). Player 2 starts at the extreme-right war-base anchor + (+5, +1), altitude 0. This mirror is a locked PvP adaptation (`open-questions.md` §17).
 
 ### 8.1 Horizontal movement
 
@@ -304,28 +314,19 @@ The same stack definition drives:
 
 ## 13. Chassis and terrain behavior
 
-### Bipod
+Ticks per cell at 20 Hz (1 Spectrum game cycle = 4 ticks), from the Spectrum speed table (`open-questions.md` §4):
 
-- normal: traversable;
-- rough: traversable with severe slowdown;
-- ditch/ravine: blocked.
+| Chassis | Normal | Rough | Mountain | Ditch/ravine |
+|---|---|---|---|---|
+| Bipod | 24 | 32 | blocked | blocked |
+| Tracks | 16 | 24 | 28 | blocked |
+| Anti-grav | 12 | 12 | 16 | 12 |
 
-### Tracks
-
-- normal: traversable;
-- rough: traversable with smaller slowdown than bipod;
-- ditch/ravine: blocked.
-
-### Anti-grav
-
-- normal: traversable;
-- rough: traversable;
-- ditch/ravine: traversable;
-- fastest chassis on ordinary terrain.
+Tracks stay faster than bipod on every terrain both can cross; both lose the same 8 ticks per cell on rough terrain. Anti-grav is unaffected by rough terrain and ditches.
 
 Relative ordinary-terrain speed is locked: **bipod < tracks < anti-grav**.
 
-Exact ticks-per-cell and terrain penalties remain a fidelity research item and must remain centralized game-rule data.
+These values are centralized game-rule data.
 
 ## 14. Robot movement and destination reservation
 
@@ -368,6 +369,12 @@ Supported orders:
 - **Search & Destroy** — target robots, factories, or war bases.
 
 Invalid/impossible orders fall back to Stop & Defend.
+
+Search & Destroy against factories or war bases requires a nuclear weapon. A robot without one cannot take that order and falls back to Stop & Defend.
+
+### Autonomous nuclear use
+
+An autonomous robot detonates its nuclear weapon only when it is on a Search & Destroy order against a factory or war base and arrives on its target structure's target cell (the same cell a Search & Capture order navigates to). No other order ever detonates it: Stop & Defend, Advance, Retreat, Search & Capture, and Search & Destroy against robots use normal weapons only. A player can still detonate manually under direct control. See `open-questions.md` §19.
 
 ### Navigation intelligence
 
@@ -415,14 +422,13 @@ Exact integer rounding, hit probability, strength semantics, and electronics res
 
 Nuclear detonation is separate from normal projectiles.
 
-Default authoritative effect radius: **8 miles = 16 cells**.
+Blast shapes, from the Spectrum code (`open-questions.md` §20):
 
-On detonation:
-
-- eligible robots in radius are destroyed;
-- eligible factories in radius are destroyed;
-- eligible war bases in radius are destroyed;
-- carrier robot is destroyed.
+- **Robots:** every robot, of either player, inside a 9×9 window centred on the carrier with trimmed corners (row widths 5, 7, 9, 9, 9, 9, 9, 7, 5) is destroyed.
+- **Buildings:** at most **one** building is destroyed per detonation. War bases are checked first, then factories, each in canonical order; the first building in range is destroyed, whoever owns it. Distances: dx = |carrier.x − building.x|, dy = |carrier.y + 1 − building.y| (a war base adds 4 to carrier.y first).
+  - A war base is in range when dx < 7, dy < 7, and dx + dy < 10.
+  - A factory is in range when dx < 5, dy < 5, and dx + dy < 7.
+- **Carrier:** always destroyed.
 
 Nuclear weapons are the only way to destroy factories and war bases.
 
@@ -446,8 +452,9 @@ Reconnect policy is runtime/session state and must not mutate deterministic engi
 
 Only these substantive areas remain unresolved:
 
-1. exact chassis movement timing/rough-terrain penalties;
-2. exact projectile speed/cadence/collision/lifetime;
-3. exact combat accuracy/rounding/strength/electronics modifiers.
+1. exact combat accuracy/rounding/strength/electronics modifiers;
+2. the autonomous fire-decision scan distance (the Spectrum scans 8 cells, 10 in the facing direction, 12 with electronics; see `open-questions.md` §8).
+
+Movement timing (§4) and projectile speed/range/lifetime (§8) are resolved.
 
 Until verified, these values/algorithms must remain isolated and configurable rather than silently guessed.

@@ -25,7 +25,10 @@ Missing components are simply omitted; relative order is preserved.
 - Starting ownership belongs to scenario overlay data, not raw map geometry.
 - Victory: opponent owns zero war bases.
 
-## 3. Miles-to-grid-cell conversion — RESOLVED
+## 3. Miles-to-grid-cell conversion — RESOLVED (weapon/nuke lines superseded by CR001)
+
+**CR001 (2026-09-21):** the Spectrum code confirms 1 mile = 2 coordinate units (`Laab8_miles_selected`: `rlca ; multiply by 2: 1 mile == 2 coordinate units`), and one coordinate unit is one map cell on both axes (the map buffer is `MAP_LENGTH * MAP_WIDTH` = 512 × 16 bytes, one byte per cell). This still holds for Advance/Retreat. The weapon-range and nuke-radius lines below are superseded: weapon ranges come from the code in cells (§8), and the nuclear blast has per-kind shapes (§20).
+
 
 - 1 mile = 2 map tiles/cells.
 - 1 tile = 0.5 miles.
@@ -38,7 +41,31 @@ Missing components are simply omitted; relative order is preserved.
 
 The conversion must exist once in shared game-rule/helper code.
 
-## 4. Exact movement speeds and terrain penalties — PARTIALLY RESOLVED
+## 4. Exact movement speeds and terrain penalties — RESOLVED (CR001, owner decision 2026-09-21)
+
+**Resolution.** Verified by a direct reading of `netherearth-annotated.asm` (`santiontanon/netherearth-disassembly` @ `762e33e`):
+
+- `Lb61d_robot_movement_speed_table` (cycles per move; 1 cycle = 4 ticks):
+  flat 6/4/3, rugged 8/6/3, mountains 9/7/4 (bipod/tracks/anti-grav).
+- `Lb5f3_determine_speed_based_on_terrain` picks the row from the robot's altitude: 0 → flat, 1–3 → rugged, ≥4 → mountains. The altitude is the highest piece height under the robot's 2×2 footprint (`Lb5d6_map_altitude_2x2`, set after every move at `Lb495`).
+- `Lb513_get_robot_movement_possibilities` blocks a map element whose **type index** (`and #1f`) is ≥ 8 (bipod), 12 (tracks), or 15 (anti-grav).
+- `Ld7bc_map_piece_heights`: types 0–1 have height 0; types 2–5 height 2; types 6–7 height 3; types 8–11 height 6; types 12–14 height 0; type 15+ are structures.
+
+So the original has four terrain classes:
+
+| Class | Element types | Bipod | Tracks | Anti-grav |
+|---|---|---|---|---|
+| normal | 0–1 | 24 | 16 | 12 |
+| rough | 2–7 | 32 | 24 | 12 |
+| mountain | 8–11 | blocked | 28 | 16 |
+| ditch | 12–14 | blocked | blocked | 12 (height 0, so flat speed) |
+
+**Owner decisions:** adopt the table as per-(chassis, terrain) tick values and add a `MOUNTAIN` terrain class. The earlier qualitative claim "tracks slow down less than bipod on rough" is revised to "tracks stay faster than bipod; both lose 8 ticks per cell on rough." Anti-grav's ditch speed equal to its flat speed is **correct**; it is not an under-estimate. The earlier mountains→ditch mapping below was wrong.
+
+**Follow-up:** the shipped map has no terrain data (`data/maps/zx-spectrum-original.md`, "Terrain — NOT ATTEMPTED"). The element-type classes above give the decoding rule.
+
+The research history below is kept for provenance.
+
 
 Locked:
 
@@ -149,7 +176,24 @@ Exact historical quirks of the dumb algorithm remain research detail, not a prod
 
 If qualifying occupation breaks before capture completes, progress resets immediately to zero. Partial progress is not retained.
 
-## 8. Exact projectile mechanics — PARTIALLY RESOLVED
+## 8. Exact projectile mechanics — RESOLVED (CR001, owner decision 2026-09-21)
+
+**Resolution.** One raw coordinate unit is one map cell on **both** axes (map buffer = 512 × 16 bytes). The "coordinate doubling" premise below was wrong: bullets move **2 cells per update** on either axis (`Lb724_bullet_update_internal`), one update per game cycle (4 ticks).
+
+Range: `Lb6d6_weapon_fire` sets the counter to 5 (cannon/phaser) or 7 (missiles), +1 with electronics, and makes the first move at fire time. `Lb70d_bullet_update` decrements the counter before each later move and removes the bullet at 0. The bullet therefore travels 2 × counter cells:
+
+- cannon 10 cells, phaser 10 cells, missile 14 cells, electronics +2 cells.
+
+The manual's "10/14 miles" weapon ranges equal these cell counts, which shows the manual used cells for weapons.
+
+**Owner decision:** adopt the code values: `projectile_cells_per_advance = 2`, ranges 10/14/10 cells, electronics +2. They replace the mile-derived 20/28/20/+6.
+
+**Settled with no change needed:** there is no separate building collision rule; the generic altitude collision covers buildings.
+
+**Still open (research only; not blocking):** the autonomous fire-decision scan (`Lb626_check_directions_with_enemy_robots`) looks 8 cells in each direction, 10 in the facing direction, and 12 facing with electronics, along the robot's lane and the lanes on either side. The engine uses weapon range for engagement. Whether to adopt the scan distances is not decided.
+
+The research history below is kept for provenance.
+
 
 Locked:
 
@@ -612,7 +656,10 @@ Horizontal and vertical movement may occur simultaneously. Automatic elevation a
 - No manual pause in v1.
 - Reconnect/deadline state belongs to the runtime layer and must not mutate deterministic engine state while paused.
 
-## 17. Commander starting positions — PROVISIONAL (owner review required)
+## 17. Commander starting positions — RESOLVED (CR001, owner decision 2026-09-21)
+
+**Resolution:** Player 1 = extreme-left war-base anchor + (−5, +1) → (17, 10), from the Spectrum code. Player 2 = extreme-right war-base anchor + (+5, +1) → (499, 9): the owner confirmed this mirror as a locked PvP adaptation. Both are overlay data.
+
 
 Neither spec nor map data declared where the two commanders begin. Evidence
 (tier 2, `netherearth-annotated.asm` `La600_start`):
@@ -636,7 +683,10 @@ Provisional data (M9, `map_overlay.default_pvp_overlay`):
 Spawns are overlay data, not engine rules; changing the convention is a data
 edit in one place. Owner must confirm or replace the Player 2 convention.
 
-## 18. War-base heli-pad location and landing height — OPEN (owner review required)
+## 18. War-base heli-pad location and landing height — RESOLVED (CR001, owner decision 2026-09-21)
+
+**Resolution:** option 2. The pad is on the roof, at (anchor.x, anchor.y − 4). The M3 landing rule becomes "altitude equals the pad cell's component height" (15 on the original war base). The robot exits at the anchor cell (unchanged).
+
 
 Evidence (tier 2): `Lbb86_assign_warbase_to_player` places the war-base "H"
 decoration at (anchor.x, anchor.y − 4), and the game loop enters construction
@@ -657,7 +707,17 @@ placeholders at the anchor cell. Options for the owner:
 Until decided, M9 acceptance uses option 1 as-is and does not treat pad
 placement as verified.
 
-## 19. Autonomous use of the nuclear weapon — OPEN (owner review required)
+## 19. Autonomous use of the nuclear weapon — RESOLVED (CR001, owner decision 2026-09-21)
+
+**Resolution: match the original.** `Lb99f_fire_nuclear_bomb` is reached from exactly two places:
+
+1. manual fire from the player's direct-control menu (line ~932);
+2. `Lb2e8_target_directions_calculated` (line ~1984): a robot whose order is Destroy enemy factories or Destroy enemy war bases, standing exactly on its target building's coordinates, which are the same coordinates Capture orders navigate to.
+
+Stop & Defend, Destroy robots, Advance, Retreat, and Capture never detonate. `Labc8_capture_or_destroy_order_selected` also turns a Destroy factory/war-base order into Stop & Defend when the robot has no nuclear weapon.
+
+Engine consequence: nuclear must be removed from the generic autonomous weapon walk (`autonomous_combat.py`). Detonation becomes an order-completion effect of Search & Destroy against a structure.
+
 
 Found by the M9.4 scripted match. The spec defines what a detonation does
 (`functional-spec.md` §17.3) but not when an autonomous order uses it. The
@@ -681,13 +741,21 @@ Options for the owner:
 M9 does not change the rule. The acceptance script keeps its striker under
 direct control or tolerates the autonomous detonation.
 
+## 20. Nuclear blast shape — RESOLVED (CR001, owner decision 2026-09-21)
+
+Found while researching §19. The earlier locked "8 miles = 16 cells, destroys every eligible robot/factory/war base in radius" rule does not match the code (`Lb99f_fire_nuclear_bomb`):
+
+- **Buildings:** war bases are checked first, then factories, in index order, skipping destroyed ones. dy = |robot.y + 1 − b.y| (war bases add 4 to robot.y first) and dx = |robot.x − b.x|. A war base is in range when dx < 7, dy < 7, and dx + dy < 10 (`ld de, #070a`). A factory is in range when dx < 5, dy < 5, and dx + dy < 7 (`ld de, #0507`). The **first** match is destroyed and the scan stops ("A nuclear bomb will only destroy at most one building"). Ownership is not checked.
+- **Robots:** a 9×9 window around the carrier (`ld de, -(4*MAP_LENGTH + 4)`, `ld bc, #0909`), with corner rows trimmed to widths 5, 7, 9, 9, 9, 9, 9, 7, 5 and clipped at the map edges. Every robot in it is destroyed, of either side.
+- **Carrier:** destroyed.
+- **Scenery:** destructible elements (types 17–20) in the window become debris. This is a visual effect and out of scope for v1.
+
+**Owner decision:** adopt the code's shapes. The shape parameters are `EngineRules` data.
+
 ## Remaining research
 
-Only three substantive fidelity areas remain:
-
-1. **Movement timing** — exact Spectrum chassis ticks-per-tile and rough-terrain penalties (#4).
-2. **Projectile mechanics** — exact speed/cadence/collision/lifetime behavior (#8).
-3. **Combat detail** — exact accuracy, rounding, strength, and electronics modifiers (#9).
+1. **Combat detail**: exact accuracy, rounding, strength, and electronics modifiers (#9).
+2. **Autonomous fire-decision scan**: the 8/10/12-cell scan distances (§8), not yet decided.
 
 ## Resolution process
 

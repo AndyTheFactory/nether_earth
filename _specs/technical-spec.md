@@ -253,6 +253,8 @@ StructureComponent:
 
 War-base semantic metadata includes heli-pad, exit, capture zone, ownership/resource behavior.
 
+The war-base heli-pad is on the roof, at (anchor.x, anchor.y − 4). The commander lands when it is over a pad cell at an altitude equal to that cell's component height. The exit is the anchor cell (`open-questions.md` §18).
+
 Factory metadata includes production type and capture zone.
 
 Physical component/cell heights may vary within one structure.
@@ -471,19 +473,22 @@ Used by:
 
 Locked terrain permissions:
 
+Locked ticks per cell (`-` = blocked), from `open-questions.md` §4:
+
 ```text
-Bipod:     normal yes; rough yes/severe slowdown; ditch no
-Tracks:    normal yes; rough yes/smaller slowdown; ditch no
-Anti-grav: normal yes; rough yes; ditch yes
+            normal  rough  mountain  ditch
+Bipod:        24      32      -        -
+Tracks:       16      24     28        -
+Anti-grav:    12      12     16       12
 ```
+
+These are per-(chassis, terrain) integer tick fields in `EngineRules`, not multipliers. Terrain classes: `NORMAL`, `ROUGH`, `MOUNTAIN`, `DITCH`.
 
 Relative ordinary-terrain speed:
 
 ```text
 bipod < tracks < anti-grav
 ```
-
-Exact ticks-per-cell and rough penalties remain a research/configuration item.
 
 ## 14. Navigation policies
 
@@ -584,17 +589,19 @@ Do not duplicate combat math outside the engine.
 
 ## 18. Nuclear detonation
 
-Default radius: **8 miles = 16 cells**.
+Blast shapes follow the Spectrum code (`functional-spec.md` §17.3, `open-questions.md` §20). They are not a uniform radius.
 
 On detonation:
 
-1. resolve eligible entities inside authoritative radius;
-2. destroy eligible robots;
-3. destroy eligible factories;
-4. destroy eligible war bases;
-5. destroy carrier robot;
-6. update ownership/victory;
-7. emit deterministic events.
+1. robots: destroy every robot inside the carrier-centred 9×9 window with trimmed corners (row widths 5/7/9/9/9/9/9/7/5);
+2. buildings: scan war bases, then factories, in canonical order; destroy the **first** one in range (war base: dx<7, dy<7, dx+dy<10; factory: dx<5, dy<5, dx+dy<7; dy measured from carrier.y+1, plus 4 for war bases); at most one building per detonation;
+3. destroy carrier robot;
+4. update ownership/victory;
+5. emit deterministic events.
+
+The shape parameters are `EngineRules` data.
+
+Autonomous detonation happens only on arrival at the target cell of a Search & Destroy factory/war-base order (`functional-spec.md` §16). No weapon-selection path may choose nuclear for any other autonomous order.
 
 Nuclear is the only way to destroy factories/war bases.
 
@@ -790,11 +797,12 @@ Integration test should run a scripted deterministic match end-to-end and produc
 
 ## 26. Remaining fidelity research
 
-Only three substantive gameplay research areas remain unresolved:
+Remaining gameplay research areas:
 
-1. exact Spectrum chassis movement timing and rough-terrain penalties;
-2. exact normal-projectile speed/cadence/collision/lifetime rules;
-3. exact combat accuracy, integer rounding, strength handling, and electronics modifiers.
+1. exact combat accuracy, integer rounding, strength handling, and electronics modifiers;
+2. the autonomous fire-decision scan distance (`open-questions.md` §8).
+
+Movement timing (§4) and projectile speed, range, and lifetime (§8) are resolved: projectiles advance 2 cells every 4 ticks; ranges are 10/14/10 cells, +2 with electronics.
 
 Until verified from the fidelity evidence chain, keep these behind isolated engine policies/configuration and do not silently treat guesses as canonical defaults.
 
