@@ -16,6 +16,7 @@ war bases (``warbase-p1``/``warbase-p2``) each with a single-cell
 
 from __future__ import annotations
 
+from itertools import pairwise
 from pathlib import Path
 
 from nether_earth.collision import RobotFixture
@@ -265,36 +266,100 @@ def test_docked_commander_move_command_is_a_gameplay_noop() -> None:
 # --- Undocking through step -------------------------------------------------
 
 
-def test_undocking_through_step() -> None:
-    robot_id = EntityId("robot-1")
+def _docked_on(robot: RobotFixture) -> GameState:
     docked = Commander(
         player_id=PLAYER_ONE,
         mode=CommanderMode.DOCKED,
-        x=1,
-        y=1,
-        altitude=4,
-        docked_robot_id=robot_id,
+        x=robot.x,
+        y=robot.y,
+        altitude=robot.height,
+        docked_robot_id=robot.id,
         rising=True,
     )
-    state = _base_state((docked,))
+    return _base_state((docked,))
+
+
+def test_undocking_through_step() -> None:
+    robot_id = EntityId("robot-1")
     robot = RobotFixture(id=robot_id, owner=PLAYER_ONE, x=1, y=1, height=4)
+    state = _docked_on(robot)
 
     new_state, events = step(state, [], robots=(robot,))
 
     undocked_events = [e for e in events if isinstance(e, CommanderUndockedEvent)]
     assert len(undocked_events) == 1
     assert undocked_events[0].robot_id == robot_id
-    assert undocked_events[0].from_altitude == 4
-    assert undocked_events[0].to_altitude == 4 + DEFAULT_RULES.commander_ascent_step
+    assert undocked_events[0].from_altitude == undocked_events[0].to_altitude == 4
 
     updated = new_state.commander_for(PLAYER_ONE)
     assert updated.mode is CommanderMode.FREE
     assert updated.docked_robot_id is None
-    assert updated.altitude == 4 + DEFAULT_RULES.commander_ascent_step
+    assert updated.altitude == 4
+    # CR002.24: the same 5-update lift as leaving the construction screen.
+    assert updated.elevate_updates_remaining == DEFAULT_RULES.commander_exit_elevate_updates
 
-    # It must not immediately re-dock in the same tick (altitude no longer
-    # matches the robot's exact top surface).
+    # Still on the robot top, but it must not re-dock while the lift runs.
     assert not any(isinstance(e, CommanderDockedEvent) for e in events)
+
+
+def _undock_altitude_trace(rising_after_undock: bool) -> tuple[list[int], list[object]]:
+    """Undock at tick 1, then step until re-docked; return per-tick altitudes and events."""
+    robot = RobotFixture(id=EntityId("robot-1"), owner=PLAYER_ONE, x=1, y=1, height=4)
+    state = _docked_on(robot)
+    state, _events = step(state, [], robots=(robot,))
+    intent = CommanderSetVerticalIntentCommand(
+        player=PLAYER_ONE, sequence=0, rising=rising_after_undock
+    )
+    trace: list[int] = []
+    all_events: list[object] = []
+    commands = [intent]
+    for _ in range(200):
+        state, events = step(state, commands, robots=(robot,))
+        commands = []
+        all_events.extend(events)
+        commander = state.commander_for(PLAYER_ONE)
+        assert commander is not None
+        trace.append(commander.altitude)
+        if commander.mode is CommanderMode.DOCKED or (rising_after_undock and len(trace) > 40):
+            return trace, all_events
+    raise AssertionError("commander never re-docked")
+
+
+def test_undock_lift_profile_matches_construction_exit_and_lands_back_on_robot() -> None:
+    # Spectrum: #a80d sets Lfd30_player_elevate_timer = 5 on leaving a robot,
+    # exactly as Lcb8e does on leaving the construction screen; Lafa2 then
+    # climbs +2 per update for 5 updates and gravity drops -1 per update.
+    # La69a re-docks when the ship is back at the robot top on its anchor.
+    trace, events = _undock_altitude_trace(rising_after_undock=False)
+
+    peak = 4 + DEFAULT_RULES.commander_exit_elevate_updates * DEFAULT_RULES.commander_ascent_step
+    assert max(trace) == peak == 14
+    peak_index = trace.index(peak)
+    rising = [a for i, a in enumerate(trace[: peak_index + 1]) if i == 0 or a != trace[i - 1]]
+    assert rising == [4, 6, 8, 10, 12, 14]  # robot top, then +2 per update
+    falling = trace[peak_index:]
+    assert all(b in (a, a - 1) for a, b in pairwise(falling))
+    assert trace[-1] == 4
+
+    docked = [e for e in events if isinstance(e, CommanderDockedEvent)]
+    assert len(docked) == 1
+    assert docked[0].robot_id == EntityId("robot-1")
+    assert docked[0].altitude == 4
+
+
+def test_rise_intent_during_the_undock_lift_does_not_change_it() -> None:
+    # Owner decision (CR002.24, as for the construction exit): up/down input
+    # does not shorten the lift, so the first five updates are identical.
+    released, _ = _undock_altitude_trace(rising_after_undock=False)
+    held, _ = _undock_altitude_trace(rising_after_undock=True)
+
+    lift_ticks = DEFAULT_RULES.commander_exit_elevate_updates * (
+        DEFAULT_RULES.commander_vertical_update_ticks
+    )
+    assert held[:lift_ticks] == released[:lift_ticks]
+    assert max(held[:lift_ticks]) == 14
+    # After the lift, held rise keeps climbing instead of falling.
+    assert max(held) > 14
 
 
 # --- Heli-pad landing eligibility through step ------------------------------

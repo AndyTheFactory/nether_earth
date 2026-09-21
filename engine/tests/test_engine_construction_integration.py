@@ -581,7 +581,7 @@ def test_identical_command_stream_produces_identical_state_events_and_snapshot()
 # screen does not re-open on the next tick.
 
 PAD_ALTITUDE = 3  # the pad cell's component height in `_world()`
-EXIT_PEAK = PAD_ALTITUDE + DEFAULT_RULES.commander_construction_exit_elevate_updates * (
+EXIT_PEAK = PAD_ALTITUDE + DEFAULT_RULES.commander_exit_elevate_updates * (
     DEFAULT_RULES.commander_ascent_step
 )
 

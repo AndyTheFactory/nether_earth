@@ -20,6 +20,8 @@ Covers every acceptance criterion in the issue verbatim:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from nether_earth.collision import RobotFixture
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.docking import (
@@ -34,7 +36,6 @@ from nether_earth.docking import (
 from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId
 from nether_earth.rules import DEFAULT_RULES
-from nether_earth.state import create_game_state
 
 
 def _free_commander(
@@ -81,11 +82,6 @@ def _enemy_robot(
     robot_id="robot-enemy", owner=PLAYER_TWO, x=5, y=5, height=4
 ) -> RobotFixture:
     return RobotFixture(id=EntityId(robot_id), owner=owner, x=x, y=y, height=height)
-
-
-def _state_with(*commanders) -> object:
-    players = tuple({c.player_id for c in commanders} | {PLAYER_ONE, PLAYER_TWO})
-    return create_game_state(tick=0, players=players, commanders=commanders)
 
 
 # --------------------------------------------------------------------------
@@ -308,9 +304,8 @@ def test_docked_movement_allowed_true_while_free() -> None:
 
 def test_undock_requires_docked_mode() -> None:
     commander = _free_commander(rising=True)
-    state = _state_with(commander)
 
-    result, event = apply_undock(commander, state, tick=4)
+    result, event = apply_undock(commander, tick=4)
 
     assert result is commander
     assert event is None
@@ -318,37 +313,46 @@ def test_undock_requires_docked_mode() -> None:
 
 def test_undock_requires_rising_intent() -> None:
     commander = _docked_commander(rising=False)
-    state = _state_with(commander)
 
-    result, event = apply_undock(commander, state, tick=4)
+    result, event = apply_undock(commander, tick=4)
 
     assert result is commander
     assert event is None
 
 
-def test_undock_transitions_to_free_and_ascends() -> None:
+def test_undock_transitions_to_free_and_starts_the_exit_lift() -> None:
+    # CR002.24: leaving a robot sets the same 5-update lift as leaving the
+    # construction screen (Spectrum #a80d: Lfd30_player_elevate_timer = 5);
+    # the ascent itself runs on the following vertical updates.
     commander = _docked_commander(altitude=4, rising=True, docked_robot_id=EntityId("robot-1"))
-    state = _state_with(commander)
 
-    updated, event = apply_undock(commander, state, tick=4)
+    updated, event = apply_undock(commander, tick=4)
 
     assert updated.mode is CommanderMode.FREE
     assert updated.docked_robot_id is None
-    assert updated.altitude == 4 + DEFAULT_RULES.commander_ascent_step
+    assert updated.altitude == 4
+    assert updated.elevate_updates_remaining == DEFAULT_RULES.commander_exit_elevate_updates == 5
     assert event is not None
     assert isinstance(event, CommanderUndockedEvent)
     assert event.player_id == commander.player_id
     assert event.robot_id == EntityId("robot-1")
-    assert event.from_altitude == 4
-    assert event.to_altitude == 4 + DEFAULT_RULES.commander_ascent_step
+    assert event.from_altitude == event.to_altitude == 4
     assert event.tick == 4
+
+
+def test_undock_lift_length_is_the_shared_exit_rule() -> None:
+    rules = replace(DEFAULT_RULES, commander_exit_elevate_updates=3)
+    commander = _docked_commander(rising=True)
+
+    updated, _event = apply_undock(commander, tick=4, rules=rules)
+
+    assert updated.elevate_updates_remaining == 3
 
 
 def test_undock_leaves_a_structurally_valid_free_commander() -> None:
     commander = _docked_commander(rising=True)
-    state = _state_with(commander)
 
-    updated, _event = apply_undock(commander, state, tick=4)
+    updated, _event = apply_undock(commander, tick=4)
 
     # Commander.__post_init__ already enforces this on construction, but
     # assert explicitly so a future refactor that broke the invariant would
@@ -357,47 +361,19 @@ def test_undock_leaves_a_structurally_valid_free_commander() -> None:
     assert updated.docked_robot_id is None
 
 
-def test_undock_respects_max_altitude_clamp() -> None:
-    commander = _docked_commander(altitude=DEFAULT_RULES.commander_max_altitude, rising=True)
-    state = _state_with(commander)
-
-    updated, event = apply_undock(commander, state, tick=4)
-
-    assert updated.altitude == DEFAULT_RULES.commander_max_altitude
-    assert updated.mode is CommanderMode.FREE
-    assert event is not None
-    assert event.from_altitude == event.to_altitude == DEFAULT_RULES.commander_max_altitude
-
-
-def test_undock_blocked_ascent_still_transitions_mode() -> None:
-    commander = _docked_commander(altitude=4, rising=True)
-    state = _state_with(commander)
-
-    def _always_blocked(state, mover, dest_altitude) -> bool:
-        return False
-
-    updated, event = apply_undock(commander, state, tick=4, vertical_check=_always_blocked)
-
-    assert updated.mode is CommanderMode.FREE
-    assert updated.docked_robot_id is None
-    assert updated.altitude == 4  # ascent step itself was blocked
-    assert event is not None
-    assert event.from_altitude == event.to_altitude == 4
-
-
-def test_undocked_commander_does_not_immediately_redock_without_moving() -> None:
-    # After one undock step the commander is above the robot's resting
-    # altitude, so a subsequent auto-dock check against the same fixture
-    # does not immediately re-dock it.
+def test_undocked_commander_does_not_redock_while_the_lift_runs() -> None:
+    # The commander is still on the robot top right after undocking; the
+    # Spectrum runs the lift update before its dock test (La69a), so no
+    # re-dock happens until the lift is over.
     robot = _friendly_robot(height=4)
     commander = _docked_commander(altitude=4, rising=True, docked_robot_id=robot.id)
-    state = _state_with(commander)
 
-    updated, _event = apply_undock(commander, state, tick=4)
+    updated, _event = apply_undock(commander, tick=4)
     assert updated.mode is CommanderMode.FREE
+    assert attempt_auto_dock(updated, (robot,)).mode is CommanderMode.FREE
 
-    rechecked = attempt_auto_dock(updated, (robot,))
-    assert rechecked.mode is CommanderMode.FREE
+    lift_over = updated.with_elevate_updates(0)
+    assert attempt_auto_dock(lift_over, (robot,)).mode is CommanderMode.DOCKED
 
 
 # --------------------------------------------------------------------------
@@ -415,7 +391,6 @@ def test_replay_determinism_dock_follow_undock_sequence() -> None:
 
     def run() -> tuple[list[Commander], list[object]]:
         commander = _free_commander(altitude=4, x=5, y=5)
-        state = _state_with(commander)
         sequencer = EventSequencer()
         history: list[Commander] = []
         events: list[object] = []
@@ -435,8 +410,7 @@ def test_replay_determinism_dock_follow_undock_sequence() -> None:
         history.append(commander)
 
         commander = commander.with_rising(True)
-        state = state.with_commanders((commander,))
-        commander, undock_event = apply_undock(commander, state, tick=8, sequencer=sequencer)
+        commander, undock_event = apply_undock(commander, tick=8, sequencer=sequencer)
         history.append(commander)
         if undock_event is not None:
             events.append(undock_event)

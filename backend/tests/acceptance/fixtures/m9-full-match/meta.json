@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "rules_version": "cr001",
-  "rules_hash": "2cbbad560e4c062d3d0fa44ee88fcf62ac2749f354ffca6d27cd02240364fc24",
-  "match_id": "f814a4e4392748e8b54b5c48154fce09",
+  "rules_hash": "29becd1e4622a622938b484e134d101abd5ff9b5e9aa652680f23fbe2dac4e42",
+  "match_id": "1d08e817b3dd4344895775b7abba71e3",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -13,10 +13,10 @@
     "p1": "alice",
     "p2": "bob"
   },
-  "created_at_epoch_ms": 1790014076866,
+  "created_at_epoch_ms": 1790016737013,
   "status": "finished",
-  "finished_at_epoch_ms": 1790014136673,
-  "final_tick": 23068,
+  "finished_at_epoch_ms": 1790016797500,
+  "final_tick": 23072,
   "result": {
     "outcome": "victory",
     "reason": "zero_war_bases",
@@ -24,7 +24,7 @@
     "forfeiting_player_id": null
   },
   "final_snapshot": {
-    "tick": 23068,
+    "tick": 23072,
     "players": [
       "p1",
       "p2"
@@ -55,7 +55,7 @@
         "vertical_transition": {
           "from_altitude": 1,
           "to_altitude": 0,
-          "started_tick": 724,
+          "started_tick": 728,
           "duration_ticks": 4
         },
         "elevate_updates_remaining": 0

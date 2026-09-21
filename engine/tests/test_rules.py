@@ -254,6 +254,6 @@ def test_rules_version_is_a_non_empty_string() -> None:
 
 def test_construction_exit_elevate_updates_matches_spectrum_timer() -> None:
     # Lcb8e_construction_screen_exit: ld a, 5 / ld (Lfd30_player_elevate_timer), a
-    assert DEFAULT_RULES.commander_construction_exit_elevate_updates == 5
+    assert DEFAULT_RULES.commander_exit_elevate_updates == 5
     with pytest.raises(ValueError):
-        EngineRules(commander_construction_exit_elevate_updates=-1)
+        EngineRules(commander_exit_elevate_updates=-1)
