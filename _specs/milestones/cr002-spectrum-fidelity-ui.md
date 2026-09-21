@@ -14,6 +14,22 @@ Implement the owner change request of 2026-09-21: close the two pending owner de
 | Release | Tag `v1.0.0-rc1` now; the production human two-player check (release checklist item 11) is postponed to a later story; no rollback target exists for the first release. |
 | Footprints | Robots, the commander and the heli-pad are 2×2 (physical and visual; conventions evidenced from the disassembly). |
 
+Later owner decisions (2026-09-21), recorded in the specs by CR002.16:
+
+| Topic | Decision |
+|---|---|
+| Construction exit lift (PR #190) | Up/down moves during the lift do not shorten it (Spectrum quirk ignored). Leaving a robot gets the same 5-update lift (CR002.24). |
+| Construction modality (PR #190) | Only the building player's commander is frozen; the PvP match keeps running (Spectrum pauses the whole game). |
+| Fire cycles (PR #191) | One shot per robot per 4-tick game cycle; AI shots move 4 cells in their fire cycle, direct shots 2. AI robots fire only on their own robot update (CR002.19). |
+| Bullet slots | Stay per robot (Spectrum shares 2+2+1 slots per side): documented deviation. |
+| Bullet scan (PR #209) | Keep the engine's altitude gate; only robots stop bullets: documented deviation. |
+| Launch walk-out (PR #209) | Match the original: 5 steps south on Stop & Defend. |
+| Construction costs in the UI | Build-time copy of the engine rules, checked by CI; not sent in the protocol. |
+| New stories | Nuke debris (CR002.18), AI fire on robot update (CR002.19), chassis swap (CR002.20), terrain heights (CR002.21), radar window (CR002.22), optional labels (CR002.23), undock lift (CR002.24), robots on terrain height (CR002.25). |
+| Robots on terrain (PR #212) | Match the original: the terrain height under a robot raises its top, docking altitude, ship collision and drawing (CR002.25). |
+| Radar | Shows only the viewer's own commander, as in the original; enemy robots are shown; white only. |
+| Original artwork | Allowed while the repository and deployments are private; blocking release item before any public release or deployment (#201). |
+
 ## References
 
 - `_specs/open-questions.md` §4, §8, §12–§14, §18
@@ -23,7 +39,7 @@ Implement the owner change request of 2026-09-21: close the two pending owner de
 ## Dependencies
 
 - Start: M10 merged and `v1.0.0-rc1` tagged (current `main`).
-- Gameplay-rule changes (CR002.1–CR002.4, CR002.12, CR002.13, CR002.18) require one rules-version bump (CR002.16); old replays are rejected, not mis-verified.
+- Gameplay-rule changes (CR002.1–CR002.4, CR002.12, CR002.13, CR002.18–CR002.21, CR002.24, CR002.25) require one rules-version bump (`cr002`, CR002.16, the last gameplay PR of CR002); old replays are rejected, not mis-verified.
 - Where the disassembly does not settle a detail (anchor cells, flight over walls, post-launch state), stop and ask the owner instead of choosing.
 
 ## Tasks
@@ -47,9 +63,17 @@ Tracker: #185.
 | CR002.13 (#180) | Cannot exit the war-base construction menu | — |
 | CR002.14 (#181) | Occlusion: units behind structures are hidden | CR002.7 |
 | CR002.15 (#182) | Commander shadow ignores the height of buildings under it | CR002.4 |
-| CR002.16 (#183) | Rules version bump and spec updates for CR002 | CR002.1–CR002.4, CR002.12, CR002.13, CR002.18 |
+| CR002.16 (#183) | Rules version bump and spec updates for CR002 | CR002.1–CR002.4, CR002.12, CR002.13, CR002.18–CR002.21, CR002.24, CR002.25 |
 | CR002.17 (#184) | CR002 acceptance gate | all |
 | CR002.18 (#196) | Nuclear blast turns scenery boxes into rough debris; fences survive | CR002.1 |
+| CR002.19 (#197) | AI robots fire only on their own robot update | CR002.2 |
+| CR002.20 (#198) | Construction: picking another chassis swaps it | — |
+| CR002.21 (#203) | Terrain piece heights for commander, projectiles and shadows | CR002.3, CR002.4, CR002.18 |
+| CR002.22 (#205) | Radar: 128-column scrolling window, white only, own commander only | CR002.11 |
+| CR002.23 (#206) | Structure labels and robot strength numbers: optional, default off | — |
+| CR002.24 (#207) | Leaving a robot lifts the commander like leaving the war base | CR002.4, CR002.12 |
+| CR002.25 (#214) | Robots stand on terrain height (drawing, robot top, docking, ship collision) | CR002.21, CR002.24 |
+| — (#201) | Release gate: original-artwork licensing before any public release or deployment (release checklist item 16) | CR002.5, CR002.6 |
 
 Parallel groups: engine (CR002.1, CR002.2, then CR002.3 → CR002.4, CR002.12, CR002.13) and frontend (CR002.6, CR002.7 → CR002.14, CR002.8, CR002.10 → CR002.9, CR002.11, CR002.5 after CR002.1). CR002.7 and CR002.14 both touch `projection.ts`/`renderer.ts`: merge one after the other.
 
