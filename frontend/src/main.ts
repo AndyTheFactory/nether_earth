@@ -13,6 +13,7 @@ import { Panel } from './ui/dom.ts';
 import { renderHud } from './ui/hud.ts';
 import { renderMenus } from './ui/menus.ts';
 import { renderOverlay } from './ui/overlays.ts';
+import { Radar, viewFromCorners } from './ui/radar.ts';
 
 async function main(): Promise<void> {
   const host = document.querySelector<HTMLDivElement>('#app');
@@ -42,7 +43,8 @@ async function main(): Promise<void> {
   const hud = new Panel('hud');
   const menus = new Panel('menus', (a, arg) => controller.menuAction(a, arg));
   const overlay = new Panel('overlay', (a, arg) => controller.menuAction(a, arg));
-  ui.append(hud.root, menus.root, overlay.root);
+  const radar = new Radar(map);
+  ui.append(hud.root, radar.root, menus.root, overlay.root);
 
   const keyboard = new KeyboardIntent(controller);
   bindKeyboard(window, keyboard);
@@ -70,6 +72,9 @@ async function main(): Promise<void> {
     app.canvas.style.visibility = s.ui.screen === 'match' ? 'visible' : 'hidden';
     renderer.render(s, now);
     renderHud(hud, s, map);
+    const { width: w, height: h } = app.screen;
+    const view = viewFromCorners([renderer.screenToCell(0, 0), renderer.screenToCell(w, 0), renderer.screenToCell(0, h), renderer.screenToCell(w, h)]);
+    radar.update(s.ui.screen === 'match', s.latest, view);
     renderMenus(menus, s, controller.aim, controller.weaponIndex);
     renderOverlay(overlay, s, Date.now());
   });
