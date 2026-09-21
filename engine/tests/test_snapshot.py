@@ -384,7 +384,13 @@ def test_every_order_kind_serializes_to_a_stable_tagged_dict() -> None:
         ),
         (
             SearchCapture(target=SearchCaptureTarget.ENEMY_WAR_BASE),
-            {"kind": "search_capture", "target": "enemy_war_base"},
+            {"kind": "search_capture", "target": "enemy_war_base", "structure_id": None},
+        ),
+        (
+            SearchCapture(
+                target=SearchCaptureTarget.ENEMY_WAR_BASE, structure_id=EntityId("warbase-2")
+            ),
+            {"kind": "search_capture", "target": "enemy_war_base", "structure_id": "warbase-2"},
         ),
         (
             SearchDestroy(target=SearchDestroyTarget.FACTORY),

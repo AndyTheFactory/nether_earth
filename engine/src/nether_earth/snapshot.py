@@ -275,7 +275,8 @@ def _order_snapshot(order: Order | None) -> dict[str, Any] | None:
     ``target_x``) is serialized as-is: it is authoritative -- an in-flight
     ``Advance`` that has already bound its goal column is a different state
     from a freshly assigned one, and `orders.py`'s ``PENDING`` -> ``ACTIVE``
-    transition is exactly that difference.
+    transition is exactly that difference. ``SearchCapture``'s stored
+    ``structure_id`` (CR003.2) is serialized for the same reason.
     """
     if order is None:
         return None
@@ -294,7 +295,13 @@ def _order_snapshot(order: Order | None) -> dict[str, Any] | None:
             "target_x": order.target_x,
         }
     if isinstance(order, SearchCapture):
-        return {"kind": "search_capture", "target": order.target.value}
+        return {
+            "kind": "search_capture",
+            "target": order.target.value,
+            "structure_id": (
+                order.structure_id.to_json() if order.structure_id is not None else None
+            ),
+        }
     if isinstance(order, SearchDestroy):
         return {"kind": "search_destroy", "target": order.target.value}
     assert_never(order)

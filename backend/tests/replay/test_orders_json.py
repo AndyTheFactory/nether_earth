@@ -15,6 +15,7 @@ always spelled identically for the same logical order.
 
 from __future__ import annotations
 
+from nether_earth.ids import EntityId
 from nether_earth.orders import (
     Advance,
     Order,
@@ -38,6 +39,7 @@ _ORDER_VARIANTS: tuple[Order, ...] = (
     SearchCapture(target=SearchCaptureTarget.NEUTRAL_FACTORY),
     SearchCapture(target=SearchCaptureTarget.ENEMY_FACTORY),
     SearchCapture(target=SearchCaptureTarget.ENEMY_WAR_BASE),
+    SearchCapture(target=SearchCaptureTarget.ENEMY_WAR_BASE, structure_id=EntityId("warbase-4")),
     SearchDestroy(target=SearchDestroyTarget.ROBOT),
     SearchDestroy(target=SearchDestroyTarget.FACTORY),
     SearchDestroy(target=SearchDestroyTarget.WAR_BASE),
@@ -52,3 +54,10 @@ def test_order_to_json_matches_the_engines_own_snapshot_serialization() -> None:
 def test_order_json_round_trips_for_every_variant() -> None:
     for order in _ORDER_VARIANTS:
         assert order_from_json(order_to_json(order)) == order
+
+
+def test_search_capture_records_without_a_stored_target_still_load() -> None:
+    """Records written before CR003.2 carry no ``structure_id``."""
+    assert order_from_json({"kind": "search_capture", "target": "neutral_factory"}) == SearchCapture(
+        target=SearchCaptureTarget.NEUTRAL_FACTORY
+    )
