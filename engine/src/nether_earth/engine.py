@@ -505,9 +505,10 @@ def step(
            a ``hit_robot_id`` is immediately fed to
            :func:`~nether_earth.combat.apply_damage` (which itself routes a
            lethal hit to `destruction.py`). Advancement precedes firing so
-           a projectile fired this tick never also advances on the same
-           tick it was created -- travel always takes at least one full
-           cadence interval.
+           a projectile fired this tick is not advanced a second time on
+           the tick it was created: its first move is made by
+           :func:`~nether_earth.combat.apply_fire` itself on the fire tick
+           (CR002.2 #169), including damage for a hit on that move.
         b. Every structurally accepted
            :class:`~nether_earth.combat.FireCommand` is applied, in
            canonical command order. A normal weapon routes through
@@ -779,11 +780,10 @@ def step(
                     events.append(victory_event)
                     victory_emitted = True
             else:
-                state, _fire_result, fire_event = apply_fire(
+                state, _fire_result, fire_events = apply_fire(
                     request, state, fire_world, tick, rules, sequencer
                 )
-                if fire_event is not None:
-                    events.append(fire_event)
+                events.extend(fire_events)
 
         # (c) Autonomous engagement: consume this tick's intents from the
         # SAME `evaluations` Step 2b2 already computed (never recomputed --

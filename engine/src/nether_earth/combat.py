@@ -534,12 +534,12 @@ def apply_fire(
     tick: int,
     rules: EngineRules = DEFAULT_RULES,
     sequencer: EventSequencer | None = None,
-) -> tuple[GameState, FireResult, Event | None]:
+) -> tuple[GameState, FireResult, tuple[Event, ...]]:
     """Validate and, if legal, execute ``request``. The one fire-execution point.
 
-    Returns ``(new_state, result, event)``. When rejected, ``new_state is
-    state`` (the caller's own object, not a rebuilt copy) and ``event is
-    None``, mirroring :func:`~nether_earth.movement.apply_robot_move`'s "a
+    Returns ``(new_state, result, events)``. When rejected, ``new_state is
+    state`` (the caller's own object, not a rebuilt copy) and ``events`` is
+    empty, mirroring :func:`~nether_earth.movement.apply_robot_move`'s "a
     failed request provably causes no partial state mutation" convention.
 
     Three distinct accepted outcomes:
@@ -561,15 +561,27 @@ def apply_fire(
        ``max_range_cells`` from ``rules`` for ``request.weapon`` plus
        ``rules.electronics_range_bonus_cells`` if the robot's build has
        electronics fitted (``robot.build.electronics is
-       ModuleIdentity.ELECTRONICS``). The robot's ``active_projectile_id``
-       is set to the new projectile's id (occupying its combat channel).
+       ModuleIdentity.ELECTRONICS``), and a :class:`ProjectileFiredEvent`
+       (at the firing cell) is emitted. The projectile then makes its first
+       advance immediately, on the fire tick (CR002.2 #169, matching the
+       Spectrum's ``Lb6d6_weapon_fire``, which calls
+       ``Lb724_bullet_update_internal`` before returning), with the same
+       checks as every later advance (:func:`_advance_one`). Later advances
+       keep the cadence of :func:`advance_projectiles`, so the total range
+       is unchanged. If the projectile survives its first move, it is added
+       to ``state.projectiles`` at its new cell and the robot's
+       ``active_projectile_id`` is set to it (occupying its combat channel).
+       If the first move terminates it, it is never added, the channel stays
+       free, a :class:`ProjectileTerminatedEvent` follows the fired event,
+       and a robot hit is damaged here via :func:`apply_damage` (whose
+       damage/destruction events follow).
     """
     result = validate_fire(request, state)
     if not result.accepted:
-        return state, result, None
+        return state, result, ()
 
     if request.weapon is ModuleIdentity.NUCLEAR:
-        return state, result, None
+        return state, result, ()
 
     robot = state.robot_for(request.robot_id)
     assert robot is not None  # guaranteed by validate_fire's NO_SUCH_ROBOT check
@@ -577,7 +589,7 @@ def apply_fire(
     direction = resolve_fire_direction(robot, request)
     if direction is None:
         rejected = FireResult.reject(request, FireRejectionReason.TARGET_OUT_OF_RANGE)
-        return state, rejected, None
+        return state, rejected, ()
     dx, dy = direction
 
     max_range = weapon_range_cells(request.weapon, rules)
@@ -599,16 +611,8 @@ def apply_fire(
         created_tick=tick,
     )
 
-    updated_robot = robot.with_active_projectile(projectile.id)
-    new_state = state.with_robots(
-        tuple(
-            updated_robot if r.entity_id == updated_robot.entity_id else r
-            for r in state.robots
-        )
-    ).with_projectiles((*state.projectiles, projectile))
-
     sequence = sequencer.next_sequence() if sequencer is not None else 0
-    event = ProjectileFiredEvent(
+    fired = ProjectileFiredEvent(
         sequence=sequence,
         entity_id=projectile.id,
         source_robot_id=projectile.source_robot_id,
@@ -620,7 +624,34 @@ def apply_fire(
         dy=projectile.dy,
         tick=tick,
     )
-    return new_state, result, event
+
+    # First move on the fire tick (CR002.2 #169; `Lb6d6_weapon_fire` calls
+    # `Lb724_bullet_update_internal` before returning).
+    moved, termination = _advance_one(projectile, state, world, rules)
+    if moved is not None:
+        updated_robot = robot.with_active_projectile(moved.id)
+        new_state = state.with_robots(
+            tuple(
+                updated_robot if r.entity_id == updated_robot.entity_id else r
+                for r in state.robots
+            )
+        ).with_projectiles((*state.projectiles, moved))
+        return new_state, result, (fired,)
+
+    # Terminated by its first move: never enters `state.projectiles` and never
+    # occupies the combat channel. A hit is damaged here, like the engine's
+    # advance phase does for later hits.
+    assert termination is not None
+    reason, hit_robot_id, at_x, at_y = termination
+    _cleared, terminated = _terminate_projectile(
+        state, projectile, tick, reason, hit_robot_id, at_x, at_y, sequencer
+    )
+    if hit_robot_id is None:
+        return state, result, (fired, terminated)
+    new_state, damage_events = apply_damage(
+        state, world, hit_robot_id, projectile.weapon, rules, tick, sequencer
+    )
+    return new_state, result, (fired, terminated, *damage_events)
 
 
 # --------------------------------------------------------------------------
@@ -713,7 +744,7 @@ def _projectile_terminal_reason(
 ) -> tuple[ProjectileTerminationReason, EntityId | None] | None:
     """Return ``(reason, hit_robot_id)`` if ``projectile`` terminates this step, else ``None``.
 
-    Range exhaustion is checked by the caller (:func:`advance_projectiles`)
+    Range exhaustion is checked by the caller (:func:`_advance_one`)
     BEFORE this function is invoked, against the projectile's current
     (not-yet-incremented) ``travelled_cells`` -- not here, and not against
     the candidate ``new_x``/``new_y``. This function only evaluates the
@@ -800,6 +831,64 @@ def _terminate_projectile(
     return cleared_robot, event
 
 
+_Termination = tuple[ProjectileTerminationReason, EntityId | None, int, int]
+
+
+def _advance_one(
+    projectile: Projectile,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+) -> tuple[Projectile | None, _Termination | None]:
+    """Apply ONE advance to ``projectile``: ``(moved, None)`` or ``(None, termination)``.
+
+    The single advance rule, shared by :func:`advance_projectiles` (every
+    cadence tick) and :func:`apply_fire` (the first move on the fire tick,
+    CR002.2 #169). ``termination`` is ``(reason, hit_robot_id, x, y)``.
+
+    1. Range exhaustion is checked FIRST, against the projectile's current
+       (not-yet-incremented) ``travelled_cells`` via :func:`_range_exhausted`
+       -- if it has already reached ``max_range_cells``, it terminates at its
+       CURRENT ``x``/``y`` (no move is attempted). See
+       :func:`_projectile_terminal_reason`'s docstring for why.
+    2. Otherwise, it moves along its firing axis by
+       ``rules.projectile_cells_per_advance`` cells (default 2, CR001 /
+       `_specs/open-questions.md` §8), capped so ``travelled_cells`` never
+       exceeds ``max_range_cells``. The cells are entered one at a time, in
+       travel order, and each is checked via
+       :func:`_projectile_terminal_reason` (bounds, static collision, robot
+       collision, in that fixed order); the first terminal cell ends the
+       projectile there, so an intermediate cell is never skipped. (This
+       per-cell walk is used instead of the Spectrum's 3x3 first-hit scan
+       around the new position, which would widen the collision footprint to
+       the neighbouring lanes.)
+    """
+    if _range_exhausted(projectile):
+        return None, (
+            ProjectileTerminationReason.RANGE_EXHAUSTED,
+            None,
+            projectile.x,
+            projectile.y,
+        )
+
+    steps = min(
+        rules.projectile_cells_per_advance,
+        projectile.max_range_cells - projectile.travelled_cells,
+    )
+    new_x, new_y = projectile.x, projectile.y
+    for _ in range(steps):
+        new_x += projectile.dx
+        new_y += projectile.dy
+        outcome = _projectile_terminal_reason(projectile, new_x, new_y, state, world, rules)
+        if outcome is not None:
+            reason, hit_robot_id = outcome
+            return None, (reason, hit_robot_id, new_x, new_y)
+    moved = replace(
+        projectile, x=new_x, y=new_y, travelled_cells=projectile.travelled_cells + steps
+    )
+    return moved, None
+
+
 def advance_projectiles(
     state: GameState,
     world: WorldMap,
@@ -814,27 +903,12 @@ def advance_projectiles(
     advancement happens on ticks that are not a cadence boundary.
 
     Otherwise, every projectile in ``state.projectiles`` (already in
-    canonical ``id.value`` order, per `state.py`) is processed in that
-    order:
-
-    1. Range exhaustion is checked FIRST, against the projectile's current
-       (not-yet-incremented) ``travelled_cells`` via :func:`_range_exhausted`
-       -- if it has already reached ``max_range_cells`` on a prior tick, it
-       terminates now, at its CURRENT ``x``/``y`` (no move is attempted
-       this tick). See :func:`_projectile_terminal_reason`'s docstring for
-       why this must be checked before, and separately from, the rest of
-       the termination checks.
-    2. Otherwise, it moves along its firing axis by
-       ``rules.projectile_cells_per_advance`` cells (default 2, CR001 /
-       `_specs/open-questions.md` §8), capped so ``travelled_cells`` never
-       exceeds ``max_range_cells``. The cells are entered one at a time, in
-       travel order, and each is checked for termination via
-       :func:`_projectile_terminal_reason` (bounds, static collision, robot
-       collision, in that fixed order); the first terminal cell ends the
-       projectile there. So a robot or obstacle in the intermediate cell is
-       never skipped. (This per-cell walk is used instead of the Spectrum's
-       3x3 first-hit scan around the new position, which would widen the
-       collision footprint to the neighbouring lanes.)
+    canonical ``id.value`` order, per `state.py`) gets one advance via
+    :func:`_advance_one` (range exhaustion first, then a per-cell walk of
+    up to ``rules.projectile_cells_per_advance`` cells). A projectile's
+    FIRST advance is not made here but by :func:`apply_fire` on its fire
+    tick (CR002.2 #169); ``engine.step()`` runs this function before firing,
+    so a projectile never advances twice on its fire tick.
 
     A terminated projectile is dropped from the result and its firing
     robot's combat channel is cleared (unless that robot no longer exists
@@ -856,52 +930,14 @@ def advance_projectiles(
     updated_robots: dict[EntityId, Robot] = {}
 
     for projectile in state.projectiles:
-        if _range_exhausted(projectile):
-            cleared_robot, event = _terminate_projectile(
-                state,
-                projectile,
-                tick,
-                ProjectileTerminationReason.RANGE_EXHAUSTED,
-                None,
-                projectile.x,
-                projectile.y,
-                sequencer,
-            )
-            events.append(event)
-            if cleared_robot is not None:
-                updated_robots[cleared_robot.entity_id] = cleared_robot
+        moved, termination = _advance_one(projectile, state, world, rules)
+        if moved is not None:
+            surviving_projectiles.append(moved)
             continue
-
-        # Move one cell at a time, up to ``projectile_cells_per_advance``
-        # cells but never past ``max_range_cells``, checking each cell in
-        # travel order so a robot or obstacle in an intermediate cell is
-        # never skipped (CR001, #150).
-        steps = min(
-            rules.projectile_cells_per_advance,
-            projectile.max_range_cells - projectile.travelled_cells,
-        )
-        new_x, new_y = projectile.x, projectile.y
-        outcome = None
-        for _ in range(steps):
-            new_x += projectile.dx
-            new_y += projectile.dy
-            outcome = _projectile_terminal_reason(projectile, new_x, new_y, state, world, rules)
-            if outcome is not None:
-                break
-        if outcome is None:
-            surviving_projectiles.append(
-                replace(
-                    projectile,
-                    x=new_x,
-                    y=new_y,
-                    travelled_cells=projectile.travelled_cells + steps,
-                )
-            )
-            continue
-
-        reason, hit_robot_id = outcome
+        assert termination is not None
+        reason, hit_robot_id, at_x, at_y = termination
         cleared_robot, event = _terminate_projectile(
-            state, projectile, tick, reason, hit_robot_id, new_x, new_y, sequencer
+            state, projectile, tick, reason, hit_robot_id, at_x, at_y, sequencer
         )
         events.append(event)
         if cleared_robot is not None:

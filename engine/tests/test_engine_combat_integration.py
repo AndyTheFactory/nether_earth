@@ -224,7 +224,8 @@ def test_fire_command_creates_an_in_flight_projectile_through_engine_step() -> N
     assert len(fired) == 1
     assert len(state.projectiles) == 1
     projectile = state.projectiles[0]
-    assert (projectile.x, projectile.y) == (QUIET_X, QUIET_Y)
+    # CR002.2 (#169): the first 2-cell move is made on the fire tick.
+    assert (projectile.x, projectile.y) == (QUIET_X + 2, QUIET_Y)
     assert (projectile.dx, projectile.dy) == (1, 0)
     assert state.robot_for(shooter.entity_id).active_projectile_id == projectile.id  # type: ignore[union-attr]
 
@@ -254,9 +255,9 @@ def test_fire_command_from_a_player_who_does_not_own_the_robot_is_a_no_op() -> N
 def test_projectile_advances_over_ticks_and_damages_the_robot_it_hits() -> None:
     world = _world()
     shooter = _gunner("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
-    # Four advance intervals away (2 cells per advance), so the projectile
-    # travels for several cadence ticks before connecting.
-    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 8, QUIET_Y)
+    # Five moves away (2 cells each: the fire-tick move plus four cadence
+    # advances), so the projectile travels several cadence ticks first.
+    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 10, QUIET_Y)
     state = _state((shooter, target))
 
     command = FireCommand(
@@ -274,7 +275,7 @@ def test_projectile_advances_over_ticks_and_damages_the_robot_it_hits() -> None:
         state, events = step(state, [], world=world)
         assert _of(events, RobotDamagedEvent) == []
     assert len(state.projectiles) == 1
-    assert state.projectiles[0].x == QUIET_X + 6
+    assert state.projectiles[0].x == QUIET_X + 8
 
     state, events = step(state, [], world=world)
 
@@ -306,11 +307,8 @@ def test_a_lethal_hit_destroys_the_target_robot_through_engine_step() -> None:
         target_x=QUIET_X + 10,
         target_y=QUIET_Y,
     )
-    state, _events = step(state, [command], world=world)
-
-    for _tick in range(2, ADVANCE):
-        state, _events = step(state, [], world=world)
-    state, events = step(state, [], world=world)
+    # Adjacent target: hit by the first move, on the fire tick (CR002.2 #169).
+    state, events = step(state, [command], world=world)
 
     destroyed = _of(events, RobotDestroyedEvent)
     assert len(destroyed) == 1
@@ -719,7 +717,7 @@ def test_combat_replay_is_deterministic_through_the_real_engine_pipeline() -> No
 def test_combat_state_round_trips_into_the_snapshot() -> None:
     world = _world()
     shooter = _gunner("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
-    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 2, QUIET_Y)
+    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 4, QUIET_Y)
     state = _state((shooter, target))
 
     command = FireCommand(

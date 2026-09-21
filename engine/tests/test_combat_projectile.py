@@ -8,13 +8,16 @@ from nether_earth.combat import (
     FireRejectionReason,
     FireRequest,
     Projectile,
+    ProjectileFiredEvent,
     ProjectileTerminatedEvent,
     ProjectileTerminationReason,
+    RobotDamagedEvent,
     advance_projectiles,
     apply_fire,
     is_projectile_advance_tick,
     resolve_fire_direction,
 )
+from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.map import WorldMap
 from nether_earth.robot import Robot
@@ -179,21 +182,24 @@ def test_apply_fire_creates_projectile_with_correct_range() -> None:
     state = _state((robot,))
     world = _world()
 
-    new_state, result, event = apply_fire(_request(), state, world, tick=10)
+    new_state, result, events = apply_fire(_request(), state, world, tick=10)
 
     assert result.accepted
-    assert event is not None
+    (event,) = events
+    assert isinstance(event, ProjectileFiredEvent)
+    assert (event.x, event.y) == (robot.x, robot.y)  # fired from the robot's cell
     assert len(new_state.projectiles) == 1
     projectile = new_state.projectiles[0]
     assert projectile.owner == PLAYER_ONE
     assert projectile.source_robot_id == robot.entity_id
     assert projectile.weapon == ModuleIdentity.CANNON
-    assert projectile.x == robot.x
+    # CR002.2 (#169): the first 2-cell move is made on the fire tick.
+    assert projectile.x == robot.x + DEFAULT_RULES.projectile_cells_per_advance
     assert projectile.y == robot.y
     assert projectile.z == DEFAULT_RULES.normal_projectile_altitude
     assert projectile.dx == 1
     assert projectile.dy == 0
-    assert projectile.travelled_cells == 0
+    assert projectile.travelled_cells == DEFAULT_RULES.projectile_cells_per_advance
     assert projectile.max_range_cells == DEFAULT_RULES.cannon_range_cells
     assert projectile.created_tick == 10
 
@@ -243,14 +249,14 @@ def test_apply_fire_rejection_passes_through_unchanged_state() -> None:
     state = _state((robot,))
     world = _world()
 
-    new_state, result, event = apply_fire(
+    new_state, result, events = apply_fire(
         _request(weapon=ModuleIdentity.MISSILE), state, world, tick=1
     )
 
     assert not result.accepted
     assert result.reason is FireRejectionReason.WEAPON_NOT_FITTED
     assert new_state is state
-    assert event is None
+    assert events == ()
     assert new_state.projectiles == ()
 
 
@@ -262,12 +268,12 @@ def test_apply_fire_channel_occupied_rejection() -> None:
     state = _state((robot,))
     world = _world()
 
-    new_state, result, event = apply_fire(_request(), state, world, tick=1)
+    new_state, result, events = apply_fire(_request(), state, world, tick=1)
 
     assert not result.accepted
     assert result.reason is FireRejectionReason.CHANNEL_OCCUPIED
     assert new_state is state
-    assert event is None
+    assert events == ()
 
 
 def test_apply_fire_rejects_degenerate_aim_at_own_cell() -> None:
@@ -275,14 +281,14 @@ def test_apply_fire_rejects_degenerate_aim_at_own_cell() -> None:
     state = _state((robot,))
     world = _world()
 
-    new_state, result, event = apply_fire(
+    new_state, result, events = apply_fire(
         _request(target_x=5, target_y=5), state, world, tick=1
     )
 
     assert not result.accepted
     assert result.reason is FireRejectionReason.TARGET_OUT_OF_RANGE
     assert new_state is state
-    assert event is None
+    assert events == ()
     assert new_state.projectiles == ()
 
 
@@ -291,12 +297,12 @@ def test_apply_fire_nuclear_accepted_creates_no_projectile_and_no_channel_touch(
     state = _state((robot,))
     world = _world()
 
-    new_state, result, event = apply_fire(
+    new_state, result, events = apply_fire(
         _request(weapon=ModuleIdentity.NUCLEAR), state, world, tick=1
     )
 
     assert result.accepted
-    assert event is None
+    assert events == ()
     assert new_state is state
     assert new_state.projectiles == ()
     updated_robot = new_state.robot_for(robot.entity_id)
@@ -649,13 +655,15 @@ def _fly_until_terminated(
     """Fire east from ``robot`` and advance until the projectile terminates.
 
     Returns the projectile as last seen in flight, the termination event,
-    and the number of advance ticks that moved it.
+    and the number of moves made (the fire-tick move, CR002.2 #169, plus
+    every cadence advance that moved it).
     """
     request = _request(robot_id=robot.entity_id.value, weapon=robot.build.weapons[0], target_x=robot.x + 1)
     state, result, _ = apply_fire(request, _state((robot,)), world, tick=0, rules=rules)
     assert result.accepted
     last = state.projectiles[0]
-    for moves, tick in enumerate(range(4, 4 * 100, 4)):
+    assert last.travelled_cells == rules.projectile_cells_per_advance  # moved on the fire tick
+    for moves, tick in enumerate(range(4, 4 * 100, 4), start=1):
         state, events = advance_projectiles(state, world, tick=tick, rules=rules)
         if events:
             event = events[0]
@@ -784,3 +792,103 @@ def test_advance_projectiles_cells_per_advance_is_configurable() -> None:
 
     assert new_state.projectiles[0].x == 6
     assert new_state.projectiles[0].travelled_cells == 1
+
+
+# --- CR002.2 (#169): first move on the fire tick --------------------------------
+
+
+@pytest.mark.parametrize("distance", [1, 2])
+def test_target_one_or_two_cells_away_is_hit_on_the_fire_tick(distance: int) -> None:
+    """``Lb6d6_weapon_fire`` calls ``Lb724_bullet_update_internal``: the first move is at fire time."""
+    firer = _robot(entity_id="robot-firer", x=5, y=5)
+    target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=5 + distance, y=5))
+    state = _state((firer, target))
+    request = _request(robot_id="robot-firer", target_x=5 + distance)
+
+    new_state, result, events = apply_fire(request, state, _world(), tick=5)
+
+    assert result.accepted
+    fired, terminated, damaged = events
+    assert isinstance(fired, ProjectileFiredEvent)
+    assert isinstance(terminated, ProjectileTerminatedEvent)
+    assert terminated.reason is ProjectileTerminationReason.ROBOT_HIT
+    assert terminated.hit_robot_id == target.entity_id
+    assert (terminated.x, terminated.y, terminated.tick) == (5 + distance, 5, 5)
+    assert isinstance(damaged, RobotDamagedEvent)
+    assert damaged.entity_id == target.entity_id
+    hit = new_state.robot_for(target.entity_id)
+    assert hit is not None and hit.strength == target.strength - damaged.damage
+    # The projectile never entered flight, so the firer's channel stays free.
+    assert new_state.projectiles == ()
+    firer_after = new_state.robot_for(firer.entity_id)
+    assert firer_after is not None and firer_after.active_projectile_id is None
+
+
+def test_fire_tick_hit_events_are_sequenced_in_order() -> None:
+    firer = _robot(entity_id="robot-firer", x=5, y=5)
+    target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=6, y=5))
+    sequencer = EventSequencer()
+
+    _, _, events = apply_fire(
+        _request(robot_id="robot-firer"), _state((firer, target)), _world(), tick=1,
+        sequencer=sequencer,
+    )
+
+    assert [e.sequence for e in events] == [0, 1, 2]
+
+
+def test_static_collision_on_the_fire_tick_frees_the_channel() -> None:
+    blocker = Blocker(
+        id=EntityId("blocker-1"),
+        components=(Component(x=7, y=5, height=DEFAULT_RULES.normal_projectile_altitude),),
+    )
+    firer = _robot(entity_id="robot-firer", x=5, y=5)
+
+    new_state, _, events = apply_fire(
+        _request(robot_id="robot-firer"), _state((firer,)), _world(blockers=(blocker,)), tick=3
+    )
+
+    assert len(events) == 2
+    assert events[1].reason is ProjectileTerminationReason.STATIC_COLLISION
+    assert (events[1].x, events[1].y) == (7, 5)
+    assert new_state.projectiles == ()
+    firer_after = new_state.robot_for(firer.entity_id)
+    assert firer_after is not None and firer_after.active_projectile_id is None
+
+
+def test_target_three_cells_away_is_hit_on_the_next_cadence_tick() -> None:
+    firer = _robot(entity_id="robot-firer", x=5, y=5)
+    target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=8, y=5))
+    state, _, events = apply_fire(
+        _request(robot_id="robot-firer"), _state((firer, target)), _world(), tick=5
+    )
+    assert len(events) == 1
+    assert (state.projectiles[0].x, state.projectiles[0].travelled_cells) == (7, 2)
+
+    for tick in (6, 7):
+        state, events = advance_projectiles(state, _world(), tick=tick)
+        assert events == ()
+    _, events = advance_projectiles(state, _world(), tick=8)
+
+    assert events[0].reason is ProjectileTerminationReason.ROBOT_HIT
+    assert events[0].hit_robot_id == target.entity_id
+
+
+def test_fire_tick_move_then_cadence_timeline_keeps_the_total_range() -> None:
+    """Fired on tick 5: 2 cells at once, then 2 per cadence tick; expires on tick 24 at 10 cells."""
+    firer = _robot(entity_id="robot-firer", x=2, y=5)
+    state, _, _ = apply_fire(
+        _request(robot_id="robot-firer", target_x=3), _state((firer,)), _world(width=40), tick=5
+    )
+    positions = {5: state.projectiles[0].x}
+    for tick in range(6, 25):
+        state, events = advance_projectiles(state, _world(width=40), tick=tick)
+        if state.projectiles:
+            positions[tick] = state.projectiles[0].x
+        else:
+            (event,) = events
+            assert event.reason is ProjectileTerminationReason.RANGE_EXHAUSTED
+            assert (tick, event.x) == (24, 2 + DEFAULT_RULES.cannon_range_cells)
+            break
+
+    assert [positions[t] for t in (5, 8, 12, 16, 20)] == [4, 6, 8, 10, 12]

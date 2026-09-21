@@ -230,8 +230,8 @@ def consume_engagement_intent(
             return state, ()
         return execute_nuclear_detonation(state, world, intent.robot_id, tick, rules, sequencer)
 
-    new_state, _result, event = apply_fire(request, state, world, tick, rules, sequencer)
-    return new_state, (event,) if event is not None else ()
+    new_state, _result, events = apply_fire(request, state, world, tick, rules, sequencer)
+    return new_state, events
 
 
 def consume_engagement_intents(

@@ -477,7 +477,7 @@ def test_autonomous_and_direct_fire_share_the_identical_code_path() -> None:
         target_x=5,
         target_y=0,
     )
-    direct_new_state, direct_result, direct_event = apply_fire(
+    direct_new_state, direct_result, direct_events = apply_fire(
         direct_request, direct_state, world, tick=4
     )
 
@@ -490,7 +490,8 @@ def test_autonomous_and_direct_fire_share_the_identical_code_path() -> None:
     auto_new_state, auto_events = consume_engagement_intent(auto_intent, auto_state, world, tick=4)
 
     assert direct_result.accepted
-    assert direct_event is not None
+    assert len(direct_events) == 1
+    direct_event = direct_events[0]
     assert len(auto_events) == 1
     auto_event = auto_events[0]
 
