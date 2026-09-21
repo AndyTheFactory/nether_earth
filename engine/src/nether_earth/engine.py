@@ -88,9 +88,9 @@ from nether_earth.construction_commands import (
     SelectModuleCommand,
 )
 from nether_earth.construction_session import (
-    cancel_construction,
     deselect_module,
     enter_construction,
+    exit_construction,
     select_module,
 )
 
@@ -629,6 +629,12 @@ def step(
                 # integration point); a gameplay no-op beyond the already-
                 # emitted generic CommandAccepted.
                 continue
+            if state.construction_session_for(command.player) is not None:
+                # The construction screen is modal (CR002.13): the Spectrum
+                # construction loop reads only menu input until EXIT MENU or
+                # START ROBOT, so the commander cannot fly off the pad with
+                # the screen still open. Same no-op convention as above.
+                continue
             state, _move_result, move_event = apply_commander_move(
                 command, state, tick, rules, horizontal_check, sequencer
             )
@@ -869,6 +875,11 @@ def step(
                 # apply_vertical_physics already no-ops defensively for a
                 # non-FREE commander; skip explicitly for clarity.
                 continue
+            if state.construction_session_for(commander.player_id) is not None:
+                # Modal construction screen (CR002.13, see Step 1): the
+                # commander stays on the pad, whatever its rise intent, until
+                # the player leaves via EXIT MENU or START ROBOT.
+                continue
             updated, vertical_event = apply_vertical_physics(
                 commander, state, tick, rules, vertical_check, sequencer
             )
@@ -903,6 +914,12 @@ def step(
     if world_for_step is not None:
         for commander in state.commanders:
             if commander.mode is not CommanderMode.FREE:
+                continue
+            if commander.elevate_updates_remaining > 0:
+                # Just left the construction screen (CR002.12/CR002.13): the
+                # exit ascent lifts the commander off the pad before the next
+                # landing check can match (Spectrum: the elevate timer raises
+                # the ship above altitude 15 before `cp 15` runs again).
                 continue
             landing_event = detect_heli_pad_landing(
                 state, world_for_step, commander, tick, rules, sequencer
@@ -962,11 +979,12 @@ def step(
                 )
         elif isinstance(command, CancelConstructionCommand):
             # Only emit an event (and only touch state) on an actual
-            # transition -- cancel_construction() is itself a silent no-op
+            # transition -- exit_construction() is itself a silent no-op
             # for a player with no active session; checking first here keeps
             # that no-op from producing a spurious ConstructionCancelledEvent.
             if state.construction_session_for(command.player) is not None:
-                state = cancel_construction(state, command.player)
+                # EXIT MENU (CR002.13): discard the build and lift off the pad.
+                state = exit_construction(state, command.player, rules)
                 events.append(
                     ConstructionCancelledEvent(
                         sequence=sequencer.next_sequence(),

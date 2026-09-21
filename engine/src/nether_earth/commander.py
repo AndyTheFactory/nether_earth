@@ -61,7 +61,7 @@ callable contract that later milestones (starting with #39) implement
 against.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from nether_earth.ids import EntityId, PlayerId
@@ -177,6 +177,12 @@ class Commander:
     what each represents. All three default to values that reproduce a
     stationary, non-rising, transition-free commander, so existing #37
     construction call sites are unaffected.
+
+    ``elevate_updates_remaining`` (CR002.12/CR002.13) counts the vertical
+    updates left in the automatic ascent that follows leaving the
+    construction screen (Spectrum ``Lfd30_player_elevate_timer``); ``0``
+    means no automatic ascent. See
+    :func:`~nether_earth.construction_session.exit_construction`.
     """
 
     player_id: PlayerId
@@ -188,12 +194,19 @@ class Commander:
     rising: bool = False
     horizontal_transition: GridTransition | None = None
     vertical_transition: VerticalTransition | None = None
+    elevate_updates_remaining: int = 0
 
     def __post_init__(self) -> None:
+        if self.elevate_updates_remaining < 0:
+            raise ValueError("elevate_updates_remaining must be non-negative")
         if self.mode is CommanderMode.DOCKED and self.docked_robot_id is None:
             raise ValueError("a DOCKED commander must carry a docked_robot_id")
         if self.mode is CommanderMode.FREE and self.docked_robot_id is not None:
             raise ValueError("a FREE commander must not carry a docked_robot_id")
+
+    def with_elevate_updates(self, remaining: int) -> "Commander":
+        """Return a new ``Commander`` with ``elevate_updates_remaining`` replaced."""
+        return replace(self, elevate_updates_remaining=remaining)
 
     def with_rising(self, rising: bool) -> "Commander":
         """Return a new ``Commander`` with ``rising`` intent replaced.
@@ -201,17 +214,7 @@ class Commander:
         Only ``rising`` changes; every other field (including any
         in-progress ``horizontal_transition``) is carried over unchanged.
         """
-        return Commander(
-            player_id=self.player_id,
-            mode=self.mode,
-            x=self.x,
-            y=self.y,
-            altitude=self.altitude,
-            docked_robot_id=self.docked_robot_id,
-            rising=rising,
-            horizontal_transition=self.horizontal_transition,
-            vertical_transition=self.vertical_transition,
-        )
+        return replace(self, rising=rising)
 
     def with_horizontal_transition(self, transition: "GridTransition | None") -> "Commander":
         """Return a new ``Commander`` with ``horizontal_transition`` replaced.
@@ -222,17 +225,7 @@ class Commander:
         position only changes via :meth:`with_position`, never as a side
         effect of starting a transition.
         """
-        return Commander(
-            player_id=self.player_id,
-            mode=self.mode,
-            x=self.x,
-            y=self.y,
-            altitude=self.altitude,
-            docked_robot_id=self.docked_robot_id,
-            rising=self.rising,
-            horizontal_transition=transition,
-            vertical_transition=self.vertical_transition,
-        )
+        return replace(self, horizontal_transition=transition)
 
     def with_position(self, x: int, y: int) -> "Commander":
         """Return a new ``Commander`` at authoritative ``(x, y)``.
@@ -242,17 +235,7 @@ class Commander:
         landed on its authoritative destination cell is, by definition, no
         longer mid-transition).
         """
-        return Commander(
-            player_id=self.player_id,
-            mode=self.mode,
-            x=x,
-            y=y,
-            altitude=self.altitude,
-            docked_robot_id=self.docked_robot_id,
-            rising=self.rising,
-            horizontal_transition=None,
-            vertical_transition=self.vertical_transition,
-        )
+        return replace(self, x=x, y=y, horizontal_transition=None)
 
     def with_altitude(
         self, altitude: int, transition: "VerticalTransition | None" = None
@@ -265,17 +248,7 @@ class Commander:
         :meth:`with_horizontal_transition` there is no separate "start" vs.
         "complete" step for altitude).
         """
-        return Commander(
-            player_id=self.player_id,
-            mode=self.mode,
-            x=self.x,
-            y=self.y,
-            altitude=altitude,
-            docked_robot_id=self.docked_robot_id,
-            rising=self.rising,
-            horizontal_transition=self.horizontal_transition,
-            vertical_transition=transition,
-        )
+        return replace(self, altitude=altitude, vertical_transition=transition)
 
     def with_docking(
         self, mode: "CommanderMode", docked_robot_id: EntityId | None
@@ -301,17 +274,7 @@ class Commander:
         inconsistent pair raises ``ValueError`` via ``__post_init__``, same
         as constructing an invalid ``Commander`` directly.
         """
-        return Commander(
-            player_id=self.player_id,
-            mode=mode,
-            x=self.x,
-            y=self.y,
-            altitude=self.altitude,
-            docked_robot_id=docked_robot_id,
-            rising=self.rising,
-            horizontal_transition=self.horizontal_transition,
-            vertical_transition=self.vertical_transition,
-        )
+        return replace(self, mode=mode, docked_robot_id=docked_robot_id)
 
 
 def create_commander(

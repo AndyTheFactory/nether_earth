@@ -350,6 +350,7 @@ class CommanderSnapshot(_SnapshotSubModel):
     rising: bool
     horizontal_transition: dict[str, Any] | None
     vertical_transition: dict[str, Any] | None
+    elevate_updates_remaining: int = Field(ge=0)
 
 
 class ResourcePoolSnapshot(_SnapshotSubModel):

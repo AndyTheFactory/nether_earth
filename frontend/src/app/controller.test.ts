@@ -109,6 +109,17 @@ test('construction: digits toggle select/deselect from authoritative build; ente
   void controller;
 });
 
+test('construction: Escape is EXIT MENU (cancel_construction)', () => {
+  const store = new Store();
+  const c = new GameController(store, () => 0);
+  c.startFixture('construction');
+  const msgs = findFixture('construction')!.messages;
+  for (const m of msgs.slice(0, 4)) runFixtureMessage(store, m, 0);
+  c.action('Escape');
+  const payloads = c.recorded!.sent.filter((m) => m.type === 'command').map((m) => (m.type === 'command' ? m.payload : null));
+  assert.deepEqual(payloads, [{ kind: 'cancel_construction' }]);
+});
+
 test('no gameplay commands while paused or finished', () => {
   const { controller, sent } = boot('lifecycle-paused');
   controller.move({ dx: 1, dy: 0 });

@@ -141,7 +141,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from nether_earth.construction_session import ConstructionSession, cancel_construction
+from nether_earth.construction_session import ConstructionSession, exit_construction
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
@@ -326,6 +326,6 @@ def launch_robot(
 
     new_state = state.with_resource_pools((*other_pools, committed_pool))
     new_state = new_state.with_robots((*new_state.robots, robot))
-    new_state = cancel_construction(new_state, player_id)
+    new_state = exit_construction(new_state, player_id, rules)
 
     return LaunchResult.accept(new_state, robot)

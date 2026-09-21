@@ -229,7 +229,7 @@ export class GameController implements InputSink {
     const digit = /^Digit(\d)$/.exec(code)?.[1];
     if (myConstruction(s.latest, me)) {
       if (code === 'Enter') this.menuAction('launch', '');
-      else if (code === 'KeyC') this.menuAction('cancel', '');
+      else if (code === 'Escape' || code === 'KeyC') this.menuAction('cancel', '');
       else if (digit) {
         const n = Number(digit);
         const mod = n >= 1 && n <= 3 ? CHASSIS[n - 1] : n >= 4 && n <= 7 ? WEAPONS[n - 4] : n === 8 ? 'electronics' : null;

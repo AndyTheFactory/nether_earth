@@ -17,7 +17,8 @@
         "docked_robot_id": "robot-1",
         "rising": false,
         "horizontal_transition": null,
-        "vertical_transition": null
+        "vertical_transition": null,
+        "elevate_updates_remaining": 0
       },
       {
         "player_id": "p2",
@@ -33,7 +34,8 @@
           "to_altitude": 2,
           "started_tick": 41,
           "duration_ticks": 2
-        }
+        },
+        "elevate_updates_remaining": 3
       }
     ],
     "resource_pools": [

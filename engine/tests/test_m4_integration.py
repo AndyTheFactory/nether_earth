@@ -528,11 +528,22 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     actual_pool_after_cancel = state.resource_pool_for(PLAYER_ONE)
     assert actual_pool_after_cancel == actual_pool_before_cancel == p1_pool_after_production
 
-    # --- Phase 8: auto-re-enter (commander still grounded) and rebuild ---
-    state, events = step(state, [], world=world)
-    all_events.extend(events)
-    re_entered = [e for e in events if isinstance(e, ConstructionEnteredEvent)]
+    # --- Phase 8: exit ascent, fall back onto the pad, auto-re-enter -----
+    # EXIT MENU lifts the commander off the pad (CR002.12/13); left alone,
+    # gravity lands it on the pad again and construction re-opens.
+    pad_altitude = state.commander_for(PLAYER_ONE).altitude  # type: ignore[union-attr]
+    peak = pad_altitude
+    re_entered = []
+    for _ in range(200):
+        state, events = step(state, [], world=world)
+        all_events.extend(events)
+        peak = max(peak, state.commander_for(PLAYER_ONE).altitude)  # type: ignore[union-attr]
+        re_entered = [e for e in events if isinstance(e, ConstructionEnteredEvent)]
+        if re_entered:
+            break
     assert len(re_entered) == 1
+    assert peak == pad_altitude + 5 * RULES.commander_ascent_step
+    assert state.commander_for(PLAYER_ONE).altitude == pad_altitude  # type: ignore[union-attr]
     session = state.construction_session_for(PLAYER_ONE)
     assert session is not None
     assert session.buffer == p1_pool_after_production.to_resource_pool()
