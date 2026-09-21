@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { Store } from '../state/store.ts';
-import { GameController } from './controller.ts';
+import { GameController, CURSOR_REPEAT_MS } from './controller.ts';
 import { findFixture } from '../fixtures/index.ts';
 import { runFixtureMessage } from '../fixtures/harness.ts';
 
@@ -85,7 +85,7 @@ test('combat: aim with movement keys, fitted weapon index, fire targets adjacent
   assert.deepEqual(sent(), [{ kind: 'robot_fire', entityId: 'robot-1', weapon: 'cannon', targetX: 30, targetY: 11 }]);
 });
 
-test('construction: digits toggle select/deselect from authoritative build; enter launches; C cancels', () => {
+test('construction: digits toggle select/deselect from authoritative build; enter fires at the cursor; C cancels', () => {
   const { controller, sent } = boot('construction');
   // rewind to the mid-session snapshot (tick 200) where a session exists
   const store = new Store();
@@ -95,18 +95,86 @@ test('construction: digits toggle select/deselect from authoritative build; ente
   for (const m of msgs.slice(0, 4)) runFixtureMessage(store, m, 0);
   c2.action('Digit2'); // tracks already selected → deselect
   c2.action('Digit5'); // missile → select
-  c2.move({ dx: 1, dy: 0 }); // movement ignored during construction
-  c2.action('Enter');
+  c2.move({ dx: 1, dy: 0 }); // cursor already on the rightmost column: ignored, no command
+  c2.action('Enter'); // fire on the starting cursor piece: BIPOD
   c2.action('KeyC');
   const payloads = c2.recorded!.sent.filter((m) => m.type === 'command').map((m) => (m.type === 'command' ? m.payload : null));
   assert.deepEqual(payloads, [
     { kind: 'deselect_module', module: 'tracks' },
     { kind: 'select_module', module: 'missile' },
-    { kind: 'launch_robot' },
+    { kind: 'select_module', module: 'bipod' },
     { kind: 'cancel_construction' },
   ]);
   assert.deepEqual(sent(), []);
   void controller;
+});
+
+function constructionBoot() {
+  let clock = 0;
+  const store = new Store();
+  const c = new GameController(store, () => clock);
+  c.startFixture('construction');
+  for (const m of findFixture('construction')!.messages.slice(0, 4)) runFixtureMessage(store, m, 0);
+  const payloads = () => c.recorded!.sent.filter((m) => m.type === 'command').map((m) => (m.type === 'command' ? m.payload : null));
+  const step = (intent: { dx: -1 | 0 | 1; dy: -1 | 0 | 1 }) => {
+    clock += CURSOR_REPEAT_MS;
+    c.move(intent);
+  };
+  return { c, payloads, step, tick: (ms: number) => (clock += ms) };
+}
+
+test('construction: arrows walk the Spectrum cursor; space/enter fire on piece, START ROBOT and EXIT MENU', () => {
+  const { c, payloads, step } = constructionBoot();
+  step({ dx: 0, dy: -1 }); // up: TRACKS
+  step({ dx: 0, dy: -1 }); // up: ANTI-GRAV
+  c.vertical(true); // space = fire, never a rise intent while the screen is open
+  c.vertical(false);
+  step({ dx: -1, dy: 0 }); // START ROBOT
+  step({ dx: 0, dy: -1 }); // up/down do nothing off the piece column
+  c.action('Enter');
+  step({ dx: -1, dy: 0 }); // EXIT MENU
+  step({ dx: -1, dy: 0 }); // already leftmost: ignored
+  c.vertical(true);
+  assert.deepEqual(payloads(), [{ kind: 'select_module', module: 'anti_grav' }, { kind: 'launch_robot' }, { kind: 'cancel_construction' }]);
+  step({ dx: 1, dy: 0 });
+  step({ dx: 1, dy: 0 }); // back on the pieces: the piece row is kept
+  assert.deepEqual(c.buildCursor, { entryTick: 190, column: 2, piece: 2 });
+});
+
+test('construction: a held arrow repeats every 200 ms, as the Spectrum pause loop does', () => {
+  const { c, tick } = constructionBoot();
+  c.move({ dx: 0, dy: -1 });
+  tick(50);
+  c.move({ dx: 0, dy: -1 }); // key-repeat pulse inside the pause: ignored
+  assert.equal(c.buildCursor!.piece, 1);
+  tick(CURSOR_REPEAT_MS);
+  c.move({ dx: 0, dy: -1 });
+  assert.equal(c.buildCursor!.piece, 2);
+});
+
+test('construction: clicking an option moves the cursor there and fires', () => {
+  const { c, payloads } = constructionBoot();
+  c.constructionPick(2, 6); // NUCLEAR
+  c.constructionPick(2, 1); // TRACKS (fitted) → deselect
+  c.constructionPick(1, 0);
+  c.constructionPick(0, 0);
+  assert.deepEqual(payloads(), [
+    { kind: 'select_module', module: 'nuclear' },
+    { kind: 'deselect_module', module: 'tracks' },
+    { kind: 'launch_robot' },
+    { kind: 'cancel_construction' },
+  ]);
+});
+
+test('construction: Escape is EXIT MENU (cancel_construction)', () => {
+  const store = new Store();
+  const c = new GameController(store, () => 0);
+  c.startFixture('construction');
+  const msgs = findFixture('construction')!.messages;
+  for (const m of msgs.slice(0, 4)) runFixtureMessage(store, m, 0);
+  c.action('Escape');
+  const payloads = c.recorded!.sent.filter((m) => m.type === 'command').map((m) => (m.type === 'command' ? m.payload : null));
+  assert.deepEqual(payloads, [{ kind: 'cancel_construction' }]);
 });
 
 test('no gameplay commands while paused or finished', () => {

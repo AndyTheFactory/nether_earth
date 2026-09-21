@@ -55,9 +55,13 @@ export function interpolateAltitude(altitude: number, t: VerticalTransition | nu
   return t.from_altitude + (t.to_altitude - t.from_altitude) * a;
 }
 
-// Projectile motion (CR001 #150, open-questions §8): the engine advances every
-// projectile by PROJECTILE_CELLS_PER_ADVANCE cells on each cadence tick (a
-// positive multiple of PROJECTILE_ADVANCE_TICKS), never past its range.
+// Projectile motion (CR001 #150, CR002.2 #169, open-questions §8): the engine
+// makes a projectile's first PROJECTILE_CELLS_PER_ADVANCE-cell move on its fire
+// tick (so it first appears in a snapshot already that far from the firer, as
+// on the Spectrum), then advances it by the same amount on each cadence tick (a
+// positive multiple of PROJECTILE_ADVANCE_TICKS) from first_advance_tick on,
+// never past its range. A direct (combat-mode) shot stays put for the rest of
+// its fire cycle; an AI shot moves again when that cycle closes.
 // Mirrors EngineRules.projectile_cells_per_advance / projectile_advance_ticks;
 // visual only -- the snapshot position stays authoritative.
 export const PROJECTILE_ADVANCE_TICKS = 4;
@@ -71,16 +75,18 @@ export interface ProjectileMotion {
   travelled_cells: number;
   max_range_cells: number;
   created_tick: number;
+  first_advance_tick: number;
 }
 
 /**
  * Slide a projectile from its authoritative cell toward where the next
  * cadence tick will put it, so the display reaches that cell exactly when the
  * next snapshot does (no jump at the boundary). A projectile with no range
- * left stays put until the engine expires it.
+ * left, or held before its first_advance_tick, stays put.
  */
 export function interpolateProjectile(p: ProjectileMotion, snapTick: number, tick: number): { x: number; y: number } {
   const next = (Math.floor(snapTick / PROJECTILE_ADVANCE_TICKS) + 1) * PROJECTILE_ADVANCE_TICKS;
+  if (next < p.first_advance_tick) return { x: p.x, y: p.y };
   const last = Math.max(next - PROJECTILE_ADVANCE_TICKS, p.created_tick);
   const cells = Math.min(PROJECTILE_CELLS_PER_ADVANCE, Math.max(0, p.max_range_cells - p.travelled_cells));
   const a = alpha(last, next - last, tick);

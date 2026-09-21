@@ -42,7 +42,11 @@ import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from nether_earth.autonomous_combat import consume_engagement_intents
+from nether_earth.autonomous_combat import (
+    consume_engagement_intents,
+    gate_order_requests,
+    settle_walk_outs,
+)
 from nether_earth.capture import (
     CapturableStructureKind,
     NeutralStructureAcquiredEvent,
@@ -53,6 +57,7 @@ from nether_earth.collision import (
     RobotFixture,
     commander_horizontal_move_allowed,
     commander_vertical_move_allowed,
+    unit_surface_height,
 )
 from nether_earth.combat import (
     FireCommand,
@@ -88,9 +93,9 @@ from nether_earth.construction_commands import (
     SelectModuleCommand,
 )
 from nether_earth.construction_session import (
-    cancel_construction,
     deselect_module,
     enter_construction,
+    exit_construction,
     select_module,
 )
 
@@ -106,6 +111,7 @@ from nether_earth.destruction import effective_world as destruction_effective_wo
 from nether_earth.destruction import (
     evaluate_victory_after_nuclear_detonation,
     execute_nuclear_detonation,
+    scenery_world,
 )
 from nether_earth.direct_control import DirectRobotMoveCommand, direct_robot_move_request
 from nether_earth.docking import (
@@ -221,19 +227,37 @@ def new_game(
 
 
 def _robot_fixtures(
-    state: GameState, fixtures: tuple[RobotFixture, ...]
+    state: GameState, fixtures: tuple[RobotFixture, ...], world: WorldMap | None
 ) -> tuple[RobotFixture, ...]:
     """Return ``fixtures`` plus one :class:`RobotFixture` per live robot in ``state``.
 
-    ``Robot`` already carries the ground-rooted ``height`` the collision and
-    docking math needs (see ``collision.robot_vertical_range``); a fixture is
-    just its ``(id, owner, x, y, height)`` projection, taken from the
-    authoritative cell (a robot mid-move still stands on its origin cell
-    until the move completes -- `movement.py`). Caller-supplied fixtures
-    come first so the M3 tests' explicit surfaces keep their precedence.
+    A fixture is the robot's ``(id, owner, x, y, height)`` projection plus
+    its terrain ``altitude`` (CR002.25, ``ROBOT_STRUCT_ALTITUDE``): the
+    static surface under its 2×2 body in the physical world
+    (`destruction.scenery_world`, the world robot moves and commander
+    collision are checked against), so its top is ``altitude + height``
+    (``collision.robot_top``). Both are taken from the authoritative cell (a
+    robot mid-move still stands on its origin cell until the move completes
+    -- `movement.py`); the Spectrum's ``Lb495`` likewise updates the
+    altitude together with the robot's cell. ``world`` is ``None`` only for
+    the world-less M3 test path, where every robot stands at altitude 0.
+    Caller-supplied fixtures come first so the M3 tests' explicit surfaces
+    keep their precedence.
     """
+    physical_world = scenery_world(world, state) if world is not None else None
     return fixtures + tuple(
-        RobotFixture(id=robot.entity_id, owner=robot.owner, x=robot.x, y=robot.y, height=robot.height)
+        RobotFixture(
+            id=robot.entity_id,
+            owner=robot.owner,
+            x=robot.x,
+            y=robot.y,
+            height=robot.height,
+            altitude=(
+                unit_surface_height(physical_world, robot.x, robot.y)
+                if physical_world is not None
+                else 0
+            ),
+        )
         for robot in state.robots
     )
 
@@ -505,9 +529,10 @@ def step(
            a ``hit_robot_id`` is immediately fed to
            :func:`~nether_earth.combat.apply_damage` (which itself routes a
            lethal hit to `destruction.py`). Advancement precedes firing so
-           a projectile fired this tick never also advances on the same
-           tick it was created -- travel always takes at least one full
-           cadence interval.
+           a projectile fired this tick is not advanced a second time on
+           the tick it was created: its first move is made by
+           :func:`~nether_earth.combat.apply_fire` itself on the fire tick
+           (CR002.2 #169), including damage for a hit on that move.
         b. Every structurally accepted
            :class:`~nether_earth.combat.FireCommand` is applied, in
            canonical command order. A normal weapon routes through
@@ -605,13 +630,15 @@ def step(
     # the M9.1 audit: without this a live commander flew through robots and
     # could never dock on one, so direct control was unreachable in a match.
     fixture_robots = robots
-    robots = _robot_fixtures(state, fixture_robots)
+    robots = _robot_fixtures(state, fixture_robots, world)
     if world is not None:
+        # Nuclear debris (CR002.18) is no longer a solid blocker.
+        commander_world = scenery_world(world, state)
         horizontal_check = functools.partial(
-            commander_horizontal_move_allowed, world=world, robots=robots
+            commander_horizontal_move_allowed, world=commander_world, robots=robots
         )
         vertical_check = functools.partial(
-            commander_vertical_move_allowed, world=world, robots=robots
+            commander_vertical_move_allowed, world=commander_world, robots=robots
         )
     else:
         horizontal_check = _always_allow_horizontal
@@ -628,6 +655,12 @@ def step(
                 # Independent movement is disabled while docked (#40's own
                 # integration point); a gameplay no-op beyond the already-
                 # emitted generic CommandAccepted.
+                continue
+            if state.construction_session_for(command.player) is not None:
+                # The construction screen is modal (CR002.13): the Spectrum
+                # construction loop reads only menu input until EXIT MENU or
+                # START ROBOT, so the commander cannot fly off the pad with
+                # the screen still open. Same no-op convention as above.
                 continue
             state, _move_result, move_event = apply_commander_move(
                 command, state, tick, rules, horizontal_check, sequencer
@@ -671,13 +704,16 @@ def step(
                 if order_changed is not None:
                     events.append(order_changed)
 
-        evaluations = evaluate_orders(state, destruction_effective_world(world, state), rules)
+        orders_world = destruction_effective_world(world, state)
+        evaluations = evaluate_orders(state, orders_world, rules)
         state, order_lifecycle_events = apply_order_evaluations(
             evaluations, state, tick, sequencer
         )
-        order_requests = [
-            evaluation.request for evaluation in evaluations if evaluation.request is not None
-        ]
+        # CR002.19 (#197): an order moves the robot only on its own update,
+        # and not on an update where it fires (see `autonomous_combat.py`).
+        order_requests = list(
+            gate_order_requests(evaluations, state, orders_world, tick, rules)
+        )
         events.extend(order_lifecycle_events)
 
     # --- Step 2c: start this tick's robot moves as one deconflicted batch ---
@@ -698,12 +734,22 @@ def step(
         batch = apply_robot_move_batch(
             (*robot_moves, *order_requests, *direct_move_requests),
             state,
-            world,
+            scenery_world(world, state),  # debris cells are rough, not blocked (CR002.18)
             tick,
             rules,
             sequencer,
         )
-        state = batch.state
+        # CR002.3: count down (or end) launch walk-outs against the state
+        # the orders were gated on (see `autonomous_combat.settle_walk_outs`).
+        state = settle_walk_outs(
+            state,
+            batch.state,
+            evaluations,
+            (event.entity_id for event in batch.started),
+            destruction_effective_world(world, state),
+            tick,
+            rules,
+        )
         events.extend(batch.contentions)
         events.extend(batch.started)
 
@@ -773,11 +819,10 @@ def step(
                     events.append(victory_event)
                     victory_emitted = True
             else:
-                state, _fire_result, fire_event = apply_fire(
+                state, _fire_result, fire_events = apply_fire(
                     request, state, fire_world, tick, rules, sequencer
                 )
-                if fire_event is not None:
-                    events.append(fire_event)
+                events.extend(fire_events)
 
         # (c) Autonomous engagement: consume this tick's intents from the
         # SAME `evaluations` Step 2b2 already computed (never recomputed --
@@ -855,9 +900,7 @@ def step(
     for commander in state.commanders:
         if commander.mode is not CommanderMode.DOCKED or not commander.rising:
             continue
-        updated, undock_event = apply_undock(
-            commander, state, tick, rules, vertical_check, sequencer
-        )
+        updated, undock_event = apply_undock(commander, tick, rules, sequencer)
         state = _replace_commander(state, updated)
         if undock_event is not None:
             events.append(undock_event)
@@ -869,6 +912,11 @@ def step(
                 # apply_vertical_physics already no-ops defensively for a
                 # non-FREE commander; skip explicitly for clarity.
                 continue
+            if state.construction_session_for(commander.player_id) is not None:
+                # Modal construction screen (CR002.13, see Step 1): the
+                # commander stays on the pad, whatever its rise intent, until
+                # the player leaves via EXIT MENU or START ROBOT.
+                continue
             updated, vertical_event = apply_vertical_physics(
                 commander, state, tick, rules, vertical_check, sequencer
             )
@@ -877,7 +925,7 @@ def step(
                 events.append(vertical_event)
 
     # --- Step 5: friendly auto-dock check for every FREE commander ---------
-    robots = _robot_fixtures(state, fixture_robots)
+    robots = _robot_fixtures(state, fixture_robots, world)
     for commander in state.commanders:
         if commander.mode is not CommanderMode.FREE:
             continue
@@ -903,6 +951,12 @@ def step(
     if world_for_step is not None:
         for commander in state.commanders:
             if commander.mode is not CommanderMode.FREE:
+                continue
+            if commander.elevate_updates_remaining > 0:
+                # Just left the construction screen (CR002.12/CR002.13): the
+                # exit ascent lifts the commander off the pad before the next
+                # landing check can match (Spectrum: the elevate timer raises
+                # the ship above altitude 15 before `cp 15` runs again).
                 continue
             landing_event = detect_heli_pad_landing(
                 state, world_for_step, commander, tick, rules, sequencer
@@ -936,9 +990,20 @@ def step(
         command = result.command
         if isinstance(command, SelectModuleCommand):
             select_result = select_module(state, command.player, command.module, rules)
-            if select_result.accepted:
-                assert select_result.state is not None
+            # A chassis swap removes the fitted chassis first, even when the
+            # new one then turns out unaffordable (Spectrum Lca0f, CR002.20).
+            if select_result.state is not None:
                 state = select_result.state
+            if select_result.removed_chassis is not None:
+                events.append(
+                    ModuleDeselectedEvent(
+                        sequence=sequencer.next_sequence(),
+                        player=command.player,
+                        module=select_result.removed_chassis,
+                        tick=tick,
+                    )
+                )
+            if select_result.accepted:
                 events.append(
                     ModuleSelectedEvent(
                         sequence=sequencer.next_sequence(),
@@ -962,11 +1027,12 @@ def step(
                 )
         elif isinstance(command, CancelConstructionCommand):
             # Only emit an event (and only touch state) on an actual
-            # transition -- cancel_construction() is itself a silent no-op
+            # transition -- exit_construction() is itself a silent no-op
             # for a player with no active session; checking first here keeps
             # that no-op from producing a spurious ConstructionCancelledEvent.
             if state.construction_session_for(command.player) is not None:
-                state = cancel_construction(state, command.player)
+                # EXIT MENU (CR002.13): discard the build and lift off the pad.
+                state = exit_construction(state, command.player, rules)
                 events.append(
                     ConstructionCancelledEvent(
                         sequence=sequencer.next_sequence(),

@@ -33,6 +33,7 @@ from nether_earth.engine import new_game, step
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import BootstrapMap, WorldMap
+from nether_earth.movement import robot_move_duration_ticks
 from nether_earth.orders import SearchDestroy, SearchDestroyTarget
 from nether_earth.replay import ReplayFixture, run_fixture
 from nether_earth.resource_production import DailyProductionApplied
@@ -44,7 +45,7 @@ from nether_earth.scenario import Scenario
 from nether_earth.snapshot import snapshot_to_json_string
 from nether_earth.state import GameState
 from nether_earth.structures import Component, Factory, FactoryType, Footprint, WarBase
-from nether_earth.terrain import TerrainGrid
+from nether_earth.terrain import TerrainGrid, TerrainType
 from nether_earth.victory import VictoryEvent
 
 MAP_ID = "test-combat-integration"
@@ -224,7 +225,8 @@ def test_fire_command_creates_an_in_flight_projectile_through_engine_step() -> N
     assert len(fired) == 1
     assert len(state.projectiles) == 1
     projectile = state.projectiles[0]
-    assert (projectile.x, projectile.y) == (QUIET_X, QUIET_Y)
+    # CR002.2 (#169): the first 2-cell move is made on the fire tick.
+    assert (projectile.x, projectile.y) == (QUIET_X + 2, QUIET_Y)
     assert (projectile.dx, projectile.dy) == (1, 0)
     assert state.robot_for(shooter.entity_id).active_projectile_id == projectile.id  # type: ignore[union-attr]
 
@@ -254,9 +256,9 @@ def test_fire_command_from_a_player_who_does_not_own_the_robot_is_a_no_op() -> N
 def test_projectile_advances_over_ticks_and_damages_the_robot_it_hits() -> None:
     world = _world()
     shooter = _gunner("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
-    # Four advance intervals away (2 cells per advance), so the projectile
-    # travels for several cadence ticks before connecting.
-    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 8, QUIET_Y)
+    # Five moves away (2 cells each: the fire-tick move plus four cadence
+    # advances), so the projectile travels several cadence ticks first.
+    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 10, QUIET_Y)
     state = _state((shooter, target))
 
     command = FireCommand(
@@ -269,12 +271,13 @@ def test_projectile_advances_over_ticks_and_damages_the_robot_it_hits() -> None:
     )
     state, _events = step(state, [command], world=world)
 
-    # Ticks 2..(4*ADVANCE - 1): the projectile is still travelling.
-    for _tick in range(2, 4 * ADVANCE):
+    # Ticks 2..(5*ADVANCE - 1): the projectile is still travelling (a direct
+    # shot is held for the rest of its fire cycle, CR002.2 #169).
+    for _tick in range(2, 5 * ADVANCE):
         state, events = step(state, [], world=world)
         assert _of(events, RobotDamagedEvent) == []
     assert len(state.projectiles) == 1
-    assert state.projectiles[0].x == QUIET_X + 6
+    assert state.projectiles[0].x == QUIET_X + 8
 
     state, events = step(state, [], world=world)
 
@@ -306,11 +309,8 @@ def test_a_lethal_hit_destroys_the_target_robot_through_engine_step() -> None:
         target_x=QUIET_X + 10,
         target_y=QUIET_Y,
     )
-    state, _events = step(state, [command], world=world)
-
-    for _tick in range(2, ADVANCE):
-        state, _events = step(state, [], world=world)
-    state, events = step(state, [], world=world)
+    # Adjacent target: hit by the first move, on the fire tick (CR002.2 #169).
+    state, events = step(state, [command], world=world)
 
     destroyed = _of(events, RobotDestroyedEvent)
     assert len(destroyed) == 1
@@ -719,7 +719,7 @@ def test_combat_replay_is_deterministic_through_the_real_engine_pipeline() -> No
 def test_combat_state_round_trips_into_the_snapshot() -> None:
     world = _world()
     shooter = _gunner("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
-    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 2, QUIET_Y)
+    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 4, QUIET_Y)
     state = _state((shooter, target))
 
     command = FireCommand(
@@ -742,3 +742,52 @@ def test_combat_state_round_trips_into_the_snapshot() -> None:
 
     assert state.robot_for(target.entity_id).strength == 100 - CANNON_DAMAGE  # type: ignore[union-attr]
     assert f'"strength": {100 - CANNON_DAMAGE}' in snapshot_to_json_string(state)
+
+
+# --------------------------------------------------------------------------
+# CR002.2 (#169): at most one shot per robot per game cycle
+# --------------------------------------------------------------------------
+
+
+def test_autonomous_robot_next_to_its_target_fires_once_per_robot_update() -> None:
+    """CR002.19 (#197) supersedes the once-per-cycle cadence for autonomous fire."""
+    world = _world()
+    hunter = _gunner(
+        "robot-a", PLAYER_ONE, QUIET_X, QUIET_Y, order=SearchDestroy(target=SearchDestroyTarget.ROBOT)
+    )
+    prey = _gunner("robot-z", PLAYER_TWO, QUIET_X + 2, QUIET_Y, strength=10_000)  # 2×2 bodies side by side
+    state = _state((hunter, prey))
+
+    fire_ticks = []
+    for _tick in range(1, 41):
+        state, events = step(state, [], world=world)
+        fire_ticks += [
+            e.tick for e in _of(events, ProjectileFiredEvent) if e.source_robot_id == hunter.entity_id  # type: ignore[attr-defined]
+        ]
+
+    period = robot_move_duration_ticks(hunter, TerrainType.NORMAL, DEFAULT_RULES)
+    assert fire_ticks == list(range(1, 41, period))
+    assert period > DEFAULT_RULES.robot_fire_cycle_ticks
+
+
+def test_direct_fire_every_tick_at_an_adjacent_target_fires_once_per_game_cycle() -> None:
+    world = _world()
+    shooter = _gunner("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
+    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 2, QUIET_Y, strength=10_000)  # 2×2 bodies side by side
+    state = _state((shooter, target))
+
+    fire_ticks = []
+    for tick in range(1, 17):
+        command = FireCommand(
+            player=PLAYER_ONE,
+            sequence=0,
+            entity_id=shooter.entity_id,
+            weapon=ModuleIdentity.CANNON,
+            target_x=QUIET_X + 2,
+            target_y=QUIET_Y,
+        )
+        state, events = step(state, [command], world=world)
+        fire_ticks += [e.tick for e in _of(events, ProjectileFiredEvent)]  # type: ignore[attr-defined]
+        assert state.tick == tick
+
+    assert fire_ticks == [1, 4, 8, 12, 16]

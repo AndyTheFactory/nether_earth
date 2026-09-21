@@ -33,6 +33,7 @@ from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap, load_world_map
 from nether_earth.map_overlay import apply_overlay, default_pvp_overlay
 from nether_earth.movement import RobotMoveStartedEvent
+from nether_earth.occupancy import unit_footprint_cells
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
@@ -122,8 +123,14 @@ def _cell(world: WorldMap, structure: str, kind: InteractionKind) -> tuple[int, 
     return min(world.interaction_points_for(EntityId(structure), kind=kind)[0].footprint.cells)
 
 
+def _pad_anchor(world: WorldMap, structure: str) -> tuple[int, int]:
+    """The anchor of a 2×2 heli-pad (CR002.4): its west column, bottom row."""
+    cells = world.interaction_points_for(EntityId(structure), kind=InteractionKind.HELI_PAD)[0].footprint.cells
+    return min(x for x, _ in cells), max(y for _, y in cells)
+
+
 def _commander_on_pad_with_session(state: GameState, world: WorldMap, player: PlayerId, base: str) -> GameState:
-    pad = _cell(world, base, InteractionKind.HELI_PAD)
+    pad = _pad_anchor(world, base)
     commander = state.commander_for(player)
     assert commander is not None
     moved = replace(commander, x=pad[0], y=pad[1], altitude=heli_pad_surface_altitude(world, *pad))
@@ -153,8 +160,9 @@ def test_blocked_exit_rejects_launch_until_the_exit_clears(world: WorldMap) -> N
     pool = state.resource_pool_for(PLAYER_ONE)
     assert pool is not None and pool.general == 20  # nothing committed
 
-    # Unblock: move the blocker one cell away, retry the very same launch.
-    state = state.with_robots((replace(blocker, x=exit_cell[0] + 1),))
+    # Unblock: move the blocker's 2×2 body clear of the exit body (CR002.3),
+    # retry the very same launch.
+    state = state.with_robots((replace(blocker, y=exit_cell[1] + 2),))
     state, events = _step(state, world, (LaunchRobotCommand(player=PLAYER_ONE, sequence=3),))
     assert len(_events(events, RobotLaunchedEvent)) == 1
     launched = state.robots_for(PLAYER_ONE)
@@ -171,10 +179,11 @@ def test_grounded_commander_blocks_a_robot_until_it_rises_clear(world: WorldMap)
     robot = _robot("mover", PLAYER_ONE, 30, 15)
     state = state.with_robots((robot,))
     state = _docked(state, PLAYER_ONE, robot)
-    # Player 2's commander squats, grounded, on the destination cell.
+    # Player 2's commander squats, grounded, where its 2×2 body overlaps the
+    # robot's destination body (31..32) but not its current one (30..31).
     c2 = state.commander_for(PLAYER_TWO)
     assert c2 is not None
-    state = state.with_commanders(tuple(replace(c, x=31, y=15, altitude=0) if c.player_id == PLAYER_TWO else c for c in state.commanders))
+    state = state.with_commanders(tuple(replace(c, x=32, y=15, altitude=0) if c.player_id == PLAYER_TWO else c for c in state.commanders))
 
     state, events = _step(state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=0, dx=1, dy=0),))
     assert not _events(events, RobotMoveStartedEvent)
@@ -196,8 +205,8 @@ def test_commander_cannot_descend_onto_the_other_commander(world: WorldMap) -> N
     state = _initial(world)
     state = state.with_commanders(
         (
-            Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=100, y=15, altitude=0),
-            Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=100, y=15, altitude=12),
+            Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=104, y=15, altitude=0),
+            Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=104, y=15, altitude=12),
         )
     )
     state, _ = _step(state, world, ticks=200)  # gravity: -1 every 4 ticks
@@ -213,9 +222,14 @@ def test_commander_cannot_descend_onto_the_other_commander(world: WorldMap) -> N
 # -- simultaneous destination claims with seeded contention ------------------------
 
 
+#: 2×2 bodies (CR002.3): the robots' next bodies (200..201 and 201..202)
+#: overlap in column 201, so the two claims contend.
+CONTENTION_DESTINATIONS = {"left": (200, 15), "right": (201, 15)}
+
+
 def _contention_state(world: WorldMap, seed: int) -> GameState:
     state = _initial(world, seed=seed)
-    left = _robot("left", PLAYER_ONE, 200, 15)
+    left = _robot("left", PLAYER_ONE, 199, 15)
     right = _robot("right", PLAYER_TWO, 202, 15)
     state = state.with_robots((left, right))
     state = _docked(state, PLAYER_ONE, left)
@@ -231,14 +245,17 @@ def test_same_tick_destination_claims_are_exclusive_and_seed_deterministic(world
     )
     first, events = _step(_contention_state(world, seed), world, commands)
     started = _events(events, RobotMoveStartedEvent)
-    assert len(started) == 1, "exactly one contender may claim (201, 15)"
-    assert (started[0].to_x, started[0].to_y) == (201, 15)
+    assert len(started) == 1, "exactly one contender may claim the overlapping bodies"
+    winner = started[0].entity_id.value
+    assert (started[0].to_x, started[0].to_y) == CONTENTION_DESTINATIONS[winner]
     second, _ = _step(_contention_state(world, seed), world, commands)
     assert to_snapshot(first) == to_snapshot(second)
-    # The loser may retry once the winner's move completes.
+    # The winner arrives; the loser stays put and the bodies never overlap.
     final, _ = _step(first, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks_normal + 1)
     positions = {r.entity_id.value: (r.x, r.y) for r in final.robots}
-    assert len(set(positions.values())) == 2 and (201, 15) in positions.values()
+    assert positions[winner] == CONTENTION_DESTINATIONS[winner]
+    (lx, ly), (rx, ry) = positions["left"], positions["right"]
+    assert abs(lx - rx) > 1 or abs(ly - ry) > 1
 
 
 def test_contention_outcome_varies_with_seed(world: WorldMap) -> None:
@@ -269,15 +286,16 @@ def test_leaving_the_capture_cell_resets_progress_to_zero(world: WorldMap) -> No
     progress = state.capture_progress_for(EntityId("warbase-2"))
     assert progress is not None and 0 < progress.elapsed_ticks < CAPTURE_TICKS
 
-    # Interrupt: drive one cell off the footprint.
-    state, events = _step(state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=0, dx=1, dy=0),))
+    # Interrupt: drive one cell off the footprint (south: the base's 7-high
+    # wing stands north-east of the anchor, CR002.3 2×2 body).
+    state, events = _step(state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=0, dx=0, dy=1),))
     assert _events(events, RobotMoveStartedEvent)
     state, _ = _step(state, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks_normal)
     assert state.capture_progress_for(EntityId("warbase-2")) is None
     assert state.structure_ownership_for(EntityId("warbase-2")) is None
 
     # Return: progress restarts from zero -- full duration again.
-    state, _ = _step(state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=1, dx=-1, dy=0),))
+    state, _ = _step(state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=1, dx=0, dy=-1),))
     state, _ = _step(state, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks_normal)
     assert (state.robot_for(EntityId("capturer")).x, state.robot_for(EntityId("capturer")).y) == cell  # type: ignore[union-attr]
     state, events = _step(state, world, ticks=CAPTURE_TICKS // 2)
@@ -334,13 +352,18 @@ def test_projectile_stops_at_a_structure_wall_and_never_destroys_it(world: World
     assert len(terminated) == 1
     assert terminated[0].hit_robot_id is None
     # Height-aware: the shot clears the base's 7-high outer parts and
-    # terminates on the first component at or above the projectile altitude.
+    # terminates where its 2×2 body (CR002.3) first covers a component at or
+    # above the projectile altitude; its previous landing body did not.
     stop = (terminated[0].x, terminated[0].y)
     base = world.structure_by_id(EntityId("warbase-2"))
     assert base is not None
     heights = {(c.x, c.y): c.height for c in base.components}
-    assert heights.get(stop, 0) >= PROJECTILE_ALTITUDE
-    assert heights.get((stop[0], stop[1] + 1), 0) < PROJECTILE_ALTITUDE
+
+    def body_top(anchor: tuple[int, int]) -> int:
+        return max(heights.get(c, 0) for c in unit_footprint_cells(*anchor))
+
+    assert body_top(stop) >= PROJECTILE_ALTITUDE
+    assert body_top((stop[0], stop[1] + 2)) < PROJECTILE_ALTITUDE
     assert stop[1] < cell[1]
     assert not _events(events, StructureDestroyedEvent)
     assert state.structure_destruction == ()
@@ -352,9 +375,11 @@ def test_projectile_stops_at_a_structure_wall_and_never_destroys_it(world: World
 
 def test_detonation_destroys_carrier_neighbours_and_structures_but_never_commanders(world: WorldMap) -> None:
     cell = _cell(world, "warbase-2", InteractionKind.WARBASE_CAPTURE)
-    # One row below the anchor: war-base dy = |y + 1 + 4 - anchor.y| = 6 < 7 (open-questions §20).
-    carrier = _robot("carrier", PLAYER_ONE, cell[0], cell[1] + 1, weapons=(ModuleIdentity.NUCLEAR,))
-    near = _robot("near", PLAYER_TWO, cell[0] + 3, cell[1] + 1)
+    # One row below and two columns east of the anchor, so its 2×2 body
+    # clears the capturing robot's (CR002.3): war-base dy = |y + 1 + 4 -
+    # anchor.y| = 6 < 7, dx = 2, dx + dy = 8 < 10 (open-questions §20).
+    carrier = _robot("carrier", PLAYER_ONE, cell[0] + 2, cell[1] + 1, weapons=(ModuleIdentity.NUCLEAR,))
+    near = _robot("near", PLAYER_TWO, cell[0] + 5, cell[1] + 1)
     far = _robot("far", PLAYER_TWO, cell[0] + 40, cell[1] + 1)
     state = _initial(world).with_robots((carrier, near, far))
     # Player 1 rides the carrier; Player 2 hovers, free, right next to the epicentre.
@@ -395,9 +420,13 @@ def test_detonation_destroys_carrier_neighbours_and_structures_but_never_command
 
 
 def test_launched_robot_appears_at_the_anchor_exit_while_the_commander_stays_on_the_roof_pad(world: WorldMap) -> None:
-    """Roof pad at (anchor.x, anchor.y - 4); the robot exits at the anchor (open-questions §18)."""
+    """Roof pad at (anchor.x, anchor.y - 4); the robot exits at the anchor (open-questions §18).
+
+    Both are 2×2 (CR002.3/CR002.4): the pad anchor is its west column,
+    bottom row, and the robot's body never overlaps the commander's.
+    """
     state = _commander_on_pad_with_session(_initial(world), world, PLAYER_ONE, "warbase-1")
-    pad = _cell(world, "warbase-1", InteractionKind.HELI_PAD)
+    pad = _pad_anchor(world, "warbase-1")
     exit_cell = _cell(world, "warbase-1", InteractionKind.EXIT)
     assert exit_cell == (pad[0], pad[1] + 4)
     state, _ = _step(state, world, (SelectModuleCommand(player=PLAYER_ONE, sequence=0, module=ModuleIdentity.BIPOD),))

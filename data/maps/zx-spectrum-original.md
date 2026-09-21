@@ -29,13 +29,15 @@ sign-off before being treated as final authoritative geometry:
   but unverified reconstruction**, not observed fact.
 - **Heli-pad and exit interaction points** (`*-helipad`, `*-exit` in
   `interaction_points`): resolved by `_specs/open-questions.md` §18 (CR001).
-  The heli-pad is on the war-base roof at (anchor.x, anchor.y − 4) (a 15-high
-  component on every war base); the exit is the anchor cell. See
+  The heli-pad is the 2×2 roof area anchored at (anchor.x, anchor.y − 4) (four
+  15-high components on every war base, CR002.4); the exit is the anchor cell
+  of the new robot's 2×2 body. See
   "Heli-pad / exit interaction points" below.
 - **Terrain**: decoded from the disassembly in CR001.5 (#152) — see
   "Terrain" below. Tier-2 evidence, spot-checked against the speccy.cz image.
-- **Generic blockers/scenery** (boxes/cubes): omitted entirely — see
-  "Blockers/scenery" below for why.
+  Piece heights per cell were added in CR002.21 (#203), see "Terrain heights".
+- **Blockers/scenery** (boxes and fences): decoded from the disassembly in
+  CR002.1 (#168). See "Blockers/scenery" below. Tier-2 evidence.
 
 Everything else below (map dimensions, war-base/factory count, anchor
 coordinates, factory production types, and the factory/warbase capture
@@ -244,6 +246,13 @@ anchor cell (`Lcb52_construction_screen_start_robot`). Accordingly each
 the anchor cell. The engine's landing rule is "altitude equals the pad cell's
 component height" (`engine/src/nether_earth/heli_pad.py`).
 
+CR002.4 (#171, open-questions.md §21): units are 2×2 bodies anchored at
+their `(x, y)` (the body covers x..x+1, y−1..y). Each `*-helipad` point lists
+the four cells of the 2×2 pad anchored at (anchor.x, anchor.y − 4), all on
+the 15-high roof; the commander lands when its body lies exactly over them
+(the Spectrum's ship anchor is on the "H" decoration's cell). Each `*-exit`
+and capture point stays a single cell: the anchor a robot must stand on.
+
 ## Terrain — DECODED (tier 2; CR001.5, issue #152)
 
 `data/maps/decode_zx_terrain.py` rebuilds the map buffer exactly as
@@ -277,7 +286,7 @@ coordinate convention used here. No element stamps outside the 512 × 16 map.
 | mountain | 8: 124, 9: 108, 10: 96, 11: 108 | 436 |
 | ditch | 12: 48, 13: 108, 14: 48 | 204 |
 | war base / factory | 15: 304, 16: 416 | 720 |
-| scenery (not modeled, see below) | 17: 324, 18: 272, 21: 64 | 660 |
+| scenery (blockers, see below) | 17: 324, 18: 272, 21: 64 | 660 |
 
 `engine/tests/test_original_map.py` pins the rough/mountain/ditch counts and
 checks that every exit and capture cell can be reached from every war-base exit
@@ -304,16 +313,72 @@ edge.
 The image is not precise enough to confirm individual cells. The cell-level
 values rest on the disassembly decode.
 
-## Blockers/scenery — NOT MODELED (omitted; open-questions §4 follow-up)
+### Terrain heights — DECODED (tier 2; CR002.21, issue #203)
 
-The same decode shows 660 cells of element types 17, 18 and 21. These are box
-and wall scenery (`Ld7bc_map_piece_heights`: 7, 15 and 99), visible as solid
-blocks in the speccy.cz image. `Lb513_get_robot_movement_possibilities`
-blocks types ≥ 15 for every chassis, so in the original these cells stop all
-robots. They are not terrain classes and are outside CR001.5, so this map still
-has no `blockers` section. Until they are added as blockers, robots can walk
-through these cells in this clone. The gap is recorded in
-`_specs/open-questions.md` §4.
+Each terrain cell also carries its piece height, `height`, read by the decoder
+from `Ld7bc_map_piece_heights` (23 entries, indexed by element type, checked
+against a literal copy in the decoder):
+
+```
+Ld7bc_map_piece_heights:  ; 23 elements
+    db #00, #00, #02, #02, #02, #02, #03, #03, #06, #06, #06, #06, #00, #00, #00, #07
+    db #0f, #07, #0f, #00, #00, #63, #00
+```
+
+So rough types 2–5 are 2 high (320 cells), rough types 6/7 are 3 high
+(24 cells), mountains (types 8–11) are 6 high (436 cells), and ditches
+(types 12–14) are 0. The heights depend on the element type and not only on the
+terrain class, since rough pieces come in two heights. That is why they are
+written per cell. `terrain.debris_height: 3` is the height of the piece a
+nuclear blast leaves (`Lba44_robots_handled` writes type 6 or 7 at random;
+both are 3 high). The ship collision (`Lb052_check_player_collision`),
+gravity (`Lafc3_gravity`), bullets (`Lb724_bullet_update_internal`) and the
+robot altitude used by damage (`Lb495`) read these heights through
+`Lb08a_get_map_altitude`/`Lb5d6_map_altitude_2x2`. See
+`_specs/open-questions.md`, "Remaining research" item 4. The map stays
+`version: 1`: the fields are additive and default to 0.
+
+## Blockers/scenery — DECODED (tier 2; CR002.1, issue #168)
+
+`python data/maps/decode_zx_terrain.py <netherearth-annotated.asm> blockers`
+runs the same decode as "Terrain" and writes the `blockers` section. There is
+one entry per scenery element, i.e. per 2x2 stamp of `Lbd91_add_element_to_map`
+with element type 17, 18 or 21. The decoder tracks which stamp wrote each cell
+last. No scenery element is partly overwritten by a later stamp: all 165
+survive whole, 4 cells each, 660 cells in all.
+
+| Element type | `kind` | Height (`Ld7bc_map_piece_heights`) | Elements | Cells |
+|---|---|---|---|---|
+| 17 (`#11`) | `box_low` | 7 | 81 | 324 |
+| 18 (`#12`) | `box_high` | 15 | 68 | 272 |
+| 21 (`#15`) | `fence` | 99 (`#63`) | 16 | 64 |
+
+- **Names.** Only "fence" comes from the code. The nuclear-blast loop
+  (`Lba44_robots_handled`) skips type 21 with the comment "do not destroy the
+  fences that mark the end of the map in each end". The 16 fence elements
+  fill columns 12–13 and 503–504, just outside the ship's x limits
+  (`MIN_PLAYER_X` 14, `MAX_PLAYER_X` 501). `box_low` and `box_high` are
+  descriptive labels. The disassembly gives these types no names. They are
+  placed singly and as walls by the complex structures `Lc03c`/`Lc048` (four
+  type-18 elements), `Lc078` (four type-17) and `Lc084` (17, 18, 17).
+- **`kind` is data.** The engine reads the physical effect from each
+  component's cell and height only. `kind` is an opaque label that the
+  frontend maps to an asset (CR002.5).
+- **`destructible: true`** (CR002.18, #196) marks the 149 box elements
+  (types 17 and 18). The nuclear blast (`Lba44_robots_handled`) turns element
+  types 17–20 into rough debris and skips type 21, the fence. The decoder
+  emits the flag, so the engine never branches on `kind`.
+- **Rules** (`_specs/open-questions.md` §4, "Scenery blockers"):
+  - robots of every chassis are blocked (`Lb513`/`Lb5cd`: type ≥ 8/12/15);
+  - the commander crosses a box at altitude ≥ its height and rests on top of
+    it (`Lb052_check_player_collision`, `Lafc3_gravity`). It never crosses a
+    fence, because 99 > `MAX_PLAYER_ALTITUDE` 48;
+  - bullets (altitude 10) fly over `box_low` and stop at `box_high` and
+    `fence` (`Lb724_bullet_update_internal`).
+
+Visual cross-check: the CR001.5 review saw solid blocks at these positions in
+the speccy.cz image (tier 4). They were not rechecked cell by cell, and the
+image is too coarse for that (see "Terrain").
 
 ## Spawn positions
 
@@ -326,9 +391,10 @@ not require this map to declare any.
 ## Reproducibility
 
 `data/maps/zx-spectrum-original.yaml` is deterministic data. The structures
-and interaction points were derived by hand. The `terrain.cells` block is the
-output of `python data/maps/decode_zx_terrain.py <netherearth-annotated.asm>`
-and must be regenerated, not edited by hand. Running either derivation again
+and interaction points were derived by hand. The `terrain` section (cells with their heights, and `debris_height`) is the
+output of `python data/maps/decode_zx_terrain.py <netherearth-annotated.asm>`,
+and the `blockers` section is the output of the same command with the extra
+argument `blockers`. Both must be regenerated, not edited by hand. Running either derivation again
 on the same disassembly bytes always gives the same file.
 `engine/tests/test_original_map.py` asserts that loading it twice produces
 canonical-equal `WorldMap` values.

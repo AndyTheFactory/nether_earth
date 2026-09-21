@@ -11,6 +11,7 @@ npm install
 npm run dev           # http://localhost:5173
 npm test              # vitest unit tests (store, interpolation, input, fixtures)
 npm run build         # map:generate + typecheck + vite build
+npm run rules:generate # re-export module costs from engine rules.py (CI checks drift)
 npm run live:check    # two-client protocol check against a running backend (NE_WS_URL)
 ```
 
@@ -37,13 +38,15 @@ src/net/client.ts        GameClient interface; WebSocketClient + RecordingClient
 src/net/commands.ts      CommandSender: generated envelopes, clientSequence
 src/input/keyboard.ts    key state → explicit move/vertical/action intents; focus loss releases
 src/app/controller.ts    intents + menu actions → protocol commands; live/fixture modes; reconnect
-src/render/projection.ts 2:1 dimetric world→screen, one definition
+src/render/projection.ts Spectrum-orientation world→screen, depth key and zoom, one definition
 src/render/interpolation.ts visual-only interpolation over engine transition records
-src/render/renderer.ts   PixiJS layers: terrain, structures, entities, projectiles, effects, overlay
+src/render/renderer.ts   PixiJS layers: terrain, one depth-sorted scene (structures, units, shots), effects, overlay
+src/render/surface.ts    surface height under a footprint (roofs, heli-pad) for shadows
 src/render/assets.ts     semantic-id asset pipeline with explicit placeholders
 src/ui/*.ts              plain-DOM lobby, HUD, construction/robot/combat menus, overlays
 src/fixtures/index.ts    typed recorded message streams; validated against protocol schemas in tests
 src/generated/maps/*.json map YAML converted by scripts/generate-map.mjs (format only)
+src/generated/rules/construction.json module costs read from engine rules.py by scripts/generate-rules.mjs
 ```
 
 ## Authority boundary
@@ -68,7 +71,7 @@ src/generated/maps/*.json map YAML converted by scripts/generate-map.mjs (format
 rising, docked commander, construction (mixed spending, rejection, cancel,
 launch), robot orders/navigation/capture, combat/projectiles/destruction/
 nuclear, lobby waiting, paused, reconnect resync, victory, loss, forfeit,
-no-contest. Every message validates against `protocol/schemas` in
+no-contest, occlusion behind a war base, roof/heli-pad shadows. Every message validates against `protocol/schemas` in
 `fixtures.test.ts`, so a fixture screen and a live screen consume identical
 message shapes.
 
@@ -81,17 +84,45 @@ recorded from the engine; the schema test is what keeps them aligned.
 entries render as procedural Spectrum-palette prisms (see
 `public/assets/README.md` for provenance rules). Presentation conventions:
 
-- 2:1 dimetric projection, +x down-right, +y down-left, 4 px per height unit.
-- Ownership: p1 cyan, p2 magenta, neutral white. Factories are yellow with a
-  type label; destroyed structures collapse to a dark 1-unit slab.
+- Spectrum orientation (`_specs/milestones/cr002/main-screen.png`): the map
+  runs lower-left to upper-right; one cell step is (8,-4) px along +x and
+  (4,8) px along +y, 1 px per height unit, in Spectrum pixels.
+- Zoom: the shorter side of the view shows `VIEW_SPAN_PX` (168) Spectrum
+  pixels, the original's play-window size; the one tunable in `projection.ts`.
+- Structures, scenery, robots, commanders and projectiles share one painter's
+  order, so units behind a block are hidden by it. Shadows land on the
+  surface under them (ground, roof, heli-pad).
+- Ownership: p1 cyan, p2 magenta, neutral white. Factories are yellow;
+  destroyed structures collapse to a dark 1-unit slab.
+- Ownership flags (CR002.6, `render/flags.ts`): the Spectrum flag sprites on
+  the roof, 4 (war base) or 2 (factory) cells behind the anchor and to the -x
+  side for p1 (the Spectrum's human flag) or the +x side for p2 (the
+  Insignian flag, checkered). Neutral and destroyed structures carry none.
+  Structure name/owner text labels show only with labels on (`L`) or the
+  debug grid (`G`).
+  Fixture: `?fixture=ownership-flags` (`&until=4|5|6` holds neutral/p1/p2).
 - Robot stacks draw the snapshot's `stack` array bottom-up in the order the
   engine already canonicalised; module heights are scaled to the authoritative
   `height` so the docked commander sits on the true top.
 - Camera follows the local commander (or its docked robot). `G` toggles the
   debug grid, interaction points and capture-progress overlay.
+- Labels (CR002.23): structure name labels and robot strength numbers are an
+  optional overlay, **off by default**. `L` toggles them; the choice is saved
+  per viewer in `localStorage` (`nether.labels`, ignored when storage is
+  unavailable). `?labels=1` / `?labels=0` overrides the saved choice for that
+  page load. The debug grid (`G`) still shows structure names, not strengths.
+- Radar (CR002.22, `src/ui/radar.ts`): as on the Spectrum, a 128-column
+  window of the map at one pixel per cell, all marks white. Structures,
+  scenery boxes and fences are lit (debris and destroyed structures are not);
+  every robot is a 2x2 mark (x..x+1, rows y-1..y); the local commander is a
+  blinking 2x2 mark (its docked robot blinks). The window starts at column 0
+  and scrolls 64 columns when the commander comes within 16 columns of an
+  edge, clamped to the map; there is no view-window indicator. Source:
+  `Lafe6_radar_scroll`, `Ld5f8_update_radar_buffers`,
+  `Ld65a_flip_2x2_radar_area` in the disassembly.
 
-Known presentation limits (not gameplay): entities always draw above static
-structures (no cross-layer occlusion), and there is no real art yet.
+Known presentation limits (not gameplay): text labels, when on, draw above
+the scene (a hidden robot's strength stays visible), and there is no real art yet.
 
 ## Live check status
 
@@ -104,8 +135,22 @@ pauses with a frozen tick; reconnect resyncs and resumes; client state equals
 the server snapshot byte for byte. The backend plays every match on the
 canonical `pvp-v1` scenario and the original map (Milestone 9).
 
-Module costs are not exposed by the protocol; the construction panel shows the
-authoritative session buffer and committed pool instead of a second cost table.
+## Robot construction screen (CR002.9)
+
+Landing on a war-base heli-pad opens the full-screen ROBOT CONSTRUCTION screen
+(`src/ui/construction.ts`), laid out after the original (reference
+`_specs/milestones/cr002/construction-screen.png`). RESOURCES AVAILABLE is the
+authoritative session buffer; the module costs come from
+`src/generated/rules/construction.json`, a format-only export of the engine's
+`EngineRules.module_cost_*` defaults (the protocol does not carry costs), so
+there is no second cost table in the UI. Controls follow the Spectrum
+(disassembly `Lca0f`/`Lcb00`): the cursor starts on BIPOD; up/down walk the
+module list, left/right move between the list, START ROBOT and EXIT MENU; a
+held arrow repeats every 200 ms; Space or Enter fires on the cursor (toggle a
+module, start the robot, or exit). Clicking an option moves the cursor there
+and fires. Shortcuts: 1-3 chassis, 4-7 weapons, 8 electronics, Esc/C exit.
+Fitted modules draw white, the others yellow (`Lcc1f`); the option under the
+cursor is yellow. Every action is an existing command; the engine decides.
 Engine command rejections are not transmitted (snapshot-only broadcast policy),
 so rejection feedback is limited to protocol `error` frames plus the absence of
 a state change.

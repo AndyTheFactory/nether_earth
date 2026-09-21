@@ -78,24 +78,69 @@ calls direct control uses. Neither this module nor `combat.py` branches on
 (an equivalent direct-control ``FireRequest`` and an autonomous-path
 ``FireRequest`` for the same effective robot/weapon/target produce the same
 :class:`~nether_earth.combat.FireResult`/event shape).
+
+Autonomous fire happens only on the robot's own update (CR002.19, #197)
+------------------------------------------------------------------------
+`Lb154_robot_ai_update` decrements ``ROBOT_STRICT_CYCLES_TO_NEXT_UPDATE``
+every game cycle and returns until it reaches 0. On the update it either
+fires (``Lb6d6_weapon_fire``, then ``ROBOT_STRUCT_DESIRED_MOVE_DIRECTION``
+is set to 0) or moves, and both paths end in ``Lb20d_move_robot``, which
+calls ``Lb5f3_determine_speed_based_on_terrain`` to reload the counter
+from ``Lb61d_robot_movement_speed_table`` using ``ROBOT_STRUCT_ALTITUDE``.
+A firing update does not move (``Lb471`` returns at once for direction 0),
+so the altitude is still that of the cell the robot stands on, and the
+next update is one speed-table period for *that* cell later. After a move
+the altitude is re-read for the new cell (``Lb495``), which is the
+engine's move duration into that cell (`movement.move_duration_ticks`).
+
+The engine already runs the move half of that cadence: a move takes the
+table's ticks and the robot's next update is the tick the move completes.
+This module adds the fire half without a new timer:
+
+- :func:`autonomous_update_due` -- a robot is at an update when it has no
+  move in flight and at least :func:`autonomous_update_period_ticks` have
+  passed since its ``last_fire_tick``;
+- :func:`consume_engagement_intent` fires only when the update is due;
+- :func:`gate_order_requests` drops an order's move request when the robot
+  is not at an update, or when it will fire on this update (a firing
+  update does not move).
+
+Stationary robots that have not fired have no tracked phase and are
+treated as due every tick (documented in `_specs/open-questions.md` §8).
+Direct (combat-mode) fire is not an order and is not gated here; it keeps
+`combat.py`'s once-per-cycle rule.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 
 from nether_earth.combat import FireRequest, apply_fire, validate_fire, weapon_range_cells
+from nether_earth.commander import CommanderMode
 from nether_earth.destruction import effective_world, execute_nuclear_detonation
 from nether_earth.events import Event, EventSequencer
+from nether_earth.ids import EntityId
 from nether_earth.map import WorldMap
-from nether_earth.orders import EngagementIntent, EngagementTargetKind, OrderEvaluation
+from nether_earth.movement import RobotMoveRequest, robot_move_duration_ticks, unit_move_terrain
+from nether_earth.orders import (
+    EngagementIntent,
+    EngagementTargetKind,
+    OrderEvaluation,
+    StopAndDefend,
+)
+from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
 
 __all__ = [
+    "autonomous_update_due",
+    "autonomous_update_period_ticks",
     "consume_engagement_intent",
     "consume_engagement_intents",
+    "gate_order_requests",
+    "settle_walk_outs",
 ]
 
 
@@ -170,6 +215,8 @@ def consume_engagement_intent(
     1. **Source re-check**: ``state.robot_for(intent.robot_id)`` must still
        resolve. A robot destroyed since M5 computed this intent (by an
        earlier combat effect this same tick) can no longer fire.
+    1b. **Update gate** (CR002.19): :func:`autonomous_update_due` must hold;
+       an autonomous robot fires only on its own update.
     2. **Target re-check**: see :func:`_target_still_valid`.
     3. **Weapon selection**: the first weapon in ``intent.weapons``
        (already canonically ordered -- see the module docstring) that is
@@ -197,8 +244,120 @@ def consume_engagement_intent(
     if robot is None:
         return state, ()
 
-    if not _target_still_valid(intent, state, world):
+    if not autonomous_update_due(robot, world, tick, rules):
         return state, ()
+
+    request = _select_fire_request(intent, robot, state, world, rules)
+    if request is None:
+        return state, ()
+
+    if request.weapon is ModuleIdentity.NUCLEAR:
+        result = validate_fire(request, state)
+        if not result.accepted:
+            return state, ()
+        return execute_nuclear_detonation(state, world, intent.robot_id, tick, rules, sequencer)
+
+    new_state, _result, events = apply_fire(
+        request, state, world, tick, rules, sequencer, autonomous=True
+    )
+    return new_state, events
+
+
+def autonomous_update_period_ticks(
+    robot: Robot, world: WorldMap, rules: EngineRules = DEFAULT_RULES
+) -> int:
+    """Ticks from a firing update to the robot's next update.
+
+    ``Lb5f3_determine_speed_based_on_terrain`` reloads the counter from the
+    terrain the robot stands on after the update; a firing update does not
+    move, so that is the highest piece under the robot's own 2×2 body
+    (``Lb5d6_map_altitude_2x2``, CR002.3; see
+    :func:`~nether_earth.movement.unit_move_terrain`). The value is the same
+    per-(chassis, terrain) table the move duration uses
+    (`_specs/open-questions.md` §4).
+    """
+    return robot_move_duration_ticks(robot, unit_move_terrain(world, robot.x, robot.y), rules)
+
+
+def autonomous_update_due(
+    robot: Robot, world: WorldMap, tick: int, rules: EngineRules = DEFAULT_RULES
+) -> bool:
+    """Whether ``tick`` is one of ``robot``'s own updates (see the module docstring).
+
+    Not while a move is in flight: the update closing a move is the tick
+    it completes, and `engine.py` resolves completions before orders run.
+    After a shot, not before :func:`autonomous_update_period_ticks` ticks.
+    """
+    if robot.movement is not None:
+        return False
+    if robot.last_fire_tick is None:
+        return True
+    return tick >= robot.last_fire_tick + autonomous_update_period_ticks(robot, world, rules)
+
+
+def _will_fire(
+    intent: EngagementIntent,
+    robot: Robot,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+    tick: int,
+) -> bool:
+    """Whether ``intent`` would fire on ``tick`` against the entry ``state``.
+
+    A dry run through the same acceptance path
+    :func:`consume_engagement_intent` uses (the returned state is
+    discarded), so the move gate and the fire gate cannot disagree about
+    the entry state.
+    """
+    request = _select_fire_request(intent, robot, state, world, rules)
+    if request is None:
+        return False
+    if request.weapon is ModuleIdentity.NUCLEAR:
+        return validate_fire(request, state).accepted
+    _state, result, _events = apply_fire(request, state, world, tick, rules, autonomous=True)
+    return result.accepted
+
+
+def gate_order_requests(
+    evaluations: Iterable[OrderEvaluation],
+    state: GameState,
+    world: WorldMap,
+    tick: int,
+    rules: EngineRules = DEFAULT_RULES,
+) -> tuple[RobotMoveRequest, ...]:
+    """Return the order move requests that may start on ``tick``.
+
+    A request is dropped when its robot is not at an update (it fired less
+    than one period ago), or when the same evaluation's intent will fire on
+    this update: `Lb154_robot_ai_update` sets the desired direction to 0
+    after ``Lb6d6_weapon_fire``, so a firing update does not move.
+    """
+    requests: list[RobotMoveRequest] = []
+    for evaluation in evaluations:
+        if evaluation.request is None:
+            continue
+        robot = state.robot_for(evaluation.robot_id)
+        if robot is None or not autonomous_update_due(robot, world, tick, rules):
+            continue
+        if evaluation.intent is not None and _will_fire(
+            evaluation.intent, robot, state, world, rules, tick
+        ):
+            continue
+        requests.append(evaluation.request)
+    return tuple(requests)
+
+
+def _select_fire_request(
+    intent: EngagementIntent,
+    robot: Robot,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+) -> FireRequest | None:
+    """Steps 2-3 of :func:`consume_engagement_intent`: re-check the target, pick a weapon."""
+    if not _target_still_valid(intent, state, world):
+        return None
 
     electronics_fitted = robot.build.electronics is ModuleIdentity.ELECTRONICS
     selected_weapon: ModuleIdentity | None = None
@@ -214,24 +373,15 @@ def consume_engagement_intent(
                 selected_weapon = weapon
                 break
     if selected_weapon is None:
-        return state, ()
+        return None
 
-    request = FireRequest(
+    return FireRequest(
         robot_id=intent.robot_id,
         player=robot.owner,
         weapon=selected_weapon,
         target_x=intent.target_x,
         target_y=intent.target_y,
     )
-
-    if selected_weapon is ModuleIdentity.NUCLEAR:
-        result = validate_fire(request, state)
-        if not result.accepted:
-            return state, ()
-        return execute_nuclear_detonation(state, world, intent.robot_id, tick, rules, sequencer)
-
-    new_state, _result, event = apply_fire(request, state, world, tick, rules, sequencer)
-    return new_state, (event,) if event is not None else ()
 
 
 def consume_engagement_intents(
@@ -262,3 +412,63 @@ def consume_engagement_intents(
         )
         events.extend(new_events)
     return state, tuple(events)
+
+
+def settle_walk_outs(
+    entry_state: GameState,
+    state: GameState,
+    evaluations: Iterable[OrderEvaluation],
+    started: Iterable[EntityId],
+    world: WorldMap,
+    tick: int,
+    rules: EngineRules = DEFAULT_RULES,
+) -> GameState:
+    """Update every walking-out robot's ``exit_steps_remaining`` after the tick's move batch.
+
+    ``entry_state`` is the state the tick's orders were evaluated and gated
+    against; ``state`` is the state after the move batch; ``started`` names
+    the robots whose move started this tick. For each robot still walking
+    out, following ``Lb1e9_no_enemy_robots_in_sight``:
+
+    - a commander docked on it ends the walk-out: the Spectrum does not
+      update a robot the ship has landed on, and leaving it zeroes its
+      steps (see :func:`~nether_earth.orders.apply_set_robot_order`);
+    - its walk-out step started: one step fewer;
+    - otherwise, if this tick was one of its own updates
+      (:func:`autonomous_update_due`), the
+      walk-out ends -- the step south was blocked, lost a same-tick
+      contention, or the update fired instead (``Lb154``'s enemy-in-sight
+      branch overwrites the steps before any move);
+    - between updates nothing changes.
+    """
+    # A Stop & Defend evaluation only ever carries a walk-out request.
+    walking = {
+        evaluation.robot_id
+        for evaluation in evaluations
+        if evaluation.request is not None and isinstance(evaluation.order, StopAndDefend)
+    }
+    docked = {
+        commander.docked_robot_id
+        for commander in state.commanders
+        if commander.mode is CommanderMode.DOCKED
+    }
+    started_ids = set(started)
+    updated: list[Robot] = []
+    changed = False
+    for robot in state.robots:
+        steps = robot.exit_steps_remaining
+        if steps > 0:
+            entry = entry_state.robot_for(robot.entity_id)
+            if robot.entity_id in docked:
+                steps = 0
+            elif robot.entity_id in started_ids and robot.entity_id in walking:
+                steps -= 1
+            elif entry is not None and entry.movement is None and autonomous_update_due(
+                entry, world, tick, rules
+            ):
+                steps = 0
+        if steps != robot.exit_steps_remaining:
+            robot = replace(robot, exit_steps_remaining=steps)
+            changed = True
+        updated.append(robot)
+    return state.with_robots(tuple(updated)) if changed else state

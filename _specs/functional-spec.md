@@ -266,6 +266,7 @@ Construction preserves original Spectrum behavior:
 - reject selection when specific + general cannot cover the component cost;
 - construction editing uses a temporary resource buffer;
 - deselecting components reverses the mixed specific/general spending semantics;
+- picking a different chassis while one is fitted swaps it (CR002.20, disassembly `Lca0f`): the fitted chassis is refunded and removed first, then the new chassis is paid for; if the new chassis is unaffordable even after that refund, it is rejected and the robot is left with no chassis (the Spectrum does not restore the old one); weapons and electronics are unaffected;
 - actual resources are committed atomically only when **Start Robot** succeeds;
 - exiting/canceling before launch consumes no permanent resources.
 
@@ -400,7 +401,7 @@ A robot can have only one active normal projectile channel; it cannot fire anoth
 
 All normal projectiles use Spectrum default flight altitude **10**, independent of robot height and weapon type.
 
-Projectile speed, cadence, and range are resolved from the Spectrum code (`open-questions.md` §8): a projectile advances 2 cells every 4 ticks (one Spectrum game cycle) and travels 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Buildings use the generic altitude collision; there is no separate building rule. Whether the first move happens at fire time, as in the Spectrum, or on the next advance tick is an open owner decision (`open-questions.md` §8). Projectile behavior is an authoritative world/game rule, not a browser viewport rule.
+Projectile speed, cadence, and range are resolved from the Spectrum code (`open-questions.md` §8): a projectile advances 2 cells every 4 ticks (one Spectrum game cycle) and travels 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Buildings use the generic altitude collision; there is no separate building rule. As in the Spectrum, the first move happens on the fire tick, so a target 1–2 cells away is hit at once. A robot fires at most once per game cycle (4 ticks). A robot's autonomous shot moves 4 cells in the cycle it is fired; a player's direct shot moves 2 (`open-questions.md` §8, CR002.2 #169). Projectile behavior is an authoritative world/game rule, not a browser viewport rule.
 
 ### 17.2 Damage
 
@@ -429,6 +430,7 @@ Blast shapes, from the Spectrum code (`open-questions.md` §20):
   - A war base is in range when dx < 7, dy < 7, and dx + dy < 10.
   - A factory is in range when dx < 5, dy < 5, and dx + dy < 7.
 - **Carrier:** always destroyed.
+- **Scenery:** every scenery box (element types 17–20) whose bottom-left cell is inside the robot window becomes rough debris: the whole 2×2 box turns into rough terrain that robots can cross at rough speed. Fences are never destroyed. The debris lasts for the rest of the match.
 
 Nuclear weapons are the only way to destroy factories and war bases.
 
@@ -457,6 +459,6 @@ Only these substantive areas remain unresolved:
 
 Movement timing (§4) and projectile speed/range/lifetime (§8) are resolved.
 
-Two owner decisions are also pending: whether the decoded scenery boxes and walls become movement blockers (`open-questions.md` §4), and whether a projectile makes its first move on the fire tick (`open-questions.md` §8).
+The two owner decisions from CR001 are decided: the decoded scenery boxes and walls are blockers (`open-questions.md` §4, CR002.1 #168), and a projectile makes its first move on the fire tick (`open-questions.md` §8, CR002.2 #169).
 
 Until verified, these values/algorithms must remain isolated and configurable rather than silently guessed.

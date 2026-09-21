@@ -26,16 +26,31 @@ export interface MapFactory {
 
 export interface MapBlocker {
   id: string;
+  /** Opaque scenery label (e.g. `box_low`, `box_high`, `fence`) for asset mapping (CR002.5). */
+  kind?: string;
+  /** A nuclear blast turns it into rough debris (CR002.18); ids land in `SnapshotState.scenery_debris`. */
+  destructible?: boolean;
   components: MapComponent[];
 }
 
 export type InteractionKind = 'warbase_capture' | 'factory_capture' | 'heli_pad' | 'exit';
 
+export interface MapCell {
+  x: number;
+  y: number;
+}
+
 export interface MapInteractionPoint {
   id: string;
   kind: InteractionKind;
   structure_id: string;
-  footprint: { x: number; y: number };
+  /** One cell, or a cell list (the 2×2 heli-pad, CR002.4). */
+  footprint: MapCell | MapCell[];
+}
+
+/** The cells of an interaction point's footprint. */
+export function footprintCells(ip: MapInteractionPoint): MapCell[] {
+  return Array.isArray(ip.footprint) ? ip.footprint : [ip.footprint];
 }
 
 export interface MapData {
@@ -43,7 +58,13 @@ export interface MapData {
   version: number;
   width: number;
   height: number;
-  terrain: { default: TerrainType; cells: { x: number; y: number; type: TerrainType }[] };
+  terrain: {
+    default: TerrainType;
+    /** Height of the rough piece a nuclear blast leaves (`Ld7bc_map_piece_heights` types 6/7, CR002.21). */
+    debris_height: number;
+    /** `height`: the cell's terrain piece height (`Ld7bc_map_piece_heights`, CR002.21); absent = 0. */
+    cells: { x: number; y: number; type: TerrainType; height?: number }[];
+  };
   war_bases: MapWarBase[];
   factories: MapFactory[];
   blockers: MapBlocker[];

@@ -1,14 +1,18 @@
 // PixiJS world renderer (M8.2/M8.3/M8.8). Reads the store; never writes it.
-import { Application, Container, Graphics, Text } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
-import { surfaceHeightAt, terrainAt } from '../world/map.ts';
-import { CELL_H, CELL_W, depthKey, project } from './projection.ts';
+import { footprintCells, surfaceHeightAt, terrainAt } from '../world/map.ts';
+import { TILE_H, TILE_W, depthKey, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
-import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
-import { colorFor, ownerColor, PALETTE, shade, type SemanticAsset } from './assets.ts';
+import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
+import { drawRobotStack, drawCommander, robotGround, unitCentre, UNIT_SIZE, type ModuleId } from './robot.ts';
+import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
+import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
+import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
+import { textOverlays } from '../state/labels.ts';
 
 interface Effect {
   x: number;
@@ -22,14 +26,24 @@ interface Effect {
 export class WorldRenderer {
   readonly world = new Container();
   private terrain = new Graphics();
-  private structures = new Graphics();
+  // CR002.14: structures, scenery, robots, commanders and projectiles share
+  // one painter's ordering (zIndex = depthKey), so nearer geometry covers
+  // whatever stands behind it. Structure cells are cached; the rest is
+  // rebuilt every frame.
+  private scene = new Container({ sortableChildren: true });
+  private structureCells: { g: Container; x: number }[] = [];
+  private dynamic: Graphics[] = [];
   private structureLabels = new Container();
-  private entities = new Container();
-  private projectiles = new Graphics();
   private effects = new Graphics();
   private overlay = new Graphics();
+  // Text stays unscaled: labels live in a sibling layer that tracks the
+  // world's offset, positioned via labelAt().
+  private readonly labels = new Container();
   private overlayLabels = new Container();
+  private zoom = 1;
   private cam = { x: 24, y: 8 };
+  private readonly surface: SurfaceMap;
+  private readonly sceneryTextures = new Map<string, { slice: SpriteSlice; texture: Texture }[]>();
   private lastStructureKey = '';
   private lastResync = -1;
   private prevSnapshot: SnapshotState | null = null;
@@ -39,8 +53,10 @@ export class WorldRenderer {
     private readonly app: Application,
     private readonly map: MapData,
   ) {
-    this.world.addChild(this.terrain, this.structures, this.structureLabels, this.entities, this.projectiles, this.effects, this.overlay, this.overlayLabels);
-    app.stage.addChild(this.world);
+    this.surface = new SurfaceMap(map);
+    this.world.addChild(this.terrain, this.scene, this.effects, this.overlay);
+    this.labels.addChild(this.structureLabels, this.overlayLabels);
+    app.stage.addChild(this.world, this.labels);
     this.drawTerrain();
   }
 
@@ -59,41 +75,97 @@ export class WorldRenderer {
     }
   }
 
-  private drawStructures(state: SnapshotState | null): void {
-    const key = state ? JSON.stringify([state.structure_ownership, state.structure_destruction]) : 'none';
+  // Structure name labels are an optional overlay (CR002.23, textOverlays); flags show ownership.
+  private drawStructures(state: SnapshotState | null, debug: boolean): void {
+    const key = JSON.stringify([this.zoom, debug, state?.structure_ownership, state?.structure_destruction, state?.scenery_debris]);
     if (key === this.lastStructureKey) return;
     this.lastStructureKey = key;
-    const g = this.structures;
-    g.clear();
-    this.structureLabels.removeChildren();
+    for (const { g } of this.structureCells) g.destroy();
+    this.structureCells = [];
+    this.structureLabels.removeChildren().forEach((t) => t.destroy());
     const owner = (id: string) => state?.structure_ownership.find((o) => o.structure_id === id)?.owner ?? null;
-    const destroyed = (id: string) => state?.structure_destruction.includes(id) ?? false;
+    const destroyedIds = new Set(state?.structure_destruction ?? []);
+    const destroyed = (id: string) => destroyedIds.has(id);
 
-    const blocks: { c: MapComponent; color: number; dead: boolean }[] = [];
+    // CR002.18: a nuclear blast turns destructible scenery into rough debris.
+    const debrisIds = new Set(state?.scenery_debris ?? []);
+    const blocks: { c: MapComponent; color: number; dead: boolean; debris?: boolean }[] = [];
     for (const wb of this.map.war_bases) {
       const col = ownerColor(owner(wb.id));
       for (const c of wb.components) blocks.push({ c, color: col, dead: destroyed(wb.id) });
-      this.label(wb.id, wb.components, `WAR BASE ${owner(wb.id) ?? 'neutral'}${destroyed(wb.id) ? ' ✕' : ''}`, col);
+      if (debug) this.label(wb.id, wb.components, `WAR BASE ${owner(wb.id) ?? 'neutral'}${destroyed(wb.id) ? ' ✕' : ''}`, col);
     }
     for (const f of this.map.factories) {
       const col = shade(colorFor('structure.factory'), owner(f.id) ? 1.2 : 0.9);
       for (const c of f.components) blocks.push({ c, color: col, dead: destroyed(f.id) });
-      this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
+      if (debug) this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
     }
-    for (const b of this.map.blockers) {
-      for (const c of b.components) blocks.push({ c, color: colorFor('structure.blocker'), dead: false });
+    // CR002.5: mapped blockers are Spectrum sprites (below); the rest keep placeholder prisms.
+    // CR002.18: debris blockers resolve through the manifest's `debris` kind.
+    const scenery = sceneryPlacements(this.map, sceneryManifest(), debrisIds);
+    for (const b of scenery.unmapped) {
+      const debris = debrisIds.has(b.id);
+      const color = colorFor(debris ? 'terrain.rough' : 'structure.blocker');
+      for (const c of b.components) blocks.push({ c, color, dead: false, debris });
     }
-    // Heli-pads sit on the war-base roof (open-questions §18): mark the pad
-    // cell's top face right after its prism so nearer blocks still occlude it.
-    const pads = new Set(this.map.interaction_points.filter((ip) => ip.kind === 'heli_pad').map((ip) => `${ip.footprint.x},${ip.footprint.y}`));
-    blocks.sort((a, b) => depthKey(a.c.x, a.c.y) - depthKey(b.c.x, b.c.y));
-    for (const { c, color, dead } of blocks) {
-      if (dead) drawPrism(g, c.x, c.y, 0, 1, shade(color, 0.3), 0.8);
+    // Heli-pads sit on the war-base roof (open-questions §18): mark each of
+    // the 2×2 pad's cells (CR002.4) on its prism's top face so nearer blocks
+    // still occlude it.
+    const pads = new Set(
+      this.map.interaction_points.filter((ip) => ip.kind === 'heli_pad').flatMap((ip) => footprintCells(ip).map((c) => `${c.x},${c.y}`)),
+    );
+    // CR002.6: an ownership flag stands on its roof cell and is drawn with
+    // that cell, so it shares the cell's place in the depth ordering.
+    const flags = new Map(ownershipFlags(this.map, state?.structure_ownership ?? [], destroyedIds).map((f) => [`${f.x},${f.y}`, f.owner]));
+    for (const { c, color, dead, debris } of blocks) {
+      const g = new Graphics();
+      if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
+      // Fallback prism of unmapped debris: the map's rough-piece debris height (types 6/7, 3).
+      else if (debris) drawPrism(g, c.x, c.y, 0, this.map.terrain.debris_height, shade(color, (c.x + c.y) % 2 ? 0.8 : 1));
       else {
         drawPrism(g, c.x, c.y, 0, c.height, color);
         if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+        const flag = flags.get(`${c.x},${c.y}`);
+        if (flag) drawFlag(g, c.x, c.y, c.height, flag);
+      }
+      g.zIndex = depthKey(c.x, c.y);
+      this.structureCells.push({ g, x: c.x });
+      this.scene.addChild(g);
+    }
+    for (const p of scenery.placements) {
+      const origin = spriteOrigin(p.asset, p.anchor);
+      for (const { slice, texture } of this.sceneryTexturesFor(p.assetId, p.asset)) {
+        const s = new Sprite(texture);
+        s.position.set(origin.x, origin.y);
+        s.zIndex = sliceDepth(p.anchor, slice);
+        this.structureCells.push({ g: s, x: p.anchor.x + slice.dx });
+        this.scene.addChild(s);
       }
     }
+  }
+
+  /** One texture per footprint-cell slice of a scenery asset, built once. */
+  private sceneryTexturesFor(id: string, asset: SceneryAsset): { slice: SpriteSlice; texture: Texture }[] {
+    let t = this.sceneryTextures.get(id);
+    if (!t) {
+      const ink = parseColor(asset.ink, PALETTE.black);
+      const paper = parseColor(asset.paper, PALETTE.yellow);
+      t = sliceSprite(asset).map((slice) => ({ slice, texture: pixelTexture(slice.rows, ink, paper) }));
+      this.sceneryTextures.set(id, t);
+    }
+    return t;
+  }
+
+  /** Skip drawing structure cells far outside the view (they stay in the ordering). */
+  private cullStructures(): void {
+    const span = (this.app.screen.width + this.app.screen.height) / this.zoom / TILE_W + 4;
+    for (const { g, x } of this.structureCells) g.renderable = Math.abs(x - this.cam.x) <= span;
+  }
+
+  private addDynamic(g: Graphics, key: number): void {
+    g.zIndex = key;
+    this.dynamic.push(g);
+    this.scene.addChild(g);
   }
 
   private label(_id: string, comps: MapComponent[], text: string, color: number): void {
@@ -103,7 +175,7 @@ export class WorldRenderer {
     const p = project(cx, cy, top + 3);
     const t = new Text({ text, style: { fontFamily: 'monospace', fontSize: 10, fill: color } });
     t.anchor.set(0.5, 1);
-    t.position.set(p.x, p.y);
+    this.labelAt(t, p);
     this.structureLabels.addChild(t);
   }
 
@@ -117,9 +189,11 @@ export class WorldRenderer {
       this.fx = [];
       this.prevSnapshot = null;
     }
-    this.drawStructures(snap);
-    this.entities.removeChildren();
-    this.projectiles.clear();
+    this.zoom = viewZoom(this.app.screen.width, this.app.screen.height);
+    const text = textOverlays(state.ui);
+    this.drawStructures(snap, text.structureNames);
+    for (const g of this.dynamic) g.destroy();
+    this.dynamic = [];
     this.effects.clear();
     this.overlay.clear();
     this.overlayLabels.removeChildren();
@@ -130,35 +204,46 @@ export class WorldRenderer {
     this.diffForEffects(snap, nowMs);
 
     const me = state.connection.session?.playerId ?? null;
-    const items: { key: number; g: Graphics }[] = [];
-    const robotPos = new Map<string, { x: number; y: number; height: number }>();
+    const destroyed = new Set([...snap.structure_destruction, ...snap.scenery_debris]);
+    const robotPos = new Map<string, { x: number; y: number; top: number }>();
 
     for (const r of snap.robots) {
       const mv = isGridTransition(r.movement) ? r.movement : null;
       const p = interpolateGrid(r.x, r.y, mv, tick);
-      robotPos.set(r.entity_id, { x: p.x, y: p.y, height: r.height });
+      // Robots stand on the terrain under them (CR002.25, `Lcee8`).
+      const ground = robotGround(this.surface, r.x, r.y, mv, tick, destroyed);
+      robotPos.set(r.entity_id, { x: p.x, y: p.y, top: ground + r.height });
       const g = new Graphics();
-      drawRobotStack(g, p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height });
+      drawRobotStack(g, p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground });
       if (r.owner !== me) {
         // enemy marker ring so ownership stays readable at distance
-        drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner));
+        drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner), ground, UNIT_SIZE);
       }
-      items.push({ key: depthKey(p.x, p.y), g });
-      const sp = project(p.x, p.y, r.height + 3);
-      const label = new Text({ text: `${r.strength}`, style: { fontFamily: 'monospace', fontSize: 9, fill: ownerColor(r.owner) } });
-      label.anchor.set(0.5, 1);
-      label.position.set(sp.x, sp.y);
-      this.overlayLabels.addChild(label);
+      // The anchor is the 2×2 body's cell nearest the viewer (min x, max y;
+      // CR002.3), so it is the body's painter's-order key.
+      this.addDynamic(g, depthKey(p.x, p.y, ground));
+      if (text.robotStrength) {
+        const centre = unitCentre(p.x, p.y);
+        const sp = project(centre.x, centre.y, ground + r.height + 3);
+        const label = new Text({ text: `${r.strength}`, style: { fontFamily: 'monospace', fontSize: 9, fill: ownerColor(r.owner) } });
+        label.anchor.set(0.5, 1);
+        this.labelAt(label, sp);
+        this.overlayLabels.addChild(label);
+      }
     }
 
     for (const c of snap.commanders) {
       let x = c.x;
       let y = c.y;
       let alt = c.altitude;
-      if (c.mode === 'docked' && c.docked_robot_id && robotPos.has(c.docked_robot_id)) {
-        const rp = robotPos.get(c.docked_robot_id)!;
+      const docked = c.mode === 'docked' && !!c.docked_robot_id && robotPos.has(c.docked_robot_id);
+      if (docked) {
+        // Riding the robot: drawn on its drawn top (terrain + stack), which
+        // is the authoritative altitude whenever the robot is at rest.
+        const rp = robotPos.get(c.docked_robot_id!)!;
         x = rp.x;
         y = rp.y;
+        alt = rp.top;
       } else {
         const ht = isGridTransition(c.horizontal_transition) ? c.horizontal_transition : null;
         const vt = isVerticalTransition(c.vertical_transition) ? c.vertical_transition : null;
@@ -168,31 +253,38 @@ export class WorldRenderer {
         alt = interpolateAltitude(c.altitude, vt, tick);
       }
       const g = new Graphics();
-      drawCommander(g, x, y, alt, c.player_id);
-      items.push({ key: depthKey(x, y, alt) + 0.5, g });
+      // Docked: resting on the robot top, so no separate shadow.
+      // The shadow falls on the highest surface under the 2×2 body (CR002.4).
+      const surfaceZ = docked ? alt : Math.min(alt, this.surface.underUnit(x, y, destroyed));
+      drawCommander(g, x, y, alt, c.player_id, surfaceZ);
+      this.addDynamic(g, depthKey(x, y, alt) + 0.5);
       if (c.player_id === me) {
-        this.cam.x += (x - this.cam.x) * 0.15;
-        this.cam.y += (y - this.cam.y) * 0.15;
+        const centre = unitCentre(x, y);
+        this.cam.x += (centre.x - this.cam.x) * 0.15;
+        this.cam.y += (centre.y - this.cam.y) * 0.15;
       }
     }
-
-    items.sort((a, b) => a.key - b.key);
-    for (const it of items) this.entities.addChild(it.g);
 
     for (const pr of snap.projectiles) {
       // Projectiles advance 2 cells per 4-tick engine cadence; between
       // cadence ticks we slide them toward their next authoritative cell.
+      // Its (x, y) anchors a 2×2 body like a robot's (CR002.3): draw it at the
+      // body centre, shadowed on the highest piece under the body.
       const { x, y } = interpolateProjectile(pr, snap.tick, tick);
-      const p = project(x, y, pr.z);
+      const centre = unitCentre(x, y);
+      const p = project(centre.x, centre.y, pr.z);
       const col = colorFor(`projectile.${pr.weapon}` as SemanticAsset);
-      this.projectiles.circle(p.x, p.y, pr.weapon === 'nuclear' ? 5 : 3).fill(col);
-      const sh = project(x, y, 0);
-      this.projectiles.circle(sh.x, sh.y, 2).fill({ color: 0x000000, alpha: 0.4 });
+      const g = new Graphics();
+      const sh = project(centre.x, centre.y, Math.min(pr.z, this.surface.underUnit(x, y, destroyed)));
+      g.circle(sh.x, sh.y, 1).fill({ color: 0x000000, alpha: 0.4 });
+      g.circle(p.x, p.y, pr.weapon === 'nuclear' ? 2.5 : 1.5).fill(col);
+      this.addDynamic(g, depthKey(x, y, pr.z));
     }
 
     this.drawEffects(nowMs);
     if (state.ui.debugGrid) this.drawDebug(snap);
     this.applyCamera();
+    this.cullStructures();
   }
 
   private diffForEffects(snap: SnapshotState, nowMs: number): void {
@@ -200,10 +292,13 @@ export class WorldRenderer {
     this.prevSnapshot = snap;
     if (!prev || snap.tick <= prev.tick) return;
     for (const p of prev.projectiles) {
-      if (!snap.projectiles.some((q) => q.id === p.id)) this.fx.push({ x: p.x + p.dx, y: p.y + p.dy, z: p.z, kind: 'hit', startMs: nowMs, durationMs: 250 });
+      if (!snap.projectiles.some((q) => q.id === p.id)) this.fx.push({ ...unitCentre(p.x + p.dx, p.y + p.dy), z: p.z, kind: 'hit', startMs: nowMs, durationMs: 250 });
     }
     for (const r of prev.robots) {
-      if (!snap.robots.some((q) => q.entity_id === r.entity_id)) this.fx.push({ x: r.x, y: r.y, z: r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
+      if (!snap.robots.some((q) => q.entity_id === r.entity_id)) {
+        const ground = this.surface.underUnit(r.x, r.y, new Set([...prev.structure_destruction, ...prev.scenery_debris]));
+        this.fx.push({ ...unitCentre(r.x, r.y), z: ground + r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
+      }
     }
     for (const id of snap.structure_destruction) {
       if (!prev.structure_destruction.includes(id)) {
@@ -222,9 +317,9 @@ export class WorldRenderer {
     for (const f of this.fx) {
       const t = (nowMs - f.startMs) / f.durationMs;
       const p = project(f.x, f.y, f.z);
-      if (f.kind === 'hit') this.effects.circle(p.x, p.y, 4 + t * 8).fill({ color: PALETTE.brightWhite, alpha: 1 - t });
-      else if (f.kind === 'explosion') this.effects.circle(p.x, p.y, 8 + t * 20).fill({ color: PALETTE.brightRed, alpha: 1 - t });
-      else this.effects.circle(p.x, p.y, 20 + t * 16 * CELL_W).fill({ color: PALETTE.brightYellow, alpha: 0.7 * (1 - t) });
+      if (f.kind === 'hit') this.effects.circle(p.x, p.y, 2 + t * 4).fill({ color: PALETTE.brightWhite, alpha: 1 - t });
+      else if (f.kind === 'explosion') this.effects.circle(p.x, p.y, 4 + t * 10).fill({ color: PALETTE.brightRed, alpha: 1 - t });
+      else this.effects.circle(p.x, p.y, 10 + t * 8 * TILE_W).fill({ color: PALETTE.brightYellow, alpha: 0.7 * (1 - t) });
     }
   }
 
@@ -245,13 +340,13 @@ export class WorldRenderer {
         const t = new Text({ text: `${x}`, style: { fontFamily: 'monospace', fontSize: 8, fill: 0xffffff } });
         const p = project(x, -0.5);
         t.anchor.set(0.5, 1);
-        t.position.set(p.x, p.y);
+        this.labelAt(t, p);
         this.overlayLabels.addChild(t);
       }
     }
     for (const ip of this.map.interaction_points) {
       const col = ip.kind === 'heli_pad' ? PALETTE.brightGreen : ip.kind === 'exit' ? PALETTE.brightYellow : PALETTE.brightCyan;
-      drawDiamond(g, ip.footprint.x, ip.footprint.y, col, 0.5, undefined, surfaceHeightAt(this.map, ip.footprint.x, ip.footprint.y));
+      for (const c of footprintCells(ip)) drawDiamond(g, c.x, c.y, col, 0.5, undefined, surfaceHeightAt(this.map, c.x, c.y));
     }
     for (const cp of snap.capture_progress) {
       const comps = [...this.map.war_bases, ...this.map.factories].find((s) => s.id === cp.structure_id)?.components ?? [];
@@ -261,15 +356,56 @@ export class WorldRenderer {
 
   private applyCamera(): void {
     const p = project(this.cam.x, this.cam.y);
-    this.world.position.set(this.app.screen.width / 2 - p.x, this.app.screen.height / 2 - p.y - CELL_H * 2);
+    this.world.scale.set(this.zoom);
+    // Centre slightly above the ground point so standing entities sit mid-view.
+    this.world.position.set(Math.round(this.app.screen.width / 2 - p.x * this.zoom), Math.round(this.app.screen.height / 2 - (p.y - TILE_H) * this.zoom));
+    this.labels.position.copyFrom(this.world.position);
+  }
+
+  /** Place unscaled text at a world-space point. */
+  private labelAt(t: Text, p: ScreenPoint): void {
+    t.position.set(p.x * this.zoom, p.y * this.zoom);
   }
 
   /** Cell under a screen point, for click-to-target aiming. */
   screenToCell(sx: number, sy: number): { x: number; y: number } {
-    const lx = sx - this.world.position.x;
-    const ly = sy - this.world.position.y;
-    const a = lx / (CELL_W / 2);
-    const b = ly / (CELL_H / 2);
-    return { x: Math.round((a + b) / 2), y: Math.round((b - a) / 2) };
+    const w = unproject((sx - this.world.position.x) / this.zoom, (sy - this.world.position.y) / this.zoom);
+    return { x: Math.round(w.x), y: Math.round(w.y) };
   }
+}
+
+/** Nearest-filtered texture of a '#'/'.'/' ' pixel sprite (world units are Spectrum pixels). */
+function pixelTexture(rows: readonly string[], ink: number, paper: number): Texture {
+  const w = rows[0]?.length ?? 0;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, w);
+  canvas.height = Math.max(1, rows.length);
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(canvas.width, canvas.height);
+  rows.forEach((row, r) => {
+    for (let c = 0; c < row.length; c++) {
+      if (row[c] === ' ') continue;
+      const col = row[c] === '#' ? ink : paper;
+      const i = (r * canvas.width + c) * 4;
+      img.data.set([(col >> 16) & 0xff, (col >> 8) & 0xff, col & 0xff, 255], i);
+    }
+  });
+  ctx.putImageData(img, 0, 0);
+  const tex = Texture.from(canvas);
+  tex.source.scaleMode = 'nearest';
+  return tex;
+}
+
+/** Spectrum flag sprite at native size (world units are Spectrum pixels), pole foot on the roof centre. */
+function drawFlag(g: Graphics, x: number, y: number, z: number, owner: FlagOwner): void {
+  const rows = FLAG_SPRITES[owner];
+  const foot = project(x, y, z);
+  const left = Math.round(foot.x) - FLAG_POLE_COLUMN;
+  const top = Math.round(foot.y) - rows.length;
+  rows.forEach((row, r) => {
+    for (let col = 0; col < row.length; col++) {
+      if (row[col] === ' ') continue;
+      g.rect(left + col, top + r, 1, 1).fill(row[col] === '#' ? PALETTE.black : ownerColor(owner));
+    }
+  });
 }

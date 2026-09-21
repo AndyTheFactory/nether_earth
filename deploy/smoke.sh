@@ -91,7 +91,14 @@ grep -q '"event": "replay_started"' <<<"${backend_logs}" || fail "no structured 
 step "restart backend: health recovers, replays survive"
 compose restart backend >/dev/null
 compose up -d --wait --wait-timeout 120 >/dev/null
-curl -fsS "${BASE}/api/ready" | grep -q '"status":"ready"' || fail "not ready after restart"
+# The restarted container can still report its previous health for a moment
+# and the gateway needs a new upstream connection: poll instead of one probe.
+ready=0
+for _ in $(seq 1 60); do
+  if curl -fsS "${BASE}/api/ready" 2>/dev/null | grep -q '"status":"ready"'; then ready=1; break; fi
+  sleep 1
+done
+[ "${ready}" = 1 ] || fail "not ready after restart"
 [ "$(replays)" -ge "${count}" ] || fail "replay artifacts lost on restart"
 NE_WS_URL="ws://localhost:${PORT}/ws" node ../frontend/scripts/live-two-client.mjs >/dev/null \
   || fail "match flow after restart"

@@ -24,7 +24,8 @@
           "started_tick": 1,
           "duration_ticks": 4
         },
-        "vertical_transition": null
+        "vertical_transition": null,
+        "elevate_updates_remaining": 0
       },
       {
         "player_id": "p2",
@@ -35,7 +36,8 @@
         "docked_robot_id": null,
         "rising": false,
         "horizontal_transition": null,
-        "vertical_transition": null
+        "vertical_transition": null,
+        "elevate_updates_remaining": 0
       }
     ],
     "resource_pools": [],
@@ -44,6 +46,7 @@
     "structure_ownership": [],
     "capture_progress": [],
     "projectiles": [],
-    "structure_destruction": []
+    "structure_destruction": [],
+    "scenery_debris": []
   }
 }

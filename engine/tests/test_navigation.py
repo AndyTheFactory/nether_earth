@@ -341,7 +341,8 @@ def test_non_electronic_breaks_an_equal_axis_delta_in_favor_of_x() -> None:
 
 def test_non_electronic_falls_back_to_the_secondary_axis_when_primary_is_blocked() -> None:
     """Its only obstacle handling: usable solely while still off-axis."""
-    world = _world(blockers=(_wall(((3, 5),)),))
+    # The robot's 2×2 body is (2..3, 4..5); the wall is just east of it.
+    world = _world(blockers=(_wall(((4, 5),)),))
     robot = _robot(x=2, y=5)
     decision = NON_ELECTRONIC_NAVIGATION.next_step(
         robot, 8, 7, _state((robot,)), world
@@ -359,13 +360,14 @@ def test_non_electronic_gets_stuck_although_a_longer_valid_route_exists() -> Non
     status, cell, _tick = _run_to_target(robot, world, _TARGET)
 
     assert status is NavigationStatus.BLOCKED
-    assert cell == (4, 5)  # nose against the wall, one cell short of it
+    # Nose against the wall: the 2×2 body (3..4, 4..5) ends one cell short of it.
+    assert cell == (3, 5)
     # ...while a valid chassis-compatible route around the wall does exist.
-    assert plan_route(_robot(x=4, y=5), _TARGET[0], _TARGET[1], _state(), world)
+    assert plan_route(_robot(x=3, y=5), _TARGET[0], _TARGET[1], _state(), world)
 
 
 def test_non_electronic_never_reports_unreachable_because_it_searches_nothing() -> None:
-    world = _world(blockers=(_wall(((3, 4), (3, 5), (3, 6), (3, 3), (3, 7))),))
+    world = _world(blockers=(_wall(((4, 4), (4, 5), (4, 6), (4, 3), (4, 7))),))
     robot = _robot(x=2, y=5)
     decision = NON_ELECTRONIC_NAVIGATION.next_step(
         robot, 8, 5, _state((robot,)), world
@@ -379,14 +381,14 @@ def test_non_electronic_stalls_on_another_robots_reservation() -> None:
     reserver = _robot(
         entity_id="robot-b",
         owner=PLAYER_TWO,
-        x=3,
-        y=4,
+        x=4,
+        y=3,
         movement=RobotMoveTransition(
             entity_id=EntityId("robot-b"),
-            from_x=3,
-            from_y=4,
-            to_x=3,
-            to_y=5,
+            from_x=4,
+            from_y=3,
+            to_x=4,
+            to_y=4,
             started_tick=0,
             duration_ticks=BIPOD_TICKS,
         ),
@@ -452,7 +454,7 @@ def test_electronic_route_is_a_contiguous_cardinal_chain_from_the_robot() -> Non
 
 def test_electronic_reports_unreachable_when_a_wall_fully_separates_the_target() -> None:
     world = _world(
-        width=6,
+        width=7,  # target anchor (5, 1): its 2×2 body is x 5..6
         height=3,
         blockers=(_wall(((3, 0), (3, 1), (3, 2))),),
     )
@@ -495,14 +497,14 @@ def test_electronic_replans_around_another_robots_reservation() -> None:
     reserver = _robot(
         entity_id="robot-b",
         owner=PLAYER_TWO,
-        x=3,
-        y=4,
+        x=4,
+        y=3,
         movement=RobotMoveTransition(
             entity_id=EntityId("robot-b"),
-            from_x=3,
-            from_y=4,
-            to_x=3,
-            to_y=5,
+            from_x=4,
+            from_y=3,
+            to_x=4,
+            to_y=4,
             started_tick=0,
             duration_ticks=BIPOD_TICKS,
         ),
@@ -510,6 +512,8 @@ def test_electronic_replans_around_another_robots_reservation() -> None:
     state = _state((mover, reserver))
     decision = ELECTRONIC_NAVIGATION.next_step(mover, 8, 5, state, world)
 
+    # The reserved body (4..5, 3..4) overlaps every body anchored at
+    # (3..6, 4..5); the east step (3, 5) is one of them.
     assert decision.status is NavigationStatus.STEP
     assert (3, 5) not in decision.route
     assert decision.request is not None
@@ -533,15 +537,16 @@ def test_electronic_prefers_a_longer_ordinary_route_over_a_slower_rough_one() ->
 
 
 def test_electronic_takes_the_rough_route_when_it_is_genuinely_cheapest() -> None:
+    # A 2-row corridor: exactly one row of 2×2 bodies (anchor row 1).
     world = _world(
-        width=4,
-        height=1,
+        width=5,
+        height=2,
         terrain_cells={(2, 0): TerrainType.ROUGH},
     )
-    robot = _robot(x=0, y=0, electronics=ModuleIdentity.ELECTRONICS)
-    route = plan_route(robot, 3, 0, _state((robot,)), world)
+    robot = _robot(x=0, y=1, electronics=ModuleIdentity.ELECTRONICS)
+    route = plan_route(robot, 3, 1, _state((robot,)), world)
 
-    assert route == ((1, 0), (2, 0), (3, 0))
+    assert route == ((1, 1), (2, 1), (3, 1))
 
 
 def test_plan_route_returns_empty_for_the_robots_own_cell() -> None:
@@ -568,7 +573,7 @@ def test_electronics_never_routes_a_bipod_or_tracks_through_a_ditch() -> None:
 
 def test_electronics_cannot_reach_a_target_walled_off_by_a_ditch() -> None:
     world = _world(
-        width=6,
+        width=7,  # target anchor (5, 1): its 2×2 body is x 5..6
         height=3,
         terrain_cells=dict.fromkeys(((3, 0), (3, 1), (3, 2)), TerrainType.DITCH),
     )
@@ -590,7 +595,7 @@ def test_electronics_cannot_reach_a_target_walled_off_by_a_ditch() -> None:
 def test_electronics_never_routes_a_bipod_over_a_mountain_but_tracks_may() -> None:
     """§4: bipod is blocked on mountain; tracks enter it (at 28 ticks/cell)."""
     world = _world(
-        width=6,
+        width=7,  # target anchor (5, 1): its 2×2 body is x 5..6
         height=3,
         terrain_cells=dict.fromkeys(((3, 0), (3, 1), (3, 2)), TerrainType.MOUNTAIN),
     )
@@ -632,37 +637,42 @@ def test_a_step_into_a_ditch_stays_rejected_by_the_executor_for_both_policies() 
 
 
 def test_cell_is_enterable_honors_terrain_occupancy_commanders_and_reservations() -> None:
+    """Every gate is tested on the whole 2×2 body anchored at the cell (CR002.3)."""
     reserver = _robot(
         entity_id="robot-b",
         owner=PLAYER_TWO,
-        x=3,
-        y=4,
+        x=7,
+        y=3,
         movement=RobotMoveTransition(
             entity_id=EntityId("robot-b"),
-            from_x=3,
-            from_y=4,
-            to_x=3,
-            to_y=5,
+            from_x=7,
+            from_y=3,
+            to_x=7,
+            to_y=4,
             started_tick=0,
             duration_ticks=BIPOD_TICKS,
         ),
     )
-    mover = _robot(x=2, y=5)
+    mover = _robot(x=2, y=8)
     world = _world(
-        terrain_cells={(2, 6): TerrainType.DITCH},
-        blockers=(_wall(((1, 5),)),),
+        terrain_cells={(7, 7): TerrainType.DITCH},
+        blockers=(_wall(((1, 1),)),),
     )
-    commander = Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=2, y=4, altitude=0)
+    commander = Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=4, y=5, altitude=0)
     state = _state((mover, reserver), commanders=(commander,))
 
-    assert cell_is_enterable(mover, 2, 3, state, world)  # plain open cell
-    assert not cell_is_enterable(mover, 2, 6, state, world)  # ditch: chassis
-    assert not cell_is_enterable(mover, 1, 5, state, world)  # blocker: occupancy
-    assert not cell_is_enterable(mover, 3, 4, state, world)  # robot: occupancy
-    assert not cell_is_enterable(mover, 2, 4, state, world)  # commander: blocking
-    assert not cell_is_enterable(mover, 3, 5, state, world)  # reservation
+    assert cell_is_enterable(mover, 2, 5, state, world)  # plain open body
+    assert not cell_is_enterable(mover, 6, 8, state, world)  # ditch under the body: chassis
+    assert not cell_is_enterable(mover, 0, 2, state, world)  # blocker under the body
+    assert not cell_is_enterable(mover, 8, 2, state, world)  # robot body: occupancy
+    assert not cell_is_enterable(mover, 5, 6, state, world)  # commander body: blocking
+    assert not cell_is_enterable(mover, 7, 5, state, world)  # reserved destination body
     assert not cell_is_enterable(mover, -1, 5, state, world)  # out of bounds
-    assert not cell_is_enterable(mover, 2, 5, state, world)  # its own cell
+    assert not cell_is_enterable(mover, 9, 5, state, world)  # body column 10 is off the map
+    assert not cell_is_enterable(mover, 2, 0, state, world)  # body row -1 is off the map
+    # The robot never blocks itself: its own and overlapping bodies are free.
+    assert cell_is_enterable(mover, 2, 8, state, world)
+    assert cell_is_enterable(mover, 3, 8, state, world)
 
 
 def test_electronic_route_avoids_a_commander_blocked_cell() -> None:

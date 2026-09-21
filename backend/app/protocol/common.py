@@ -350,6 +350,7 @@ class CommanderSnapshot(_SnapshotSubModel):
     rising: bool
     horizontal_transition: dict[str, Any] | None
     vertical_transition: dict[str, Any] | None
+    elevate_updates_remaining: int = Field(ge=0)
 
 
 class ResourcePoolSnapshot(_SnapshotSubModel):
@@ -384,6 +385,8 @@ class RobotSnapshot(_SnapshotSubModel):
     order: dict[str, Any] | None
     active_projectile_id: EntityId | None
     strength: int
+    last_fire_tick: int | None
+    exit_steps_remaining: int
 
 
 class StructureOwnershipSnapshot(_SnapshotSubModel):
@@ -412,6 +415,7 @@ class ProjectileSnapshot(_SnapshotSubModel):
     travelled_cells: int
     max_range_cells: int
     created_tick: int
+    first_advance_tick: int
 
 
 class SnapshotState(_SnapshotSubModel):
@@ -432,3 +436,5 @@ class SnapshotState(_SnapshotSubModel):
     capture_progress: list[CaptureProgressSnapshot]
     projectiles: list[ProjectileSnapshot]
     structure_destruction: list[EntityId]
+    #: Blocker ids turned into rough debris by a nuclear blast (CR002.18).
+    scenery_debris: list[EntityId]

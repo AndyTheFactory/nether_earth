@@ -24,7 +24,7 @@ function pool(player_id: string, general: number, extra: Partial<Pool> = {}): Po
 }
 
 function commander(player_id: string, x: number, y: number, altitude: number, extra: Partial<Commander> = {}): Commander {
-  return { player_id, mode: 'free', x, y, altitude, docked_robot_id: null, rising: false, horizontal_transition: null, vertical_transition: null, ...extra };
+  return { player_id, mode: 'free', x, y, altitude, docked_robot_id: null, rising: false, horizontal_transition: null, vertical_transition: null, elevate_updates_remaining: 0, ...extra };
 }
 
 function robot(entity_id: string, owner: string, x: number, y: number, stack: Robot['stack'], extra: Partial<Robot> = {}): Robot {
@@ -32,7 +32,7 @@ function robot(entity_id: string, owner: string, x: number, y: number, stack: Ro
   const weapons = stack.filter((m) => m === 'cannon' || m === 'missile' || m === 'phaser' || m === 'nuclear');
   const electronics = stack.includes('electronics') ? 'electronics' : null;
   const height = stack.reduce((h, m) => h + (m === 'bipod' || m === 'tracks' || m === 'anti_grav' ? 4 : 2), 0);
-  return { entity_id, owner, x, y, build: { chassis, weapons, electronics }, stack, height, movement: null, order: null, active_projectile_id: null, strength: 100, ...extra };
+  return { entity_id, owner, x, y, build: { chassis, weapons, electronics }, stack, height, movement: null, order: null, active_projectile_id: null, strength: 100, last_fire_tick: null, exit_steps_remaining: 0, ...extra };
 }
 
 function base(tick: number, patch: Partial<SnapshotState> = {}): SnapshotState {
@@ -51,6 +51,7 @@ function base(tick: number, patch: Partial<SnapshotState> = {}): SnapshotState {
     capture_progress: [],
     projectiles: [],
     structure_destruction: [],
+    scenery_debris: [],
     ...patch,
   };
 }
@@ -92,7 +93,7 @@ const fullRobot = robot('robot-2', 'p1', 34, 11, ['tracks', 'cannon', 'missile',
   order: { kind: 'advance', distance_miles: 10, target_x: 54 },
   movement: { entity_id: 'robot-2', from_x: 33, from_y: 11, to_x: 34, to_y: 11, started_tick: 90, duration_ticks: 16 },
 });
-const enemyRobot = robot('robot-9', 'p2', 60, 8, ['anti_grav', 'phaser'], {
+const enemyRobot = robot('robot-9', 'p2', 56, 11, ['anti_grav', 'phaser'], {
   order: { kind: 'search_destroy', target: 'robot' },
   strength: 45,
 });
@@ -180,7 +181,7 @@ export const FIXTURES: Fixture[] = [
       ...intro(),
       snapshot(
         base(1000, {
-          commanders: [commander('p1', 34, 11, 12, { mode: 'docked', docked_robot_id: 'robot-2' }), commander('p2', 494, 10, 0)],
+          commanders: [commander('p1', 34, 11, 16, { mode: 'docked', docked_robot_id: 'robot-2' }) /* rough 2 + height 14 (CR002.25) */, commander('p2', 494, 10, 0)],
           robots: [
             bipodRobot,
             fullRobot,
@@ -216,8 +217,8 @@ export const FIXTURES: Fixture[] = [
             { ...enemyRobot, x: 44, y: 10, strength: 20, active_projectile_id: 'proj-2' },
           ],
           projectiles: [
-            { id: 'proj-1', owner: 'p1', source_robot_id: 'robot-1', weapon: 'cannon', x: 36, y: 10, z: 10, dx: 1, dy: 0, travelled_cells: 6, max_range_cells: 10, created_tick: 1990 },
-            { id: 'proj-2', owner: 'p2', source_robot_id: 'robot-9', weapon: 'phaser', x: 40, y: 10, z: 10, dx: -1, dy: 0, travelled_cells: 4, max_range_cells: 10, created_tick: 1994 },
+            { id: 'proj-1', owner: 'p1', source_robot_id: 'robot-1', weapon: 'cannon', x: 36, y: 10, z: 10, dx: 1, dy: 0, travelled_cells: 6, max_range_cells: 10, created_tick: 1994, first_advance_tick: 1996 },
+            { id: 'proj-2', owner: 'p2', source_robot_id: 'robot-9', weapon: 'phaser', x: 40, y: 10, z: 10, dx: -1, dy: 0, travelled_cells: 4, max_range_cells: 10, created_tick: 1998, first_advance_tick: 2000 },
           ],
         }),
       ),
@@ -227,6 +228,67 @@ export const FIXTURES: Fixture[] = [
           robots: [bipodRobot, { ...fullRobot, strength: 60 }],
           structure_destruction: ['factory-1'],
         }),
+      ),
+    ],
+  },
+  {
+    id: 'occlusion',
+    title: 'Occlusion behind a war base (CR002.14)',
+    description: 'One robot walks behind war base 1 (hidden), one stands at its far side (partly hidden), one in front (visible).',
+    playerId: 'p1',
+    messages: [
+      ...intro(),
+      snapshot(
+        base(300, {
+          commanders: [commander('p1', 23, 6, 20), commander('p2', 494, 10, 0)],
+          robots: [
+            robot('robot-6', 'p1', 21, 0, ['bipod', 'cannon'], {
+              movement: { entity_id: 'robot-6', from_x: 20, from_y: 0, to_x: 21, to_y: 0, started_tick: 290, duration_ticks: 16 },
+            }),
+            robot('robot-7', 'p2', 28, 3, ['bipod', 'phaser']),
+            robot('robot-8', 'p1', 21, 10, ['bipod', 'cannon']),
+          ],
+        }),
+      ),
+    ],
+  },
+  {
+    id: 'surface-shadows',
+    title: 'Shadows on roofs and the heli-pad (CR002.15)',
+    description: 'Commander hovering over the heli-pad (shadow on the war-base roof); a shot over a low block (shadow on its top).',
+    playerId: 'p1',
+    messages: [
+      ...intro(),
+      snapshot(
+        base(400, {
+          commanders: [commander('p1', 22, 5, 24), commander('p2', 494, 10, 0)],
+          robots: [robot('robot-10', 'p1', 21, 10, ['bipod', 'cannon'], { active_projectile_id: 'proj-3' })],
+          projectiles: [
+            { id: 'proj-3', owner: 'p1', source_robot_id: 'robot-10', weapon: 'cannon', x: 21, y: 7, z: 10, dx: 0, dy: -1, travelled_cells: 3, max_range_cells: 10, created_tick: 396, first_advance_tick: 400 },
+          ],
+        }),
+      ),
+    ],
+  },
+  {
+    id: 'ownership-flags',
+    title: 'Ownership flags and a capture (CR002.6)',
+    description: 'warbase-1 p1, factory-2 p2, factory-3 neutral; factory-1 goes neutral → p1 → p2 one snapshot apart (?until=4..6 to hold a step).',
+    playerId: 'p1',
+    messages: [
+      ...intro(),
+      ...[null, 'p1', 'p2'].map((owner, i) =>
+        snapshot(
+          base(700 + i, {
+            commanders: [commander('p1', 40, 9, 0), commander('p2', 494, 10, 0)],
+            structure_ownership: [
+              { structure_id: 'warbase-1', owner: 'p1' },
+              { structure_id: 'warbase-4', owner: 'p2' },
+              { structure_id: 'factory-2', owner: 'p2' },
+              ...(owner ? [{ structure_id: 'factory-1', owner }] : []),
+            ],
+          }),
+        ),
       ),
     ],
   },

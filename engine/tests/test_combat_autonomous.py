@@ -465,7 +465,10 @@ def test_autonomous_and_direct_fire_share_the_identical_code_path() -> None:
     do not, because consume_engagement_intent constructs the very same
     FireRequest and calls the very same apply_fire function combat.py
     already exposes for direct control -- there is only one fire-execution
-    entry point for normal weapons, by construction.
+    entry point for normal weapons, by construction. (The only difference is
+    the evidence-backed ``autonomous=True`` fire-cycle timing flag, CR002.2
+    #169, which changes the projectile's ``first_advance_tick``, not the
+    fire result or event shape.)
     """
     direct_robot = _robot(entity_id="direct-robot", x=0, y=0, weapons=(ModuleIdentity.CANNON,))
     direct_state = _state((direct_robot,))
@@ -477,7 +480,7 @@ def test_autonomous_and_direct_fire_share_the_identical_code_path() -> None:
         target_x=5,
         target_y=0,
     )
-    direct_new_state, direct_result, direct_event = apply_fire(
+    direct_new_state, direct_result, direct_events = apply_fire(
         direct_request, direct_state, world, tick=4
     )
 
@@ -490,7 +493,8 @@ def test_autonomous_and_direct_fire_share_the_identical_code_path() -> None:
     auto_new_state, auto_events = consume_engagement_intent(auto_intent, auto_state, world, tick=4)
 
     assert direct_result.accepted
-    assert direct_event is not None
+    assert len(direct_events) == 1
+    direct_event = direct_events[0]
     assert len(auto_events) == 1
     auto_event = auto_events[0]
 

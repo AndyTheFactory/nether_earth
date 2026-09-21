@@ -395,6 +395,7 @@ export interface SnapshotState {
     vertical_transition: {
       [k: string]: unknown;
     } | null;
+    elevate_updates_remaining: number;
   }[];
   resource_pools: {
     /**
@@ -458,6 +459,8 @@ export interface SnapshotState {
     } | null;
     active_projectile_id: string | null;
     strength: number;
+    last_fire_tick: number | null;
+    exit_steps_remaining: number;
   }[];
   structure_ownership: {
     /**
@@ -533,8 +536,13 @@ export interface SnapshotState {
     travelled_cells: number;
     max_range_cells: number;
     created_tick: number;
+    first_advance_tick: number;
   }[];
   structure_destruction: string[];
+  /**
+   * Ids of map blockers a nuclear blast turned into rough debris (CR002.18), canonical order. Their cells are rough terrain and no longer block.
+   */
+  scenery_debris: string[];
 }
 /**
  * Sent by a client re-establishing a WebSocket connection to an existing match after a disconnect.

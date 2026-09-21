@@ -341,7 +341,7 @@ def test_direct_move_uses_the_locked_terrain_tick_table(
 def test_direct_move_participates_in_same_tick_contention() -> None:
     contested = (6, 5)
     controlled_robot = _robot(entity_id="robot-1", owner=PLAYER_ONE, x=5, y=5)
-    contender_robot = _robot(entity_id="robot-2", owner=PLAYER_TWO, x=7, y=5)
+    contender_robot = _robot(entity_id="robot-2", owner=PLAYER_TWO, x=8, y=5)  # bodies 5..6 and 8..9; next bodies overlap in column 7
     commander = _docked_commander()
     state = (
         _base_state()

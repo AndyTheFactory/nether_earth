@@ -10,6 +10,7 @@
     "protocol:validate": "node scripts/validate-protocol.mjs",
     "protocol:generate": "node scripts/generate-protocol.mjs",
     "map:generate": "node scripts/generate-map.mjs",
+    "rules:generate": "node scripts/generate-rules.mjs",
     "test": "vitest run",
     "live:check": "node scripts/live-two-client.mjs"
   },

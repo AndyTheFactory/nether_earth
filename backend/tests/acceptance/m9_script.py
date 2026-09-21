@@ -41,6 +41,7 @@ from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
 from nether_earth.movement import chassis_can_enter
+from nether_earth.occupancy import unit_footprint_cells
 from nether_earth.orders import (
     Advance,
     SearchCapture,
@@ -110,6 +111,11 @@ class Api:
 
     def fly_commander_to(self, player: PlayerId, x: int, y: int, altitude: int) -> Iterator[Predicate]:
         """Hold rise until at least ``altitude``, fly to ``(x, y)`` still rising, then release."""
+        if self.state.construction_session_for(player) is not None:
+            # The construction screen is modal (CR002.13): a commander left on
+            # its pad re-enters it, and can only take off via EXIT MENU.
+            self.cmd(CancelConstructionCommand, player)
+            yield lambda s: s.construction_session_for(player) is None
         commander = self.state.commander_for(player)
         assert commander is not None
         enclosing = next(
@@ -136,7 +142,14 @@ class Api:
         yield from self.fly_commander_to(player, pad[0], pad[1], ROOF_CLEARANCE)
 
     def land_on_robot(self, player: PlayerId, robot_id: EntityId) -> Iterator[Predicate]:
-        """Fly above the robot, release rise, and let gravity dock the commander onto it."""
+        """Fly above the robot, release rise, and let gravity dock the commander onto it.
+
+        A freshly launched robot first walks out of its war base (CR002.3,
+        `La6c8`), so wait until it stands still before flying to it.
+        """
+        yield lambda s: (r := s.robot_for(robot_id)) is None or (
+            r.exit_steps_remaining == 0 and r.movement is None
+        )
         robot = self.state.robot_for(robot_id)
         assert robot is not None
         yield from self.fly_commander_to(player, robot.x, robot.y, robot.height + 4)
@@ -185,6 +198,16 @@ class Api:
         dx = (x > robot.x) - (x < robot.x)
         yield from self.direct_move(player, dx, 0, abs(x - robot.x))
 
+    def drive_into_doorway(self, player: PlayerId, x: int, y: int) -> Iterator[Predicate]:
+        """Direct-control the docked robot onto a war-base capture cell ``(x, y)``.
+
+        The capture cell is the anchor of a 2×2 body standing in the base's
+        south-facing doorway (CR002.3), whose walls block a sideways entry:
+        drive to the cell just below it, then step up into the doorway.
+        """
+        yield from self.drive_to(player, x, y + 1)
+        yield from self.direct_move(player, 0, -1, 1)
+
     def advance_to_column(self, player: PlayerId, robot_id: EntityId, column: int) -> Iterator[Predicate]:
         """Chain ``Advance`` orders (max 50 miles = 100 cells each) until the robot reaches ``column``."""
         while True:
@@ -202,9 +225,9 @@ class Api:
             miles = next(
                 (
                     m
-                    for rows in (range(self.world.height), (robot.y,))
+                    for rows in (range(1, self.world.height), (robot.y,))
                     for m in range(longest, 0, -1)
-                    if self._column_is_open(robot, min(robot.x + m * 2, self.world.width - 1), rows)
+                    if self._column_is_open(robot, min(robot.x + m * 2, self.world.width - 2), rows)
                 ),
                 0,
             )
@@ -214,10 +237,14 @@ class Api:
             yield lambda s, t=target: (r := s.robot_for(robot_id)) is None or r.x >= t
 
     def _column_is_open(self, robot: Robot, column: int, rows: Iterable[int]) -> bool:
+        """Whether a 2×2 body anchored at ``column`` fits on every anchor row in ``rows`` (CR002.3)."""
         occupancy = self.world.occupancy()
         return all(
-            not occupancy.is_occupied(column, y)
-            and chassis_can_enter(robot.build.chassis, self.world.terrain.terrain_at(column, y))
+            not occupancy.blocks_unit(column, y)
+            and all(
+                chassis_can_enter(robot.build.chassis, self.world.terrain.terrain_at(x, cell_y))
+                for x, cell_y in unit_footprint_cells(column, y)
+            )
             for y in rows
         )
 
@@ -226,8 +253,9 @@ class Api:
         return min(points[0].footprint.cells)
 
     def heli_pad(self, structure_id: str) -> tuple[int, int]:
+        """The anchor of the 2×2 pad: its min-x/max-y cell (open-questions §18, CR002.4)."""
         points = self.world.interaction_points_for(EntityId(structure_id), kind=InteractionKind.HELI_PAD)
-        return min(points[0].footprint.cells)
+        return min(points[0].footprint.cells, key=lambda cell: (cell[0], -cell[1]))
 
 
 # -- the two players ----------------------------------------------------------
@@ -241,6 +269,9 @@ STRIKER_MODULES = (
     ModuleIdentity.ELECTRONICS,
 )
 STRIKER_COST = 30
+#: The striker's autonomous Advance stops this many columns west of the
+#: warbase-4 anchor, clear of the scenery walls in front of the base.
+STRIKER_STAGING_OFFSET = 24
 
 P1_SCOUT = EntityId("robot-p1-1")
 P1_STRIKER = EntityId("robot-p1-2")
@@ -283,7 +314,7 @@ def player_one(api: Api) -> Actor:
     # Direct control: dock onto the scout and drive it onto the capture cell.
     yield from api.land_on_robot(PLAYER_ONE, P1_SCOUT)
     api.mark("p1 docked on scout")
-    yield from api.drive_to(PLAYER_ONE, *capture_cell)
+    yield from api.drive_into_doorway(PLAYER_ONE, *capture_cell)
     api.mark("p1 direct-controlled scout onto warbase-2 capture cell")
     yield from api.undock(PLAYER_ONE)
     yield from api.land_on_heli_pad(PLAYER_ONE, "warbase-1")
@@ -294,8 +325,9 @@ def player_one(api: Api) -> Actor:
     # Wait for enough general resources (daily war-base production) for the
     # striker. A session's buffer is snapshotted at entry (M4 rule), so the
     # income that arrived while the menu was open is only spendable after
-    # cancelling and re-entering -- the commander is still on the pad, so
-    # re-entry is immediate.
+    # leaving and re-entering -- EXIT MENU lifts the commander off the pad
+    # (CR002.12/13) and, left alone, gravity lands it back on the pad, which
+    # re-opens the screen with a fresh buffer.
     yield lambda s: (p := s.resource_pool_for(PLAYER_ONE)) is not None and p.general >= STRIKER_COST
     api.cmd(CancelConstructionCommand, PLAYER_ONE)
     yield lambda s: (
@@ -311,14 +343,26 @@ def player_one(api: Api) -> Actor:
     yield from api.undock(PLAYER_ONE)
     yield from api.land_on_heli_pad(PLAYER_ONE, "warbase-1")
     enemy = api.war_base("warbase-4")
-    yield from api.advance_to_column(PLAYER_ONE, P1_STRIKER, enemy[0])
+    yield from api.advance_to_column(PLAYER_ONE, P1_STRIKER, enemy[0] - STRIKER_STAGING_OFFSET)
     # The blast reaches a war base only from near its anchor (dy measured from
     # carrier.y + 5 must stay < 7; open-questions §20), so direct-drive the
     # striker up to the row just below the anchor, level with the guard.
+    # The scenery walls west of warbase-4 (CR002.1 blockers) leave one open
+    # gap on the row above the anchor, so drive through it and come down
+    # beside the base instead of crossing the capture anchor itself.
     yield from api.land_on_robot(PLAYER_ONE, P1_STRIKER)
+    gap_row = enemy[1] - 1
+    # A 2×2 body anchored on the gap row reaches four columns west of the
+    # anchor before the base wall (CR002.3).
+    yield from api.drive_to(PLAYER_ONE, enemy[0] - 4, gap_row)
     yield from api.drive_to(PLAYER_ONE, enemy[0], enemy[1] + 1)
-    # Let the guard's aligned shot land before detonating.
-    yield lambda s: (g := s.robot_for(P2_GUARD)) is None or g.active_projectile_id is not None
+    # Let the guard's aligned shot land before detonating. Coming down from
+    # the gap row, the striker is already level with the guard (and in its
+    # range) a few cells west of the anchor, so the shot may have landed
+    # before the striker got here.
+    yield lambda s: s.robot_for(P2_GUARD) is None or any(
+        label == "p2 guard fired directly" for _, label in api.milestones
+    )
     yield lambda s: (g := s.robot_for(P2_GUARD)) is None or g.active_projectile_id is None
     api.mark("p1 striker in position")
     # The completed Advance became Stop & Defend, which never detonates

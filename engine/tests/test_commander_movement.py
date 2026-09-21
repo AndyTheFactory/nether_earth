@@ -592,3 +592,33 @@ def test_event_sequencer_explicit_usage_across_multiple_calls() -> None:
 
     assert event1 is not None and event2 is not None
     assert event2.sequence == event1.sequence + 1
+
+
+# --- Construction-exit automatic ascent (CR002.12/CR002.13) -------------------
+
+
+def test_elevate_counter_ascends_regardless_of_rise_intent_and_counts_down() -> None:
+    commander = _free_commander(altitude=15).with_elevate_updates(5)
+    state = _state_with_commanders(commander)
+    altitudes = []
+    for tick in (4, 8, 12, 16, 20, 24, 28):
+        commander, _event = apply_vertical_physics(commander, state, tick)
+        altitudes.append(commander.altitude)
+    assert altitudes == [17, 19, 21, 23, 25, 24, 23]
+    assert commander.elevate_updates_remaining == 0
+
+
+def test_elevate_counter_is_consumed_even_when_the_ascent_is_blocked() -> None:
+    commander = _free_commander(altitude=15).with_elevate_updates(2)
+    state = _state_with_commanders(commander)
+    blocked, event = apply_vertical_physics(
+        commander, state, 4, vertical_check=lambda _s, _c, _a: False
+    )
+    assert event is None
+    assert blocked.altitude == 15
+    assert blocked.elevate_updates_remaining == 1
+
+
+def test_commander_rejects_negative_elevate_counter() -> None:
+    with pytest.raises(ValueError):
+        _free_commander().with_elevate_updates(-1)

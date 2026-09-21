@@ -43,7 +43,8 @@ and folding robot occupancy):
    (:data:`LaunchRejectionReason.NO_EXIT_DEFINED`) -- a map-authoring
    precondition, not a gameplay rule, but must be checked before resolving
    a cell;
-5. the resolved exit cell is neither occupied nor *reserved* as some
+5. the new robot's 2×2 body at the resolved exit cell is on the map and
+   none of its cells is occupied or *reserved* as some
    in-flight move's destination (issue #62/M5.3; both surface as
    :data:`LaunchRejectionReason.EXIT_BLOCKED` -- see the check itself for
    why a reservation blocks an exit exactly like a standing robot does).
@@ -55,6 +56,17 @@ on why this is structurally, not just behaviorally, guaranteed.
 
 Exit-cell resolution (deterministic, single cell)
 --------------------------------------------------
+
+The resolved exit cell is the new robot's **anchor**: the robot is a 2×2
+body (CR002.3, `_specs/open-questions.md` §21) covering the anchor, the
+cell to its right and the two cells above them. The launch is refused as
+:data:`LaunchRejectionReason.EXIT_BLOCKED` when that body would leave the
+map, or when any of its cells is occupied or reserved. On the Spectrum the
+robot starts at (pad.x, pad.y + 4) (`Lcb52_construction_screen_start_robot`)
+and construction is only entered when no robot anchor lies where a robot
+would overlap that body (the ``bit 6`` test of four cells before
+``Lc849_robot_construction_if_possible``); the other five overlapping
+anchors are impossible because war-base walls stand there.
 
 A war base may in principle declare more than one ``EXIT`` interaction
 point, and any one point's footprint may in principle span more than one
@@ -86,9 +98,8 @@ one of ``state.robots``' current single-cell footprints via
 verbatim rather than inventing a second "is this cell taken" check. Robots
 are folded in canonical ``state.robots`` order (already
 ``entity_id.value``-sorted, see `state.py`), so this fold is itself
-deterministic. A robot occupies exactly one cell (its ``x``, ``y``), so its
-footprint for this purpose is a single-cell
-:class:`~nether_earth.structures.Footprint`.
+deterministic. Since CR002.3 a robot occupies its 2×2 body (see
+`occupancy.py`).
 
 Issue #60 (M5.1) needs exactly this fold for robot movement's destination
 occupancy check, so the fold itself now lives once, publicly, as
@@ -141,12 +152,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from nether_earth.construction_session import ConstructionSession, cancel_construction
+from nether_earth.construction_session import ConstructionSession, exit_construction
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
 from nether_earth.movement import folded_robot_occupancy
-from nether_earth.occupancy import OccupancyGrid
+from nether_earth.occupancy import OccupancyGrid, unit_footprint_cells, unit_footprint_in_bounds
+from nether_earth.orders import StopAndDefend
 from nether_earth.reservations import reservations_from_state
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot import Robot
@@ -290,9 +302,11 @@ def launch_robot(
     if exit_cell is None:
         return LaunchResult.reject(LaunchRejectionReason.NO_EXIT_DEFINED)
 
-    occupancy = _folded_occupancy(world, state)
     exit_x, exit_y = exit_cell
-    if occupancy.is_occupied(exit_x, exit_y):
+    if not unit_footprint_in_bounds(exit_x, exit_y, world.width, world.height):
+        return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
+    occupancy = _folded_occupancy(world, state)
+    if occupancy.blocks_unit(exit_x, exit_y):
         return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
 
     # A robot with a move in flight authoritatively occupies its *origin*
@@ -306,11 +320,15 @@ def launch_robot(
     # the exit for the same reason a standing robot does, so it reuses
     # EXIT_BLOCKED rather than introducing a second "cell is taken" code
     # that callers would have to branch on identically.
-    if reservations_from_state(state).is_reserved(exit_x, exit_y):
+    reservations = reservations_from_state(state)
+    if any(reservations.is_reserved(x, y) for x, y in unit_footprint_cells(exit_x, exit_y)):
         return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
 
     stack, height = derive_stack_and_height(robot_build, rules)
     entity_id = _next_robot_id(state, player_id)
+    # The Spectrum starts every new robot on Stop & Defend with a 5-step walk
+    # south out of the doorway (`La6c8` after `Lc849`; CR002.3, see
+    # `orders.walk_out_request`).
     robot = Robot(
         entity_id=entity_id,
         owner=player_id,
@@ -319,6 +337,8 @@ def launch_robot(
         build=robot_build,
         stack=stack,
         height=height,
+        order=StopAndDefend(),
+        exit_steps_remaining=rules.robot_launch_exit_steps,
     )
 
     committed_pool = PlayerResourcePool.from_resource_pool(player_id, session.buffer)
@@ -326,6 +346,6 @@ def launch_robot(
 
     new_state = state.with_resource_pools((*other_pools, committed_pool))
     new_state = new_state.with_robots((*new_state.robots, robot))
-    new_state = cancel_construction(new_state, player_id)
+    new_state = exit_construction(new_state, player_id, rules)
 
     return LaunchResult.accept(new_state, robot)

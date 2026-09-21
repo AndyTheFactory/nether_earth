@@ -17,7 +17,8 @@
         "docked_robot_id": "robot-1",
         "rising": false,
         "horizontal_transition": null,
-        "vertical_transition": null
+        "vertical_transition": null,
+        "elevate_updates_remaining": 0
       },
       {
         "player_id": "p2",
@@ -33,7 +34,8 @@
           "to_altitude": 2,
           "started_tick": 41,
           "duration_ticks": 2
-        }
+        },
+        "elevate_updates_remaining": 3
       }
     ],
     "resource_pools": [
@@ -80,7 +82,9 @@
         "movement": null,
         "order": { "kind": "advance", "distance_miles": 10, "target_x": 13 },
         "active_projectile_id": "projectile-1",
-        "strength": 80
+        "strength": 80,
+        "last_fire_tick": 40,
+        "exit_steps_remaining": 0
       }
     ],
     "structure_ownership": [
@@ -108,9 +112,11 @@
         "dy": 0,
         "travelled_cells": 2,
         "max_range_cells": 12,
-        "created_tick": 40
+        "created_tick": 40,
+        "first_advance_tick": 48
       }
     ],
-    "structure_destruction": ["factory-9"]
+    "structure_destruction": ["factory-9"],
+    "scenery_debris": ["blocker-2"]
   }
 }

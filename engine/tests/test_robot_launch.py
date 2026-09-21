@@ -42,7 +42,7 @@ PLAYER_TWO = PlayerId("p2")
 WAR_BASE_ONE = EntityId("warbase-p1")
 WAR_BASE_TWO = EntityId("warbase-p2")
 
-P1_EXIT_CELL = (5, 0)
+P1_EXIT_CELL = (5, 1)  # a robot anchor: its 2×2 body is rows 0..1 (CR002.3)
 P2_EXIT_CELL = (5, 9)
 
 
@@ -258,7 +258,7 @@ def test_launch_rejects_build_with_no_chassis() -> None:
 
 def test_launch_allowed_with_23_existing_robots() -> None:
     world = _world()
-    existing = tuple(_dummy_robot(PLAYER_ONE, i, x=50 + i, y=50) for i in range(1, 24))
+    existing = tuple(_dummy_robot(PLAYER_ONE, i, x=50 + 2 * i, y=50) for i in range(1, 24))
     assert len(existing) == 23
     state = _state(session=_session(), robots=existing)
 
@@ -271,7 +271,7 @@ def test_launch_allowed_with_23_existing_robots() -> None:
 
 def test_launch_rejected_with_24_existing_robots() -> None:
     world = _world()
-    existing = tuple(_dummy_robot(PLAYER_ONE, i, x=50 + i, y=50) for i in range(1, 25))
+    existing = tuple(_dummy_robot(PLAYER_ONE, i, x=50 + 2 * i, y=50) for i in range(1, 25))
     assert len(existing) == 24
     state = _state(session=_session(), robots=existing)
 
@@ -304,6 +304,48 @@ def test_robot_cap_is_configurable_via_rules() -> None:
 # --- Blocked vs free exit -----------------------------------------------------
 
 
+@pytest.mark.parametrize("offset", [(1, 0), (-1, 0), (0, 1), (1, 1), (-1, 1)])
+def test_launch_rejects_an_exit_overlapped_by_another_robots_body(offset: tuple[int, int]) -> None:
+    """2×2 bodies (CR002.3): a robot anchored next to the exit still covers part of the new body.
+
+    ``La6c8`` tests the ``bit 6`` robot marks of the anchors whose body would
+    overlap the new robot's before ``Lc849_robot_construction_if_possible``.
+    """
+    world = _world()
+    x, y = P1_EXIT_CELL[0] + offset[0], P1_EXIT_CELL[1] + offset[1]
+    state = _state(session=_session(), robots=(_dummy_robot(PLAYER_TWO, 1, x=x, y=y),))
+
+    result = launch_robot(state, world, PLAYER_ONE)
+
+    assert not result.accepted
+    assert result.reason is LaunchRejectionReason.EXIT_BLOCKED
+
+
+def test_launch_accepts_an_exit_with_a_robot_body_edge_to_edge() -> None:
+    world = _world()
+    beside = _dummy_robot(PLAYER_TWO, 1, x=P1_EXIT_CELL[0] + 2, y=P1_EXIT_CELL[1])
+    state = _state(session=_session(), robots=(beside,))
+
+    assert launch_robot(state, world, PLAYER_ONE).accepted
+
+
+def test_launch_rejects_an_exit_whose_body_would_leave_the_map() -> None:
+    """An exit anchor on row 0 would put the new body's upper row off the map."""
+    point = InteractionPoint(
+        id="warbase-p1-exit",
+        kind=InteractionKind.EXIT,
+        structure_id=WAR_BASE_ONE,
+        footprint=Footprint(cells=frozenset({(5, 0)})),
+    )
+    world = _world(interaction_points=(point,))
+    state = _state(session=_session())
+
+    result = launch_robot(state, world, PLAYER_ONE)
+
+    assert not result.accepted
+    assert result.reason is LaunchRejectionReason.EXIT_BLOCKED
+
+
 def test_launch_rejects_blocked_exit() -> None:
     world = _world()
     blocker = _dummy_robot(PLAYER_TWO, 1, x=P1_EXIT_CELL[0], y=P1_EXIT_CELL[1])
@@ -329,7 +371,7 @@ def test_launch_rejects_an_exit_cell_reserved_by_an_in_flight_move() -> None:
     # a move is inbound to it; launching there would stack two robots on one
     # cell the moment that move completes.
     world = _world()
-    mover = _dummy_robot(PLAYER_TWO, 1, x=P1_EXIT_CELL[0] - 1, y=P1_EXIT_CELL[1])
+    mover = _dummy_robot(PLAYER_TWO, 1, x=P1_EXIT_CELL[0] - 2, y=P1_EXIT_CELL[1])
     state = _state(session=_session(), robots=(mover,))
     state, move_result, _event = apply_robot_move(
         RobotMoveRequest(entity_id=mover.entity_id, dx=1, dy=0), state, world, tick=0
@@ -358,7 +400,7 @@ def test_launch_rejects_an_exit_cell_reserved_by_an_in_flight_move() -> None:
 
 def test_launch_succeeds_once_a_reserved_exit_cell_move_is_cancelled() -> None:
     world = _world()
-    mover = _dummy_robot(PLAYER_TWO, 1, x=P1_EXIT_CELL[0] - 1, y=P1_EXIT_CELL[1])
+    mover = _dummy_robot(PLAYER_TWO, 1, x=P1_EXIT_CELL[0] - 2, y=P1_EXIT_CELL[1])
     state = _state(session=_session(), robots=(mover,))
     state, _move_result, _event = apply_robot_move(
         RobotMoveRequest(entity_id=mover.entity_id, dx=1, dy=0), state, world, tick=0

@@ -126,6 +126,13 @@ def test_pause_freezes_in_flight_robot_move_and_resync_converges(tmp_path: Path)
                 sequence += 1
                 state = _wait_snapshot(ws_a, lambda s: len(s["robots"]) == 1)["state"]
                 robot_id = state["robots"][0]["entity_id"]
+                # The new robot first walks 5 steps south out of the war base
+                # (CR002.3, `La6c8`); an order given now would end that walk
+                # with the 2×2 body still in the doorway, so order it once out.
+                _wait_snapshot(
+                    ws_a,
+                    lambda s: s["robots"][0]["exit_steps_remaining"] == 0 and s["robots"][0]["movement"] is None,
+                )
                 _command(
                     ws_a,
                     session_a,

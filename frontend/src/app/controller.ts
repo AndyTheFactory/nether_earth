@@ -3,19 +3,26 @@
 // controller never mutates gameplay fields and never pre-validates legality.
 import type { Store, Session, MenuMode } from '../state/store.ts';
 import { dockedRobot, myCommander, myConstruction } from '../state/store.ts';
+import { saveLabels } from '../state/labels.ts';
 import { WebSocketClient, defaultWsUrl, type GameClient, type InboundMessage, RecordingClient } from '../net/client.ts';
 import { CommandSender } from '../net/commands.ts';
 import type { InputSink, MoveIntent } from '../input/keyboard.ts';
 import { findFixture } from '../fixtures/index.ts';
 import { playFixture, runFixtureMessage } from '../fixtures/harness.ts';
 import { CAPTURE_TARGETS, DESTROY_TARGETS, CHASSIS, WEAPONS, MAX_ORDER_MILES } from '../ui/menus.ts';
+import { COL_PIECES, cursorFor, cursorTarget, moveCursor, type BuildCursor, type CursorColumn } from '../ui/construction.ts';
 
 const SESSION_KEY = 'nether-earth.session';
+/** Lcb4a: the construction cursor pauses 10 frames (50 Hz) after each move, so a held key repeats every 200 ms. */
+export const CURSOR_REPEAT_MS = 200;
 
 export class GameController implements InputSink {
   sender: CommandSender;
   aim: MoveIntent = { dx: 1, dy: 0 };
   weaponIndex = 0;
+  /** Construction-screen cursor (UI-only; resets on every new session). */
+  buildCursor: BuildCursor | null = null;
+  private lastCursorMoveMs = -Infinity;
   private client: GameClient;
   private stopFixture: (() => void) | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -190,7 +197,15 @@ export class GameController implements InputSink {
     const s = this.store.get();
     if (s.ui.screen !== 'match' || !s.latest || s.lifecycle.phase !== 'active') return;
     const me = s.connection.session?.playerId ?? '';
-    if (myConstruction(s.latest, me)) return;
+    const cs = myConstruction(s.latest, me);
+    if (cs) {
+      const now = this.now();
+      if (now - this.lastCursorMoveMs < CURSOR_REPEAT_MS) return;
+      const before = cursorFor(this.buildCursor, cs.entry_tick);
+      this.buildCursor = moveCursor(before, intent.dx, intent.dy);
+      if (this.buildCursor !== before) this.lastCursorMoveMs = now;
+      return;
+    }
     switch (s.ui.menu) {
       case 'direct_control':
         this.sender.command({ kind: 'direct_robot_move', dx: intent.dx, dy: intent.dy });
@@ -214,6 +229,12 @@ export class GameController implements InputSink {
   vertical(rising: boolean): void {
     const s = this.store.get();
     if (s.ui.screen !== 'match' || s.lifecycle.phase !== 'active') return;
+    const me = s.connection.session?.playerId ?? '';
+    if (s.latest && myConstruction(s.latest, me)) {
+      // Space is the Spectrum "fire" key on the construction screen.
+      if (rising) this.constructionFire();
+      return;
+    }
     this.sender.command({ kind: 'commander_set_vertical_intent', rising });
     if (rising && s.ui.menu !== 'none') this.store.setUi({ menu: 'none' });
   }
@@ -224,12 +245,17 @@ export class GameController implements InputSink {
       this.store.setUi({ debugGrid: !s.ui.debugGrid });
       return;
     }
+    if (code === 'KeyL') {
+      this.store.setUi({ labels: !s.ui.labels });
+      saveLabels(!s.ui.labels);
+      return;
+    }
     if (s.ui.screen !== 'match' || !s.latest) return;
     const me = s.connection.session?.playerId ?? '';
     const digit = /^Digit(\d)$/.exec(code)?.[1];
     if (myConstruction(s.latest, me)) {
-      if (code === 'Enter') this.menuAction('launch', '');
-      else if (code === 'KeyC') this.menuAction('cancel', '');
+      if (code === 'Enter') this.constructionFire();
+      else if (code === 'Escape' || code === 'KeyC') this.menuAction('cancel', '');
       else if (digit) {
         const n = Number(digit);
         const mod = n >= 1 && n <= 3 ? CHASSIS[n - 1] : n >= 4 && n <= 7 ? WEAPONS[n - 4] : n === 8 ? 'electronics' : null;
@@ -272,6 +298,27 @@ export class GameController implements InputSink {
       default:
         return;
     }
+  }
+
+  /** Fire on the construction screen: act on whatever the cursor is on (Lca0f). */
+  constructionFire(): void {
+    const s = this.store.get();
+    const cs = s.latest ? myConstruction(s.latest, s.connection.session?.playerId ?? '') : null;
+    if (!cs) return;
+    const target = cursorTarget(cursorFor(this.buildCursor, cs.entry_tick));
+    if (target.kind === 'exit') this.menuAction('cancel', '');
+    else if (target.kind === 'start') this.menuAction('launch', '');
+    else this.menuAction('module', target.module);
+  }
+
+  /** Mouse on the construction screen: move the cursor to the clicked option and fire. */
+  constructionPick(column: CursorColumn, piece: number): void {
+    const s = this.store.get();
+    const cs = s.latest ? myConstruction(s.latest, s.connection.session?.playerId ?? '') : null;
+    if (!cs) return;
+    const c = cursorFor(this.buildCursor, cs.entry_tick);
+    this.buildCursor = { ...c, column, piece: column === COL_PIECES ? piece : c.piece };
+    this.constructionFire();
   }
 
   private adjustDistance(delta: number): void {

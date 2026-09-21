@@ -551,7 +551,7 @@ Projectile lifecycle must be authoritative world logic. It must not depend on br
 
 Resolved from the Spectrum code (`open-questions.md` §8): a projectile advances `projectile_cells_per_advance = 2` cells every `projectile_advance_ticks = 4` ticks and ends after 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Buildings use the generic altitude collision; there is no separate building rule.
 
-Open owner decision (`open-questions.md` §8): the Spectrum makes a bullet's first move at fire time, while the engine makes it on the next advance tick.
+Decided (`open-questions.md` §8, CR002.2 #169): as in the Spectrum, a projectile makes its first move on the fire tick, with the same checks as every later advance. A robot fires at most one normal weapon per game cycle (`robot_fire_cycle_ticks = 4`). An autonomous shot moves again at the cadence tick that closes its fire cycle; a direct shot is held one cycle longer (`Projectile.first_advance_tick`). Later advances keep the cadence above, so the range is unchanged.
 
 Nuclear detonation is modeled separately.
 
@@ -593,8 +593,9 @@ On detonation:
 1. robots: destroy every robot inside the carrier-centred 9×9 window with trimmed corners (row widths 5/7/9/9/9/9/9/7/5);
 2. buildings: scan war bases, then factories, in canonical order; destroy the **first** one in range (war base: dx<7, dy<7, dx+dy<10; factory: dx<5, dy<5, dx+dy<7; dy measured from carrier.y+1, plus 4 for war bases); at most one building per detonation;
 3. destroy carrier robot;
-4. update ownership/victory;
-5. emit deterministic events.
+4. scenery: every map blocker marked `destructible` whose bottom-left (anchor) cell is inside the robot window becomes debris. `GameState.scenery_debris` records its id (canonical order, snapshotted). The effective world drops the blocker and makes its cells rough terrain, and the base `WorldMap` is not mutated. Fences are not `destructible`;
+5. update ownership/victory;
+6. emit deterministic events.
 
 The shape parameters are `EngineRules` data.
 
@@ -801,7 +802,7 @@ Remaining gameplay research areas:
 
 Movement timing (§4) and projectile speed, range, and lifetime (§8) are resolved: projectiles advance 2 cells every 4 ticks; ranges are 10/14/10 cells, +2 with electronics.
 
-Two owner decisions are also pending: scenery blockers (`open-questions.md` §4) and the first projectile move at fire time (`open-questions.md` §8).
+The two owner decisions from CR001 are decided: scenery elements are map blockers (`open-questions.md` §4, CR002.1 #168), and a projectile makes its first move on the fire tick (`open-questions.md` §8, CR002.2 #169).
 
 Until verified from the fidelity evidence chain, keep these behind isolated engine policies/configuration and do not silently treat guesses as canonical defaults.
 

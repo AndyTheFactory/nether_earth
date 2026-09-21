@@ -36,9 +36,9 @@ What this module deliberately reuses rather than re-implements
 - **commander blocking (M3)**: queried through `collision.py`'s
   :func:`~nether_earth.collision.commander_blocks_cell`, the stable query
   that module's docstring explicitly reserved for M5 robot movement, using
-  `collision.py`'s own ground-rooted
-  :func:`~nether_earth.collision.robot_vertical_range` rather than
-  re-deriving vertical-range overlap semantics here.
+  `collision.py`'s :func:`~nether_earth.collision.robot_top` (the robot's
+  top on the terrain under it, CR002.25) rather than re-deriving
+  vertical-range overlap semantics here.
 
 What this module deliberately does NOT own
 -------------------------------------------
@@ -68,12 +68,24 @@ travel is the navigation layer issuing successive single-cell moves, not a
 longer transition. Diagonals are rejected structurally (``ValueError`` in
 ``__post_init__``), not as a gameplay rejection.
 
+2×2 bodies (CR002.3 #170, `_specs/open-questions.md` §21): a robot's
+``x``/``y`` is the anchor of its 2×2 body (`occupancy.py`). A move is legal
+only if the whole destination body is on the map, every one of its four
+cells is terrain the chassis may enter, and no structure, other robot,
+commander or other robot's reserved destination body overlaps it. The
+Spectrum checks only the cells a step newly enters (``Lb557``/``Lb56f``/
+``Lb58f``/``Lb5b1``); since the robot already stands legally on the rest of
+its body, checking the whole destination body is the same rule. Its
+duration is read from the destination body's governing terrain
+(:func:`unit_move_terrain`).
+
 Authoritative position stays discrete: a robot with an in-progress
 :class:`~nether_earth.robot.RobotMoveTransition` is still authoritatively
 at its origin cell until ``started_tick + duration_ticks``; only rendering
-may interpolate. Terrain cost is charged for the cell being *entered*
-(the destination), which is the only reading under which a single move's
-duration is well defined without inventing a half-cell model.
+may interpolate. Terrain cost is charged for the body being *entered*
+(the destination), as the Spectrum sets a robot's wait from the terrain
+under its new position (``Lb20d_move_robot``: move, then
+``Lb5f3_determine_speed_based_on_terrain``).
 
 Determinism: every function here is pure (state in, new state out, never
 mutated in place), iterates only canonically ordered tuples
@@ -90,16 +102,21 @@ from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 
-from nether_earth.collision import commander_blocks_cell, robot_vertical_range
+from nether_earth.collision import VerticalRange, commander_blocks_cell, robot_top
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.map import WorldMap
-from nether_earth.occupancy import OccupancyGrid
+from nether_earth.occupancy import (
+    OccupancyGrid,
+    unit_footprint,
+    unit_footprint_cells,
+    unit_footprint_in_bounds,
+    unit_footprints_overlap,
+)
 from nether_earth.robot import Robot, RobotMoveTransition
 from nether_earth.robot_build import CHASSIS_MODULES, ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
-from nether_earth.structures import Footprint
 from nether_earth.terrain import TerrainType
 
 __all__ = [
@@ -120,6 +137,8 @@ __all__ = [
     "folded_robot_occupancy",
     "move_duration_ticks",
     "robot_move_duration_ticks",
+    "unit_move_terrain",
+    "unit_terrain_enterable",
     "validate_robot_move",
 ]
 
@@ -245,6 +264,46 @@ def robot_move_duration_ticks(
     return move_duration_ticks(robot.build.chassis, terrain, rules)
 
 
+#: Speed rank of each terrain class for :func:`unit_move_terrain`. The
+#: Spectrum picks the speed row from the highest map piece under the 2×2 body
+#: (``Lb5f3_determine_speed_based_on_terrain`` over ``Lb5d6_map_altitude_2x2``):
+#: mountain (height 6) over rough (2-3) over flat (0). Ditch is flat on the
+#: Spectrum too; it ranks above normal only so a body over a ditch reads this
+#: engine's own ditch tick field (equal to the flat value by default, §4).
+_TERRAIN_SPEED_RANK: Mapping[TerrainType, int] = MappingProxyType(
+    {
+        TerrainType.NORMAL: 0,
+        TerrainType.DITCH: 1,
+        TerrainType.ROUGH: 2,
+        TerrainType.MOUNTAIN: 3,
+    }
+)
+
+
+def unit_terrain_enterable(chassis: ModuleIdentity, world: WorldMap, x: int, y: int) -> bool:
+    """Return whether ``chassis`` may stand on every cell of the 2×2 body at ``(x, y)``.
+
+    The caller has already checked that the body is on the map.
+    """
+    return all(
+        chassis_can_enter(chassis, world.terrain.terrain_at(cell_x, cell_y))
+        for cell_x, cell_y in unit_footprint_cells(x, y)
+    )
+
+
+def unit_move_terrain(world: WorldMap, x: int, y: int) -> TerrainType:
+    """Return the terrain class that sets the speed of a move onto the body at ``(x, y)``.
+
+    The highest-ranked terrain under the 2×2 body (see
+    :data:`_TERRAIN_SPEED_RANK`). The caller has already checked that the
+    body is on the map.
+    """
+    return max(
+        (world.terrain.terrain_at(cell_x, cell_y) for cell_x, cell_y in unit_footprint_cells(x, y)),
+        key=lambda terrain: _TERRAIN_SPEED_RANK[terrain],
+    )
+
+
 # --------------------------------------------------------------------------
 # Occupancy (M2 contract, shared fold)
 # --------------------------------------------------------------------------
@@ -263,13 +322,14 @@ def folded_robot_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
 
     Robots are folded in canonical ``state.robots`` order (sorted by
     ``entity_id.value``), so the fold never depends on incidental
-    ordering. A robot with a move in progress occupies its *authoritative*
-    (origin) cell only; its destination is claimed through M5.3's
-    reservation contract, not through this grid.
+    ordering. Each robot occupies its whole 2×2 body (CR002.3). A robot with
+    a move in progress occupies its *authoritative* (origin) body only; its
+    destination is claimed through M5.3's reservation contract, not through
+    this grid.
     """
     grid = world.occupancy()
     for robot in state.robots:
-        grid = grid.with_added(robot.entity_id, Footprint(cells=frozenset({(robot.x, robot.y)})))
+        grid = grid.with_added(robot.entity_id, unit_footprint(robot.x, robot.y))
     return grid
 
 
@@ -277,7 +337,8 @@ def folded_robot_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
 # Reservation hook (M5.3 plugs in here)
 # --------------------------------------------------------------------------
 
-#: ``(state, robot, dest_x, dest_y) -> available``. See the module
+#: ``(state, robot, dest_x, dest_y) -> available``, where ``(dest_x, dest_y)``
+#: is the destination anchor of the robot's 2×2 body. See the module
 #: docstring: M5.3's destination-reservation manager binds a query of this
 #: shape so reservation logic lives in its own module while this module
 #: stays the single legality gate. Returning ``False`` rejects the move
@@ -437,21 +498,39 @@ class RobotMoveCancelledEvent(Event):
 
 
 def _in_bounds(world: WorldMap, x: int, y: int) -> bool:
-    return 0 <= x < world.width and 0 <= y < world.height
+    return unit_footprint_in_bounds(x, y, world.width, world.height)
 
 
 def commander_blocks_robot_cell(
-    state: GameState, robot: Robot, x: int, y: int, rules: EngineRules = DEFAULT_RULES
+    state: GameState,
+    robot: Robot,
+    x: int,
+    y: int,
+    rules: EngineRules = DEFAULT_RULES,
+    *,
+    world: WorldMap,
 ) -> bool:
-    """Return whether any commander blocks ``robot`` from entering ``(x, y)``.
+    """Return whether any commander blocks ``robot``'s 2×2 body from standing at ``(x, y)``.
+
+    ``(x, y)`` is the body's anchor; a commander blocks it when their 2×2
+    bodies overlap at overlapping vertical ranges (CR002.3/CR002.4). The
+    Spectrum makes the ship an obstacle exactly when it is lower than the
+    robot's top (``Lb513``'s ``e`` mask). A commander docked to ``robot``
+    rides on it -- the Spectrum sets the ship's altitude to the robot's top
+    after every step (``Lb471_move_robot_one_step_in_desired_direction``) --
+    so it never blocks its own robot, although its body always overlaps the
+    robot's next one.
 
     Composes `collision.py`'s
     :func:`~nether_earth.collision.commander_blocks_cell` -- the query that
     module reserved for exactly this caller -- over ``state.commanders`` in
     canonical (player-id sorted) order, against the robot's own
-    ground-rooted vertical range from
-    :func:`~nether_earth.collision.robot_vertical_range`. No overlap math
-    is re-derived here.
+    ground-rooted vertical range ``[0, top)``, where ``top`` is
+    :func:`~nether_earth.collision.robot_top` at the robot's current anchor
+    (terrain altitude plus stack height, CR002.25; ``Lb513`` subtracts
+    ``ROBOT_STRUCT_HEIGHT`` and ``ROBOT_STRUCT_ALTITUDE``). ``world`` is the
+    physical world the move is validated against. No overlap math is
+    re-derived here.
 
     Public because it is a *cell* property rather than a move property, so
     the navigation policy layer (M5.6, `navigation.py`) searches over it
@@ -468,10 +547,19 @@ def commander_blocks_robot_cell(
     :func:`~nether_earth.collision.commander_horizontal_move_allowed`,
     which forwards ``rules`` into the identical call.
     """
-    vertical_range = robot_vertical_range(robot)
+    candidates = tuple(
+        commander
+        for commander in state.commanders
+        if commander.docked_robot_id != robot.entity_id
+        and unit_footprints_overlap(commander.x, commander.y, x, y)
+    )
+    if not candidates:
+        # Navigation asks this for every cell it searches; skip the surface lookup.
+        return False
+    vertical_range = VerticalRange(bottom=0, top=robot_top(world, robot))
     return any(
         commander_blocks_cell(state, commander, x, y, vertical_range, rules=rules)
-        for commander in state.commanders
+        for commander in candidates
     )
 
 
@@ -493,15 +581,15 @@ def validate_robot_move(
        request is rejected rather than queued or overriding the in-flight
        destination, matching `commander_movement.py`
        (:attr:`~MovementRejectionReason.MOVE_IN_PROGRESS`);
-    3. the destination is on the battlefield
+    3. the whole destination 2×2 body is on the battlefield
        (:attr:`~MovementRejectionReason.OUT_OF_BOUNDS`);
-    4. the robot's chassis can enter the destination's terrain
+    4. the robot's chassis can enter the terrain of all four body cells
        (:attr:`~MovementRejectionReason.TERRAIN_IMPASSABLE`);
-    5. the destination has no ground-solid occupant -- structure or robot
-       -- per the M2 occupancy contract
+    5. no body cell has a ground-solid occupant other than the robot itself
+       -- structure or other robot -- per the M2 occupancy contract
        (:attr:`~MovementRejectionReason.OCCUPIED`);
-    6. no commander blocks the destination at the robot's vertical range,
-       per the M3 collision contract
+    6. no commander's body overlaps the destination body at the robot's
+       vertical range, per the M3 collision contract
        (:attr:`~MovementRejectionReason.COMMANDER_BLOCKED`);
     7. ``destination_check`` (M5.3's reservation hook, permissive by
        default) allows the destination
@@ -524,13 +612,13 @@ def validate_robot_move(
     if not _in_bounds(world, dest_x, dest_y):
         return RobotMoveResult.reject(request, MovementRejectionReason.OUT_OF_BOUNDS)
 
-    if not chassis_can_enter(robot.build.chassis, world.terrain.terrain_at(dest_x, dest_y)):
+    if not unit_terrain_enterable(robot.build.chassis, world, dest_x, dest_y):
         return RobotMoveResult.reject(request, MovementRejectionReason.TERRAIN_IMPASSABLE)
 
-    if folded_robot_occupancy(world, state).is_occupied(dest_x, dest_y):
+    if folded_robot_occupancy(world, state).blocks_unit(dest_x, dest_y, ignore=robot.entity_id):
         return RobotMoveResult.reject(request, MovementRejectionReason.OCCUPIED)
 
-    if commander_blocks_robot_cell(state, robot, dest_x, dest_y, rules):
+    if commander_blocks_robot_cell(state, robot, dest_x, dest_y, rules, world=world):
         return RobotMoveResult.reject(request, MovementRejectionReason.COMMANDER_BLOCKED)
 
     if not destination_check(state, robot, dest_x, dest_y):
@@ -571,7 +659,7 @@ def apply_robot_move(
     When accepted, the robot gains a
     :class:`~nether_earth.robot.RobotMoveTransition` whose
     ``duration_ticks`` comes from :func:`robot_move_duration_ticks` for the
-    destination terrain; its authoritative ``x``/``y`` do NOT change yet
+    destination body's governing terrain (:func:`unit_move_terrain`); its authoritative ``x``/``y`` do NOT change yet
     (see :func:`advance_robot_transition` for completion).
 
     ``sequencer``, when supplied, assigns the started event's sequence
@@ -589,7 +677,7 @@ def apply_robot_move(
 
     dest_x = robot.x + request.dx
     dest_y = robot.y + request.dy
-    duration = robot_move_duration_ticks(robot, world.terrain.terrain_at(dest_x, dest_y), rules)
+    duration = robot_move_duration_ticks(robot, unit_move_terrain(world, dest_x, dest_y), rules)
     transition = RobotMoveTransition(
         entity_id=robot.entity_id,
         from_x=robot.x,

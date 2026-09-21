@@ -1,14 +1,80 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { project, unproject, depthKey } from './projection.ts';
+import { project, unproject, depthKey, groundDepth, viewZoom, VIEW_SPAN_PX } from './projection.ts';
+import { KEY_TO_AXIS } from '../input/keyboard.ts';
+import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
 
 test('project/unproject round-trip', () => {
-  const p = project(10, 3);
-  const w = unproject(p.x, p.y);
-  assert.ok(Math.abs(w.x - 10) < 1e-9 && Math.abs(w.y - 3) < 1e-9);
+  for (const [x, y] of [[10, 3], [0, 0], [511, 15], [2.5, 7.25]]) {
+    const p = project(x, y);
+    const w = unproject(p.x, p.y);
+    assert.ok(Math.abs(w.x - x) < 1e-9 && Math.abs(w.y - y) < 1e-9, `${x},${y}`);
+  }
 });
 
-test('height lifts screen y; depth increases down-screen', () => {
+test('Spectrum orientation: +x runs lower-left to upper-right, +y runs down-right', () => {
+  const o = project(0, 0);
+  const px = project(1, 0);
+  const py = project(0, 1);
+  assert.ok(px.x > o.x && px.y < o.y, '+x goes right and up');
+  assert.ok(px.x - o.x > o.y - px.y, '+x is mostly rightward (shallow)');
+  assert.ok(py.x > o.x && py.y > o.y, '+y goes right and down');
+  assert.ok(py.y - o.y > py.x - o.x, '+y is mostly downward (steep)');
+  // the far (high-x) end of the 512-cell map lies up and to the right
+  const far = project(490, 1);
+  const home = project(18, 1);
+  assert.ok(far.x > home.x && far.y < home.y);
+});
+
+test('height lifts screen y', () => {
   assert.ok(project(1, 1, 8).y < project(1, 1, 0).y);
-  assert.ok(depthKey(2, 2) > depthKey(1, 1));
+});
+
+test('depth: nearer the lower-left viewer (lower x, higher y) draws later; higher draws later', () => {
+  assert.ok(depthKey(5, 5) > depthKey(6, 5), 'lower x is nearer');
+  assert.ok(depthKey(5, 6) > depthKey(5, 5), 'higher y is nearer');
+  assert.ok(depthKey(5, 5, 3) > depthKey(5, 5, 0));
+  // the key follows ground screen y, so anything lower on screen is nearer
+  assert.equal(groundDepth(3, 4), project(3, 4).y);
+});
+
+test('occlusion: a robot behind war base 1 sorts before, and is covered by, the block in front of it', () => {
+  // occlusion fixture: robot-6 (bipod+cannon, height 6) at (21, 0) behind the
+  // 15-high war-base block at (21, 1)
+  const map = loadMap(DEFAULT_MAP_ID);
+  const block = map.war_bases.find((w) => w.id === 'warbase-1')!.components.find((c) => c.x === 21 && c.y === 1)!;
+  assert.equal(block.height, 15);
+  assert.ok(depthKey(21, 0, 0) < depthKey(block.x, block.y), 'block draws after the robot');
+  // the robot's whole screen extent (top face included) lies inside the block's
+  const robotTop = Math.min(project(20.5, -0.5, 6).y, project(21.5, -0.5, 6).y);
+  const blockTop = Math.min(project(20.5, 0.5, 15).y, project(21.5, 0.5, 15).y);
+  assert.ok(robotTop > blockTop, 'robot top is below the block top on screen');
+  // a robot in front (higher y) of the same block draws after it
+  assert.ok(depthKey(21, 10) > depthKey(block.x, block.y));
+});
+
+test('keyboard directions match on-screen directions', () => {
+  const dir = (code: string) => {
+    const m = KEY_TO_AXIS[code];
+    const a = project(0, 0);
+    const b = project(m.dx, m.dy);
+    return { x: b.x - a.x, y: b.y - a.y };
+  };
+  const right = dir('ArrowRight');
+  const left = dir('ArrowLeft');
+  const up = dir('ArrowUp');
+  const down = dir('ArrowDown');
+  assert.ok(right.x > Math.abs(right.y), 'right');
+  assert.ok(-left.x > Math.abs(left.y), 'left');
+  assert.ok(-up.y > Math.abs(up.x), 'up');
+  assert.ok(down.y > Math.abs(down.x), 'down');
+});
+
+test('zoom: the shorter view side shows VIEW_SPAN_PX world pixels', () => {
+  assert.equal(viewZoom(1280, 720) * VIEW_SPAN_PX, 720);
+  assert.equal(viewZoom(600, 900) * VIEW_SPAN_PX, 600);
+  // never shrinks the world below 1:1 on tiny views
+  assert.equal(viewZoom(100, 100), 1);
+  // more zoomed in than the pre-CR002 view (2 screen px per world px)
+  assert.ok(viewZoom(1280, 720) > 2);
 });

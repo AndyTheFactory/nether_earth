@@ -9,7 +9,7 @@ Implements the physical commander/robot interaction described by
 - while docked, the commander's effective position/altitude is derived from
   the robot it is docked to, and independent movement is disabled;
 - rising away from a docked robot undocks the commander (``DOCKED`` ->
-  ``FREE``) and starts it visibly ascending, in the same authoritative step;
+  ``FREE``) and starts the exit lift (CR002.24, see :func:`apply_undock`);
 - **enemy** robots remain physical collision surfaces only -- descent stops
   at the top of an enemy robot's stack (already implemented by
   :mod:`nether_earth.collision`, issue #39, which treats every
@@ -43,7 +43,7 @@ state. It is not this module's job to invent a richer robot model.
 Purity/determinism
 --------------------
 Every public function here is pure: it takes immutable arguments
-(``Commander``, ``RobotFixture``, ``GameState``, an integer ``tick``) and
+(``Commander``, ``RobotFixture``, an integer ``tick``) and
 returns new values, never mutating its arguments and never reading
 wall-clock time or any other non-deterministic source. This matches the
 convention already established by ``commander.py``/``commander_movement.py``/
@@ -63,11 +63,9 @@ from dataclasses import dataclass
 
 from nether_earth.collision import RobotFixture
 from nether_earth.commander import Commander, CommanderMode
-from nether_earth.commander_movement import VerticalMoveCheck, apply_automatic_elevation
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.rules import DEFAULT_RULES, EngineRules
-from nether_earth.state import GameState
 
 __all__ = [
     "CommanderDockedEvent",
@@ -78,18 +76,6 @@ __all__ = [
     "docked_movement_allowed",
     "follow_docked_robot",
 ]
-
-
-def _permissive_vertical_check(state: GameState, mover: Commander, dest_altitude: int) -> bool:
-    """Default :data:`~nether_earth.commander_movement.VerticalMoveCheck`: always allow.
-
-    A local copy (not imported) of ``commander_movement.py``'s private
-    default of the same shape/behavior -- that module deliberately does not
-    export its permissive defaults (they are an internal implementation
-    detail of its own function signatures), so this module defines its own
-    rather than reaching into another module's private names.
-    """
-    return True
 
 
 # --------------------------------------------------------------------------
@@ -118,11 +104,10 @@ class CommanderDockedEvent(Event):
 class CommanderUndockedEvent(Event):
     """A ``DOCKED`` commander undocked (via rising intent) back to ``FREE``.
 
-    ``from_altitude``/``to_altitude`` record the single automatic-elevation
-    ascent step (see :func:`apply_undock`) applied in the same authoritative
-    step as the mode transition, so this event alone tells a consumer both
-    "control was handed back to the commander" and "it started visibly
-    rising away from the robot".
+    ``from_altitude``/``to_altitude`` are the commander's altitude before
+    and after the transition. Since CR002.24 the exit lift runs on the
+    following vertical updates (see :func:`apply_undock`), so for a
+    rise-intent undock both are the robot-top altitude.
     """
 
     player_id: PlayerId
@@ -151,13 +136,24 @@ def attempt_auto_dock(
     ``collision.py``'s half-open touching-vs-overlap semantics -- resting,
     not overlapping) the top of a same-``(x, y)`` :class:`RobotFixture` whose
     ``owner`` matches ``commander.player_id``. Concretely this is
-    ``commander.altitude == robot.height`` at a matching ``(x, y)``: the
-    robot's ground-rooted range is ``[0, height)``, and a commander at
-    ``altitude == height`` occupies ``[height, height + commander_height)``,
+    ``commander.altitude == robot.top`` at a matching ``(x, y)``: the
+    robot's ground-rooted range is ``[0, top)``, and a commander at
+    ``altitude == top`` occupies ``[top, top + commander_height)``,
     which touches without overlapping -- exactly the "resting on top"
     condition `_specs/functional-spec.md` §8.4 ("automatic when descending
     onto the top of a friendly robot") and §8.3's height-aware collision
-    model describe.
+    model describe. ``top`` is the robot's stack height plus the terrain
+    altitude under its body (CR002.25, :attr:`RobotFixture.top`), so a
+    robot on rough or a mountain is docked 2, 3 or 6 higher.
+
+    2×2 bodies (CR002.4, `_specs/open-questions.md` §21): ``(x, y)`` is the
+    anchor of both bodies, and docking needs the *same* anchor -- the bodies
+    coincide exactly. The Spectrum's game loop docks only when the robot's
+    map mark is on the ship's own anchor cell and ``altitude == robot
+    height + robot altitude`` (``La69a``: ``bit 6`` on
+    ``Lcca0_compute_player_map_ptr``, then ``La720_land_on_robot``). A
+    commander resting on a robot whose body only partly overlaps its own is
+    held up by it (`collision.py`) but does not dock.
 
     Only the *first* matching friendly fixture (in ``robots`` order) is
     docked to -- at most one robot can legally occupy a given cell (enforced
@@ -171,8 +167,10 @@ def attempt_auto_dock(
     - ``commander.mode`` is already ``DOCKED`` (docking only applies to a
       ``FREE`` commander -- a docked commander cannot re-dock without first
       undocking);
+    - ``commander.elevate_updates_remaining > 0`` (an exit lift is running,
+      CR002.24; see :func:`apply_undock`);
     - no robot fixture is at ``commander``'s ``(x, y)`` with
-      ``height == commander.altitude``;
+      ``top == commander.altitude``;
     - the matching fixture at that position is **enemy**-owned
       (``robot.owner != commander.player_id``) -- per
       `_specs/open-questions.md` §14, enemy robots are collision surfaces
@@ -192,10 +190,13 @@ def attempt_auto_dock(
     """
     if commander.mode is not CommanderMode.FREE:
         return commander
+    if commander.elevate_updates_remaining > 0:
+        # Exit lift running (CR002.24, see apply_undock): no re-dock yet.
+        return commander
     for robot in robots:
         if robot.x != commander.x or robot.y != commander.y:
             continue
-        if robot.height != commander.altitude:
+        if robot.top != commander.altitude:
             continue
         if robot.owner != commander.player_id:
             # Enemy robot: physical collision surface only. No docking.
@@ -252,8 +253,11 @@ def follow_docked_robot(
     effective ``(x, y, altitude)`` is derived from the robot fixture/state it
     is docked to (`_specs/functional-spec.md` §8.4, "commander follows the
     robot"). This sets ``x``/``y`` to ``robot.x``/``robot.y`` and ``altitude``
-    to ``robot.height`` (resting exactly on top, the same touching condition
-    :func:`attempt_auto_dock` used to dock in the first place); ``mode`` and
+    to ``robot.top`` (resting exactly on top, the same touching condition
+    :func:`attempt_auto_dock` used to dock in the first place; the Spectrum's
+    ``Lb495`` sets the ship's altitude to ``ROBOT_STRUCT_HEIGHT +
+    ROBOT_STRUCT_ALTITUDE`` after each step of a directly controlled
+    robot); ``mode`` and
     ``docked_robot_id`` are left unchanged -- this function only repositions,
     it never itself docks or undocks.
 
@@ -268,7 +272,7 @@ def follow_docked_robot(
     naturally lives at the call site (which already has to look the robot up
     by id to pass it in).
     """
-    return commander.with_position(robot.x, robot.y).with_altitude(robot.height)
+    return commander.with_position(robot.x, robot.y).with_altitude(robot.top)
 
 
 # --------------------------------------------------------------------------
@@ -312,95 +316,57 @@ def docked_movement_allowed(commander: Commander) -> bool:
 
 def apply_undock(
     commander: Commander,
-    state: GameState,
     tick: int,
     rules: EngineRules = DEFAULT_RULES,
-    vertical_check: VerticalMoveCheck = _permissive_vertical_check,
     sequencer: EventSequencer | None = None,
 ) -> tuple[Commander, CommanderUndockedEvent | None]:
     """Undock ``commander`` if it is ``DOCKED`` and currently holding rise intent.
 
-    Mechanics (this module's own design decision -- the issue text leaves
-    the exact cadence details open, "the locked automatic/ascent semantics"
-    only fixes the +2 step size, not exactly when/how many steps fire):
+    1. Trigger: ``commander.mode is DOCKED and commander.rising`` -- the
+       persistent rise intent (:meth:`~nether_earth.commander.Commander.with_rising`)
+       stands in for the Spectrum robot HUD's EXIT option, so holding rise
+       undocks and no new input vocabulary is needed.
+    2. Transition: ``mode`` flips ``DOCKED`` -> ``FREE`` and
+       ``docked_robot_id`` is cleared in the same authoritative step.
+    3. Lift (CR002.24, `_specs/open-questions.md` §13): the commander gets
+       ``rules.commander_exit_elevate_updates`` automatic-ascent updates,
+       exactly like leaving the construction screen. Spectrum evidence: the
+       robot HUD's EXIT option (``#a7fd``--``#a80f``, falling through to
+       ``La812_exit_robot``) sets ``Lfd30_player_elevate_timer`` to 5, and
+       ``Lafa2_player_ship_keyboard_control_altitude`` then ascends +2 per
+       vertical update while the timer runs before gravity resumes. The
+       ascent runs on the following vertical-cadence ticks
+       (:func:`~nether_earth.commander_movement.apply_vertical_physics`), so
+       this function does not move the commander; :func:`attempt_auto_dock`
+       refuses to re-dock while the lift runs (the Spectrum's ``La69a``
+       game loop runs the ship's altitude update before its dock test, so
+       the ship is already above the robot top when that test runs).
+       Up/down intent does not shorten the lift (owner decision; the
+       Spectrum's ``Laf11`` shortening is not modelled).
 
-    1. Trigger: ``commander.mode is DOCKED and commander.rising``. Rising
-       intent is the existing persistent-intent mechanism #38 already
-       threads through :class:`~nether_earth.commander_movement.CommanderSetVerticalIntentCommand`/
-       :meth:`~nether_earth.commander.Commander.with_rising` (that module's
-       docstring already documents that a docked commander's rise intent is
-       *preserved*, "relevant to later undocking flows", even though it
-       currently has no physics effect while docked -- this function is
-       that later flow). Using the same intent flag (rather than a separate
-       one-shot "undock" command) means a player holding rise while docked
-       undocks and keeps ascending in one continuous input, matching how
-       rise/descend already works for a free commander -- no new input
-       vocabulary is introduced.
-    2. Transition: immediately flip ``mode`` ``DOCKED`` -> ``FREE`` and clear
-       ``docked_robot_id`` via :meth:`~nether_earth.commander.Commander.with_docking`
-       -- control returns to the player in the same authoritative step that
-       detects the rise intent, not on a later tick, so there is no
-       observable "docked but already not following the robot" limbo state.
-    3. Ascent: apply exactly *one*
-       :func:`~nether_earth.commander_movement.apply_automatic_elevation`
-       step (the +2-per-call primitive #38 built and explicitly reserved for
-       "#40 undocking ... to reuse", per that function's own docstring) to
-       the now-``FREE`` commander, so it visibly starts rising away from the
-       robot's top surface in the same tick undocking occurs -- otherwise a
-       commander could undock and then sit motionless at the robot's exact
-       former position/altitude, which is indistinguishable from "still
-       docked" to an observer and would let it immediately re-dock next
-       tick via :func:`attempt_auto_dock` (since it would still be exactly
-       resting on the robot's top). One ascent step per undock call keeps
-       this a single deterministic transition rather than looping ascent
-       steps internally (repeated undock calls -- i.e. repeated ticks with
-       rise still held -- naturally continue the climb via this same
-       function, or via normal :func:`~nether_earth.commander_movement.apply_vertical_physics`
-       cadence once #42 wires vertical-cadence ticks for a now-``FREE``
-       commander; this function does not gate on vertical-cadence ticks,
-       matching :func:`apply_automatic_elevation`'s own no-cadence-gating
-       docstring).
-    4. ``vertical_check``, when supplied (e.g. bound to
-       :func:`~nether_earth.collision.commander_vertical_move_allowed` via
-       ``functools.partial`` per that module's #38/#42 integration
-       contract), can still block the ascent step outright (e.g. something
-       physically overlaps the space immediately above) -- in that case the
-       mode transition to ``FREE`` still happens (control is handed back
-       regardless), but altitude does not change and no
-       :class:`CommanderVerticalUpdatedEvent`-shaped altitude change is
-       folded into the emitted event; see the return-value note below.
-
-    Returns ``(commander, None)`` unchanged (no transition at all) when
-    ``commander`` is not ``DOCKED`` or is not currently holding rise intent.
-    Otherwise returns ``(updated_commander, CommanderUndockedEvent)``: the
-    event's ``from_altitude``/``to_altitude`` record whatever the ascent step
-    actually achieved (equal to each other if the ascent step itself was
-    blocked or already at the max-altitude bound -- the event still fires
-    because the *mode* transition unconditionally occurred, which is the
-    primary fact the event announces; a caller that also cares about the
-    altitude-changed sub-fact can compare the two fields).
+    Returns ``(commander, None)`` unchanged when ``commander`` is not
+    ``DOCKED`` or is not holding rise intent. Otherwise returns
+    ``(updated_commander, CommanderUndockedEvent)``; the event's
+    ``from_altitude`` and ``to_altitude`` are both the robot-top altitude.
     """
     if commander.mode is not CommanderMode.DOCKED or not commander.rising:
         return commander, None
 
     docked_robot_id = commander.docked_robot_id
     assert docked_robot_id is not None  # guaranteed by the DOCKED invariant
-    from_altitude = commander.altitude
-    freed = commander.with_docking(CommanderMode.FREE, None)
-
-    risen, _vertical_event = apply_automatic_elevation(
-        freed, state, tick, rules, vertical_check, sequencer=None
+    freed = commander.with_docking(CommanderMode.FREE, None).with_elevate_updates(
+        rules.commander_exit_elevate_updates
     )
 
     sequence = sequencer.next_sequence() if sequencer is not None else 0
     event = CommanderUndockedEvent(
         sequence=sequence,
-        player_id=risen.player_id,
+        player_id=freed.player_id,
         robot_id=docked_robot_id,
-        x=risen.x,
-        y=risen.y,
-        from_altitude=from_altitude,
-        to_altitude=risen.altitude,
+        x=freed.x,
+        y=freed.y,
+        from_altitude=commander.altitude,
+        to_altitude=freed.altitude,
         tick=tick,
     )
-    return risen, event
+    return freed, event

@@ -8,995 +8,999 @@ height: 16
 
 # Terrain: decoded from the Spectrum map-element tables by
 # data/maps/decode_zx_terrain.py (CR001.5, #152); element types 2-7 rough,
-# 8-11 mountain, 12-14 ditch (_specs/open-questions.md section 4). Do not
+# 8-11 mountain, 12-14 ditch (_specs/open-questions.md section 4). Each cell's
+# height is its piece height from Ld7bc_map_piece_heights (CR002.21, #203):
+# rough 2 (types 2-5) or 3 (types 6-7), mountain 6, ditch 0. debris_height is
+# the height of the rough piece a nuclear blast leaves (types 6/7). Do not
 # hand-edit; re-run the decoder. See the evidence doc, "Terrain".
 terrain:
   default: normal
+  debris_height: 3
   cells:
-    - {x: 32, y: 11, type: rough}
-    - {x: 32, y: 12, type: rough}
-    - {x: 33, y: 11, type: rough}
-    - {x: 33, y: 12, type: rough}
-    - {x: 34, y: 9, type: rough}
-    - {x: 34, y: 10, type: rough}
-    - {x: 34, y: 11, type: rough}
-    - {x: 34, y: 12, type: rough}
-    - {x: 34, y: 13, type: rough}
-    - {x: 34, y: 14, type: rough}
-    - {x: 35, y: 9, type: rough}
-    - {x: 35, y: 10, type: rough}
-    - {x: 35, y: 11, type: rough}
-    - {x: 35, y: 12, type: rough}
-    - {x: 35, y: 13, type: rough}
-    - {x: 35, y: 14, type: rough}
-    - {x: 36, y: 9, type: rough}
-    - {x: 36, y: 10, type: rough}
-    - {x: 36, y: 11, type: rough}
-    - {x: 36, y: 12, type: rough}
-    - {x: 36, y: 13, type: rough}
-    - {x: 36, y: 14, type: rough}
-    - {x: 37, y: 9, type: rough}
-    - {x: 37, y: 10, type: rough}
-    - {x: 37, y: 11, type: rough}
-    - {x: 37, y: 12, type: rough}
-    - {x: 37, y: 13, type: rough}
-    - {x: 37, y: 14, type: rough}
-    - {x: 38, y: 9, type: rough}
-    - {x: 38, y: 10, type: rough}
-    - {x: 38, y: 11, type: rough}
-    - {x: 38, y: 12, type: rough}
-    - {x: 38, y: 13, type: rough}
-    - {x: 38, y: 14, type: rough}
-    - {x: 39, y: 9, type: rough}
-    - {x: 39, y: 10, type: rough}
-    - {x: 39, y: 11, type: rough}
-    - {x: 39, y: 12, type: rough}
-    - {x: 39, y: 13, type: rough}
-    - {x: 39, y: 14, type: rough}
-    - {x: 40, y: 9, type: rough}
-    - {x: 40, y: 10, type: rough}
-    - {x: 40, y: 11, type: rough}
-    - {x: 40, y: 12, type: rough}
-    - {x: 40, y: 13, type: rough}
-    - {x: 40, y: 14, type: rough}
-    - {x: 41, y: 9, type: rough}
-    - {x: 41, y: 10, type: rough}
-    - {x: 41, y: 11, type: rough}
-    - {x: 41, y: 12, type: rough}
-    - {x: 41, y: 13, type: rough}
-    - {x: 41, y: 14, type: rough}
-    - {x: 42, y: 9, type: rough}
-    - {x: 42, y: 10, type: rough}
-    - {x: 42, y: 11, type: rough}
-    - {x: 42, y: 12, type: rough}
-    - {x: 42, y: 13, type: rough}
-    - {x: 42, y: 14, type: rough}
-    - {x: 43, y: 9, type: rough}
-    - {x: 43, y: 10, type: rough}
-    - {x: 43, y: 11, type: rough}
-    - {x: 43, y: 12, type: rough}
-    - {x: 43, y: 13, type: rough}
-    - {x: 43, y: 14, type: rough}
-    - {x: 44, y: 9, type: rough}
-    - {x: 44, y: 10, type: rough}
-    - {x: 44, y: 11, type: mountain}
-    - {x: 44, y: 12, type: mountain}
-    - {x: 44, y: 13, type: rough}
-    - {x: 44, y: 14, type: rough}
-    - {x: 45, y: 9, type: rough}
-    - {x: 45, y: 10, type: rough}
-    - {x: 45, y: 11, type: mountain}
-    - {x: 45, y: 12, type: mountain}
-    - {x: 45, y: 13, type: rough}
-    - {x: 45, y: 14, type: rough}
-    - {x: 46, y: 9, type: mountain}
-    - {x: 46, y: 10, type: mountain}
-    - {x: 46, y: 11, type: mountain}
-    - {x: 46, y: 12, type: mountain}
-    - {x: 46, y: 13, type: mountain}
-    - {x: 46, y: 14, type: mountain}
-    - {x: 47, y: 9, type: mountain}
-    - {x: 47, y: 10, type: mountain}
-    - {x: 47, y: 11, type: mountain}
-    - {x: 47, y: 12, type: mountain}
-    - {x: 47, y: 13, type: mountain}
-    - {x: 47, y: 14, type: mountain}
-    - {x: 48, y: 7, type: rough}
-    - {x: 48, y: 8, type: rough}
-    - {x: 48, y: 9, type: mountain}
-    - {x: 48, y: 10, type: mountain}
-    - {x: 48, y: 11, type: mountain}
-    - {x: 48, y: 12, type: mountain}
-    - {x: 48, y: 13, type: mountain}
-    - {x: 48, y: 14, type: mountain}
-    - {x: 49, y: 7, type: rough}
-    - {x: 49, y: 8, type: rough}
-    - {x: 49, y: 9, type: mountain}
-    - {x: 49, y: 10, type: mountain}
-    - {x: 49, y: 11, type: mountain}
-    - {x: 49, y: 12, type: mountain}
-    - {x: 49, y: 13, type: mountain}
-    - {x: 49, y: 14, type: mountain}
-    - {x: 50, y: 7, type: rough}
-    - {x: 50, y: 8, type: rough}
-    - {x: 50, y: 9, type: mountain}
-    - {x: 50, y: 10, type: mountain}
-    - {x: 50, y: 11, type: mountain}
-    - {x: 50, y: 12, type: mountain}
-    - {x: 50, y: 13, type: mountain}
-    - {x: 50, y: 14, type: mountain}
-    - {x: 51, y: 7, type: rough}
-    - {x: 51, y: 8, type: rough}
-    - {x: 51, y: 9, type: mountain}
-    - {x: 51, y: 10, type: mountain}
-    - {x: 51, y: 11, type: mountain}
-    - {x: 51, y: 12, type: mountain}
-    - {x: 51, y: 13, type: mountain}
-    - {x: 51, y: 14, type: mountain}
-    - {x: 52, y: 9, type: mountain}
-    - {x: 52, y: 10, type: mountain}
-    - {x: 52, y: 11, type: mountain}
-    - {x: 52, y: 12, type: mountain}
-    - {x: 52, y: 13, type: mountain}
-    - {x: 52, y: 14, type: mountain}
-    - {x: 53, y: 9, type: mountain}
-    - {x: 53, y: 10, type: mountain}
-    - {x: 53, y: 11, type: mountain}
-    - {x: 53, y: 12, type: mountain}
-    - {x: 53, y: 13, type: mountain}
-    - {x: 53, y: 14, type: mountain}
-    - {x: 54, y: 11, type: rough}
-    - {x: 54, y: 12, type: rough}
-    - {x: 54, y: 13, type: rough}
-    - {x: 54, y: 14, type: rough}
-    - {x: 55, y: 11, type: rough}
-    - {x: 55, y: 12, type: rough}
-    - {x: 55, y: 13, type: rough}
-    - {x: 55, y: 14, type: rough}
-    - {x: 56, y: 13, type: rough}
-    - {x: 56, y: 14, type: rough}
-    - {x: 57, y: 13, type: rough}
-    - {x: 57, y: 14, type: rough}
-    - {x: 72, y: 1, type: ditch}
-    - {x: 72, y: 2, type: ditch}
-    - {x: 72, y: 3, type: ditch}
-    - {x: 72, y: 4, type: ditch}
-    - {x: 72, y: 5, type: ditch}
-    - {x: 72, y: 6, type: ditch}
-    - {x: 72, y: 7, type: ditch}
-    - {x: 72, y: 8, type: ditch}
-    - {x: 73, y: 1, type: ditch}
-    - {x: 73, y: 2, type: ditch}
-    - {x: 73, y: 3, type: ditch}
-    - {x: 73, y: 4, type: ditch}
-    - {x: 73, y: 5, type: ditch}
-    - {x: 73, y: 6, type: ditch}
-    - {x: 73, y: 7, type: ditch}
-    - {x: 73, y: 8, type: ditch}
-    - {x: 83, y: 1, type: rough}
-    - {x: 83, y: 2, type: rough}
-    - {x: 83, y: 3, type: rough}
-    - {x: 83, y: 4, type: rough}
-    - {x: 83, y: 7, type: ditch}
-    - {x: 83, y: 8, type: ditch}
-    - {x: 83, y: 9, type: ditch}
-    - {x: 83, y: 10, type: ditch}
-    - {x: 83, y: 11, type: ditch}
-    - {x: 83, y: 12, type: ditch}
-    - {x: 83, y: 13, type: ditch}
-    - {x: 83, y: 14, type: ditch}
-    - {x: 84, y: 1, type: rough}
-    - {x: 84, y: 2, type: rough}
-    - {x: 84, y: 3, type: rough}
-    - {x: 84, y: 4, type: rough}
-    - {x: 84, y: 7, type: ditch}
-    - {x: 84, y: 8, type: ditch}
-    - {x: 84, y: 9, type: ditch}
-    - {x: 84, y: 10, type: ditch}
-    - {x: 84, y: 11, type: ditch}
-    - {x: 84, y: 12, type: ditch}
-    - {x: 84, y: 13, type: ditch}
-    - {x: 84, y: 14, type: ditch}
-    - {x: 85, y: 1, type: mountain}
-    - {x: 85, y: 2, type: mountain}
-    - {x: 85, y: 3, type: mountain}
-    - {x: 85, y: 4, type: mountain}
-    - {x: 85, y: 5, type: rough}
-    - {x: 85, y: 6, type: rough}
-    - {x: 86, y: 1, type: mountain}
-    - {x: 86, y: 2, type: mountain}
-    - {x: 86, y: 3, type: mountain}
-    - {x: 86, y: 4, type: mountain}
-    - {x: 86, y: 5, type: rough}
-    - {x: 86, y: 6, type: rough}
-    - {x: 87, y: 1, type: mountain}
-    - {x: 87, y: 2, type: mountain}
-    - {x: 87, y: 3, type: mountain}
-    - {x: 87, y: 4, type: mountain}
-    - {x: 87, y: 5, type: mountain}
-    - {x: 87, y: 6, type: mountain}
-    - {x: 88, y: 1, type: mountain}
-    - {x: 88, y: 2, type: mountain}
-    - {x: 88, y: 3, type: mountain}
-    - {x: 88, y: 4, type: mountain}
-    - {x: 88, y: 5, type: mountain}
-    - {x: 88, y: 6, type: mountain}
-    - {x: 89, y: 1, type: mountain}
-    - {x: 89, y: 2, type: mountain}
-    - {x: 89, y: 3, type: mountain}
-    - {x: 89, y: 4, type: mountain}
-    - {x: 89, y: 5, type: mountain}
-    - {x: 89, y: 6, type: mountain}
-    - {x: 90, y: 1, type: mountain}
-    - {x: 90, y: 2, type: mountain}
-    - {x: 90, y: 3, type: mountain}
-    - {x: 90, y: 4, type: mountain}
-    - {x: 90, y: 5, type: mountain}
-    - {x: 90, y: 6, type: mountain}
-    - {x: 91, y: 1, type: mountain}
-    - {x: 91, y: 2, type: mountain}
-    - {x: 91, y: 3, type: mountain}
-    - {x: 91, y: 4, type: mountain}
-    - {x: 91, y: 5, type: rough}
-    - {x: 91, y: 6, type: rough}
-    - {x: 92, y: 1, type: mountain}
-    - {x: 92, y: 2, type: mountain}
-    - {x: 92, y: 3, type: mountain}
-    - {x: 92, y: 4, type: mountain}
-    - {x: 92, y: 5, type: rough}
-    - {x: 92, y: 6, type: rough}
-    - {x: 93, y: 1, type: rough}
-    - {x: 93, y: 2, type: rough}
-    - {x: 93, y: 3, type: rough}
-    - {x: 93, y: 4, type: rough}
-    - {x: 94, y: 1, type: rough}
-    - {x: 94, y: 2, type: rough}
-    - {x: 94, y: 3, type: rough}
-    - {x: 94, y: 4, type: rough}
-    - {x: 104, y: 8, type: ditch}
-    - {x: 104, y: 9, type: ditch}
-    - {x: 105, y: 8, type: ditch}
-    - {x: 105, y: 9, type: ditch}
-    - {x: 106, y: 8, type: ditch}
-    - {x: 106, y: 9, type: ditch}
-    - {x: 107, y: 8, type: ditch}
-    - {x: 107, y: 9, type: ditch}
-    - {x: 108, y: 8, type: ditch}
-    - {x: 108, y: 9, type: ditch}
-    - {x: 109, y: 8, type: ditch}
-    - {x: 109, y: 9, type: ditch}
-    - {x: 110, y: 8, type: ditch}
-    - {x: 110, y: 9, type: ditch}
-    - {x: 111, y: 8, type: ditch}
-    - {x: 111, y: 9, type: ditch}
-    - {x: 112, y: 8, type: ditch}
-    - {x: 112, y: 9, type: ditch}
-    - {x: 113, y: 8, type: ditch}
-    - {x: 113, y: 9, type: ditch}
-    - {x: 114, y: 8, type: ditch}
-    - {x: 114, y: 9, type: ditch}
-    - {x: 115, y: 8, type: ditch}
-    - {x: 115, y: 9, type: ditch}
-    - {x: 116, y: 8, type: ditch}
-    - {x: 116, y: 9, type: ditch}
-    - {x: 117, y: 8, type: ditch}
-    - {x: 117, y: 9, type: ditch}
-    - {x: 151, y: 5, type: ditch}
-    - {x: 151, y: 6, type: ditch}
-    - {x: 151, y: 7, type: ditch}
-    - {x: 151, y: 8, type: ditch}
-    - {x: 151, y: 9, type: ditch}
-    - {x: 151, y: 10, type: ditch}
-    - {x: 151, y: 11, type: ditch}
-    - {x: 151, y: 12, type: ditch}
-    - {x: 152, y: 5, type: ditch}
-    - {x: 152, y: 6, type: ditch}
-    - {x: 152, y: 7, type: ditch}
-    - {x: 152, y: 8, type: ditch}
-    - {x: 152, y: 9, type: ditch}
-    - {x: 152, y: 10, type: ditch}
-    - {x: 152, y: 11, type: ditch}
-    - {x: 152, y: 12, type: ditch}
-    - {x: 165, y: 1, type: rough}
-    - {x: 165, y: 2, type: rough}
-    - {x: 165, y: 3, type: rough}
-    - {x: 165, y: 4, type: rough}
-    - {x: 165, y: 5, type: rough}
-    - {x: 165, y: 6, type: rough}
-    - {x: 166, y: 1, type: rough}
-    - {x: 166, y: 2, type: rough}
-    - {x: 166, y: 3, type: rough}
-    - {x: 166, y: 4, type: rough}
-    - {x: 166, y: 5, type: rough}
-    - {x: 166, y: 6, type: rough}
-    - {x: 167, y: 1, type: rough}
-    - {x: 167, y: 2, type: rough}
-    - {x: 167, y: 3, type: rough}
-    - {x: 167, y: 4, type: rough}
-    - {x: 167, y: 5, type: mountain}
-    - {x: 167, y: 6, type: mountain}
-    - {x: 167, y: 7, type: mountain}
-    - {x: 167, y: 8, type: mountain}
-    - {x: 167, y: 9, type: mountain}
-    - {x: 167, y: 10, type: mountain}
-    - {x: 168, y: 1, type: rough}
-    - {x: 168, y: 2, type: rough}
-    - {x: 168, y: 3, type: rough}
-    - {x: 168, y: 4, type: rough}
-    - {x: 168, y: 5, type: mountain}
-    - {x: 168, y: 6, type: mountain}
-    - {x: 168, y: 7, type: mountain}
-    - {x: 168, y: 8, type: mountain}
-    - {x: 168, y: 9, type: mountain}
-    - {x: 168, y: 10, type: mountain}
-    - {x: 169, y: 1, type: rough}
-    - {x: 169, y: 2, type: rough}
-    - {x: 169, y: 3, type: rough}
-    - {x: 169, y: 4, type: rough}
-    - {x: 169, y: 5, type: mountain}
-    - {x: 169, y: 6, type: mountain}
-    - {x: 169, y: 7, type: mountain}
-    - {x: 169, y: 8, type: mountain}
-    - {x: 169, y: 9, type: mountain}
-    - {x: 169, y: 10, type: mountain}
-    - {x: 170, y: 1, type: rough}
-    - {x: 170, y: 2, type: rough}
-    - {x: 170, y: 3, type: rough}
-    - {x: 170, y: 4, type: rough}
-    - {x: 170, y: 5, type: mountain}
-    - {x: 170, y: 6, type: mountain}
-    - {x: 170, y: 7, type: mountain}
-    - {x: 170, y: 8, type: mountain}
-    - {x: 170, y: 9, type: mountain}
-    - {x: 170, y: 10, type: mountain}
-    - {x: 171, y: 1, type: rough}
-    - {x: 171, y: 2, type: rough}
-    - {x: 171, y: 3, type: rough}
-    - {x: 171, y: 4, type: rough}
-    - {x: 171, y: 5, type: mountain}
-    - {x: 171, y: 6, type: mountain}
-    - {x: 171, y: 7, type: mountain}
-    - {x: 171, y: 8, type: mountain}
-    - {x: 171, y: 9, type: mountain}
-    - {x: 171, y: 10, type: mountain}
-    - {x: 172, y: 1, type: rough}
-    - {x: 172, y: 2, type: rough}
-    - {x: 172, y: 3, type: rough}
-    - {x: 172, y: 4, type: rough}
-    - {x: 172, y: 5, type: mountain}
-    - {x: 172, y: 6, type: mountain}
-    - {x: 172, y: 7, type: mountain}
-    - {x: 172, y: 8, type: mountain}
-    - {x: 172, y: 9, type: mountain}
-    - {x: 172, y: 10, type: mountain}
-    - {x: 173, y: 5, type: mountain}
-    - {x: 173, y: 6, type: mountain}
-    - {x: 173, y: 7, type: mountain}
-    - {x: 173, y: 8, type: mountain}
-    - {x: 173, y: 9, type: mountain}
-    - {x: 173, y: 10, type: mountain}
-    - {x: 173, y: 11, type: mountain}
-    - {x: 173, y: 12, type: mountain}
-    - {x: 174, y: 5, type: mountain}
-    - {x: 174, y: 6, type: mountain}
-    - {x: 174, y: 7, type: mountain}
-    - {x: 174, y: 8, type: mountain}
-    - {x: 174, y: 9, type: mountain}
-    - {x: 174, y: 10, type: mountain}
-    - {x: 174, y: 11, type: mountain}
-    - {x: 174, y: 12, type: mountain}
-    - {x: 175, y: 7, type: mountain}
-    - {x: 175, y: 8, type: mountain}
-    - {x: 175, y: 9, type: mountain}
-    - {x: 175, y: 10, type: mountain}
-    - {x: 175, y: 11, type: mountain}
-    - {x: 175, y: 12, type: mountain}
-    - {x: 176, y: 7, type: mountain}
-    - {x: 176, y: 8, type: mountain}
-    - {x: 176, y: 9, type: mountain}
-    - {x: 176, y: 10, type: mountain}
-    - {x: 176, y: 11, type: mountain}
-    - {x: 176, y: 12, type: mountain}
-    - {x: 177, y: 7, type: mountain}
-    - {x: 177, y: 8, type: mountain}
-    - {x: 177, y: 9, type: mountain}
-    - {x: 177, y: 10, type: mountain}
-    - {x: 177, y: 11, type: mountain}
-    - {x: 177, y: 12, type: mountain}
-    - {x: 178, y: 7, type: mountain}
-    - {x: 178, y: 8, type: mountain}
-    - {x: 178, y: 9, type: mountain}
-    - {x: 178, y: 10, type: mountain}
-    - {x: 178, y: 11, type: mountain}
-    - {x: 178, y: 12, type: mountain}
-    - {x: 179, y: 7, type: mountain}
-    - {x: 179, y: 8, type: mountain}
-    - {x: 179, y: 9, type: mountain}
-    - {x: 179, y: 10, type: mountain}
-    - {x: 179, y: 11, type: mountain}
-    - {x: 179, y: 12, type: mountain}
-    - {x: 179, y: 13, type: mountain}
-    - {x: 179, y: 14, type: mountain}
-    - {x: 180, y: 7, type: mountain}
-    - {x: 180, y: 8, type: mountain}
-    - {x: 180, y: 9, type: mountain}
-    - {x: 180, y: 10, type: mountain}
-    - {x: 180, y: 11, type: mountain}
-    - {x: 180, y: 12, type: mountain}
-    - {x: 180, y: 13, type: mountain}
-    - {x: 180, y: 14, type: mountain}
-    - {x: 181, y: 9, type: mountain}
-    - {x: 181, y: 10, type: mountain}
-    - {x: 181, y: 11, type: mountain}
-    - {x: 181, y: 12, type: mountain}
-    - {x: 181, y: 13, type: mountain}
-    - {x: 181, y: 14, type: mountain}
-    - {x: 182, y: 9, type: mountain}
-    - {x: 182, y: 10, type: mountain}
-    - {x: 182, y: 11, type: mountain}
-    - {x: 182, y: 12, type: mountain}
-    - {x: 182, y: 13, type: mountain}
-    - {x: 182, y: 14, type: mountain}
-    - {x: 183, y: 9, type: mountain}
-    - {x: 183, y: 10, type: mountain}
-    - {x: 183, y: 11, type: mountain}
-    - {x: 183, y: 12, type: mountain}
-    - {x: 183, y: 13, type: mountain}
-    - {x: 183, y: 14, type: mountain}
-    - {x: 184, y: 9, type: mountain}
-    - {x: 184, y: 10, type: mountain}
-    - {x: 184, y: 11, type: mountain}
-    - {x: 184, y: 12, type: mountain}
-    - {x: 184, y: 13, type: mountain}
-    - {x: 184, y: 14, type: mountain}
-    - {x: 185, y: 9, type: mountain}
-    - {x: 185, y: 10, type: mountain}
-    - {x: 185, y: 11, type: mountain}
-    - {x: 185, y: 12, type: mountain}
-    - {x: 185, y: 13, type: mountain}
-    - {x: 185, y: 14, type: mountain}
-    - {x: 186, y: 9, type: mountain}
-    - {x: 186, y: 10, type: mountain}
-    - {x: 186, y: 11, type: mountain}
-    - {x: 186, y: 12, type: mountain}
-    - {x: 186, y: 13, type: mountain}
-    - {x: 186, y: 14, type: mountain}
-    - {x: 235, y: 9, type: rough}
-    - {x: 235, y: 10, type: rough}
-    - {x: 235, y: 11, type: rough}
-    - {x: 235, y: 12, type: rough}
-    - {x: 235, y: 13, type: rough}
-    - {x: 235, y: 14, type: rough}
-    - {x: 236, y: 9, type: rough}
-    - {x: 236, y: 10, type: rough}
-    - {x: 236, y: 11, type: rough}
-    - {x: 236, y: 12, type: rough}
-    - {x: 236, y: 13, type: rough}
-    - {x: 236, y: 14, type: rough}
-    - {x: 237, y: 9, type: rough}
-    - {x: 237, y: 10, type: rough}
-    - {x: 237, y: 11, type: rough}
-    - {x: 237, y: 12, type: rough}
-    - {x: 237, y: 13, type: rough}
-    - {x: 237, y: 14, type: rough}
-    - {x: 238, y: 9, type: rough}
-    - {x: 238, y: 10, type: rough}
-    - {x: 238, y: 11, type: rough}
-    - {x: 238, y: 12, type: rough}
-    - {x: 238, y: 13, type: rough}
-    - {x: 238, y: 14, type: rough}
-    - {x: 239, y: 9, type: rough}
-    - {x: 239, y: 10, type: rough}
-    - {x: 239, y: 11, type: rough}
-    - {x: 239, y: 12, type: rough}
-    - {x: 239, y: 13, type: rough}
-    - {x: 239, y: 14, type: rough}
-    - {x: 240, y: 9, type: rough}
-    - {x: 240, y: 10, type: rough}
-    - {x: 240, y: 11, type: rough}
-    - {x: 240, y: 12, type: rough}
-    - {x: 240, y: 13, type: rough}
-    - {x: 240, y: 14, type: rough}
-    - {x: 241, y: 9, type: rough}
-    - {x: 241, y: 10, type: rough}
-    - {x: 241, y: 11, type: rough}
-    - {x: 241, y: 12, type: rough}
-    - {x: 241, y: 13, type: rough}
-    - {x: 241, y: 14, type: rough}
-    - {x: 242, y: 9, type: rough}
-    - {x: 242, y: 10, type: rough}
-    - {x: 242, y: 11, type: rough}
-    - {x: 242, y: 12, type: rough}
-    - {x: 242, y: 13, type: rough}
-    - {x: 242, y: 14, type: rough}
-    - {x: 243, y: 9, type: rough}
-    - {x: 243, y: 10, type: rough}
-    - {x: 243, y: 11, type: rough}
-    - {x: 243, y: 12, type: rough}
-    - {x: 243, y: 13, type: rough}
-    - {x: 243, y: 14, type: rough}
-    - {x: 244, y: 9, type: rough}
-    - {x: 244, y: 10, type: rough}
-    - {x: 244, y: 11, type: rough}
-    - {x: 244, y: 12, type: rough}
-    - {x: 244, y: 13, type: rough}
-    - {x: 244, y: 14, type: rough}
-    - {x: 245, y: 9, type: rough}
-    - {x: 245, y: 10, type: rough}
-    - {x: 245, y: 11, type: rough}
-    - {x: 245, y: 12, type: rough}
-    - {x: 245, y: 13, type: rough}
-    - {x: 245, y: 14, type: rough}
-    - {x: 246, y: 9, type: rough}
-    - {x: 246, y: 10, type: rough}
-    - {x: 246, y: 11, type: rough}
-    - {x: 246, y: 12, type: rough}
-    - {x: 246, y: 13, type: rough}
-    - {x: 246, y: 14, type: rough}
-    - {x: 247, y: 9, type: rough}
-    - {x: 247, y: 10, type: rough}
-    - {x: 247, y: 11, type: rough}
-    - {x: 247, y: 12, type: rough}
-    - {x: 247, y: 13, type: rough}
-    - {x: 247, y: 14, type: rough}
-    - {x: 248, y: 9, type: rough}
-    - {x: 248, y: 10, type: rough}
-    - {x: 248, y: 11, type: rough}
-    - {x: 248, y: 12, type: rough}
-    - {x: 248, y: 13, type: rough}
-    - {x: 248, y: 14, type: rough}
-    - {x: 249, y: 9, type: rough}
-    - {x: 249, y: 10, type: rough}
-    - {x: 249, y: 11, type: rough}
-    - {x: 249, y: 12, type: rough}
-    - {x: 249, y: 13, type: rough}
-    - {x: 249, y: 14, type: rough}
-    - {x: 250, y: 9, type: rough}
-    - {x: 250, y: 10, type: rough}
-    - {x: 250, y: 11, type: rough}
-    - {x: 250, y: 12, type: rough}
-    - {x: 250, y: 13, type: rough}
-    - {x: 250, y: 14, type: rough}
-    - {x: 251, y: 11, type: rough}
-    - {x: 251, y: 12, type: rough}
-    - {x: 251, y: 13, type: rough}
-    - {x: 251, y: 14, type: rough}
-    - {x: 252, y: 11, type: rough}
-    - {x: 252, y: 12, type: rough}
-    - {x: 252, y: 13, type: rough}
-    - {x: 252, y: 14, type: rough}
-    - {x: 253, y: 13, type: rough}
-    - {x: 253, y: 14, type: rough}
-    - {x: 254, y: 13, type: rough}
-    - {x: 254, y: 14, type: rough}
-    - {x: 264, y: 13, type: mountain}
-    - {x: 264, y: 14, type: mountain}
-    - {x: 265, y: 13, type: mountain}
-    - {x: 265, y: 14, type: mountain}
-    - {x: 266, y: 11, type: mountain}
-    - {x: 266, y: 12, type: mountain}
-    - {x: 266, y: 13, type: mountain}
-    - {x: 266, y: 14, type: mountain}
-    - {x: 267, y: 11, type: mountain}
-    - {x: 267, y: 12, type: mountain}
-    - {x: 267, y: 13, type: mountain}
-    - {x: 267, y: 14, type: mountain}
-    - {x: 268, y: 9, type: mountain}
-    - {x: 268, y: 10, type: mountain}
-    - {x: 268, y: 11, type: mountain}
-    - {x: 268, y: 12, type: mountain}
-    - {x: 268, y: 13, type: mountain}
-    - {x: 268, y: 14, type: mountain}
-    - {x: 269, y: 9, type: mountain}
-    - {x: 269, y: 10, type: mountain}
-    - {x: 269, y: 11, type: mountain}
-    - {x: 269, y: 12, type: mountain}
-    - {x: 269, y: 13, type: mountain}
-    - {x: 269, y: 14, type: mountain}
-    - {x: 270, y: 1, type: mountain}
-    - {x: 270, y: 2, type: mountain}
-    - {x: 270, y: 3, type: mountain}
-    - {x: 270, y: 4, type: mountain}
-    - {x: 270, y: 5, type: mountain}
-    - {x: 270, y: 6, type: mountain}
-    - {x: 270, y: 9, type: mountain}
-    - {x: 270, y: 10, type: mountain}
-    - {x: 270, y: 11, type: mountain}
-    - {x: 270, y: 12, type: mountain}
-    - {x: 270, y: 13, type: mountain}
-    - {x: 270, y: 14, type: mountain}
-    - {x: 271, y: 1, type: mountain}
-    - {x: 271, y: 2, type: mountain}
-    - {x: 271, y: 3, type: mountain}
-    - {x: 271, y: 4, type: mountain}
-    - {x: 271, y: 5, type: mountain}
-    - {x: 271, y: 6, type: mountain}
-    - {x: 271, y: 9, type: mountain}
-    - {x: 271, y: 10, type: mountain}
-    - {x: 271, y: 11, type: mountain}
-    - {x: 271, y: 12, type: mountain}
-    - {x: 271, y: 13, type: mountain}
-    - {x: 271, y: 14, type: mountain}
-    - {x: 272, y: 1, type: mountain}
-    - {x: 272, y: 2, type: mountain}
-    - {x: 272, y: 3, type: mountain}
-    - {x: 272, y: 4, type: mountain}
-    - {x: 272, y: 5, type: mountain}
-    - {x: 272, y: 6, type: mountain}
-    - {x: 272, y: 9, type: mountain}
-    - {x: 272, y: 10, type: mountain}
-    - {x: 272, y: 11, type: mountain}
-    - {x: 272, y: 12, type: mountain}
-    - {x: 272, y: 13, type: mountain}
-    - {x: 272, y: 14, type: mountain}
-    - {x: 273, y: 1, type: mountain}
-    - {x: 273, y: 2, type: mountain}
-    - {x: 273, y: 3, type: mountain}
-    - {x: 273, y: 4, type: mountain}
-    - {x: 273, y: 5, type: mountain}
-    - {x: 273, y: 6, type: mountain}
-    - {x: 273, y: 9, type: mountain}
-    - {x: 273, y: 10, type: mountain}
-    - {x: 273, y: 11, type: mountain}
-    - {x: 273, y: 12, type: mountain}
-    - {x: 273, y: 13, type: mountain}
-    - {x: 273, y: 14, type: mountain}
-    - {x: 274, y: 1, type: mountain}
-    - {x: 274, y: 2, type: mountain}
-    - {x: 274, y: 3, type: mountain}
-    - {x: 274, y: 4, type: mountain}
-    - {x: 274, y: 5, type: mountain}
-    - {x: 274, y: 6, type: mountain}
-    - {x: 274, y: 9, type: mountain}
-    - {x: 274, y: 10, type: mountain}
-    - {x: 274, y: 11, type: mountain}
-    - {x: 274, y: 12, type: mountain}
-    - {x: 274, y: 13, type: mountain}
-    - {x: 274, y: 14, type: mountain}
-    - {x: 275, y: 1, type: mountain}
-    - {x: 275, y: 2, type: mountain}
-    - {x: 275, y: 3, type: mountain}
-    - {x: 275, y: 4, type: mountain}
-    - {x: 275, y: 5, type: mountain}
-    - {x: 275, y: 6, type: mountain}
-    - {x: 275, y: 9, type: mountain}
-    - {x: 275, y: 10, type: mountain}
-    - {x: 275, y: 11, type: mountain}
-    - {x: 275, y: 12, type: mountain}
-    - {x: 275, y: 13, type: mountain}
-    - {x: 275, y: 14, type: mountain}
-    - {x: 276, y: 1, type: mountain}
-    - {x: 276, y: 2, type: mountain}
-    - {x: 276, y: 3, type: mountain}
-    - {x: 276, y: 4, type: mountain}
-    - {x: 276, y: 5, type: mountain}
-    - {x: 276, y: 6, type: mountain}
-    - {x: 276, y: 9, type: mountain}
-    - {x: 276, y: 10, type: mountain}
-    - {x: 276, y: 11, type: mountain}
-    - {x: 276, y: 12, type: mountain}
-    - {x: 276, y: 13, type: mountain}
-    - {x: 276, y: 14, type: mountain}
-    - {x: 277, y: 1, type: mountain}
-    - {x: 277, y: 2, type: mountain}
-    - {x: 277, y: 3, type: mountain}
-    - {x: 277, y: 4, type: mountain}
-    - {x: 277, y: 5, type: mountain}
-    - {x: 277, y: 6, type: mountain}
-    - {x: 277, y: 9, type: mountain}
-    - {x: 277, y: 10, type: mountain}
-    - {x: 277, y: 11, type: mountain}
-    - {x: 277, y: 12, type: mountain}
-    - {x: 277, y: 13, type: mountain}
-    - {x: 277, y: 14, type: mountain}
-    - {x: 278, y: 9, type: mountain}
-    - {x: 278, y: 10, type: mountain}
-    - {x: 278, y: 11, type: mountain}
-    - {x: 278, y: 12, type: mountain}
-    - {x: 278, y: 13, type: mountain}
-    - {x: 278, y: 14, type: mountain}
-    - {x: 279, y: 9, type: mountain}
-    - {x: 279, y: 10, type: mountain}
-    - {x: 279, y: 11, type: mountain}
-    - {x: 279, y: 12, type: mountain}
-    - {x: 279, y: 13, type: mountain}
-    - {x: 279, y: 14, type: mountain}
-    - {x: 280, y: 11, type: mountain}
-    - {x: 280, y: 12, type: mountain}
-    - {x: 280, y: 13, type: mountain}
-    - {x: 280, y: 14, type: mountain}
-    - {x: 281, y: 11, type: mountain}
-    - {x: 281, y: 12, type: mountain}
-    - {x: 281, y: 13, type: mountain}
-    - {x: 281, y: 14, type: mountain}
-    - {x: 379, y: 13, type: rough}
-    - {x: 379, y: 14, type: rough}
-    - {x: 380, y: 13, type: rough}
-    - {x: 380, y: 14, type: rough}
-    - {x: 381, y: 11, type: rough}
-    - {x: 381, y: 12, type: rough}
-    - {x: 381, y: 13, type: rough}
-    - {x: 381, y: 14, type: rough}
-    - {x: 382, y: 11, type: rough}
-    - {x: 382, y: 12, type: rough}
-    - {x: 382, y: 13, type: rough}
-    - {x: 382, y: 14, type: rough}
-    - {x: 383, y: 9, type: rough}
-    - {x: 383, y: 10, type: rough}
-    - {x: 383, y: 11, type: rough}
-    - {x: 383, y: 12, type: rough}
-    - {x: 383, y: 13, type: rough}
-    - {x: 383, y: 14, type: rough}
-    - {x: 384, y: 9, type: rough}
-    - {x: 384, y: 10, type: rough}
-    - {x: 384, y: 11, type: rough}
-    - {x: 384, y: 12, type: rough}
-    - {x: 384, y: 13, type: rough}
-    - {x: 384, y: 14, type: rough}
-    - {x: 385, y: 9, type: rough}
-    - {x: 385, y: 10, type: rough}
-    - {x: 385, y: 11, type: rough}
-    - {x: 385, y: 12, type: rough}
-    - {x: 385, y: 13, type: rough}
-    - {x: 385, y: 14, type: rough}
-    - {x: 386, y: 9, type: rough}
-    - {x: 386, y: 10, type: rough}
-    - {x: 386, y: 11, type: rough}
-    - {x: 386, y: 12, type: rough}
-    - {x: 386, y: 13, type: rough}
-    - {x: 386, y: 14, type: rough}
-    - {x: 387, y: 9, type: rough}
-    - {x: 387, y: 10, type: rough}
-    - {x: 387, y: 11, type: rough}
-    - {x: 387, y: 12, type: rough}
-    - {x: 387, y: 13, type: rough}
-    - {x: 387, y: 14, type: rough}
-    - {x: 388, y: 9, type: rough}
-    - {x: 388, y: 10, type: rough}
-    - {x: 388, y: 11, type: rough}
-    - {x: 388, y: 12, type: rough}
-    - {x: 388, y: 13, type: rough}
-    - {x: 388, y: 14, type: rough}
-    - {x: 389, y: 9, type: rough}
-    - {x: 389, y: 10, type: rough}
-    - {x: 389, y: 11, type: rough}
-    - {x: 389, y: 12, type: rough}
-    - {x: 389, y: 13, type: rough}
-    - {x: 389, y: 14, type: rough}
-    - {x: 390, y: 9, type: rough}
-    - {x: 390, y: 10, type: rough}
-    - {x: 390, y: 11, type: rough}
-    - {x: 390, y: 12, type: rough}
-    - {x: 390, y: 13, type: rough}
-    - {x: 390, y: 14, type: rough}
-    - {x: 391, y: 11, type: rough}
-    - {x: 391, y: 12, type: rough}
-    - {x: 391, y: 13, type: rough}
-    - {x: 391, y: 14, type: rough}
-    - {x: 392, y: 11, type: rough}
-    - {x: 392, y: 12, type: rough}
-    - {x: 392, y: 13, type: rough}
-    - {x: 392, y: 14, type: rough}
-    - {x: 393, y: 13, type: rough}
-    - {x: 393, y: 14, type: rough}
-    - {x: 394, y: 13, type: rough}
-    - {x: 394, y: 14, type: rough}
-    - {x: 406, y: 4, type: ditch}
-    - {x: 406, y: 5, type: ditch}
-    - {x: 407, y: 4, type: ditch}
-    - {x: 407, y: 5, type: ditch}
-    - {x: 408, y: 4, type: ditch}
-    - {x: 408, y: 5, type: ditch}
-    - {x: 409, y: 4, type: ditch}
-    - {x: 409, y: 5, type: ditch}
-    - {x: 409, y: 8, type: ditch}
-    - {x: 409, y: 9, type: ditch}
-    - {x: 409, y: 12, type: ditch}
-    - {x: 409, y: 13, type: ditch}
-    - {x: 410, y: 4, type: ditch}
-    - {x: 410, y: 5, type: ditch}
-    - {x: 410, y: 8, type: ditch}
-    - {x: 410, y: 9, type: ditch}
-    - {x: 410, y: 12, type: ditch}
-    - {x: 410, y: 13, type: ditch}
-    - {x: 411, y: 4, type: ditch}
-    - {x: 411, y: 5, type: ditch}
-    - {x: 411, y: 8, type: ditch}
-    - {x: 411, y: 9, type: ditch}
-    - {x: 411, y: 12, type: ditch}
-    - {x: 411, y: 13, type: ditch}
-    - {x: 412, y: 4, type: ditch}
-    - {x: 412, y: 5, type: ditch}
-    - {x: 412, y: 8, type: ditch}
-    - {x: 412, y: 9, type: ditch}
-    - {x: 412, y: 12, type: ditch}
-    - {x: 412, y: 13, type: ditch}
-    - {x: 413, y: 4, type: ditch}
-    - {x: 413, y: 5, type: ditch}
-    - {x: 413, y: 8, type: ditch}
-    - {x: 413, y: 9, type: ditch}
-    - {x: 413, y: 12, type: ditch}
-    - {x: 413, y: 13, type: ditch}
-    - {x: 414, y: 8, type: ditch}
-    - {x: 414, y: 9, type: ditch}
-    - {x: 414, y: 12, type: ditch}
-    - {x: 414, y: 13, type: ditch}
-    - {x: 415, y: 8, type: ditch}
-    - {x: 415, y: 9, type: ditch}
-    - {x: 415, y: 12, type: ditch}
-    - {x: 415, y: 13, type: ditch}
-    - {x: 416, y: 8, type: ditch}
-    - {x: 416, y: 9, type: ditch}
-    - {x: 416, y: 12, type: ditch}
-    - {x: 416, y: 13, type: ditch}
-    - {x: 420, y: 7, type: ditch}
-    - {x: 420, y: 8, type: ditch}
-    - {x: 420, y: 9, type: ditch}
-    - {x: 420, y: 10, type: ditch}
-    - {x: 420, y: 11, type: ditch}
-    - {x: 420, y: 12, type: ditch}
-    - {x: 420, y: 13, type: ditch}
-    - {x: 420, y: 14, type: ditch}
-    - {x: 421, y: 7, type: ditch}
-    - {x: 421, y: 8, type: ditch}
-    - {x: 421, y: 9, type: ditch}
-    - {x: 421, y: 10, type: ditch}
-    - {x: 421, y: 11, type: ditch}
-    - {x: 421, y: 12, type: ditch}
-    - {x: 421, y: 13, type: ditch}
-    - {x: 421, y: 14, type: ditch}
-    - {x: 424, y: 1, type: ditch}
-    - {x: 424, y: 2, type: ditch}
-    - {x: 424, y: 3, type: ditch}
-    - {x: 424, y: 4, type: ditch}
-    - {x: 424, y: 5, type: ditch}
-    - {x: 424, y: 6, type: ditch}
-    - {x: 424, y: 7, type: ditch}
-    - {x: 424, y: 8, type: ditch}
-    - {x: 425, y: 1, type: ditch}
-    - {x: 425, y: 2, type: ditch}
-    - {x: 425, y: 3, type: ditch}
-    - {x: 425, y: 4, type: ditch}
-    - {x: 425, y: 5, type: ditch}
-    - {x: 425, y: 6, type: ditch}
-    - {x: 425, y: 7, type: ditch}
-    - {x: 425, y: 8, type: ditch}
-    - {x: 428, y: 7, type: ditch}
-    - {x: 428, y: 8, type: ditch}
-    - {x: 428, y: 9, type: ditch}
-    - {x: 428, y: 10, type: ditch}
-    - {x: 428, y: 11, type: ditch}
-    - {x: 428, y: 12, type: ditch}
-    - {x: 428, y: 13, type: ditch}
-    - {x: 428, y: 14, type: ditch}
-    - {x: 429, y: 7, type: ditch}
-    - {x: 429, y: 8, type: ditch}
-    - {x: 429, y: 9, type: ditch}
-    - {x: 429, y: 10, type: ditch}
-    - {x: 429, y: 11, type: ditch}
-    - {x: 429, y: 12, type: ditch}
-    - {x: 429, y: 13, type: ditch}
-    - {x: 429, y: 14, type: ditch}
-    - {x: 432, y: 1, type: ditch}
-    - {x: 432, y: 2, type: ditch}
-    - {x: 432, y: 3, type: ditch}
-    - {x: 432, y: 4, type: ditch}
-    - {x: 432, y: 5, type: ditch}
-    - {x: 432, y: 6, type: ditch}
-    - {x: 432, y: 7, type: ditch}
-    - {x: 432, y: 8, type: ditch}
-    - {x: 433, y: 1, type: ditch}
-    - {x: 433, y: 2, type: ditch}
-    - {x: 433, y: 3, type: ditch}
-    - {x: 433, y: 4, type: ditch}
-    - {x: 433, y: 5, type: ditch}
-    - {x: 433, y: 6, type: ditch}
-    - {x: 433, y: 7, type: ditch}
-    - {x: 433, y: 8, type: ditch}
-    - {x: 436, y: 13, type: mountain}
-    - {x: 436, y: 14, type: mountain}
-    - {x: 437, y: 13, type: mountain}
-    - {x: 437, y: 14, type: mountain}
-    - {x: 438, y: 9, type: mountain}
-    - {x: 438, y: 10, type: mountain}
-    - {x: 438, y: 11, type: mountain}
-    - {x: 438, y: 12, type: mountain}
-    - {x: 438, y: 13, type: mountain}
-    - {x: 438, y: 14, type: mountain}
-    - {x: 439, y: 9, type: mountain}
-    - {x: 439, y: 10, type: mountain}
-    - {x: 439, y: 11, type: mountain}
-    - {x: 439, y: 12, type: mountain}
-    - {x: 439, y: 13, type: mountain}
-    - {x: 439, y: 14, type: mountain}
-    - {x: 440, y: 9, type: mountain}
-    - {x: 440, y: 10, type: mountain}
-    - {x: 440, y: 11, type: mountain}
-    - {x: 440, y: 12, type: mountain}
-    - {x: 440, y: 13, type: mountain}
-    - {x: 440, y: 14, type: mountain}
-    - {x: 441, y: 9, type: mountain}
-    - {x: 441, y: 10, type: mountain}
-    - {x: 441, y: 11, type: mountain}
-    - {x: 441, y: 12, type: mountain}
-    - {x: 441, y: 13, type: mountain}
-    - {x: 441, y: 14, type: mountain}
-    - {x: 442, y: 9, type: mountain}
-    - {x: 442, y: 10, type: mountain}
-    - {x: 442, y: 11, type: mountain}
-    - {x: 442, y: 12, type: mountain}
-    - {x: 442, y: 13, type: mountain}
-    - {x: 442, y: 14, type: mountain}
-    - {x: 443, y: 9, type: mountain}
-    - {x: 443, y: 10, type: mountain}
-    - {x: 443, y: 11, type: mountain}
-    - {x: 443, y: 12, type: mountain}
-    - {x: 443, y: 13, type: mountain}
-    - {x: 443, y: 14, type: mountain}
-    - {x: 444, y: 9, type: mountain}
-    - {x: 444, y: 10, type: mountain}
-    - {x: 444, y: 11, type: mountain}
-    - {x: 444, y: 12, type: mountain}
-    - {x: 444, y: 13, type: mountain}
-    - {x: 444, y: 14, type: mountain}
-    - {x: 445, y: 9, type: mountain}
-    - {x: 445, y: 10, type: mountain}
-    - {x: 445, y: 11, type: mountain}
-    - {x: 445, y: 12, type: mountain}
-    - {x: 445, y: 13, type: mountain}
-    - {x: 445, y: 14, type: mountain}
-    - {x: 446, y: 9, type: mountain}
-    - {x: 446, y: 10, type: mountain}
-    - {x: 446, y: 11, type: mountain}
-    - {x: 446, y: 12, type: mountain}
-    - {x: 446, y: 13, type: mountain}
-    - {x: 446, y: 14, type: mountain}
-    - {x: 447, y: 9, type: mountain}
-    - {x: 447, y: 10, type: mountain}
-    - {x: 447, y: 11, type: mountain}
-    - {x: 447, y: 12, type: mountain}
-    - {x: 447, y: 13, type: mountain}
-    - {x: 447, y: 14, type: mountain}
-    - {x: 448, y: 9, type: rough}
-    - {x: 448, y: 10, type: rough}
-    - {x: 448, y: 11, type: mountain}
-    - {x: 448, y: 12, type: mountain}
-    - {x: 448, y: 13, type: mountain}
-    - {x: 448, y: 14, type: mountain}
-    - {x: 449, y: 9, type: rough}
-    - {x: 449, y: 10, type: rough}
-    - {x: 449, y: 11, type: mountain}
-    - {x: 449, y: 12, type: mountain}
-    - {x: 449, y: 13, type: mountain}
-    - {x: 449, y: 14, type: mountain}
-    - {x: 450, y: 9, type: rough}
-    - {x: 450, y: 10, type: rough}
-    - {x: 450, y: 11, type: rough}
-    - {x: 450, y: 12, type: rough}
-    - {x: 450, y: 13, type: mountain}
-    - {x: 450, y: 14, type: mountain}
-    - {x: 451, y: 9, type: rough}
-    - {x: 451, y: 10, type: rough}
-    - {x: 451, y: 11, type: rough}
-    - {x: 451, y: 12, type: rough}
-    - {x: 451, y: 13, type: mountain}
-    - {x: 451, y: 14, type: mountain}
-    - {x: 453, y: 2, type: ditch}
-    - {x: 453, y: 3, type: ditch}
-    - {x: 454, y: 2, type: ditch}
-    - {x: 454, y: 3, type: ditch}
-    - {x: 455, y: 2, type: ditch}
-    - {x: 455, y: 3, type: ditch}
-    - {x: 456, y: 2, type: ditch}
-    - {x: 456, y: 3, type: ditch}
-    - {x: 457, y: 2, type: ditch}
-    - {x: 457, y: 3, type: ditch}
-    - {x: 458, y: 2, type: ditch}
-    - {x: 458, y: 3, type: ditch}
-    - {x: 459, y: 2, type: ditch}
-    - {x: 459, y: 3, type: ditch}
-    - {x: 460, y: 2, type: ditch}
-    - {x: 460, y: 3, type: ditch}
+    - {x: 32, y: 11, type: rough, height: 2}
+    - {x: 32, y: 12, type: rough, height: 2}
+    - {x: 33, y: 11, type: rough, height: 2}
+    - {x: 33, y: 12, type: rough, height: 2}
+    - {x: 34, y: 9, type: rough, height: 2}
+    - {x: 34, y: 10, type: rough, height: 2}
+    - {x: 34, y: 11, type: rough, height: 2}
+    - {x: 34, y: 12, type: rough, height: 2}
+    - {x: 34, y: 13, type: rough, height: 2}
+    - {x: 34, y: 14, type: rough, height: 2}
+    - {x: 35, y: 9, type: rough, height: 2}
+    - {x: 35, y: 10, type: rough, height: 2}
+    - {x: 35, y: 11, type: rough, height: 2}
+    - {x: 35, y: 12, type: rough, height: 2}
+    - {x: 35, y: 13, type: rough, height: 2}
+    - {x: 35, y: 14, type: rough, height: 2}
+    - {x: 36, y: 9, type: rough, height: 2}
+    - {x: 36, y: 10, type: rough, height: 2}
+    - {x: 36, y: 11, type: rough, height: 2}
+    - {x: 36, y: 12, type: rough, height: 2}
+    - {x: 36, y: 13, type: rough, height: 2}
+    - {x: 36, y: 14, type: rough, height: 2}
+    - {x: 37, y: 9, type: rough, height: 2}
+    - {x: 37, y: 10, type: rough, height: 2}
+    - {x: 37, y: 11, type: rough, height: 2}
+    - {x: 37, y: 12, type: rough, height: 2}
+    - {x: 37, y: 13, type: rough, height: 2}
+    - {x: 37, y: 14, type: rough, height: 2}
+    - {x: 38, y: 9, type: rough, height: 2}
+    - {x: 38, y: 10, type: rough, height: 2}
+    - {x: 38, y: 11, type: rough, height: 2}
+    - {x: 38, y: 12, type: rough, height: 2}
+    - {x: 38, y: 13, type: rough, height: 2}
+    - {x: 38, y: 14, type: rough, height: 2}
+    - {x: 39, y: 9, type: rough, height: 2}
+    - {x: 39, y: 10, type: rough, height: 2}
+    - {x: 39, y: 11, type: rough, height: 2}
+    - {x: 39, y: 12, type: rough, height: 2}
+    - {x: 39, y: 13, type: rough, height: 2}
+    - {x: 39, y: 14, type: rough, height: 2}
+    - {x: 40, y: 9, type: rough, height: 2}
+    - {x: 40, y: 10, type: rough, height: 2}
+    - {x: 40, y: 11, type: rough, height: 2}
+    - {x: 40, y: 12, type: rough, height: 2}
+    - {x: 40, y: 13, type: rough, height: 2}
+    - {x: 40, y: 14, type: rough, height: 2}
+    - {x: 41, y: 9, type: rough, height: 2}
+    - {x: 41, y: 10, type: rough, height: 2}
+    - {x: 41, y: 11, type: rough, height: 2}
+    - {x: 41, y: 12, type: rough, height: 2}
+    - {x: 41, y: 13, type: rough, height: 2}
+    - {x: 41, y: 14, type: rough, height: 2}
+    - {x: 42, y: 9, type: rough, height: 2}
+    - {x: 42, y: 10, type: rough, height: 2}
+    - {x: 42, y: 11, type: rough, height: 3}
+    - {x: 42, y: 12, type: rough, height: 3}
+    - {x: 42, y: 13, type: rough, height: 3}
+    - {x: 42, y: 14, type: rough, height: 3}
+    - {x: 43, y: 9, type: rough, height: 2}
+    - {x: 43, y: 10, type: rough, height: 2}
+    - {x: 43, y: 11, type: rough, height: 3}
+    - {x: 43, y: 12, type: rough, height: 3}
+    - {x: 43, y: 13, type: rough, height: 3}
+    - {x: 43, y: 14, type: rough, height: 3}
+    - {x: 44, y: 9, type: rough, height: 2}
+    - {x: 44, y: 10, type: rough, height: 2}
+    - {x: 44, y: 11, type: mountain, height: 6}
+    - {x: 44, y: 12, type: mountain, height: 6}
+    - {x: 44, y: 13, type: rough, height: 3}
+    - {x: 44, y: 14, type: rough, height: 3}
+    - {x: 45, y: 9, type: rough, height: 2}
+    - {x: 45, y: 10, type: rough, height: 2}
+    - {x: 45, y: 11, type: mountain, height: 6}
+    - {x: 45, y: 12, type: mountain, height: 6}
+    - {x: 45, y: 13, type: rough, height: 3}
+    - {x: 45, y: 14, type: rough, height: 3}
+    - {x: 46, y: 9, type: mountain, height: 6}
+    - {x: 46, y: 10, type: mountain, height: 6}
+    - {x: 46, y: 11, type: mountain, height: 6}
+    - {x: 46, y: 12, type: mountain, height: 6}
+    - {x: 46, y: 13, type: mountain, height: 6}
+    - {x: 46, y: 14, type: mountain, height: 6}
+    - {x: 47, y: 9, type: mountain, height: 6}
+    - {x: 47, y: 10, type: mountain, height: 6}
+    - {x: 47, y: 11, type: mountain, height: 6}
+    - {x: 47, y: 12, type: mountain, height: 6}
+    - {x: 47, y: 13, type: mountain, height: 6}
+    - {x: 47, y: 14, type: mountain, height: 6}
+    - {x: 48, y: 7, type: rough, height: 2}
+    - {x: 48, y: 8, type: rough, height: 2}
+    - {x: 48, y: 9, type: mountain, height: 6}
+    - {x: 48, y: 10, type: mountain, height: 6}
+    - {x: 48, y: 11, type: mountain, height: 6}
+    - {x: 48, y: 12, type: mountain, height: 6}
+    - {x: 48, y: 13, type: mountain, height: 6}
+    - {x: 48, y: 14, type: mountain, height: 6}
+    - {x: 49, y: 7, type: rough, height: 2}
+    - {x: 49, y: 8, type: rough, height: 2}
+    - {x: 49, y: 9, type: mountain, height: 6}
+    - {x: 49, y: 10, type: mountain, height: 6}
+    - {x: 49, y: 11, type: mountain, height: 6}
+    - {x: 49, y: 12, type: mountain, height: 6}
+    - {x: 49, y: 13, type: mountain, height: 6}
+    - {x: 49, y: 14, type: mountain, height: 6}
+    - {x: 50, y: 7, type: rough, height: 2}
+    - {x: 50, y: 8, type: rough, height: 2}
+    - {x: 50, y: 9, type: mountain, height: 6}
+    - {x: 50, y: 10, type: mountain, height: 6}
+    - {x: 50, y: 11, type: mountain, height: 6}
+    - {x: 50, y: 12, type: mountain, height: 6}
+    - {x: 50, y: 13, type: mountain, height: 6}
+    - {x: 50, y: 14, type: mountain, height: 6}
+    - {x: 51, y: 7, type: rough, height: 2}
+    - {x: 51, y: 8, type: rough, height: 2}
+    - {x: 51, y: 9, type: mountain, height: 6}
+    - {x: 51, y: 10, type: mountain, height: 6}
+    - {x: 51, y: 11, type: mountain, height: 6}
+    - {x: 51, y: 12, type: mountain, height: 6}
+    - {x: 51, y: 13, type: mountain, height: 6}
+    - {x: 51, y: 14, type: mountain, height: 6}
+    - {x: 52, y: 9, type: mountain, height: 6}
+    - {x: 52, y: 10, type: mountain, height: 6}
+    - {x: 52, y: 11, type: mountain, height: 6}
+    - {x: 52, y: 12, type: mountain, height: 6}
+    - {x: 52, y: 13, type: mountain, height: 6}
+    - {x: 52, y: 14, type: mountain, height: 6}
+    - {x: 53, y: 9, type: mountain, height: 6}
+    - {x: 53, y: 10, type: mountain, height: 6}
+    - {x: 53, y: 11, type: mountain, height: 6}
+    - {x: 53, y: 12, type: mountain, height: 6}
+    - {x: 53, y: 13, type: mountain, height: 6}
+    - {x: 53, y: 14, type: mountain, height: 6}
+    - {x: 54, y: 11, type: rough, height: 2}
+    - {x: 54, y: 12, type: rough, height: 2}
+    - {x: 54, y: 13, type: rough, height: 3}
+    - {x: 54, y: 14, type: rough, height: 3}
+    - {x: 55, y: 11, type: rough, height: 2}
+    - {x: 55, y: 12, type: rough, height: 2}
+    - {x: 55, y: 13, type: rough, height: 3}
+    - {x: 55, y: 14, type: rough, height: 3}
+    - {x: 56, y: 13, type: rough, height: 2}
+    - {x: 56, y: 14, type: rough, height: 2}
+    - {x: 57, y: 13, type: rough, height: 2}
+    - {x: 57, y: 14, type: rough, height: 2}
+    - {x: 72, y: 1, type: ditch, height: 0}
+    - {x: 72, y: 2, type: ditch, height: 0}
+    - {x: 72, y: 3, type: ditch, height: 0}
+    - {x: 72, y: 4, type: ditch, height: 0}
+    - {x: 72, y: 5, type: ditch, height: 0}
+    - {x: 72, y: 6, type: ditch, height: 0}
+    - {x: 72, y: 7, type: ditch, height: 0}
+    - {x: 72, y: 8, type: ditch, height: 0}
+    - {x: 73, y: 1, type: ditch, height: 0}
+    - {x: 73, y: 2, type: ditch, height: 0}
+    - {x: 73, y: 3, type: ditch, height: 0}
+    - {x: 73, y: 4, type: ditch, height: 0}
+    - {x: 73, y: 5, type: ditch, height: 0}
+    - {x: 73, y: 6, type: ditch, height: 0}
+    - {x: 73, y: 7, type: ditch, height: 0}
+    - {x: 73, y: 8, type: ditch, height: 0}
+    - {x: 83, y: 1, type: rough, height: 3}
+    - {x: 83, y: 2, type: rough, height: 3}
+    - {x: 83, y: 3, type: rough, height: 2}
+    - {x: 83, y: 4, type: rough, height: 2}
+    - {x: 83, y: 7, type: ditch, height: 0}
+    - {x: 83, y: 8, type: ditch, height: 0}
+    - {x: 83, y: 9, type: ditch, height: 0}
+    - {x: 83, y: 10, type: ditch, height: 0}
+    - {x: 83, y: 11, type: ditch, height: 0}
+    - {x: 83, y: 12, type: ditch, height: 0}
+    - {x: 83, y: 13, type: ditch, height: 0}
+    - {x: 83, y: 14, type: ditch, height: 0}
+    - {x: 84, y: 1, type: rough, height: 3}
+    - {x: 84, y: 2, type: rough, height: 3}
+    - {x: 84, y: 3, type: rough, height: 2}
+    - {x: 84, y: 4, type: rough, height: 2}
+    - {x: 84, y: 7, type: ditch, height: 0}
+    - {x: 84, y: 8, type: ditch, height: 0}
+    - {x: 84, y: 9, type: ditch, height: 0}
+    - {x: 84, y: 10, type: ditch, height: 0}
+    - {x: 84, y: 11, type: ditch, height: 0}
+    - {x: 84, y: 12, type: ditch, height: 0}
+    - {x: 84, y: 13, type: ditch, height: 0}
+    - {x: 84, y: 14, type: ditch, height: 0}
+    - {x: 85, y: 1, type: mountain, height: 6}
+    - {x: 85, y: 2, type: mountain, height: 6}
+    - {x: 85, y: 3, type: mountain, height: 6}
+    - {x: 85, y: 4, type: mountain, height: 6}
+    - {x: 85, y: 5, type: rough, height: 2}
+    - {x: 85, y: 6, type: rough, height: 2}
+    - {x: 86, y: 1, type: mountain, height: 6}
+    - {x: 86, y: 2, type: mountain, height: 6}
+    - {x: 86, y: 3, type: mountain, height: 6}
+    - {x: 86, y: 4, type: mountain, height: 6}
+    - {x: 86, y: 5, type: rough, height: 2}
+    - {x: 86, y: 6, type: rough, height: 2}
+    - {x: 87, y: 1, type: mountain, height: 6}
+    - {x: 87, y: 2, type: mountain, height: 6}
+    - {x: 87, y: 3, type: mountain, height: 6}
+    - {x: 87, y: 4, type: mountain, height: 6}
+    - {x: 87, y: 5, type: mountain, height: 6}
+    - {x: 87, y: 6, type: mountain, height: 6}
+    - {x: 88, y: 1, type: mountain, height: 6}
+    - {x: 88, y: 2, type: mountain, height: 6}
+    - {x: 88, y: 3, type: mountain, height: 6}
+    - {x: 88, y: 4, type: mountain, height: 6}
+    - {x: 88, y: 5, type: mountain, height: 6}
+    - {x: 88, y: 6, type: mountain, height: 6}
+    - {x: 89, y: 1, type: mountain, height: 6}
+    - {x: 89, y: 2, type: mountain, height: 6}
+    - {x: 89, y: 3, type: mountain, height: 6}
+    - {x: 89, y: 4, type: mountain, height: 6}
+    - {x: 89, y: 5, type: mountain, height: 6}
+    - {x: 89, y: 6, type: mountain, height: 6}
+    - {x: 90, y: 1, type: mountain, height: 6}
+    - {x: 90, y: 2, type: mountain, height: 6}
+    - {x: 90, y: 3, type: mountain, height: 6}
+    - {x: 90, y: 4, type: mountain, height: 6}
+    - {x: 90, y: 5, type: mountain, height: 6}
+    - {x: 90, y: 6, type: mountain, height: 6}
+    - {x: 91, y: 1, type: mountain, height: 6}
+    - {x: 91, y: 2, type: mountain, height: 6}
+    - {x: 91, y: 3, type: mountain, height: 6}
+    - {x: 91, y: 4, type: mountain, height: 6}
+    - {x: 91, y: 5, type: rough, height: 2}
+    - {x: 91, y: 6, type: rough, height: 2}
+    - {x: 92, y: 1, type: mountain, height: 6}
+    - {x: 92, y: 2, type: mountain, height: 6}
+    - {x: 92, y: 3, type: mountain, height: 6}
+    - {x: 92, y: 4, type: mountain, height: 6}
+    - {x: 92, y: 5, type: rough, height: 2}
+    - {x: 92, y: 6, type: rough, height: 2}
+    - {x: 93, y: 1, type: rough, height: 3}
+    - {x: 93, y: 2, type: rough, height: 3}
+    - {x: 93, y: 3, type: rough, height: 2}
+    - {x: 93, y: 4, type: rough, height: 2}
+    - {x: 94, y: 1, type: rough, height: 3}
+    - {x: 94, y: 2, type: rough, height: 3}
+    - {x: 94, y: 3, type: rough, height: 2}
+    - {x: 94, y: 4, type: rough, height: 2}
+    - {x: 104, y: 8, type: ditch, height: 0}
+    - {x: 104, y: 9, type: ditch, height: 0}
+    - {x: 105, y: 8, type: ditch, height: 0}
+    - {x: 105, y: 9, type: ditch, height: 0}
+    - {x: 106, y: 8, type: ditch, height: 0}
+    - {x: 106, y: 9, type: ditch, height: 0}
+    - {x: 107, y: 8, type: ditch, height: 0}
+    - {x: 107, y: 9, type: ditch, height: 0}
+    - {x: 108, y: 8, type: ditch, height: 0}
+    - {x: 108, y: 9, type: ditch, height: 0}
+    - {x: 109, y: 8, type: ditch, height: 0}
+    - {x: 109, y: 9, type: ditch, height: 0}
+    - {x: 110, y: 8, type: ditch, height: 0}
+    - {x: 110, y: 9, type: ditch, height: 0}
+    - {x: 111, y: 8, type: ditch, height: 0}
+    - {x: 111, y: 9, type: ditch, height: 0}
+    - {x: 112, y: 8, type: ditch, height: 0}
+    - {x: 112, y: 9, type: ditch, height: 0}
+    - {x: 113, y: 8, type: ditch, height: 0}
+    - {x: 113, y: 9, type: ditch, height: 0}
+    - {x: 114, y: 8, type: ditch, height: 0}
+    - {x: 114, y: 9, type: ditch, height: 0}
+    - {x: 115, y: 8, type: ditch, height: 0}
+    - {x: 115, y: 9, type: ditch, height: 0}
+    - {x: 116, y: 8, type: ditch, height: 0}
+    - {x: 116, y: 9, type: ditch, height: 0}
+    - {x: 117, y: 8, type: ditch, height: 0}
+    - {x: 117, y: 9, type: ditch, height: 0}
+    - {x: 151, y: 5, type: ditch, height: 0}
+    - {x: 151, y: 6, type: ditch, height: 0}
+    - {x: 151, y: 7, type: ditch, height: 0}
+    - {x: 151, y: 8, type: ditch, height: 0}
+    - {x: 151, y: 9, type: ditch, height: 0}
+    - {x: 151, y: 10, type: ditch, height: 0}
+    - {x: 151, y: 11, type: ditch, height: 0}
+    - {x: 151, y: 12, type: ditch, height: 0}
+    - {x: 152, y: 5, type: ditch, height: 0}
+    - {x: 152, y: 6, type: ditch, height: 0}
+    - {x: 152, y: 7, type: ditch, height: 0}
+    - {x: 152, y: 8, type: ditch, height: 0}
+    - {x: 152, y: 9, type: ditch, height: 0}
+    - {x: 152, y: 10, type: ditch, height: 0}
+    - {x: 152, y: 11, type: ditch, height: 0}
+    - {x: 152, y: 12, type: ditch, height: 0}
+    - {x: 165, y: 1, type: rough, height: 2}
+    - {x: 165, y: 2, type: rough, height: 2}
+    - {x: 165, y: 3, type: rough, height: 2}
+    - {x: 165, y: 4, type: rough, height: 2}
+    - {x: 165, y: 5, type: rough, height: 2}
+    - {x: 165, y: 6, type: rough, height: 2}
+    - {x: 166, y: 1, type: rough, height: 2}
+    - {x: 166, y: 2, type: rough, height: 2}
+    - {x: 166, y: 3, type: rough, height: 2}
+    - {x: 166, y: 4, type: rough, height: 2}
+    - {x: 166, y: 5, type: rough, height: 2}
+    - {x: 166, y: 6, type: rough, height: 2}
+    - {x: 167, y: 1, type: rough, height: 2}
+    - {x: 167, y: 2, type: rough, height: 2}
+    - {x: 167, y: 3, type: rough, height: 2}
+    - {x: 167, y: 4, type: rough, height: 2}
+    - {x: 167, y: 5, type: mountain, height: 6}
+    - {x: 167, y: 6, type: mountain, height: 6}
+    - {x: 167, y: 7, type: mountain, height: 6}
+    - {x: 167, y: 8, type: mountain, height: 6}
+    - {x: 167, y: 9, type: mountain, height: 6}
+    - {x: 167, y: 10, type: mountain, height: 6}
+    - {x: 168, y: 1, type: rough, height: 2}
+    - {x: 168, y: 2, type: rough, height: 2}
+    - {x: 168, y: 3, type: rough, height: 2}
+    - {x: 168, y: 4, type: rough, height: 2}
+    - {x: 168, y: 5, type: mountain, height: 6}
+    - {x: 168, y: 6, type: mountain, height: 6}
+    - {x: 168, y: 7, type: mountain, height: 6}
+    - {x: 168, y: 8, type: mountain, height: 6}
+    - {x: 168, y: 9, type: mountain, height: 6}
+    - {x: 168, y: 10, type: mountain, height: 6}
+    - {x: 169, y: 1, type: rough, height: 2}
+    - {x: 169, y: 2, type: rough, height: 2}
+    - {x: 169, y: 3, type: rough, height: 2}
+    - {x: 169, y: 4, type: rough, height: 2}
+    - {x: 169, y: 5, type: mountain, height: 6}
+    - {x: 169, y: 6, type: mountain, height: 6}
+    - {x: 169, y: 7, type: mountain, height: 6}
+    - {x: 169, y: 8, type: mountain, height: 6}
+    - {x: 169, y: 9, type: mountain, height: 6}
+    - {x: 169, y: 10, type: mountain, height: 6}
+    - {x: 170, y: 1, type: rough, height: 2}
+    - {x: 170, y: 2, type: rough, height: 2}
+    - {x: 170, y: 3, type: rough, height: 2}
+    - {x: 170, y: 4, type: rough, height: 2}
+    - {x: 170, y: 5, type: mountain, height: 6}
+    - {x: 170, y: 6, type: mountain, height: 6}
+    - {x: 170, y: 7, type: mountain, height: 6}
+    - {x: 170, y: 8, type: mountain, height: 6}
+    - {x: 170, y: 9, type: mountain, height: 6}
+    - {x: 170, y: 10, type: mountain, height: 6}
+    - {x: 171, y: 1, type: rough, height: 2}
+    - {x: 171, y: 2, type: rough, height: 2}
+    - {x: 171, y: 3, type: rough, height: 2}
+    - {x: 171, y: 4, type: rough, height: 2}
+    - {x: 171, y: 5, type: mountain, height: 6}
+    - {x: 171, y: 6, type: mountain, height: 6}
+    - {x: 171, y: 7, type: mountain, height: 6}
+    - {x: 171, y: 8, type: mountain, height: 6}
+    - {x: 171, y: 9, type: mountain, height: 6}
+    - {x: 171, y: 10, type: mountain, height: 6}
+    - {x: 172, y: 1, type: rough, height: 2}
+    - {x: 172, y: 2, type: rough, height: 2}
+    - {x: 172, y: 3, type: rough, height: 2}
+    - {x: 172, y: 4, type: rough, height: 2}
+    - {x: 172, y: 5, type: mountain, height: 6}
+    - {x: 172, y: 6, type: mountain, height: 6}
+    - {x: 172, y: 7, type: mountain, height: 6}
+    - {x: 172, y: 8, type: mountain, height: 6}
+    - {x: 172, y: 9, type: mountain, height: 6}
+    - {x: 172, y: 10, type: mountain, height: 6}
+    - {x: 173, y: 5, type: mountain, height: 6}
+    - {x: 173, y: 6, type: mountain, height: 6}
+    - {x: 173, y: 7, type: mountain, height: 6}
+    - {x: 173, y: 8, type: mountain, height: 6}
+    - {x: 173, y: 9, type: mountain, height: 6}
+    - {x: 173, y: 10, type: mountain, height: 6}
+    - {x: 173, y: 11, type: mountain, height: 6}
+    - {x: 173, y: 12, type: mountain, height: 6}
+    - {x: 174, y: 5, type: mountain, height: 6}
+    - {x: 174, y: 6, type: mountain, height: 6}
+    - {x: 174, y: 7, type: mountain, height: 6}
+    - {x: 174, y: 8, type: mountain, height: 6}
+    - {x: 174, y: 9, type: mountain, height: 6}
+    - {x: 174, y: 10, type: mountain, height: 6}
+    - {x: 174, y: 11, type: mountain, height: 6}
+    - {x: 174, y: 12, type: mountain, height: 6}
+    - {x: 175, y: 7, type: mountain, height: 6}
+    - {x: 175, y: 8, type: mountain, height: 6}
+    - {x: 175, y: 9, type: mountain, height: 6}
+    - {x: 175, y: 10, type: mountain, height: 6}
+    - {x: 175, y: 11, type: mountain, height: 6}
+    - {x: 175, y: 12, type: mountain, height: 6}
+    - {x: 176, y: 7, type: mountain, height: 6}
+    - {x: 176, y: 8, type: mountain, height: 6}
+    - {x: 176, y: 9, type: mountain, height: 6}
+    - {x: 176, y: 10, type: mountain, height: 6}
+    - {x: 176, y: 11, type: mountain, height: 6}
+    - {x: 176, y: 12, type: mountain, height: 6}
+    - {x: 177, y: 7, type: mountain, height: 6}
+    - {x: 177, y: 8, type: mountain, height: 6}
+    - {x: 177, y: 9, type: mountain, height: 6}
+    - {x: 177, y: 10, type: mountain, height: 6}
+    - {x: 177, y: 11, type: mountain, height: 6}
+    - {x: 177, y: 12, type: mountain, height: 6}
+    - {x: 178, y: 7, type: mountain, height: 6}
+    - {x: 178, y: 8, type: mountain, height: 6}
+    - {x: 178, y: 9, type: mountain, height: 6}
+    - {x: 178, y: 10, type: mountain, height: 6}
+    - {x: 178, y: 11, type: mountain, height: 6}
+    - {x: 178, y: 12, type: mountain, height: 6}
+    - {x: 179, y: 7, type: mountain, height: 6}
+    - {x: 179, y: 8, type: mountain, height: 6}
+    - {x: 179, y: 9, type: mountain, height: 6}
+    - {x: 179, y: 10, type: mountain, height: 6}
+    - {x: 179, y: 11, type: mountain, height: 6}
+    - {x: 179, y: 12, type: mountain, height: 6}
+    - {x: 179, y: 13, type: mountain, height: 6}
+    - {x: 179, y: 14, type: mountain, height: 6}
+    - {x: 180, y: 7, type: mountain, height: 6}
+    - {x: 180, y: 8, type: mountain, height: 6}
+    - {x: 180, y: 9, type: mountain, height: 6}
+    - {x: 180, y: 10, type: mountain, height: 6}
+    - {x: 180, y: 11, type: mountain, height: 6}
+    - {x: 180, y: 12, type: mountain, height: 6}
+    - {x: 180, y: 13, type: mountain, height: 6}
+    - {x: 180, y: 14, type: mountain, height: 6}
+    - {x: 181, y: 9, type: mountain, height: 6}
+    - {x: 181, y: 10, type: mountain, height: 6}
+    - {x: 181, y: 11, type: mountain, height: 6}
+    - {x: 181, y: 12, type: mountain, height: 6}
+    - {x: 181, y: 13, type: mountain, height: 6}
+    - {x: 181, y: 14, type: mountain, height: 6}
+    - {x: 182, y: 9, type: mountain, height: 6}
+    - {x: 182, y: 10, type: mountain, height: 6}
+    - {x: 182, y: 11, type: mountain, height: 6}
+    - {x: 182, y: 12, type: mountain, height: 6}
+    - {x: 182, y: 13, type: mountain, height: 6}
+    - {x: 182, y: 14, type: mountain, height: 6}
+    - {x: 183, y: 9, type: mountain, height: 6}
+    - {x: 183, y: 10, type: mountain, height: 6}
+    - {x: 183, y: 11, type: mountain, height: 6}
+    - {x: 183, y: 12, type: mountain, height: 6}
+    - {x: 183, y: 13, type: mountain, height: 6}
+    - {x: 183, y: 14, type: mountain, height: 6}
+    - {x: 184, y: 9, type: mountain, height: 6}
+    - {x: 184, y: 10, type: mountain, height: 6}
+    - {x: 184, y: 11, type: mountain, height: 6}
+    - {x: 184, y: 12, type: mountain, height: 6}
+    - {x: 184, y: 13, type: mountain, height: 6}
+    - {x: 184, y: 14, type: mountain, height: 6}
+    - {x: 185, y: 9, type: mountain, height: 6}
+    - {x: 185, y: 10, type: mountain, height: 6}
+    - {x: 185, y: 11, type: mountain, height: 6}
+    - {x: 185, y: 12, type: mountain, height: 6}
+    - {x: 185, y: 13, type: mountain, height: 6}
+    - {x: 185, y: 14, type: mountain, height: 6}
+    - {x: 186, y: 9, type: mountain, height: 6}
+    - {x: 186, y: 10, type: mountain, height: 6}
+    - {x: 186, y: 11, type: mountain, height: 6}
+    - {x: 186, y: 12, type: mountain, height: 6}
+    - {x: 186, y: 13, type: mountain, height: 6}
+    - {x: 186, y: 14, type: mountain, height: 6}
+    - {x: 235, y: 9, type: rough, height: 2}
+    - {x: 235, y: 10, type: rough, height: 2}
+    - {x: 235, y: 11, type: rough, height: 2}
+    - {x: 235, y: 12, type: rough, height: 2}
+    - {x: 235, y: 13, type: rough, height: 2}
+    - {x: 235, y: 14, type: rough, height: 2}
+    - {x: 236, y: 9, type: rough, height: 2}
+    - {x: 236, y: 10, type: rough, height: 2}
+    - {x: 236, y: 11, type: rough, height: 2}
+    - {x: 236, y: 12, type: rough, height: 2}
+    - {x: 236, y: 13, type: rough, height: 2}
+    - {x: 236, y: 14, type: rough, height: 2}
+    - {x: 237, y: 9, type: rough, height: 2}
+    - {x: 237, y: 10, type: rough, height: 2}
+    - {x: 237, y: 11, type: rough, height: 2}
+    - {x: 237, y: 12, type: rough, height: 2}
+    - {x: 237, y: 13, type: rough, height: 2}
+    - {x: 237, y: 14, type: rough, height: 2}
+    - {x: 238, y: 9, type: rough, height: 2}
+    - {x: 238, y: 10, type: rough, height: 2}
+    - {x: 238, y: 11, type: rough, height: 2}
+    - {x: 238, y: 12, type: rough, height: 2}
+    - {x: 238, y: 13, type: rough, height: 2}
+    - {x: 238, y: 14, type: rough, height: 2}
+    - {x: 239, y: 9, type: rough, height: 2}
+    - {x: 239, y: 10, type: rough, height: 2}
+    - {x: 239, y: 11, type: rough, height: 2}
+    - {x: 239, y: 12, type: rough, height: 2}
+    - {x: 239, y: 13, type: rough, height: 2}
+    - {x: 239, y: 14, type: rough, height: 2}
+    - {x: 240, y: 9, type: rough, height: 2}
+    - {x: 240, y: 10, type: rough, height: 2}
+    - {x: 240, y: 11, type: rough, height: 2}
+    - {x: 240, y: 12, type: rough, height: 2}
+    - {x: 240, y: 13, type: rough, height: 2}
+    - {x: 240, y: 14, type: rough, height: 2}
+    - {x: 241, y: 9, type: rough, height: 2}
+    - {x: 241, y: 10, type: rough, height: 2}
+    - {x: 241, y: 11, type: rough, height: 2}
+    - {x: 241, y: 12, type: rough, height: 2}
+    - {x: 241, y: 13, type: rough, height: 2}
+    - {x: 241, y: 14, type: rough, height: 2}
+    - {x: 242, y: 9, type: rough, height: 2}
+    - {x: 242, y: 10, type: rough, height: 2}
+    - {x: 242, y: 11, type: rough, height: 2}
+    - {x: 242, y: 12, type: rough, height: 2}
+    - {x: 242, y: 13, type: rough, height: 2}
+    - {x: 242, y: 14, type: rough, height: 2}
+    - {x: 243, y: 9, type: rough, height: 2}
+    - {x: 243, y: 10, type: rough, height: 2}
+    - {x: 243, y: 11, type: rough, height: 2}
+    - {x: 243, y: 12, type: rough, height: 2}
+    - {x: 243, y: 13, type: rough, height: 2}
+    - {x: 243, y: 14, type: rough, height: 2}
+    - {x: 244, y: 9, type: rough, height: 2}
+    - {x: 244, y: 10, type: rough, height: 2}
+    - {x: 244, y: 11, type: rough, height: 2}
+    - {x: 244, y: 12, type: rough, height: 2}
+    - {x: 244, y: 13, type: rough, height: 2}
+    - {x: 244, y: 14, type: rough, height: 2}
+    - {x: 245, y: 9, type: rough, height: 2}
+    - {x: 245, y: 10, type: rough, height: 2}
+    - {x: 245, y: 11, type: rough, height: 2}
+    - {x: 245, y: 12, type: rough, height: 2}
+    - {x: 245, y: 13, type: rough, height: 2}
+    - {x: 245, y: 14, type: rough, height: 2}
+    - {x: 246, y: 9, type: rough, height: 2}
+    - {x: 246, y: 10, type: rough, height: 2}
+    - {x: 246, y: 11, type: rough, height: 2}
+    - {x: 246, y: 12, type: rough, height: 2}
+    - {x: 246, y: 13, type: rough, height: 2}
+    - {x: 246, y: 14, type: rough, height: 2}
+    - {x: 247, y: 9, type: rough, height: 2}
+    - {x: 247, y: 10, type: rough, height: 2}
+    - {x: 247, y: 11, type: rough, height: 2}
+    - {x: 247, y: 12, type: rough, height: 2}
+    - {x: 247, y: 13, type: rough, height: 2}
+    - {x: 247, y: 14, type: rough, height: 2}
+    - {x: 248, y: 9, type: rough, height: 2}
+    - {x: 248, y: 10, type: rough, height: 2}
+    - {x: 248, y: 11, type: rough, height: 2}
+    - {x: 248, y: 12, type: rough, height: 2}
+    - {x: 248, y: 13, type: rough, height: 2}
+    - {x: 248, y: 14, type: rough, height: 2}
+    - {x: 249, y: 9, type: rough, height: 2}
+    - {x: 249, y: 10, type: rough, height: 2}
+    - {x: 249, y: 11, type: rough, height: 2}
+    - {x: 249, y: 12, type: rough, height: 2}
+    - {x: 249, y: 13, type: rough, height: 2}
+    - {x: 249, y: 14, type: rough, height: 2}
+    - {x: 250, y: 9, type: rough, height: 2}
+    - {x: 250, y: 10, type: rough, height: 2}
+    - {x: 250, y: 11, type: rough, height: 2}
+    - {x: 250, y: 12, type: rough, height: 2}
+    - {x: 250, y: 13, type: rough, height: 2}
+    - {x: 250, y: 14, type: rough, height: 2}
+    - {x: 251, y: 11, type: rough, height: 2}
+    - {x: 251, y: 12, type: rough, height: 2}
+    - {x: 251, y: 13, type: rough, height: 2}
+    - {x: 251, y: 14, type: rough, height: 2}
+    - {x: 252, y: 11, type: rough, height: 2}
+    - {x: 252, y: 12, type: rough, height: 2}
+    - {x: 252, y: 13, type: rough, height: 2}
+    - {x: 252, y: 14, type: rough, height: 2}
+    - {x: 253, y: 13, type: rough, height: 2}
+    - {x: 253, y: 14, type: rough, height: 2}
+    - {x: 254, y: 13, type: rough, height: 2}
+    - {x: 254, y: 14, type: rough, height: 2}
+    - {x: 264, y: 13, type: mountain, height: 6}
+    - {x: 264, y: 14, type: mountain, height: 6}
+    - {x: 265, y: 13, type: mountain, height: 6}
+    - {x: 265, y: 14, type: mountain, height: 6}
+    - {x: 266, y: 11, type: mountain, height: 6}
+    - {x: 266, y: 12, type: mountain, height: 6}
+    - {x: 266, y: 13, type: mountain, height: 6}
+    - {x: 266, y: 14, type: mountain, height: 6}
+    - {x: 267, y: 11, type: mountain, height: 6}
+    - {x: 267, y: 12, type: mountain, height: 6}
+    - {x: 267, y: 13, type: mountain, height: 6}
+    - {x: 267, y: 14, type: mountain, height: 6}
+    - {x: 268, y: 9, type: mountain, height: 6}
+    - {x: 268, y: 10, type: mountain, height: 6}
+    - {x: 268, y: 11, type: mountain, height: 6}
+    - {x: 268, y: 12, type: mountain, height: 6}
+    - {x: 268, y: 13, type: mountain, height: 6}
+    - {x: 268, y: 14, type: mountain, height: 6}
+    - {x: 269, y: 9, type: mountain, height: 6}
+    - {x: 269, y: 10, type: mountain, height: 6}
+    - {x: 269, y: 11, type: mountain, height: 6}
+    - {x: 269, y: 12, type: mountain, height: 6}
+    - {x: 269, y: 13, type: mountain, height: 6}
+    - {x: 269, y: 14, type: mountain, height: 6}
+    - {x: 270, y: 1, type: mountain, height: 6}
+    - {x: 270, y: 2, type: mountain, height: 6}
+    - {x: 270, y: 3, type: mountain, height: 6}
+    - {x: 270, y: 4, type: mountain, height: 6}
+    - {x: 270, y: 5, type: mountain, height: 6}
+    - {x: 270, y: 6, type: mountain, height: 6}
+    - {x: 270, y: 9, type: mountain, height: 6}
+    - {x: 270, y: 10, type: mountain, height: 6}
+    - {x: 270, y: 11, type: mountain, height: 6}
+    - {x: 270, y: 12, type: mountain, height: 6}
+    - {x: 270, y: 13, type: mountain, height: 6}
+    - {x: 270, y: 14, type: mountain, height: 6}
+    - {x: 271, y: 1, type: mountain, height: 6}
+    - {x: 271, y: 2, type: mountain, height: 6}
+    - {x: 271, y: 3, type: mountain, height: 6}
+    - {x: 271, y: 4, type: mountain, height: 6}
+    - {x: 271, y: 5, type: mountain, height: 6}
+    - {x: 271, y: 6, type: mountain, height: 6}
+    - {x: 271, y: 9, type: mountain, height: 6}
+    - {x: 271, y: 10, type: mountain, height: 6}
+    - {x: 271, y: 11, type: mountain, height: 6}
+    - {x: 271, y: 12, type: mountain, height: 6}
+    - {x: 271, y: 13, type: mountain, height: 6}
+    - {x: 271, y: 14, type: mountain, height: 6}
+    - {x: 272, y: 1, type: mountain, height: 6}
+    - {x: 272, y: 2, type: mountain, height: 6}
+    - {x: 272, y: 3, type: mountain, height: 6}
+    - {x: 272, y: 4, type: mountain, height: 6}
+    - {x: 272, y: 5, type: mountain, height: 6}
+    - {x: 272, y: 6, type: mountain, height: 6}
+    - {x: 272, y: 9, type: mountain, height: 6}
+    - {x: 272, y: 10, type: mountain, height: 6}
+    - {x: 272, y: 11, type: mountain, height: 6}
+    - {x: 272, y: 12, type: mountain, height: 6}
+    - {x: 272, y: 13, type: mountain, height: 6}
+    - {x: 272, y: 14, type: mountain, height: 6}
+    - {x: 273, y: 1, type: mountain, height: 6}
+    - {x: 273, y: 2, type: mountain, height: 6}
+    - {x: 273, y: 3, type: mountain, height: 6}
+    - {x: 273, y: 4, type: mountain, height: 6}
+    - {x: 273, y: 5, type: mountain, height: 6}
+    - {x: 273, y: 6, type: mountain, height: 6}
+    - {x: 273, y: 9, type: mountain, height: 6}
+    - {x: 273, y: 10, type: mountain, height: 6}
+    - {x: 273, y: 11, type: mountain, height: 6}
+    - {x: 273, y: 12, type: mountain, height: 6}
+    - {x: 273, y: 13, type: mountain, height: 6}
+    - {x: 273, y: 14, type: mountain, height: 6}
+    - {x: 274, y: 1, type: mountain, height: 6}
+    - {x: 274, y: 2, type: mountain, height: 6}
+    - {x: 274, y: 3, type: mountain, height: 6}
+    - {x: 274, y: 4, type: mountain, height: 6}
+    - {x: 274, y: 5, type: mountain, height: 6}
+    - {x: 274, y: 6, type: mountain, height: 6}
+    - {x: 274, y: 9, type: mountain, height: 6}
+    - {x: 274, y: 10, type: mountain, height: 6}
+    - {x: 274, y: 11, type: mountain, height: 6}
+    - {x: 274, y: 12, type: mountain, height: 6}
+    - {x: 274, y: 13, type: mountain, height: 6}
+    - {x: 274, y: 14, type: mountain, height: 6}
+    - {x: 275, y: 1, type: mountain, height: 6}
+    - {x: 275, y: 2, type: mountain, height: 6}
+    - {x: 275, y: 3, type: mountain, height: 6}
+    - {x: 275, y: 4, type: mountain, height: 6}
+    - {x: 275, y: 5, type: mountain, height: 6}
+    - {x: 275, y: 6, type: mountain, height: 6}
+    - {x: 275, y: 9, type: mountain, height: 6}
+    - {x: 275, y: 10, type: mountain, height: 6}
+    - {x: 275, y: 11, type: mountain, height: 6}
+    - {x: 275, y: 12, type: mountain, height: 6}
+    - {x: 275, y: 13, type: mountain, height: 6}
+    - {x: 275, y: 14, type: mountain, height: 6}
+    - {x: 276, y: 1, type: mountain, height: 6}
+    - {x: 276, y: 2, type: mountain, height: 6}
+    - {x: 276, y: 3, type: mountain, height: 6}
+    - {x: 276, y: 4, type: mountain, height: 6}
+    - {x: 276, y: 5, type: mountain, height: 6}
+    - {x: 276, y: 6, type: mountain, height: 6}
+    - {x: 276, y: 9, type: mountain, height: 6}
+    - {x: 276, y: 10, type: mountain, height: 6}
+    - {x: 276, y: 11, type: mountain, height: 6}
+    - {x: 276, y: 12, type: mountain, height: 6}
+    - {x: 276, y: 13, type: mountain, height: 6}
+    - {x: 276, y: 14, type: mountain, height: 6}
+    - {x: 277, y: 1, type: mountain, height: 6}
+    - {x: 277, y: 2, type: mountain, height: 6}
+    - {x: 277, y: 3, type: mountain, height: 6}
+    - {x: 277, y: 4, type: mountain, height: 6}
+    - {x: 277, y: 5, type: mountain, height: 6}
+    - {x: 277, y: 6, type: mountain, height: 6}
+    - {x: 277, y: 9, type: mountain, height: 6}
+    - {x: 277, y: 10, type: mountain, height: 6}
+    - {x: 277, y: 11, type: mountain, height: 6}
+    - {x: 277, y: 12, type: mountain, height: 6}
+    - {x: 277, y: 13, type: mountain, height: 6}
+    - {x: 277, y: 14, type: mountain, height: 6}
+    - {x: 278, y: 9, type: mountain, height: 6}
+    - {x: 278, y: 10, type: mountain, height: 6}
+    - {x: 278, y: 11, type: mountain, height: 6}
+    - {x: 278, y: 12, type: mountain, height: 6}
+    - {x: 278, y: 13, type: mountain, height: 6}
+    - {x: 278, y: 14, type: mountain, height: 6}
+    - {x: 279, y: 9, type: mountain, height: 6}
+    - {x: 279, y: 10, type: mountain, height: 6}
+    - {x: 279, y: 11, type: mountain, height: 6}
+    - {x: 279, y: 12, type: mountain, height: 6}
+    - {x: 279, y: 13, type: mountain, height: 6}
+    - {x: 279, y: 14, type: mountain, height: 6}
+    - {x: 280, y: 11, type: mountain, height: 6}
+    - {x: 280, y: 12, type: mountain, height: 6}
+    - {x: 280, y: 13, type: mountain, height: 6}
+    - {x: 280, y: 14, type: mountain, height: 6}
+    - {x: 281, y: 11, type: mountain, height: 6}
+    - {x: 281, y: 12, type: mountain, height: 6}
+    - {x: 281, y: 13, type: mountain, height: 6}
+    - {x: 281, y: 14, type: mountain, height: 6}
+    - {x: 379, y: 13, type: rough, height: 2}
+    - {x: 379, y: 14, type: rough, height: 2}
+    - {x: 380, y: 13, type: rough, height: 2}
+    - {x: 380, y: 14, type: rough, height: 2}
+    - {x: 381, y: 11, type: rough, height: 2}
+    - {x: 381, y: 12, type: rough, height: 2}
+    - {x: 381, y: 13, type: rough, height: 2}
+    - {x: 381, y: 14, type: rough, height: 2}
+    - {x: 382, y: 11, type: rough, height: 2}
+    - {x: 382, y: 12, type: rough, height: 2}
+    - {x: 382, y: 13, type: rough, height: 2}
+    - {x: 382, y: 14, type: rough, height: 2}
+    - {x: 383, y: 9, type: rough, height: 2}
+    - {x: 383, y: 10, type: rough, height: 2}
+    - {x: 383, y: 11, type: rough, height: 2}
+    - {x: 383, y: 12, type: rough, height: 2}
+    - {x: 383, y: 13, type: rough, height: 2}
+    - {x: 383, y: 14, type: rough, height: 2}
+    - {x: 384, y: 9, type: rough, height: 2}
+    - {x: 384, y: 10, type: rough, height: 2}
+    - {x: 384, y: 11, type: rough, height: 2}
+    - {x: 384, y: 12, type: rough, height: 2}
+    - {x: 384, y: 13, type: rough, height: 2}
+    - {x: 384, y: 14, type: rough, height: 2}
+    - {x: 385, y: 9, type: rough, height: 2}
+    - {x: 385, y: 10, type: rough, height: 2}
+    - {x: 385, y: 11, type: rough, height: 2}
+    - {x: 385, y: 12, type: rough, height: 2}
+    - {x: 385, y: 13, type: rough, height: 2}
+    - {x: 385, y: 14, type: rough, height: 2}
+    - {x: 386, y: 9, type: rough, height: 2}
+    - {x: 386, y: 10, type: rough, height: 2}
+    - {x: 386, y: 11, type: rough, height: 2}
+    - {x: 386, y: 12, type: rough, height: 2}
+    - {x: 386, y: 13, type: rough, height: 2}
+    - {x: 386, y: 14, type: rough, height: 2}
+    - {x: 387, y: 9, type: rough, height: 2}
+    - {x: 387, y: 10, type: rough, height: 2}
+    - {x: 387, y: 11, type: rough, height: 2}
+    - {x: 387, y: 12, type: rough, height: 2}
+    - {x: 387, y: 13, type: rough, height: 2}
+    - {x: 387, y: 14, type: rough, height: 2}
+    - {x: 388, y: 9, type: rough, height: 2}
+    - {x: 388, y: 10, type: rough, height: 2}
+    - {x: 388, y: 11, type: rough, height: 2}
+    - {x: 388, y: 12, type: rough, height: 2}
+    - {x: 388, y: 13, type: rough, height: 2}
+    - {x: 388, y: 14, type: rough, height: 2}
+    - {x: 389, y: 9, type: rough, height: 2}
+    - {x: 389, y: 10, type: rough, height: 2}
+    - {x: 389, y: 11, type: rough, height: 2}
+    - {x: 389, y: 12, type: rough, height: 2}
+    - {x: 389, y: 13, type: rough, height: 2}
+    - {x: 389, y: 14, type: rough, height: 2}
+    - {x: 390, y: 9, type: rough, height: 2}
+    - {x: 390, y: 10, type: rough, height: 2}
+    - {x: 390, y: 11, type: rough, height: 2}
+    - {x: 390, y: 12, type: rough, height: 2}
+    - {x: 390, y: 13, type: rough, height: 2}
+    - {x: 390, y: 14, type: rough, height: 2}
+    - {x: 391, y: 11, type: rough, height: 2}
+    - {x: 391, y: 12, type: rough, height: 2}
+    - {x: 391, y: 13, type: rough, height: 2}
+    - {x: 391, y: 14, type: rough, height: 2}
+    - {x: 392, y: 11, type: rough, height: 2}
+    - {x: 392, y: 12, type: rough, height: 2}
+    - {x: 392, y: 13, type: rough, height: 2}
+    - {x: 392, y: 14, type: rough, height: 2}
+    - {x: 393, y: 13, type: rough, height: 2}
+    - {x: 393, y: 14, type: rough, height: 2}
+    - {x: 394, y: 13, type: rough, height: 2}
+    - {x: 394, y: 14, type: rough, height: 2}
+    - {x: 406, y: 4, type: ditch, height: 0}
+    - {x: 406, y: 5, type: ditch, height: 0}
+    - {x: 407, y: 4, type: ditch, height: 0}
+    - {x: 407, y: 5, type: ditch, height: 0}
+    - {x: 408, y: 4, type: ditch, height: 0}
+    - {x: 408, y: 5, type: ditch, height: 0}
+    - {x: 409, y: 4, type: ditch, height: 0}
+    - {x: 409, y: 5, type: ditch, height: 0}
+    - {x: 409, y: 8, type: ditch, height: 0}
+    - {x: 409, y: 9, type: ditch, height: 0}
+    - {x: 409, y: 12, type: ditch, height: 0}
+    - {x: 409, y: 13, type: ditch, height: 0}
+    - {x: 410, y: 4, type: ditch, height: 0}
+    - {x: 410, y: 5, type: ditch, height: 0}
+    - {x: 410, y: 8, type: ditch, height: 0}
+    - {x: 410, y: 9, type: ditch, height: 0}
+    - {x: 410, y: 12, type: ditch, height: 0}
+    - {x: 410, y: 13, type: ditch, height: 0}
+    - {x: 411, y: 4, type: ditch, height: 0}
+    - {x: 411, y: 5, type: ditch, height: 0}
+    - {x: 411, y: 8, type: ditch, height: 0}
+    - {x: 411, y: 9, type: ditch, height: 0}
+    - {x: 411, y: 12, type: ditch, height: 0}
+    - {x: 411, y: 13, type: ditch, height: 0}
+    - {x: 412, y: 4, type: ditch, height: 0}
+    - {x: 412, y: 5, type: ditch, height: 0}
+    - {x: 412, y: 8, type: ditch, height: 0}
+    - {x: 412, y: 9, type: ditch, height: 0}
+    - {x: 412, y: 12, type: ditch, height: 0}
+    - {x: 412, y: 13, type: ditch, height: 0}
+    - {x: 413, y: 4, type: ditch, height: 0}
+    - {x: 413, y: 5, type: ditch, height: 0}
+    - {x: 413, y: 8, type: ditch, height: 0}
+    - {x: 413, y: 9, type: ditch, height: 0}
+    - {x: 413, y: 12, type: ditch, height: 0}
+    - {x: 413, y: 13, type: ditch, height: 0}
+    - {x: 414, y: 8, type: ditch, height: 0}
+    - {x: 414, y: 9, type: ditch, height: 0}
+    - {x: 414, y: 12, type: ditch, height: 0}
+    - {x: 414, y: 13, type: ditch, height: 0}
+    - {x: 415, y: 8, type: ditch, height: 0}
+    - {x: 415, y: 9, type: ditch, height: 0}
+    - {x: 415, y: 12, type: ditch, height: 0}
+    - {x: 415, y: 13, type: ditch, height: 0}
+    - {x: 416, y: 8, type: ditch, height: 0}
+    - {x: 416, y: 9, type: ditch, height: 0}
+    - {x: 416, y: 12, type: ditch, height: 0}
+    - {x: 416, y: 13, type: ditch, height: 0}
+    - {x: 420, y: 7, type: ditch, height: 0}
+    - {x: 420, y: 8, type: ditch, height: 0}
+    - {x: 420, y: 9, type: ditch, height: 0}
+    - {x: 420, y: 10, type: ditch, height: 0}
+    - {x: 420, y: 11, type: ditch, height: 0}
+    - {x: 420, y: 12, type: ditch, height: 0}
+    - {x: 420, y: 13, type: ditch, height: 0}
+    - {x: 420, y: 14, type: ditch, height: 0}
+    - {x: 421, y: 7, type: ditch, height: 0}
+    - {x: 421, y: 8, type: ditch, height: 0}
+    - {x: 421, y: 9, type: ditch, height: 0}
+    - {x: 421, y: 10, type: ditch, height: 0}
+    - {x: 421, y: 11, type: ditch, height: 0}
+    - {x: 421, y: 12, type: ditch, height: 0}
+    - {x: 421, y: 13, type: ditch, height: 0}
+    - {x: 421, y: 14, type: ditch, height: 0}
+    - {x: 424, y: 1, type: ditch, height: 0}
+    - {x: 424, y: 2, type: ditch, height: 0}
+    - {x: 424, y: 3, type: ditch, height: 0}
+    - {x: 424, y: 4, type: ditch, height: 0}
+    - {x: 424, y: 5, type: ditch, height: 0}
+    - {x: 424, y: 6, type: ditch, height: 0}
+    - {x: 424, y: 7, type: ditch, height: 0}
+    - {x: 424, y: 8, type: ditch, height: 0}
+    - {x: 425, y: 1, type: ditch, height: 0}
+    - {x: 425, y: 2, type: ditch, height: 0}
+    - {x: 425, y: 3, type: ditch, height: 0}
+    - {x: 425, y: 4, type: ditch, height: 0}
+    - {x: 425, y: 5, type: ditch, height: 0}
+    - {x: 425, y: 6, type: ditch, height: 0}
+    - {x: 425, y: 7, type: ditch, height: 0}
+    - {x: 425, y: 8, type: ditch, height: 0}
+    - {x: 428, y: 7, type: ditch, height: 0}
+    - {x: 428, y: 8, type: ditch, height: 0}
+    - {x: 428, y: 9, type: ditch, height: 0}
+    - {x: 428, y: 10, type: ditch, height: 0}
+    - {x: 428, y: 11, type: ditch, height: 0}
+    - {x: 428, y: 12, type: ditch, height: 0}
+    - {x: 428, y: 13, type: ditch, height: 0}
+    - {x: 428, y: 14, type: ditch, height: 0}
+    - {x: 429, y: 7, type: ditch, height: 0}
+    - {x: 429, y: 8, type: ditch, height: 0}
+    - {x: 429, y: 9, type: ditch, height: 0}
+    - {x: 429, y: 10, type: ditch, height: 0}
+    - {x: 429, y: 11, type: ditch, height: 0}
+    - {x: 429, y: 12, type: ditch, height: 0}
+    - {x: 429, y: 13, type: ditch, height: 0}
+    - {x: 429, y: 14, type: ditch, height: 0}
+    - {x: 432, y: 1, type: ditch, height: 0}
+    - {x: 432, y: 2, type: ditch, height: 0}
+    - {x: 432, y: 3, type: ditch, height: 0}
+    - {x: 432, y: 4, type: ditch, height: 0}
+    - {x: 432, y: 5, type: ditch, height: 0}
+    - {x: 432, y: 6, type: ditch, height: 0}
+    - {x: 432, y: 7, type: ditch, height: 0}
+    - {x: 432, y: 8, type: ditch, height: 0}
+    - {x: 433, y: 1, type: ditch, height: 0}
+    - {x: 433, y: 2, type: ditch, height: 0}
+    - {x: 433, y: 3, type: ditch, height: 0}
+    - {x: 433, y: 4, type: ditch, height: 0}
+    - {x: 433, y: 5, type: ditch, height: 0}
+    - {x: 433, y: 6, type: ditch, height: 0}
+    - {x: 433, y: 7, type: ditch, height: 0}
+    - {x: 433, y: 8, type: ditch, height: 0}
+    - {x: 436, y: 13, type: mountain, height: 6}
+    - {x: 436, y: 14, type: mountain, height: 6}
+    - {x: 437, y: 13, type: mountain, height: 6}
+    - {x: 437, y: 14, type: mountain, height: 6}
+    - {x: 438, y: 9, type: mountain, height: 6}
+    - {x: 438, y: 10, type: mountain, height: 6}
+    - {x: 438, y: 11, type: mountain, height: 6}
+    - {x: 438, y: 12, type: mountain, height: 6}
+    - {x: 438, y: 13, type: mountain, height: 6}
+    - {x: 438, y: 14, type: mountain, height: 6}
+    - {x: 439, y: 9, type: mountain, height: 6}
+    - {x: 439, y: 10, type: mountain, height: 6}
+    - {x: 439, y: 11, type: mountain, height: 6}
+    - {x: 439, y: 12, type: mountain, height: 6}
+    - {x: 439, y: 13, type: mountain, height: 6}
+    - {x: 439, y: 14, type: mountain, height: 6}
+    - {x: 440, y: 9, type: mountain, height: 6}
+    - {x: 440, y: 10, type: mountain, height: 6}
+    - {x: 440, y: 11, type: mountain, height: 6}
+    - {x: 440, y: 12, type: mountain, height: 6}
+    - {x: 440, y: 13, type: mountain, height: 6}
+    - {x: 440, y: 14, type: mountain, height: 6}
+    - {x: 441, y: 9, type: mountain, height: 6}
+    - {x: 441, y: 10, type: mountain, height: 6}
+    - {x: 441, y: 11, type: mountain, height: 6}
+    - {x: 441, y: 12, type: mountain, height: 6}
+    - {x: 441, y: 13, type: mountain, height: 6}
+    - {x: 441, y: 14, type: mountain, height: 6}
+    - {x: 442, y: 9, type: mountain, height: 6}
+    - {x: 442, y: 10, type: mountain, height: 6}
+    - {x: 442, y: 11, type: mountain, height: 6}
+    - {x: 442, y: 12, type: mountain, height: 6}
+    - {x: 442, y: 13, type: mountain, height: 6}
+    - {x: 442, y: 14, type: mountain, height: 6}
+    - {x: 443, y: 9, type: mountain, height: 6}
+    - {x: 443, y: 10, type: mountain, height: 6}
+    - {x: 443, y: 11, type: mountain, height: 6}
+    - {x: 443, y: 12, type: mountain, height: 6}
+    - {x: 443, y: 13, type: mountain, height: 6}
+    - {x: 443, y: 14, type: mountain, height: 6}
+    - {x: 444, y: 9, type: mountain, height: 6}
+    - {x: 444, y: 10, type: mountain, height: 6}
+    - {x: 444, y: 11, type: mountain, height: 6}
+    - {x: 444, y: 12, type: mountain, height: 6}
+    - {x: 444, y: 13, type: mountain, height: 6}
+    - {x: 444, y: 14, type: mountain, height: 6}
+    - {x: 445, y: 9, type: mountain, height: 6}
+    - {x: 445, y: 10, type: mountain, height: 6}
+    - {x: 445, y: 11, type: mountain, height: 6}
+    - {x: 445, y: 12, type: mountain, height: 6}
+    - {x: 445, y: 13, type: mountain, height: 6}
+    - {x: 445, y: 14, type: mountain, height: 6}
+    - {x: 446, y: 9, type: mountain, height: 6}
+    - {x: 446, y: 10, type: mountain, height: 6}
+    - {x: 446, y: 11, type: mountain, height: 6}
+    - {x: 446, y: 12, type: mountain, height: 6}
+    - {x: 446, y: 13, type: mountain, height: 6}
+    - {x: 446, y: 14, type: mountain, height: 6}
+    - {x: 447, y: 9, type: mountain, height: 6}
+    - {x: 447, y: 10, type: mountain, height: 6}
+    - {x: 447, y: 11, type: mountain, height: 6}
+    - {x: 447, y: 12, type: mountain, height: 6}
+    - {x: 447, y: 13, type: mountain, height: 6}
+    - {x: 447, y: 14, type: mountain, height: 6}
+    - {x: 448, y: 9, type: rough, height: 2}
+    - {x: 448, y: 10, type: rough, height: 2}
+    - {x: 448, y: 11, type: mountain, height: 6}
+    - {x: 448, y: 12, type: mountain, height: 6}
+    - {x: 448, y: 13, type: mountain, height: 6}
+    - {x: 448, y: 14, type: mountain, height: 6}
+    - {x: 449, y: 9, type: rough, height: 2}
+    - {x: 449, y: 10, type: rough, height: 2}
+    - {x: 449, y: 11, type: mountain, height: 6}
+    - {x: 449, y: 12, type: mountain, height: 6}
+    - {x: 449, y: 13, type: mountain, height: 6}
+    - {x: 449, y: 14, type: mountain, height: 6}
+    - {x: 450, y: 9, type: rough, height: 2}
+    - {x: 450, y: 10, type: rough, height: 2}
+    - {x: 450, y: 11, type: rough, height: 2}
+    - {x: 450, y: 12, type: rough, height: 2}
+    - {x: 450, y: 13, type: mountain, height: 6}
+    - {x: 450, y: 14, type: mountain, height: 6}
+    - {x: 451, y: 9, type: rough, height: 2}
+    - {x: 451, y: 10, type: rough, height: 2}
+    - {x: 451, y: 11, type: rough, height: 2}
+    - {x: 451, y: 12, type: rough, height: 2}
+    - {x: 451, y: 13, type: mountain, height: 6}
+    - {x: 451, y: 14, type: mountain, height: 6}
+    - {x: 453, y: 2, type: ditch, height: 0}
+    - {x: 453, y: 3, type: ditch, height: 0}
+    - {x: 454, y: 2, type: ditch, height: 0}
+    - {x: 454, y: 3, type: ditch, height: 0}
+    - {x: 455, y: 2, type: ditch, height: 0}
+    - {x: 455, y: 3, type: ditch, height: 0}
+    - {x: 456, y: 2, type: ditch, height: 0}
+    - {x: 456, y: 3, type: ditch, height: 0}
+    - {x: 457, y: 2, type: ditch, height: 0}
+    - {x: 457, y: 3, type: ditch, height: 0}
+    - {x: 458, y: 2, type: ditch, height: 0}
+    - {x: 458, y: 3, type: ditch, height: 0}
+    - {x: 459, y: 2, type: ditch, height: 0}
+    - {x: 459, y: 3, type: ditch, height: 0}
+    - {x: 460, y: 2, type: ditch, height: 0}
+    - {x: 460, y: 3, type: ditch, height: 0}
 
 war_bases:
   - id: warbase-1
@@ -1802,6 +1806,1317 @@ factories:
       - {x: 469, y: 3, height: 7}
     factory_type: chassis
 
+# Blockers: the 165 scenery elements (660 cells) decoded from the Spectrum
+# map-element tables by `data/maps/decode_zx_terrain.py <asm> blockers`
+# (CR002.1, #168). One entry per 2x2 element; kind per element type:
+# 17 box_low (height 7), 18 box_high (height 15), 21 fence (height 99).
+# Do not hand-edit; re-run the decoder. See the evidence doc, "Blockers/scenery".
+blockers:
+  - id: blocker-1
+    kind: fence
+    components:
+      - {x: 12, y: 0, height: 99}
+      - {x: 12, y: 1, height: 99}
+      - {x: 13, y: 0, height: 99}
+      - {x: 13, y: 1, height: 99}
+  - id: blocker-2
+    kind: fence
+    components:
+      - {x: 12, y: 2, height: 99}
+      - {x: 12, y: 3, height: 99}
+      - {x: 13, y: 2, height: 99}
+      - {x: 13, y: 3, height: 99}
+  - id: blocker-3
+    kind: fence
+    components:
+      - {x: 12, y: 4, height: 99}
+      - {x: 12, y: 5, height: 99}
+      - {x: 13, y: 4, height: 99}
+      - {x: 13, y: 5, height: 99}
+  - id: blocker-4
+    kind: fence
+    components:
+      - {x: 12, y: 6, height: 99}
+      - {x: 12, y: 7, height: 99}
+      - {x: 13, y: 6, height: 99}
+      - {x: 13, y: 7, height: 99}
+  - id: blocker-5
+    kind: fence
+    components:
+      - {x: 12, y: 8, height: 99}
+      - {x: 12, y: 9, height: 99}
+      - {x: 13, y: 8, height: 99}
+      - {x: 13, y: 9, height: 99}
+  - id: blocker-6
+    kind: fence
+    components:
+      - {x: 12, y: 10, height: 99}
+      - {x: 12, y: 11, height: 99}
+      - {x: 13, y: 10, height: 99}
+      - {x: 13, y: 11, height: 99}
+  - id: blocker-7
+    kind: fence
+    components:
+      - {x: 12, y: 12, height: 99}
+      - {x: 12, y: 13, height: 99}
+      - {x: 13, y: 12, height: 99}
+      - {x: 13, y: 13, height: 99}
+  - id: blocker-8
+    kind: fence
+    components:
+      - {x: 12, y: 14, height: 99}
+      - {x: 12, y: 15, height: 99}
+      - {x: 13, y: 14, height: 99}
+      - {x: 13, y: 15, height: 99}
+  - id: blocker-9
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 16, y: 13, height: 7}
+      - {x: 16, y: 14, height: 7}
+      - {x: 17, y: 13, height: 7}
+      - {x: 17, y: 14, height: 7}
+  - id: blocker-10
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 32, y: 2, height: 7}
+      - {x: 32, y: 3, height: 7}
+      - {x: 33, y: 2, height: 7}
+      - {x: 33, y: 3, height: 7}
+  - id: blocker-11
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 63, y: 1, height: 15}
+      - {x: 63, y: 2, height: 15}
+      - {x: 64, y: 1, height: 15}
+      - {x: 64, y: 2, height: 15}
+  - id: blocker-12
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 65, y: 1, height: 15}
+      - {x: 65, y: 2, height: 15}
+      - {x: 66, y: 1, height: 15}
+      - {x: 66, y: 2, height: 15}
+  - id: blocker-13
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 70, y: 0, height: 15}
+      - {x: 70, y: 1, height: 15}
+      - {x: 71, y: 0, height: 15}
+      - {x: 71, y: 1, height: 15}
+  - id: blocker-14
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 70, y: 14, height: 7}
+      - {x: 70, y: 15, height: 7}
+      - {x: 71, y: 14, height: 7}
+      - {x: 71, y: 15, height: 7}
+  - id: blocker-15
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 72, y: 14, height: 7}
+      - {x: 72, y: 15, height: 7}
+      - {x: 73, y: 14, height: 7}
+      - {x: 73, y: 15, height: 7}
+  - id: blocker-16
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 94, y: 14, height: 15}
+      - {x: 94, y: 15, height: 15}
+      - {x: 95, y: 14, height: 15}
+      - {x: 95, y: 15, height: 15}
+  - id: blocker-17
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 96, y: 14, height: 15}
+      - {x: 96, y: 15, height: 15}
+      - {x: 97, y: 14, height: 15}
+      - {x: 97, y: 15, height: 15}
+  - id: blocker-18
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 98, y: 14, height: 15}
+      - {x: 98, y: 15, height: 15}
+      - {x: 99, y: 14, height: 15}
+      - {x: 99, y: 15, height: 15}
+  - id: blocker-19
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 100, y: 14, height: 15}
+      - {x: 100, y: 15, height: 15}
+      - {x: 101, y: 14, height: 15}
+      - {x: 101, y: 15, height: 15}
+  - id: blocker-20
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 106, y: 3, height: 15}
+      - {x: 106, y: 4, height: 15}
+      - {x: 107, y: 3, height: 15}
+      - {x: 107, y: 4, height: 15}
+  - id: blocker-21
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 108, y: 3, height: 15}
+      - {x: 108, y: 4, height: 15}
+      - {x: 109, y: 3, height: 15}
+      - {x: 109, y: 4, height: 15}
+  - id: blocker-22
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 108, y: 12, height: 15}
+      - {x: 108, y: 13, height: 15}
+      - {x: 109, y: 12, height: 15}
+      - {x: 109, y: 13, height: 15}
+  - id: blocker-23
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 110, y: 3, height: 15}
+      - {x: 110, y: 4, height: 15}
+      - {x: 111, y: 3, height: 15}
+      - {x: 111, y: 4, height: 15}
+  - id: blocker-24
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 110, y: 12, height: 15}
+      - {x: 110, y: 13, height: 15}
+      - {x: 111, y: 12, height: 15}
+      - {x: 111, y: 13, height: 15}
+  - id: blocker-25
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 112, y: 3, height: 15}
+      - {x: 112, y: 4, height: 15}
+      - {x: 113, y: 3, height: 15}
+      - {x: 113, y: 4, height: 15}
+  - id: blocker-26
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 112, y: 12, height: 15}
+      - {x: 112, y: 13, height: 15}
+      - {x: 113, y: 12, height: 15}
+      - {x: 113, y: 13, height: 15}
+  - id: blocker-27
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 114, y: 12, height: 15}
+      - {x: 114, y: 13, height: 15}
+      - {x: 115, y: 12, height: 15}
+      - {x: 115, y: 13, height: 15}
+  - id: blocker-28
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 121, y: 8, height: 15}
+      - {x: 121, y: 9, height: 15}
+      - {x: 122, y: 8, height: 15}
+      - {x: 122, y: 9, height: 15}
+  - id: blocker-29
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 121, y: 10, height: 15}
+      - {x: 121, y: 11, height: 15}
+      - {x: 122, y: 10, height: 15}
+      - {x: 122, y: 11, height: 15}
+  - id: blocker-30
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 121, y: 12, height: 15}
+      - {x: 121, y: 13, height: 15}
+      - {x: 122, y: 12, height: 15}
+      - {x: 122, y: 13, height: 15}
+  - id: blocker-31
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 121, y: 14, height: 15}
+      - {x: 121, y: 15, height: 15}
+      - {x: 122, y: 14, height: 15}
+      - {x: 122, y: 15, height: 15}
+  - id: blocker-32
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 127, y: 11, height: 7}
+      - {x: 127, y: 12, height: 7}
+      - {x: 128, y: 11, height: 7}
+      - {x: 128, y: 12, height: 7}
+  - id: blocker-33
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 129, y: 6, height: 7}
+      - {x: 129, y: 7, height: 7}
+      - {x: 130, y: 6, height: 7}
+      - {x: 130, y: 7, height: 7}
+  - id: blocker-34
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 133, y: 10, height: 15}
+      - {x: 133, y: 11, height: 15}
+      - {x: 134, y: 10, height: 15}
+      - {x: 134, y: 11, height: 15}
+  - id: blocker-35
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 133, y: 12, height: 15}
+      - {x: 133, y: 13, height: 15}
+      - {x: 134, y: 12, height: 15}
+      - {x: 134, y: 13, height: 15}
+  - id: blocker-36
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 134, y: 3, height: 15}
+      - {x: 134, y: 4, height: 15}
+      - {x: 135, y: 3, height: 15}
+      - {x: 135, y: 4, height: 15}
+  - id: blocker-37
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 136, y: 3, height: 15}
+      - {x: 136, y: 4, height: 15}
+      - {x: 137, y: 3, height: 15}
+      - {x: 137, y: 4, height: 15}
+  - id: blocker-38
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 138, y: 3, height: 15}
+      - {x: 138, y: 4, height: 15}
+      - {x: 139, y: 3, height: 15}
+      - {x: 139, y: 4, height: 15}
+  - id: blocker-39
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 140, y: 3, height: 15}
+      - {x: 140, y: 4, height: 15}
+      - {x: 141, y: 3, height: 15}
+      - {x: 141, y: 4, height: 15}
+  - id: blocker-40
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 191, y: 2, height: 7}
+      - {x: 191, y: 3, height: 7}
+      - {x: 192, y: 2, height: 7}
+      - {x: 192, y: 3, height: 7}
+  - id: blocker-41
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 191, y: 7, height: 15}
+      - {x: 191, y: 8, height: 15}
+      - {x: 192, y: 7, height: 15}
+      - {x: 192, y: 8, height: 15}
+  - id: blocker-42
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 191, y: 12, height: 7}
+      - {x: 191, y: 13, height: 7}
+      - {x: 192, y: 12, height: 7}
+      - {x: 192, y: 13, height: 7}
+  - id: blocker-43
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 193, y: 2, height: 7}
+      - {x: 193, y: 3, height: 7}
+      - {x: 194, y: 2, height: 7}
+      - {x: 194, y: 3, height: 7}
+  - id: blocker-44
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 193, y: 7, height: 7}
+      - {x: 193, y: 8, height: 7}
+      - {x: 194, y: 7, height: 7}
+      - {x: 194, y: 8, height: 7}
+  - id: blocker-45
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 193, y: 12, height: 7}
+      - {x: 193, y: 13, height: 7}
+      - {x: 194, y: 12, height: 7}
+      - {x: 194, y: 13, height: 7}
+  - id: blocker-46
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 195, y: 2, height: 7}
+      - {x: 195, y: 3, height: 7}
+      - {x: 196, y: 2, height: 7}
+      - {x: 196, y: 3, height: 7}
+  - id: blocker-47
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 195, y: 7, height: 7}
+      - {x: 195, y: 8, height: 7}
+      - {x: 196, y: 7, height: 7}
+      - {x: 196, y: 8, height: 7}
+  - id: blocker-48
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 195, y: 12, height: 7}
+      - {x: 195, y: 13, height: 7}
+      - {x: 196, y: 12, height: 7}
+      - {x: 196, y: 13, height: 7}
+  - id: blocker-49
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 197, y: 2, height: 7}
+      - {x: 197, y: 3, height: 7}
+      - {x: 198, y: 2, height: 7}
+      - {x: 198, y: 3, height: 7}
+  - id: blocker-50
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 197, y: 7, height: 7}
+      - {x: 197, y: 8, height: 7}
+      - {x: 198, y: 7, height: 7}
+      - {x: 198, y: 8, height: 7}
+  - id: blocker-51
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 197, y: 12, height: 7}
+      - {x: 197, y: 13, height: 7}
+      - {x: 198, y: 12, height: 7}
+      - {x: 198, y: 13, height: 7}
+  - id: blocker-52
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 199, y: 2, height: 7}
+      - {x: 199, y: 3, height: 7}
+      - {x: 200, y: 2, height: 7}
+      - {x: 200, y: 3, height: 7}
+  - id: blocker-53
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 199, y: 7, height: 7}
+      - {x: 199, y: 8, height: 7}
+      - {x: 200, y: 7, height: 7}
+      - {x: 200, y: 8, height: 7}
+  - id: blocker-54
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 199, y: 12, height: 7}
+      - {x: 199, y: 13, height: 7}
+      - {x: 200, y: 12, height: 7}
+      - {x: 200, y: 13, height: 7}
+  - id: blocker-55
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 201, y: 2, height: 7}
+      - {x: 201, y: 3, height: 7}
+      - {x: 202, y: 2, height: 7}
+      - {x: 202, y: 3, height: 7}
+  - id: blocker-56
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 201, y: 7, height: 7}
+      - {x: 201, y: 8, height: 7}
+      - {x: 202, y: 7, height: 7}
+      - {x: 202, y: 8, height: 7}
+  - id: blocker-57
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 201, y: 12, height: 7}
+      - {x: 201, y: 13, height: 7}
+      - {x: 202, y: 12, height: 7}
+      - {x: 202, y: 13, height: 7}
+  - id: blocker-58
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 203, y: 2, height: 7}
+      - {x: 203, y: 3, height: 7}
+      - {x: 204, y: 2, height: 7}
+      - {x: 204, y: 3, height: 7}
+  - id: blocker-59
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 203, y: 7, height: 7}
+      - {x: 203, y: 8, height: 7}
+      - {x: 204, y: 7, height: 7}
+      - {x: 204, y: 8, height: 7}
+  - id: blocker-60
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 203, y: 12, height: 7}
+      - {x: 203, y: 13, height: 7}
+      - {x: 204, y: 12, height: 7}
+      - {x: 204, y: 13, height: 7}
+  - id: blocker-61
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 205, y: 2, height: 7}
+      - {x: 205, y: 3, height: 7}
+      - {x: 206, y: 2, height: 7}
+      - {x: 206, y: 3, height: 7}
+  - id: blocker-62
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 205, y: 7, height: 7}
+      - {x: 205, y: 8, height: 7}
+      - {x: 206, y: 7, height: 7}
+      - {x: 206, y: 8, height: 7}
+  - id: blocker-63
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 205, y: 12, height: 7}
+      - {x: 205, y: 13, height: 7}
+      - {x: 206, y: 12, height: 7}
+      - {x: 206, y: 13, height: 7}
+  - id: blocker-64
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 207, y: 2, height: 7}
+      - {x: 207, y: 3, height: 7}
+      - {x: 208, y: 2, height: 7}
+      - {x: 208, y: 3, height: 7}
+  - id: blocker-65
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 207, y: 7, height: 7}
+      - {x: 207, y: 8, height: 7}
+      - {x: 208, y: 7, height: 7}
+      - {x: 208, y: 8, height: 7}
+  - id: blocker-66
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 207, y: 12, height: 7}
+      - {x: 207, y: 13, height: 7}
+      - {x: 208, y: 12, height: 7}
+      - {x: 208, y: 13, height: 7}
+  - id: blocker-67
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 209, y: 2, height: 7}
+      - {x: 209, y: 3, height: 7}
+      - {x: 210, y: 2, height: 7}
+      - {x: 210, y: 3, height: 7}
+  - id: blocker-68
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 209, y: 7, height: 15}
+      - {x: 209, y: 8, height: 15}
+      - {x: 210, y: 7, height: 15}
+      - {x: 210, y: 8, height: 15}
+  - id: blocker-69
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 209, y: 12, height: 7}
+      - {x: 209, y: 13, height: 7}
+      - {x: 210, y: 12, height: 7}
+      - {x: 210, y: 13, height: 7}
+  - id: blocker-70
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 211, y: 2, height: 7}
+      - {x: 211, y: 3, height: 7}
+      - {x: 212, y: 2, height: 7}
+      - {x: 212, y: 3, height: 7}
+  - id: blocker-71
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 211, y: 12, height: 7}
+      - {x: 211, y: 13, height: 7}
+      - {x: 212, y: 12, height: 7}
+      - {x: 212, y: 13, height: 7}
+  - id: blocker-72
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 213, y: 2, height: 7}
+      - {x: 213, y: 3, height: 7}
+      - {x: 214, y: 2, height: 7}
+      - {x: 214, y: 3, height: 7}
+  - id: blocker-73
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 213, y: 12, height: 7}
+      - {x: 213, y: 13, height: 7}
+      - {x: 214, y: 12, height: 7}
+      - {x: 214, y: 13, height: 7}
+  - id: blocker-74
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 215, y: 12, height: 7}
+      - {x: 215, y: 13, height: 7}
+      - {x: 216, y: 12, height: 7}
+      - {x: 216, y: 13, height: 7}
+  - id: blocker-75
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 217, y: 12, height: 7}
+      - {x: 217, y: 13, height: 7}
+      - {x: 218, y: 12, height: 7}
+      - {x: 218, y: 13, height: 7}
+  - id: blocker-76
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 219, y: 12, height: 7}
+      - {x: 219, y: 13, height: 7}
+      - {x: 220, y: 12, height: 7}
+      - {x: 220, y: 13, height: 7}
+  - id: blocker-77
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 221, y: 12, height: 7}
+      - {x: 221, y: 13, height: 7}
+      - {x: 222, y: 12, height: 7}
+      - {x: 222, y: 13, height: 7}
+  - id: blocker-78
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 223, y: 12, height: 7}
+      - {x: 223, y: 13, height: 7}
+      - {x: 224, y: 12, height: 7}
+      - {x: 224, y: 13, height: 7}
+  - id: blocker-79
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 225, y: 12, height: 7}
+      - {x: 225, y: 13, height: 7}
+      - {x: 226, y: 12, height: 7}
+      - {x: 226, y: 13, height: 7}
+  - id: blocker-80
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 227, y: 12, height: 7}
+      - {x: 227, y: 13, height: 7}
+      - {x: 228, y: 12, height: 7}
+      - {x: 228, y: 13, height: 7}
+  - id: blocker-81
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 229, y: 10, height: 7}
+      - {x: 229, y: 11, height: 7}
+      - {x: 230, y: 10, height: 7}
+      - {x: 230, y: 11, height: 7}
+  - id: blocker-82
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 229, y: 12, height: 7}
+      - {x: 229, y: 13, height: 7}
+      - {x: 230, y: 12, height: 7}
+      - {x: 230, y: 13, height: 7}
+  - id: blocker-83
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 233, y: 6, height: 15}
+      - {x: 233, y: 7, height: 15}
+      - {x: 234, y: 6, height: 15}
+      - {x: 234, y: 7, height: 15}
+  - id: blocker-84
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 233, y: 8, height: 15}
+      - {x: 233, y: 9, height: 15}
+      - {x: 234, y: 8, height: 15}
+      - {x: 234, y: 9, height: 15}
+  - id: blocker-85
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 233, y: 10, height: 15}
+      - {x: 233, y: 11, height: 15}
+      - {x: 234, y: 10, height: 15}
+      - {x: 234, y: 11, height: 15}
+  - id: blocker-86
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 233, y: 12, height: 15}
+      - {x: 233, y: 13, height: 15}
+      - {x: 234, y: 12, height: 15}
+      - {x: 234, y: 13, height: 15}
+  - id: blocker-87
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 233, y: 14, height: 15}
+      - {x: 233, y: 15, height: 15}
+      - {x: 234, y: 14, height: 15}
+      - {x: 234, y: 15, height: 15}
+  - id: blocker-88
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 289, y: 2, height: 15}
+      - {x: 289, y: 3, height: 15}
+      - {x: 290, y: 2, height: 15}
+      - {x: 290, y: 3, height: 15}
+  - id: blocker-89
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 299, y: 8, height: 7}
+      - {x: 299, y: 9, height: 7}
+      - {x: 300, y: 8, height: 7}
+      - {x: 300, y: 9, height: 7}
+  - id: blocker-90
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 307, y: 12, height: 15}
+      - {x: 307, y: 13, height: 15}
+      - {x: 308, y: 12, height: 15}
+      - {x: 308, y: 13, height: 15}
+  - id: blocker-91
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 320, y: 9, height: 7}
+      - {x: 320, y: 10, height: 7}
+      - {x: 321, y: 9, height: 7}
+      - {x: 321, y: 10, height: 7}
+  - id: blocker-92
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 322, y: 11, height: 7}
+      - {x: 322, y: 12, height: 7}
+      - {x: 323, y: 11, height: 7}
+      - {x: 323, y: 12, height: 7}
+  - id: blocker-93
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 324, y: 13, height: 7}
+      - {x: 324, y: 14, height: 7}
+      - {x: 325, y: 13, height: 7}
+      - {x: 325, y: 14, height: 7}
+  - id: blocker-94
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 329, y: 11, height: 15}
+      - {x: 329, y: 12, height: 15}
+      - {x: 330, y: 11, height: 15}
+      - {x: 330, y: 12, height: 15}
+  - id: blocker-95
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 336, y: 4, height: 15}
+      - {x: 336, y: 5, height: 15}
+      - {x: 337, y: 4, height: 15}
+      - {x: 337, y: 5, height: 15}
+  - id: blocker-96
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 336, y: 8, height: 15}
+      - {x: 336, y: 9, height: 15}
+      - {x: 337, y: 8, height: 15}
+      - {x: 337, y: 9, height: 15}
+  - id: blocker-97
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 338, y: 2, height: 7}
+      - {x: 338, y: 3, height: 7}
+      - {x: 339, y: 2, height: 7}
+      - {x: 339, y: 3, height: 7}
+  - id: blocker-98
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 338, y: 4, height: 15}
+      - {x: 338, y: 5, height: 15}
+      - {x: 339, y: 4, height: 15}
+      - {x: 339, y: 5, height: 15}
+  - id: blocker-99
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 338, y: 8, height: 15}
+      - {x: 338, y: 9, height: 15}
+      - {x: 339, y: 8, height: 15}
+      - {x: 339, y: 9, height: 15}
+  - id: blocker-100
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 338, y: 12, height: 7}
+      - {x: 338, y: 13, height: 7}
+      - {x: 339, y: 12, height: 7}
+      - {x: 339, y: 13, height: 7}
+  - id: blocker-101
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 340, y: 4, height: 15}
+      - {x: 340, y: 5, height: 15}
+      - {x: 341, y: 4, height: 15}
+      - {x: 341, y: 5, height: 15}
+  - id: blocker-102
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 340, y: 8, height: 15}
+      - {x: 340, y: 9, height: 15}
+      - {x: 341, y: 8, height: 15}
+      - {x: 341, y: 9, height: 15}
+  - id: blocker-103
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 342, y: 4, height: 15}
+      - {x: 342, y: 5, height: 15}
+      - {x: 343, y: 4, height: 15}
+      - {x: 343, y: 5, height: 15}
+  - id: blocker-104
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 342, y: 8, height: 15}
+      - {x: 342, y: 9, height: 15}
+      - {x: 343, y: 8, height: 15}
+      - {x: 343, y: 9, height: 15}
+  - id: blocker-105
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 342, y: 12, height: 7}
+      - {x: 342, y: 13, height: 7}
+      - {x: 343, y: 12, height: 7}
+      - {x: 343, y: 13, height: 7}
+  - id: blocker-106
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 342, y: 14, height: 7}
+      - {x: 342, y: 15, height: 7}
+      - {x: 343, y: 14, height: 7}
+      - {x: 343, y: 15, height: 7}
+  - id: blocker-107
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 344, y: 0, height: 7}
+      - {x: 344, y: 1, height: 7}
+      - {x: 345, y: 0, height: 7}
+      - {x: 345, y: 1, height: 7}
+  - id: blocker-108
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 344, y: 4, height: 15}
+      - {x: 344, y: 5, height: 15}
+      - {x: 345, y: 4, height: 15}
+      - {x: 345, y: 5, height: 15}
+  - id: blocker-109
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 344, y: 8, height: 15}
+      - {x: 344, y: 9, height: 15}
+      - {x: 345, y: 8, height: 15}
+      - {x: 345, y: 9, height: 15}
+  - id: blocker-110
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 344, y: 14, height: 7}
+      - {x: 344, y: 15, height: 7}
+      - {x: 345, y: 14, height: 7}
+      - {x: 345, y: 15, height: 7}
+  - id: blocker-111
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 346, y: 4, height: 15}
+      - {x: 346, y: 5, height: 15}
+      - {x: 347, y: 4, height: 15}
+      - {x: 347, y: 5, height: 15}
+  - id: blocker-112
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 346, y: 8, height: 15}
+      - {x: 346, y: 9, height: 15}
+      - {x: 347, y: 8, height: 15}
+      - {x: 347, y: 9, height: 15}
+  - id: blocker-113
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 346, y: 10, height: 7}
+      - {x: 346, y: 11, height: 7}
+      - {x: 347, y: 10, height: 7}
+      - {x: 347, y: 11, height: 7}
+  - id: blocker-114
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 346, y: 14, height: 7}
+      - {x: 346, y: 15, height: 7}
+      - {x: 347, y: 14, height: 7}
+      - {x: 347, y: 15, height: 7}
+  - id: blocker-115
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 348, y: 4, height: 15}
+      - {x: 348, y: 5, height: 15}
+      - {x: 349, y: 4, height: 15}
+      - {x: 349, y: 5, height: 15}
+  - id: blocker-116
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 348, y: 8, height: 15}
+      - {x: 348, y: 9, height: 15}
+      - {x: 349, y: 8, height: 15}
+      - {x: 349, y: 9, height: 15}
+  - id: blocker-117
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 350, y: 0, height: 15}
+      - {x: 350, y: 1, height: 15}
+      - {x: 351, y: 0, height: 15}
+      - {x: 351, y: 1, height: 15}
+  - id: blocker-118
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 350, y: 2, height: 15}
+      - {x: 350, y: 3, height: 15}
+      - {x: 351, y: 2, height: 15}
+      - {x: 351, y: 3, height: 15}
+  - id: blocker-119
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 350, y: 4, height: 15}
+      - {x: 350, y: 5, height: 15}
+      - {x: 351, y: 4, height: 15}
+      - {x: 351, y: 5, height: 15}
+  - id: blocker-120
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 350, y: 8, height: 15}
+      - {x: 350, y: 9, height: 15}
+      - {x: 351, y: 8, height: 15}
+      - {x: 351, y: 9, height: 15}
+  - id: blocker-121
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 352, y: 8, height: 15}
+      - {x: 352, y: 9, height: 15}
+      - {x: 353, y: 8, height: 15}
+      - {x: 353, y: 9, height: 15}
+  - id: blocker-122
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 352, y: 10, height: 15}
+      - {x: 352, y: 11, height: 15}
+      - {x: 353, y: 10, height: 15}
+      - {x: 353, y: 11, height: 15}
+  - id: blocker-123
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 352, y: 12, height: 15}
+      - {x: 352, y: 13, height: 15}
+      - {x: 353, y: 12, height: 15}
+      - {x: 353, y: 13, height: 15}
+  - id: blocker-124
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 352, y: 14, height: 15}
+      - {x: 352, y: 15, height: 15}
+      - {x: 353, y: 14, height: 15}
+      - {x: 353, y: 15, height: 15}
+  - id: blocker-125
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 356, y: 4, height: 7}
+      - {x: 356, y: 5, height: 7}
+      - {x: 357, y: 4, height: 7}
+      - {x: 357, y: 5, height: 7}
+  - id: blocker-126
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 358, y: 4, height: 15}
+      - {x: 358, y: 5, height: 15}
+      - {x: 359, y: 4, height: 15}
+      - {x: 359, y: 5, height: 15}
+  - id: blocker-127
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 360, y: 4, height: 7}
+      - {x: 360, y: 5, height: 7}
+      - {x: 361, y: 4, height: 7}
+      - {x: 361, y: 5, height: 7}
+  - id: blocker-128
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 379, y: 3, height: 7}
+      - {x: 379, y: 4, height: 7}
+      - {x: 380, y: 3, height: 7}
+      - {x: 380, y: 4, height: 7}
+  - id: blocker-129
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 394, y: 0, height: 15}
+      - {x: 394, y: 1, height: 15}
+      - {x: 395, y: 0, height: 15}
+      - {x: 395, y: 1, height: 15}
+  - id: blocker-130
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 401, y: 14, height: 7}
+      - {x: 401, y: 15, height: 7}
+      - {x: 402, y: 14, height: 7}
+      - {x: 402, y: 15, height: 7}
+  - id: blocker-131
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 409, y: 0, height: 15}
+      - {x: 409, y: 1, height: 15}
+      - {x: 410, y: 0, height: 15}
+      - {x: 410, y: 1, height: 15}
+  - id: blocker-132
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 464, y: 9, height: 7}
+      - {x: 464, y: 10, height: 7}
+      - {x: 465, y: 9, height: 7}
+      - {x: 465, y: 10, height: 7}
+  - id: blocker-133
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 467, y: 12, height: 7}
+      - {x: 467, y: 13, height: 7}
+      - {x: 468, y: 12, height: 7}
+      - {x: 468, y: 13, height: 7}
+  - id: blocker-134
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 474, y: 4, height: 7}
+      - {x: 474, y: 5, height: 7}
+      - {x: 475, y: 4, height: 7}
+      - {x: 475, y: 5, height: 7}
+  - id: blocker-135
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 474, y: 8, height: 7}
+      - {x: 474, y: 9, height: 7}
+      - {x: 475, y: 8, height: 7}
+      - {x: 475, y: 9, height: 7}
+  - id: blocker-136
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 476, y: 2, height: 7}
+      - {x: 476, y: 3, height: 7}
+      - {x: 477, y: 2, height: 7}
+      - {x: 477, y: 3, height: 7}
+  - id: blocker-137
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 476, y: 4, height: 15}
+      - {x: 476, y: 5, height: 15}
+      - {x: 477, y: 4, height: 15}
+      - {x: 477, y: 5, height: 15}
+  - id: blocker-138
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 476, y: 8, height: 15}
+      - {x: 476, y: 9, height: 15}
+      - {x: 477, y: 8, height: 15}
+      - {x: 477, y: 9, height: 15}
+  - id: blocker-139
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 476, y: 10, height: 7}
+      - {x: 476, y: 11, height: 7}
+      - {x: 477, y: 10, height: 7}
+      - {x: 477, y: 11, height: 7}
+  - id: blocker-140
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 478, y: 0, height: 7}
+      - {x: 478, y: 1, height: 7}
+      - {x: 479, y: 0, height: 7}
+      - {x: 479, y: 1, height: 7}
+  - id: blocker-141
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 478, y: 2, height: 15}
+      - {x: 478, y: 3, height: 15}
+      - {x: 479, y: 2, height: 15}
+      - {x: 479, y: 3, height: 15}
+  - id: blocker-142
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 478, y: 4, height: 7}
+      - {x: 478, y: 5, height: 7}
+      - {x: 479, y: 4, height: 7}
+      - {x: 479, y: 5, height: 7}
+  - id: blocker-143
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 478, y: 8, height: 7}
+      - {x: 478, y: 9, height: 7}
+      - {x: 479, y: 8, height: 7}
+      - {x: 479, y: 9, height: 7}
+  - id: blocker-144
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 478, y: 10, height: 15}
+      - {x: 478, y: 11, height: 15}
+      - {x: 479, y: 10, height: 15}
+      - {x: 479, y: 11, height: 15}
+  - id: blocker-145
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 478, y: 12, height: 7}
+      - {x: 478, y: 13, height: 7}
+      - {x: 479, y: 12, height: 7}
+      - {x: 479, y: 13, height: 7}
+  - id: blocker-146
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 480, y: 0, height: 15}
+      - {x: 480, y: 1, height: 15}
+      - {x: 481, y: 0, height: 15}
+      - {x: 481, y: 1, height: 15}
+  - id: blocker-147
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 480, y: 2, height: 7}
+      - {x: 480, y: 3, height: 7}
+      - {x: 481, y: 2, height: 7}
+      - {x: 481, y: 3, height: 7}
+  - id: blocker-148
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 480, y: 4, height: 7}
+      - {x: 480, y: 5, height: 7}
+      - {x: 481, y: 4, height: 7}
+      - {x: 481, y: 5, height: 7}
+  - id: blocker-149
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 480, y: 10, height: 7}
+      - {x: 480, y: 11, height: 7}
+      - {x: 481, y: 10, height: 7}
+      - {x: 481, y: 11, height: 7}
+  - id: blocker-150
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 480, y: 12, height: 15}
+      - {x: 480, y: 13, height: 15}
+      - {x: 481, y: 12, height: 15}
+      - {x: 481, y: 13, height: 15}
+  - id: blocker-151
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 480, y: 14, height: 7}
+      - {x: 480, y: 15, height: 7}
+      - {x: 481, y: 14, height: 7}
+      - {x: 481, y: 15, height: 7}
+  - id: blocker-152
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 482, y: 0, height: 7}
+      - {x: 482, y: 1, height: 7}
+      - {x: 483, y: 0, height: 7}
+      - {x: 483, y: 1, height: 7}
+  - id: blocker-153
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 482, y: 4, height: 15}
+      - {x: 482, y: 5, height: 15}
+      - {x: 483, y: 4, height: 15}
+      - {x: 483, y: 5, height: 15}
+  - id: blocker-154
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 482, y: 12, height: 7}
+      - {x: 482, y: 13, height: 7}
+      - {x: 483, y: 12, height: 7}
+      - {x: 483, y: 13, height: 7}
+  - id: blocker-155
+    kind: box_high
+    destructible: true
+    components:
+      - {x: 482, y: 14, height: 15}
+      - {x: 482, y: 15, height: 15}
+      - {x: 483, y: 14, height: 15}
+      - {x: 483, y: 15, height: 15}
+  - id: blocker-156
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 484, y: 4, height: 7}
+      - {x: 484, y: 5, height: 7}
+      - {x: 485, y: 4, height: 7}
+      - {x: 485, y: 5, height: 7}
+  - id: blocker-157
+    kind: box_low
+    destructible: true
+    components:
+      - {x: 484, y: 14, height: 7}
+      - {x: 484, y: 15, height: 7}
+      - {x: 485, y: 14, height: 7}
+      - {x: 485, y: 15, height: 7}
+  - id: blocker-158
+    kind: fence
+    components:
+      - {x: 503, y: 0, height: 99}
+      - {x: 503, y: 1, height: 99}
+      - {x: 504, y: 0, height: 99}
+      - {x: 504, y: 1, height: 99}
+  - id: blocker-159
+    kind: fence
+    components:
+      - {x: 503, y: 2, height: 99}
+      - {x: 503, y: 3, height: 99}
+      - {x: 504, y: 2, height: 99}
+      - {x: 504, y: 3, height: 99}
+  - id: blocker-160
+    kind: fence
+    components:
+      - {x: 503, y: 4, height: 99}
+      - {x: 503, y: 5, height: 99}
+      - {x: 504, y: 4, height: 99}
+      - {x: 504, y: 5, height: 99}
+  - id: blocker-161
+    kind: fence
+    components:
+      - {x: 503, y: 6, height: 99}
+      - {x: 503, y: 7, height: 99}
+      - {x: 504, y: 6, height: 99}
+      - {x: 504, y: 7, height: 99}
+  - id: blocker-162
+    kind: fence
+    components:
+      - {x: 503, y: 8, height: 99}
+      - {x: 503, y: 9, height: 99}
+      - {x: 504, y: 8, height: 99}
+      - {x: 504, y: 9, height: 99}
+  - id: blocker-163
+    kind: fence
+    components:
+      - {x: 503, y: 10, height: 99}
+      - {x: 503, y: 11, height: 99}
+      - {x: 504, y: 10, height: 99}
+      - {x: 504, y: 11, height: 99}
+  - id: blocker-164
+    kind: fence
+    components:
+      - {x: 503, y: 12, height: 99}
+      - {x: 503, y: 13, height: 99}
+      - {x: 504, y: 12, height: 99}
+      - {x: 504, y: 13, height: 99}
+  - id: blocker-165
+    kind: fence
+    components:
+      - {x: 503, y: 14, height: 99}
+      - {x: 503, y: 15, height: 99}
+      - {x: 504, y: 14, height: 99}
+      - {x: 504, y: 15, height: 99}
+
 interaction_points:
   - id: warbase-1-warbase-capture
     kind: warbase_capture
@@ -1810,7 +3125,7 @@ interaction_points:
   - id: warbase-1-helipad
     kind: heli_pad
     structure_id: warbase-1
-    footprint: {x: 22, y: 5}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
+    footprint: [{x: 22, y: 5}, {x: 23, y: 5}, {x: 22, y: 4}, {x: 23, y: 4}]  # 2x2 roof pad anchored at (anchor.x, anchor.y - 4), open-questions.md §18, §21
   - id: warbase-1-exit
     kind: exit
     structure_id: warbase-1
@@ -1822,7 +3137,7 @@ interaction_points:
   - id: warbase-2-helipad
     kind: heli_pad
     structure_id: warbase-2
-    footprint: {x: 261, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
+    footprint: [{x: 261, y: 4}, {x: 262, y: 4}, {x: 261, y: 3}, {x: 262, y: 3}]  # 2x2 roof pad anchored at (anchor.x, anchor.y - 4), open-questions.md §18, §21
   - id: warbase-2-exit
     kind: exit
     structure_id: warbase-2
@@ -1834,7 +3149,7 @@ interaction_points:
   - id: warbase-3-helipad
     kind: heli_pad
     structure_id: warbase-3
-    footprint: {x: 369, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
+    footprint: [{x: 369, y: 4}, {x: 370, y: 4}, {x: 369, y: 3}, {x: 370, y: 3}]  # 2x2 roof pad anchored at (anchor.x, anchor.y - 4), open-questions.md §18, §21
   - id: warbase-3-exit
     kind: exit
     structure_id: warbase-3
@@ -1846,7 +3161,7 @@ interaction_points:
   - id: warbase-4-helipad
     kind: heli_pad
     structure_id: warbase-4
-    footprint: {x: 494, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
+    footprint: [{x: 494, y: 4}, {x: 495, y: 4}, {x: 494, y: 3}, {x: 495, y: 3}]  # 2x2 roof pad anchored at (anchor.x, anchor.y - 4), open-questions.md §18, §21
   - id: warbase-4-exit
     kind: exit
     structure_id: warbase-4

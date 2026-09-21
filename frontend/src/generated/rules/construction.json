@@ -1,0 +1,13 @@
+{
+  "source": "engine/src/nether_earth/rules.py EngineRules.module_cost_*",
+  "module_costs": {
+    "bipod": 3,
+    "tracks": 5,
+    "anti_grav": 10,
+    "cannon": 2,
+    "missile": 4,
+    "phaser": 4,
+    "nuclear": 20,
+    "electronics": 3
+  }
+}

@@ -38,12 +38,38 @@ overlap") and §14 ("stops at the top of the ... stack").
 
 Ground-rooted geometry
 -----------------------
+2×2 bodies (CR002.3 #170, CR002.4 #171): a commander's and a robot's
+``(x, y)`` is the anchor of a 2×2 body (`occupancy.py`,
+`_specs/open-questions.md` §21). Every query below tests whole bodies:
+static components under any of the four cells, and robots/commanders whose
+bodies overlap.
+
 Static components and the (placeholder) robot fixture are modeled as
 ground-rooted physical stacks: a component/robot of height ``h`` at a cell
 occupies ``[0, h)`` in that cell's column. This matches
 `_specs/functional-spec.md` §7 / §9.1 (structures/robots are objects
 standing on the map) and is the only height reference available anywhere in
 the locked specs or `structures.py`'s per-component ``height`` field.
+A robot stands on the terrain under it (CR002.25): its range is ``[0,
+altitude + height)``, where ``altitude`` is the static surface under its
+body (:func:`robot_top`, :attr:`RobotFixture.top`).
+
+Terrain piece heights -- one surface-height function (CR002.21, #203)
+----------------------------------------------------------------------
+Terrain pieces are solid too: the Spectrum's ``Lb052_check_player_collision``
+and ``Lb5d6_map_altitude_2x2`` read every map piece's height from
+``Ld7bc_map_piece_heights``, terrain (rough 2/3, mountain 6) as well as
+buildings and scenery. :func:`surface_height_at` is this engine's one reading
+of that table for a cell: the highest static component there or the terrain
+piece height (`terrain.TerrainGrid.height_at`; nuclear debris gets the rough
+piece height, `destruction.scenery_world`). :func:`unit_surface_height` is
+``Lb5d6``: the highest of the four cells under a 2×2 body. Commander
+collision/landing/gravity (below), projectile termination and the damage
+``ground_height`` (`combat.py`) and the heli-pad rest altitude
+(`heli_pad.py`) all read it, so static heights have one definition. Terrain
+is ground-rooted like a component: a piece of height ``h`` occupies
+``[0, h)``, so the ship rests on rough at altitude 3 and cannot fly into it
+lower down, as ``Lb052``/``Lafc3_gravity`` keep ``altitude >= height``.
 
 The robot fixture placeholder
 -------------------------------
@@ -101,6 +127,11 @@ from dataclasses import dataclass
 from nether_earth.commander import Commander
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.map import WorldMap
+from nether_earth.occupancy import (
+    unit_footprint_cells,
+    unit_footprint_in_bounds,
+    unit_footprints_overlap,
+)
 from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
@@ -115,7 +146,10 @@ __all__ = [
     "commander_vertical_range",
     "component_vertical_range",
     "components_at",
+    "robot_top",
     "robot_vertical_range",
+    "surface_height_at",
+    "unit_surface_height",
 ]
 
 
@@ -164,10 +198,21 @@ class RobotFixture:
     x: int
     y: int
     height: int
+    #: Terrain altitude under the robot's 2×2 body (CR002.25): the Spectrum's
+    #: ``ROBOT_STRUCT_ALTITUDE``. ``engine.py`` fills it with
+    #: :func:`unit_surface_height` at the robot's authoritative anchor.
+    altitude: int = 0
 
     def __post_init__(self) -> None:
         if self.height <= 0:
             raise ValueError("RobotFixture.height must be a positive integer")
+        if self.altitude < 0:
+            raise ValueError("RobotFixture.altitude must not be negative")
+
+    @property
+    def top(self) -> int:
+        """The robot's top surface: ``altitude + height`` (``Lb099``)."""
+        return self.altitude + self.height
 
 
 def commander_vertical_range(
@@ -192,21 +237,34 @@ def component_vertical_range(component: Component) -> VerticalRange:
     return VerticalRange(bottom=0, top=component.height)
 
 
-def robot_vertical_range(robot: RobotFixture | Robot) -> VerticalRange:
-    """Return the ground-rooted vertical range ``robot``'s physical stack occupies.
+def robot_vertical_range(robot: RobotFixture) -> VerticalRange:
+    """Return the ground-rooted vertical range ``robot`` occupies: ``[0, robot.top)``.
 
-    Same ground-rooted convention as :func:`component_vertical_range`:
-    ``[0, robot.height)``.
-
-    Accepts either this module's :class:`RobotFixture` placeholder or the
-    real :class:`~nether_earth.robot.Robot` entity (M4.6), which carries
-    the same derived ``height``. Widened by issue #60 (M5.1) so robot
-    movement can ask this module for a robot's blocking range instead of
-    re-deriving the ground-rooted convention itself -- the placeholder is
-    still not extended, and callers holding a real robot never need to
-    build a fixture to use this module.
+    Same ground-rooted convention as :func:`component_vertical_range`. The
+    top includes the terrain altitude under the robot (CR002.25, see
+    :func:`robot_top`), so the ship rests on, docks on and is blocked by a
+    robot standing on rough or a mountain at ``altitude + height``, as the
+    Spectrum's ``Lb099_get_robot_or_decoration_altitude`` reads it.
     """
-    return VerticalRange(bottom=0, top=robot.height)
+    return VerticalRange(bottom=0, top=robot.top)
+
+
+def robot_top(world: WorldMap, robot: Robot) -> int:
+    """Return the top of ``robot``: the terrain under its body plus its stack height (CR002.25).
+
+    The Spectrum keeps ``ROBOT_STRUCT_ALTITUDE``, the highest map piece under
+    the robot's 2×2 body (``Lb5d6_map_altitude_2x2``, stored by ``Lb495``
+    each time the robot advances a cell), and every robot-top reader adds it
+    to ``ROBOT_STRUCT_HEIGHT``: ship landing/collision (``Lb099``), docking
+    (``La69a``), the ship as an obstacle to the robot (``Lb513``) and the
+    drawing elevation (``Lcee8_draw_robot_to_buffer``). In this engine the
+    altitude and the authoritative anchor change together, as they do in
+    ``Lb495``: :func:`unit_surface_height` at ``(robot.x, robot.y)``, the
+    origin cell while a move is in progress (`movement.py`). ``world`` is
+    the physical world (`destruction.scenery_world`), so nuclear debris is
+    3 high.
+    """
+    return unit_surface_height(world, robot.x, robot.y) + robot.height
 
 
 def components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
@@ -241,9 +299,32 @@ def components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
     return tuple(matches)
 
 
-def _robots_at(robots: tuple[RobotFixture, ...], x: int, y: int) -> tuple[RobotFixture, ...]:
-    """Return every ``robots`` fixture at ``(x, y)``."""
-    return tuple(robot for robot in robots if robot.x == x and robot.y == y)
+def surface_height_at(world: WorldMap, x: int, y: int) -> int:
+    """Return the height of the static surface on cell ``(x, y)`` (``Ld7bc_map_piece_heights``).
+
+    The highest static component there, or the terrain piece height when
+    that is higher (see the module docstring); 0 off the map.
+    """
+    if not (0 <= x < world.width and 0 <= y < world.height):
+        return 0
+    component_heights = (component.height for component in components_at(world, x, y))
+    return max((world.terrain.height_at(x, y), *component_heights))
+
+
+def unit_surface_height(world: WorldMap, x: int, y: int) -> int:
+    """Return the highest static surface under the 2×2 body anchored at ``(x, y)``.
+
+    The engine's ``Lb5d6_map_altitude_2x2``: the maximum of
+    :func:`surface_height_at` over the body's four cells (off-map cells are 0).
+    """
+    return max(surface_height_at(world, cx, cy) for cx, cy in unit_footprint_cells(x, y))
+
+
+def _robots_overlapping(
+    robots: tuple[RobotFixture, ...], x: int, y: int
+) -> tuple[RobotFixture, ...]:
+    """Return every ``robots`` fixture whose 2×2 body overlaps the body anchored at ``(x, y)``."""
+    return tuple(robot for robot in robots if unit_footprints_overlap(robot.x, robot.y, x, y))
 
 
 def commander_blocks_cell(
@@ -255,14 +336,16 @@ def commander_blocks_cell(
     *,
     rules: EngineRules = DEFAULT_RULES,
 ) -> bool:
-    """Return ``True`` iff ``commander`` blocks ``(x, y)`` at ``vertical_range``.
+    """Return ``True`` iff ``commander`` blocks a 2×2 body anchored at ``(x, y)``.
 
     This is the stable, forward-compatible query named by the issue's
     "expose the commander blocking query/contract needed later by robot
     movement" acceptance criterion (M5 robot movement will call this per
     commander it needs to check, without duplicating overlap math -- see
-    the module docstring). ``commander`` blocks the cell iff it currently
-    occupies ``(x, y)`` and its own vertical range (from ``rules``, default
+    the module docstring). ``(x, y)`` is the anchor of the other unit's 2×2
+    body (CR002.3/CR002.4, `_specs/open-questions.md` §21): ``commander``
+    blocks it iff the commander's own 2×2 body overlaps that body and its
+    vertical range (from ``rules``, default
     :data:`~nether_earth.rules.DEFAULT_RULES`) overlaps ``vertical_range``.
 
     ``state`` is accepted (and currently unused beyond documenting the
@@ -271,7 +354,7 @@ def commander_blocks_cell(
     -- it is not validated here to keep this a pure, allocation-free query.
     """
     del state  # reserved for future contract stability; see docstring
-    if commander.x != x or commander.y != y:
+    if not unit_footprints_overlap(commander.x, commander.y, x, y):
         return False
     return commander_vertical_range(commander.altitude, rules).overlaps(vertical_range)
 
@@ -282,7 +365,14 @@ def _blocking_ranges_at(
     y: int,
     robots: tuple[RobotFixture, ...],
 ) -> tuple[VerticalRange, ...]:
-    """Return every static-geometry/robot vertical range occupying ``(x, y)``.
+    """Return every static-geometry/robot vertical range under the 2×2 body at ``(x, y)``.
+
+    ``(x, y)`` is a commander anchor (CR002.4, `_specs/open-questions.md`
+    §21). Static geometry -- components and terrain pieces -- is one
+    ground-rooted range up to :func:`unit_surface_height`, as the Spectrum's
+    ``Lb052_check_player_collision`` takes the highest map piece of its 2×2
+    area; robots count when their own 2×2 body overlaps (``Lb052``'s 3×3
+    window of robot anchors). Cells off the map hold nothing.
 
     Does not include commanders -- callers combine this with an explicit
     opposing-commander check so the commander-vs-commander rule (which
@@ -290,8 +380,9 @@ def _blocking_ranges_at(
     "descend through it" rule) stays visible at the call site rather than
     being folded into an opaque range list.
     """
-    ranges = [component_vertical_range(component) for component in components_at(world, x, y)]
-    ranges.extend(robot_vertical_range(robot) for robot in _robots_at(robots, x, y))
+    static_top = unit_surface_height(world, x, y)
+    ranges = [VerticalRange(bottom=0, top=static_top)] if static_top > 0 else []
+    ranges.extend(robot_vertical_range(robot) for robot in _robots_overlapping(robots, x, y))
     return tuple(ranges)
 
 
@@ -337,11 +428,19 @@ def commander_horizontal_move_allowed(
       at most one commander, so this is effectively "the opposing
       commander" in the locked 2-player v1 scope, expressed generally).
 
+    ``(dest_x, dest_y)`` is the anchor of the commander's 2×2 body
+    (CR002.4): every source is tested against the whole body (see
+    :func:`_blocking_ranges_at`), and a body that would leave the map is
+    refused (the Spectrum keeps the ship's rows inside the map the same
+    way, ``Laf90``).
+
     ``world``/``robots`` are keyword-only so a later ``functools.partial``
     binding (see the module docstring's #38/#42 integration contract)
     leaves ``(state, commander, dest_x, dest_y)`` as the exact positional
     shape #38's ``HorizontalMoveCheck`` expects.
     """
+    if not unit_footprint_in_bounds(dest_x, dest_y, world.width, world.height):
+        return False
     mover_range = commander_vertical_range(commander.altitude, rules)
 
     for blocking_range in _blocking_ranges_at(world, dest_x, dest_y, robots):

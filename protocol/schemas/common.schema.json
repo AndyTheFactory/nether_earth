@@ -293,7 +293,8 @@
               },
               "vertical_transition": {
                 "anyOf": [{ "type": "object" }, { "type": "null" }]
-              }
+              },
+              "elevate_updates_remaining": { "type": "integer", "minimum": 0 }
             },
             "required": [
               "player_id",
@@ -304,7 +305,8 @@
               "docked_robot_id",
               "rising",
               "horizontal_transition",
-              "vertical_transition"
+              "vertical_transition",
+              "elevate_updates_remaining"
             ],
             "additionalProperties": false
           }
@@ -369,11 +371,16 @@
               "active_projectile_id": {
                 "anyOf": [{ "$ref": "#/$defs/entityId" }, { "type": "null" }]
               },
-              "strength": { "type": "integer" }
+              "strength": { "type": "integer" },
+              "last_fire_tick": {
+                "anyOf": [{ "type": "integer" }, { "type": "null" }]
+              },
+              "exit_steps_remaining": { "type": "integer", "minimum": 0 }
             },
             "required": [
               "entity_id", "owner", "x", "y", "build", "stack", "height",
-              "movement", "order", "active_projectile_id", "strength"
+              "movement", "order", "active_projectile_id", "strength", "last_fire_tick",
+              "exit_steps_remaining"
             ],
             "additionalProperties": false
           }
@@ -423,11 +430,12 @@
               "dy": { "$ref": "#/$defs/cellDelta" },
               "travelled_cells": { "type": "integer" },
               "max_range_cells": { "type": "integer" },
-              "created_tick": { "type": "integer" }
+              "created_tick": { "type": "integer" },
+              "first_advance_tick": { "type": "integer" }
             },
             "required": [
               "id", "owner", "source_robot_id", "weapon", "x", "y", "z", "dx", "dy",
-              "travelled_cells", "max_range_cells", "created_tick"
+              "travelled_cells", "max_range_cells", "created_tick", "first_advance_tick"
             ],
             "additionalProperties": false
           }
@@ -435,12 +443,17 @@
         "structure_destruction": {
           "type": "array",
           "items": { "$ref": "#/$defs/entityId" }
+        },
+        "scenery_debris": {
+          "description": "Ids of map blockers a nuclear blast turned into rough debris (CR002.18), canonical order. Their cells are rough terrain and no longer block.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/entityId" }
         }
       },
       "required": [
         "tick", "players", "seed", "commanders", "resource_pools",
         "construction_sessions", "robots", "structure_ownership",
-        "capture_progress", "projectiles", "structure_destruction"
+        "capture_progress", "projectiles", "structure_destruction", "scenery_debris"
       ],
       "additionalProperties": false
     }

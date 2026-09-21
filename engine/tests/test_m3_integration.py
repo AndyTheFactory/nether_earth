@@ -23,9 +23,14 @@ parallel map. Its relevant geometry:
 - ``box-1`` blocker, height 1, at ``(0, 0)``.
 - ``factory-1``, height 2, at ``(2, 2)``.
 - ``warbase-p1`` (owner ``p1``): components at ``(4, 0, h=3)``/``(5, 0, h=2)``,
-  heli-pad interaction point at ``(4, 0)``.
+  2×2 heli-pad anchored at ``(4, 1)`` (cells x 4..5, y 0..1).
 - ``warbase-p2`` (owner ``p2``): components at ``(4, 3, h=3)``/``(5, 3, h=3)``,
-  heli-pad interaction point at ``(4, 3)``.
+  2×2 heli-pad anchored at ``(4, 3)`` (cells x 4..5, y 2..3).
+- the map is 12x8, leaving free ground east of the structures.
+
+Commanders (and robot fixtures) are 2×2 bodies anchored at their ``(x, y)``
+(CR002.3/CR002.4, `_specs/open-questions.md` §21): the body covers x..x+1,
+y-1..y, so two commanders one cell apart overlap.
 - terrain variety (rough at ``(1, 1)``, ditch at ``(3, 3)``) -- terrain does
   not affect commander flight collision (only structure/robot/commander
   vertical ranges do), so it is not separately asserted here; its presence
@@ -103,7 +108,7 @@ def _scenario_and_map() -> tuple[Scenario, BootstrapMap]:
         map_version=1,
         player_starting_warbases=1,
     )
-    map_data = BootstrapMap(map_id="fixture-basic", version=1, width=6, height=4)
+    map_data = BootstrapMap(map_id="fixture-basic", version=1, width=12, height=8)
     return scenario, map_data
 
 
@@ -128,8 +133,8 @@ def _new_game(commanders: tuple[Commander, ...]) -> GameState:
 
 
 def test_horizontal_move_completes_on_the_configured_tick() -> None:
-    p1 = _free(PLAYER_ONE, x=2, y=1, altitude=0)
-    p2 = _free(PLAYER_TWO, x=2, y=2, altitude=0)
+    p1 = _free(PLAYER_ONE, x=7, y=2, altitude=0)
+    p2 = _free(PLAYER_TWO, x=7, y=5, altitude=0)
     state = _new_game((p1, p2))
     world = _world()
 
@@ -138,12 +143,12 @@ def test_horizontal_move_completes_on_the_configured_tick() -> None:
 
     started = [e for e in events if isinstance(e, CommanderHorizontalMoveStartedEvent)]
     assert len(started) == 1
-    assert (started[0].from_x, started[0].from_y) == (2, 1)
-    assert (started[0].to_x, started[0].to_y) == (3, 1)
+    assert (started[0].from_x, started[0].from_y) == (7, 2)
+    assert (started[0].to_x, started[0].to_y) == (8, 2)
     assert started[0].duration_ticks == H_TICKS
     # Authoritative position has not moved yet -- only rendering may
     # interpolate mid-transition.
-    assert state.commander_for(PLAYER_ONE).x == 2
+    assert state.commander_for(PLAYER_ONE).x == 7
 
     completed: list[CommanderHorizontalMoveCompletedEvent] = []
     for _ in range(H_TICKS - 1):
@@ -154,21 +159,21 @@ def test_horizontal_move_completes_on_the_configured_tick() -> None:
     # Not complete until started_tick(1) + duration_ticks(4) == tick 5.
     assert state.tick == H_TICKS
     assert completed == []
-    assert state.commander_for(PLAYER_ONE).x == 2
+    assert state.commander_for(PLAYER_ONE).x == 7
 
     state, tick_events = step(state, [], world=world)
     assert state.tick == H_TICKS + 1
     completed = [e for e in tick_events if isinstance(e, CommanderHorizontalMoveCompletedEvent)]
     assert len(completed) == 1
-    assert (completed[0].x, completed[0].y) == (3, 1)
+    assert (completed[0].x, completed[0].y) == (8, 2)
     updated = state.commander_for(PLAYER_ONE)
-    assert (updated.x, updated.y) == (3, 1)
+    assert (updated.x, updated.y) == (8, 2)
     assert updated.horizontal_transition is None
 
 
 def test_vertical_cadence_ascends_and_descends_with_asymmetric_steps() -> None:
-    p1 = _free(PLAYER_ONE, x=2, y=1, altitude=10, rising=True)
-    p2 = _free(PLAYER_TWO, x=2, y=2, altitude=10, rising=False)
+    p1 = _free(PLAYER_ONE, x=7, y=2, altitude=10, rising=True)
+    p2 = _free(PLAYER_TWO, x=7, y=5, altitude=10, rising=False)
     state = _new_game((p1, p2))
     world = _world()
 
@@ -197,10 +202,10 @@ def test_altitude_clamps_to_0_and_48() -> None:
     # Near the ceiling, rising: the first cadence tick's candidate (49)
     # exceeds 48 and clamps; a second cadence tick at the clamped bound then
     # produces no further change/event (49 -> would-be 51, clamped stable).
-    high = _free(PLAYER_ONE, x=2, y=1, altitude=47, rising=True)
+    high = _free(PLAYER_ONE, x=7, y=2, altitude=47, rising=True)
     # Near the floor, not rising: two normal descent ticks reach exactly 0,
     # then a third tick's candidate (-1) clamps to a stable 0 with no event.
-    low = _free(PLAYER_TWO, x=1, y=2, altitude=2, rising=False)
+    low = _free(PLAYER_TWO, x=9, y=5, altitude=2, rising=False)
     world = _world()
     state = _new_game((high, low))
 
@@ -240,7 +245,7 @@ def test_horizontal_and_vertical_movement_occur_simultaneously() -> None:
     # completion (4 + H_TICKS == 8) lands on the same tick as a vertical
     # cadence update (a multiple of V_TICKS), proving both axes can update
     # in one authoritative step.
-    p1 = _free(PLAYER_ONE, x=2, y=1, altitude=10, rising=True)
+    p1 = _free(PLAYER_ONE, x=7, y=2, altitude=10, rising=True)
     state = _new_game((p1,))
     world = _world()
 
@@ -268,7 +273,7 @@ def test_horizontal_and_vertical_movement_occur_simultaneously() -> None:
     assert len(vertical) == 1
     assert vertical[0].to_altitude == 10 + 2 * ASCENT
     updated = state.commander_for(PLAYER_ONE)
-    assert (updated.x, updated.y) == (3, 1)
+    assert (updated.x, updated.y) == (8, 2)
     assert updated.altitude == 10 + 2 * ASCENT
 
 
@@ -278,9 +283,10 @@ def test_horizontal_and_vertical_movement_occur_simultaneously() -> None:
 
 
 def test_low_altitude_move_onto_blocker_is_rejected_then_allowed_once_cleared() -> None:
-    # box-1 (height 1) sits at (0, 0). A grounded commander's range
-    # [0, 4) overlaps the blocker's [0, 1) -> rejected.
-    p1 = _free(PLAYER_ONE, x=1, y=0, altitude=0)
+    # box-1 (height 1) sits at (0, 0); the commander's body anchored at
+    # (0, 1) covers it. A grounded commander's range [0, 4) overlaps the
+    # blocker's [0, 1) -> rejected.
+    p1 = _free(PLAYER_ONE, x=1, y=1, altitude=0)
     state = _new_game((p1,))
     world = _world()
     move = CommanderMoveCommand(player=PLAYER_ONE, sequence=0, dx=-1, dy=0)
@@ -292,7 +298,7 @@ def test_low_altitude_move_onto_blocker_is_rejected_then_allowed_once_cleared() 
     # At altitude == blocker height (1), the commander's range [1, 5)
     # merely touches the blocker's [0, 1) -- no overlap -- so the same move
     # is now allowed (sufficient clearance).
-    cleared = _free(PLAYER_ONE, x=1, y=0, altitude=1)
+    cleared = _free(PLAYER_ONE, x=1, y=1, altitude=1)
     state2 = _new_game((cleared,))
     state2, events2 = step(state2, [move], world=world)
     assert any(isinstance(e, CommanderHorizontalMoveStartedEvent) for e in events2)
@@ -324,8 +330,10 @@ def test_taller_component_requires_more_clearance_than_a_shorter_one() -> None:
 
 
 def test_same_cell_allowed_when_vertical_ranges_are_separated() -> None:
-    stationary = _free(PLAYER_ONE, x=2, y=0, altitude=0)  # range [0, 4)
-    mover = _free(PLAYER_TWO, x=2, y=1, altitude=10)  # range [10, 14)
+    # The mover's next body (8..9, 2..3) overlaps the stationary one
+    # (8..9, 1..2): allowed only because the vertical ranges are separated.
+    stationary = _free(PLAYER_ONE, x=8, y=2, altitude=0)  # range [0, 4)
+    mover = _free(PLAYER_TWO, x=8, y=4, altitude=10)  # range [10, 14)
     state = _new_game((stationary, mover))
     world = _world()
     move = CommanderMoveCommand(player=PLAYER_TWO, sequence=0, dx=0, dy=-1)
@@ -335,23 +343,23 @@ def test_same_cell_allowed_when_vertical_ranges_are_separated() -> None:
 
 
 def test_same_cell_blocked_when_vertical_ranges_overlap() -> None:
-    stationary = _free(PLAYER_ONE, x=2, y=0, altitude=0)  # range [0, 4)
-    mover = _free(PLAYER_TWO, x=2, y=1, altitude=2)  # range [2, 6) overlaps [0, 4)
+    stationary = _free(PLAYER_ONE, x=8, y=2, altitude=0)  # range [0, 4)
+    mover = _free(PLAYER_TWO, x=8, y=4, altitude=2)  # range [2, 6) overlaps [0, 4)
     state = _new_game((stationary, mover))
     world = _world()
     move = CommanderMoveCommand(player=PLAYER_TWO, sequence=0, dx=0, dy=-1)
 
     state, events = step(state, [move], world=world)
     assert not any(isinstance(e, CommanderHorizontalMoveStartedEvent) for e in events)
-    assert (state.commander_for(PLAYER_TWO).x, state.commander_for(PLAYER_TWO).y) == (2, 1)
+    assert (state.commander_for(PLAYER_TWO).x, state.commander_for(PLAYER_TWO).y) == (8, 4)
 
 
 def test_descent_is_blocked_by_a_commander_that_would_create_overlap() -> None:
-    # Both commanders already share (2, 0). p1 at altitude 4 (range [4, 8))
+    # Both commanders already share (8, 2). p1 at altitude 4 (range [4, 8))
     # descending would reach 3 (range [3, 7)), which overlaps p2's
     # stationary [0, 4) -- descent must be blocked outright.
-    descending = _free(PLAYER_ONE, x=2, y=0, altitude=4, rising=False)
-    stationary = _free(PLAYER_TWO, x=2, y=0, altitude=0)
+    descending = _free(PLAYER_ONE, x=8, y=2, altitude=4, rising=False)
+    stationary = _free(PLAYER_TWO, x=8, y=2, altitude=0)
     state = _new_game((descending, stationary))
     world = _world()
 
@@ -375,10 +383,10 @@ def test_friendly_dock_follow_and_undock_through_ascent() -> None:
     robot_id = EntityId("robot-1")
     # One cadence tick above the robot's top surface: descending exactly
     # once (-1) lands the commander precisely on the robot's height.
-    commander = _free(PLAYER_ONE, x=3, y=1, altitude=HEIGHT + DESCENT, rising=False)
+    commander = _free(PLAYER_ONE, x=7, y=2, altitude=HEIGHT + DESCENT, rising=False)
     state = _new_game((commander,))
     world = _world()
-    robot = RobotFixture(id=robot_id, owner=PLAYER_ONE, x=3, y=1, height=HEIGHT)
+    robot = RobotFixture(id=robot_id, owner=PLAYER_ONE, x=7, y=2, height=HEIGHT)
 
     dock_events: list[CommanderDockedEvent] = []
     for _ in range(V_TICKS):
@@ -395,27 +403,36 @@ def test_friendly_dock_follow_and_undock_through_ascent() -> None:
     # Follow: the robot fixture moves one cell east between ticks; the
     # docked commander's position/altitude are derived from it, not moved
     # independently.
-    moved_robot = RobotFixture(id=robot_id, owner=PLAYER_ONE, x=4, y=1, height=HEIGHT)
-    # (4, 1) is not the p1 heli-pad or a structure component cell, so this
-    # follow step exercises pure docked-follow geometry only.
+    moved_robot = RobotFixture(id=robot_id, owner=PLAYER_ONE, x=8, y=2, height=HEIGHT)
+    # The body at (8, 2) is clear of the heli-pads and every structure, so
+    # this follow step exercises pure docked-follow geometry only.
     state, _events = step(state, [], world=world, robots=(moved_robot,))
     followed = state.commander_for(PLAYER_ONE)
-    assert (followed.x, followed.y, followed.altitude) == (4, 1, HEIGHT)
+    assert (followed.x, followed.y, followed.altitude) == (8, 2, HEIGHT)
     assert followed.mode is CommanderMode.DOCKED
 
     # Undock: holding rise intent while docked flips mode back to FREE and
-    # starts one ascent step (+2), in the same authoritative tick.
+    # starts the exit lift (CR002.24) in the same authoritative tick; the
+    # lift climbs +2 on the following vertical update.
     rise = CommanderSetVerticalIntentCommand(player=PLAYER_ONE, sequence=0, rising=True)
     state, events = step(state, [rise], world=world, robots=(moved_robot,))
     undocked_events = [e for e in events if isinstance(e, CommanderUndockedEvent)]
     assert len(undocked_events) == 1
     assert undocked_events[0].robot_id == robot_id
     assert undocked_events[0].from_altitude == HEIGHT
-    assert undocked_events[0].to_altitude == HEIGHT + ASCENT
+    assert undocked_events[0].to_altitude == HEIGHT
     freed = state.commander_for(PLAYER_ONE)
     assert freed.mode is CommanderMode.FREE
     assert freed.docked_robot_id is None
-    assert freed.altitude == HEIGHT + ASCENT
+    assert freed.altitude == HEIGHT
+    assert freed.elevate_updates_remaining == DEFAULT_RULES.commander_exit_elevate_updates
+
+    for _ in range(V_TICKS):
+        state, events = step(state, [], world=world, robots=(moved_robot,))
+        assert not any(isinstance(e, CommanderDockedEvent) for e in events)
+    lifted = state.commander_for(PLAYER_ONE)
+    assert lifted.mode is CommanderMode.FREE
+    assert lifted.altitude == HEIGHT + ASCENT
 
 
 # ---------------------------------------------------------------------------
@@ -426,10 +443,10 @@ def test_friendly_dock_follow_and_undock_through_ascent() -> None:
 def test_enemy_robot_contact_stops_descent_without_docking_or_control_transfer() -> None:
     enemy_robot_id = EntityId("enemy-robot-1")
     # p2's commander descends onto a robot fixture owned by p1.
-    commander = _free(PLAYER_TWO, x=3, y=2, altitude=HEIGHT + DESCENT, rising=False)
+    commander = _free(PLAYER_TWO, x=8, y=5, altitude=HEIGHT + DESCENT, rising=False)
     state = _new_game((commander,))
     world = _world()
-    enemy_robot = RobotFixture(id=enemy_robot_id, owner=PLAYER_ONE, x=3, y=2, height=HEIGHT)
+    enemy_robot = RobotFixture(id=enemy_robot_id, owner=PLAYER_ONE, x=8, y=5, height=HEIGHT)
 
     for _ in range(V_TICKS):
         state, tick_events = step(state, [], world=world, robots=(enemy_robot,))
@@ -467,9 +484,9 @@ def test_enemy_robot_contact_stops_descent_without_docking_or_control_transfer()
 
 
 def test_landing_on_own_heli_pad_emits_construction_entry_eligible() -> None:
-    # p1's own heli-pad cell, resting on warbase-p1's 3-high roof component
-    # (open-questions.md §18: land at the pad cell's component height).
-    p1 = _free(PLAYER_ONE, x=4, y=0, altitude=PAD_ROOF_ALTITUDE)
+    # p1's own 2×2 heli-pad, resting on warbase-p1's 3-high roof component
+    # (open-questions.md §18: land at the pad's component height).
+    p1 = _free(PLAYER_ONE, x=4, y=1, altitude=PAD_ROOF_ALTITUDE)
     state = _new_game((p1,))
     world = _world()
 
@@ -494,7 +511,7 @@ def test_landing_on_the_other_players_heli_pad_grants_no_entry() -> None:
 def test_descending_onto_own_roof_heli_pad_settles_and_enters_through_step() -> None:
     # Flying one descent step above the pad; height-aware collision lets the
     # commander settle on the 3-high roof component, where it lands.
-    p1 = _free(PLAYER_ONE, x=4, y=0, altitude=PAD_ROOF_ALTITUDE + DESCENT)
+    p1 = _free(PLAYER_ONE, x=4, y=1, altitude=PAD_ROOF_ALTITUDE + DESCENT)
     state = _new_game((p1,))
     world = _world()
 
@@ -508,7 +525,7 @@ def test_descending_onto_own_roof_heli_pad_settles_and_enters_through_step() -> 
 
 
 def test_ground_level_below_the_roof_heli_pad_is_not_a_landing() -> None:
-    p1 = _free(PLAYER_ONE, x=4, y=0, altitude=0)
+    p1 = _free(PLAYER_ONE, x=4, y=1, altitude=0)
     state = _new_game((p1,))
 
     _state, events = step(state, [], world=_world())
@@ -544,7 +561,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
        it automatically by descending exactly onto its top.
     4. p2 continues descending onto an *enemy*-owned robot fixture at the
        same time, resting at its top without ever docking.
-    5. p1 undocks (through one ascent step) and starts climbing away.
+    5. p1 undocks (starting the CR002.24 exit lift) and climbs away.
 
     Landing on the friendly war-base heli-pad (bullet 9 of the milestone
     scenario) is deliberately *not* chained onto this same flight: it is
@@ -556,12 +573,14 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     Returns the final state and the full ordered event stream, so callers
     can replay this twice and diff the results for determinism.
     """
-    friendly_robot = RobotFixture(id=EntityId("robot-1"), owner=PLAYER_ONE, x=3, y=1, height=HEIGHT)
-    enemy_robot = RobotFixture(id=EntityId("robot-2"), owner=PLAYER_ONE, x=3, y=2, height=HEIGHT)
+    # 2×2 bodies: the two robots (and so the two commanders over them) sit
+    # on separate rows so they never overlap one another.
+    friendly_robot = RobotFixture(id=EntityId("robot-1"), owner=PLAYER_ONE, x=8, y=2, height=HEIGHT)
+    enemy_robot = RobotFixture(id=EntityId("robot-2"), owner=PLAYER_ONE, x=8, y=5, height=HEIGHT)
     robots = (friendly_robot, enemy_robot)
 
-    p1 = _free(PLAYER_ONE, x=1, y=1, altitude=HEIGHT + DESCENT, rising=True)
-    p2 = _free(PLAYER_TWO, x=3, y=2, altitude=HEIGHT + DESCENT, rising=False)
+    p1 = _free(PLAYER_ONE, x=6, y=2, altitude=HEIGHT + DESCENT, rising=True)
+    p2 = _free(PLAYER_TWO, x=8, y=5, altitude=HEIGHT + DESCENT, rising=False)
     state = _new_game((p1, p2))
 
     all_events: list[object] = []
@@ -573,7 +592,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     # Ticks 2..4: p1's horizontal move resolves and the first vertical
     # cadence tick lands simultaneously; p1 stops rising once its move has
     # resolved so it can begin its controlled descent onto the friendly
-    # robot at x=3.
+    # robot at x=8.
     for _ in range(V_TICKS - 1):
         state, events = step(state, [], world=world, robots=robots)
         all_events.extend(events)
@@ -582,7 +601,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     state, events = step(state, [stop_rising], world=world, robots=robots)
     all_events.extend(events)
 
-    # Advance until p1 has walked from x=2 to x=3 (one more horizontal
+    # Advance until p1 has walked from x=7 to x=8 (one more horizontal
     # move) and both commanders have descended onto their respective
     # robots.
     move_to_robot = CommanderMoveCommand(player=PLAYER_ONE, sequence=1, dx=1, dy=0)
@@ -603,7 +622,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     assert p2_state.docked_robot_id is None
 
     # Undock p1 through ascent: hold rise while DOCKED flips it back to
-    # FREE and starts one ascent step in the same authoritative tick.
+    # FREE and starts the exit lift (CR002.24) in the same authoritative tick.
     rise = CommanderSetVerticalIntentCommand(player=PLAYER_ONE, sequence=2, rising=True)
     state, events = step(state, [], world=world, robots=robots)  # settle any pending completions
     all_events.extend(events)

@@ -281,6 +281,16 @@ class EngineRules:
       (documented canonical default ``4``; see the module docstring for why
       this exact duration is not independently spec-verified, unlike the
       vertical envelope above).
+    - ``commander_exit_elevate_updates``: number of vertical
+      updates for which a commander automatically ascends
+      (``commander_ascent_step`` each) after leaving the construction screen
+      by EXIT MENU or START ROBOT (CR002.12/CR002.13) or leaving a robot it
+      was docked on (CR002.24). Spectrum evidence: both
+      ``Lcb8e_construction_screen_exit`` and the robot HUD's EXIT option
+      (``#a7fd``--``#a80f``, falling through to ``La812_exit_robot``) set
+      ``Lfd30_player_elevate_timer`` to 5, and
+      ``Lafa2_player_ship_keyboard_control_altitude`` ascends 2 per update
+      while the timer runs. Default ``5``.
     - ``module_height_bipod`` / ``module_height_tracks`` /
       ``module_height_anti_grav`` / ``module_height_cannon`` /
       ``module_height_missile`` / ``module_height_phaser`` /
@@ -399,6 +409,19 @@ class EngineRules:
       along its firing axis on each advance (CR001, #150, per
       `_specs/open-questions.md` §8 resolution: ``Lb724_bullet_update_internal``
       moves a bullet 2 map cells per update on either axis). Default ``2``.
+    - ``robot_fire_cycle_ticks``: the length, in ticks, of the game cycle in
+      which a robot may fire at most one normal weapon (CR002.2 #169, owner
+      decision 2026-09-21, `_specs/open-questions.md` §8). Fire cycles are
+      the aligned windows ``tick // robot_fire_cycle_ticks``. Default ``4``
+      (1 game cycle). On the Spectrum an AI robot fires only inside its
+      update in ``Lb0ca_update_robots_bullets_and_ai`` and a combat-mode
+      shot uses up one time step, so neither fires twice in a cycle.
+    - ``robot_launch_exit_steps``: how many steps south a newly launched
+      robot walks out of its war base before settling into Stop & Defend
+      (CR002.3, owner decision 2026-09-21, `_specs/open-questions.md` §21).
+      ``La6c8``, right after ``Lc849_robot_construction_if_possible``, sets
+      ``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING`` to 5 ("walk 5 steps
+      after exiting the base, and stop"). Default ``5``; ``0`` disables it.
     """
 
     commander_min_altitude: int = 0
@@ -408,6 +431,7 @@ class EngineRules:
     commander_descent_step: int = 1
     commander_height: int = 4
     commander_horizontal_move_ticks: int = 4
+    commander_exit_elevate_updates: int = 5
     module_height_bipod: int = 4
     module_height_tracks: int = 4
     module_height_anti_grav: int = 4
@@ -455,6 +479,8 @@ class EngineRules:
     phaser_damage_multiplier: int = 4
     projectile_advance_ticks: int = 4
     projectile_cells_per_advance: int = 2
+    robot_fire_cycle_ticks: int = 4
+    robot_launch_exit_steps: int = 5
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -471,6 +497,8 @@ class EngineRules:
             raise ValueError("commander_height must be a positive integer")
         if self.commander_horizontal_move_ticks <= 0:
             raise ValueError("commander_horizontal_move_ticks must be a positive integer")
+        if self.commander_exit_elevate_updates < 0:
+            raise ValueError("commander_exit_elevate_updates must be non-negative")
         for field_name in (
             "module_height_bipod",
             "module_height_tracks",
@@ -545,6 +573,10 @@ class EngineRules:
             raise ValueError("nuclear building dy offsets must be non-negative")
         if self.projectile_cells_per_advance <= 0:
             raise ValueError("projectile_cells_per_advance must be a positive integer")
+        if self.robot_fire_cycle_ticks <= 0:
+            raise ValueError("robot_fire_cycle_ticks must be a positive integer")
+        if self.robot_launch_exit_steps < 0:
+            raise ValueError("robot_launch_exit_steps must be non-negative")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

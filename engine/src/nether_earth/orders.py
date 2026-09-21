@@ -144,8 +144,9 @@ from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
-from nether_earth.movement import RobotMoveRequest
+from nether_earth.movement import RobotMoveRequest, validate_robot_move
 from nether_earth.navigation import NavigationStatus, next_navigation_step
+from nether_earth.reservations import destination_available
 from nether_earth.robot import Robot
 from nether_earth.robot_build import CANONICAL_WEAPON_ORDER, ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules, miles_to_cells
@@ -177,6 +178,7 @@ __all__ = [
     "order_is_valid",
     "select_capture_target",
     "select_destroy_target",
+    "walk_out_request",
 ]
 
 
@@ -440,6 +442,12 @@ def apply_set_robot_order(
     still emits an event: re-issuing ``Advance(10)`` to a robot mid-advance
     legitimately means "restart, from here", and silently dropping it would
     make the command's effect depend on hidden bound state.
+
+    Any assignment ends a launch walk-out (``exit_steps_remaining``, see
+    :func:`walk_out_request`): on the Spectrum a player gives orders from the
+    robot's menu, and leaving it zeroes the robot's steps-to-keep-walking
+    (``ld (ix + ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING), a`` with
+    ``a = 0``), so the new order takes over at once.
     """
     robot = state.robot_for(command.entity_id)
     if robot is None or robot.owner != command.player:
@@ -452,7 +460,7 @@ def apply_set_robot_order(
         order = StopAndDefend()
         status = OrderStatus.FALLBACK
 
-    updated = robot.with_order(order)
+    updated = replace(robot.with_order(order), exit_steps_remaining=0)
     new_state = state.with_robots(
         tuple(updated if other.entity_id == robot.entity_id else other for other in state.robots)
     )
@@ -962,7 +970,8 @@ def _linear_goal(
     sign = 1 if isinstance(order, Advance) else -1
     if order.target_x is None:
         raw = robot.x + sign * miles_to_cells(order.distance_miles)
-        target_x = max(0, min(world.width - 1, raw))
+        # The last on-map anchor column of a 2×2 body is width - 2 (CR002.3).
+        target_x = max(0, min(world.width - 2, raw))
         if target_x != robot.x:
             return replace(order, target_x=target_x), target_x
         # Clamped to a standstill: impossible unless nothing was asked for.
@@ -970,6 +979,34 @@ def _linear_goal(
             return replace(order, target_x=target_x), target_x
         return None
     return order, order.target_x
+
+
+def walk_out_request(
+    robot: Robot, state: GameState, world: WorldMap, rules: EngineRules = DEFAULT_RULES
+) -> RobotMoveRequest | None:
+    """The next step of ``robot``'s launch walk-out, if it has one and it is legal now.
+
+    A launched robot holds Stop & Defend with ``exit_steps_remaining`` set
+    (`robot_launch.py`). The Spectrum does the same (``La6c8``, right after
+    ``Lc849_robot_construction_if_possible``: desired direction down,
+    5 steps to keep walking, Stop & Defend, facing down already), and
+    ``Lb154_robot_ai_update`` then keeps walking down one step per robot
+    update while the step is possible (``Lb1e9``). "Down" is ``inc b``
+    (``Lb4d5``), i.e. ``y + 1``: south, out of the doorway (§18/§21).
+
+    Returns ``None`` when no steps are left or the step south is not legal
+    right now (``validate_robot_move`` with reservations bound). The walk-out
+    then ends: on the Spectrum a blocked desired direction drops to
+    ``Lb1f5_move_in_a_new_direction``, which for Stop & Defend picks no
+    direction (``Lb222``), so the robot stays and defends. `engine.py`
+    settles the counter after the tick's move batch
+    (:func:`~nether_earth.autonomous_combat.settle_walk_outs`).
+    """
+    if robot.exit_steps_remaining <= 0 or robot.movement is not None:
+        return None
+    request = RobotMoveRequest(entity_id=robot.entity_id, dx=0, dy=1)
+    result = validate_robot_move(request, state, world, rules, destination_available)
+    return request if result.accepted else None
 
 
 def evaluate_order(
@@ -980,9 +1017,10 @@ def evaluate_order(
 ) -> OrderEvaluation | None:
     """Evaluate ``robot``'s order for one tick.
 
-    Returns ``None`` when the robot holds no order at all, which is every
-    freshly launched robot and every robot a player is directly driving --
-    there is nothing autonomous to decide. Otherwise returns exactly one
+    Returns ``None`` when the robot holds no order at all -- there is
+    nothing autonomous to decide. (A freshly launched robot holds Stop &
+    Defend and walks out of its war base first, CR002.3; see
+    :func:`walk_out_request`.) Otherwise returns exactly one
     :class:`OrderEvaluation`; see that class and the module docstring for
     how the caller must apply it.
 
@@ -1001,6 +1039,7 @@ def evaluate_order(
             order=order,
             previous=order,
             status=OrderStatus.ACTIVE,
+            request=walk_out_request(robot, state, world, rules),
             intent=_defensive_intent(robot, state),
         )
 

@@ -81,6 +81,10 @@ same "new keys are appended after existing keys" precedent. No dedicated
 per-entry snapshot helper is needed (unlike ``structure_ownership``/
 ``capture_progress``/``projectiles``) because each entry is a bare id, not a
 multi-field record.
+
+Scenery debris (CR002.18, #196): ``GameState.scenery_debris`` is serialized
+as ``"scenery_debris"``, a plain list of blocker ids in canonical order,
+appended after ``structure_destruction`` the same way.
 """
 
 from __future__ import annotations
@@ -162,6 +166,7 @@ def _commander_snapshot(commander: Commander) -> dict[str, Any]:
         "rising": commander.rising,
         "horizontal_transition": _grid_transition_snapshot(commander.horizontal_transition),
         "vertical_transition": _vertical_transition_snapshot(commander.vertical_transition),
+        "elevate_updates_remaining": commander.elevate_updates_remaining,
     }
 
 
@@ -323,6 +328,12 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     damage is per-robot authoritative state, so a snapshot that dropped it
     could not distinguish an undamaged robot from one a hit away from
     destruction.
+
+    Extended again by CR002.2 (#169) with ``last_fire_tick``, appended last:
+    it gates the one-shot-per-game-cycle fire rule.
+
+    Extended again by CR002.3 (#170) with ``exit_steps_remaining``, appended
+    last: the steps left in a launched robot's walk out of its war base.
     """
     return {
         "entity_id": robot.entity_id.to_json(),
@@ -340,6 +351,8 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
             else None
         ),
         "strength": robot.strength,
+        "last_fire_tick": robot.last_fire_tick,
+        "exit_steps_remaining": robot.exit_steps_remaining,
     }
 
 
@@ -387,6 +400,7 @@ def _projectile_snapshot(projectile: Projectile) -> dict[str, Any]:
         "travelled_cells": projectile.travelled_cells,
         "max_range_cells": projectile.max_range_cells,
         "created_tick": projectile.created_tick,
+        "first_advance_tick": projectile.first_advance_tick,
     }
 
 
@@ -418,6 +432,9 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     ``structure_destruction`` (added to ``GameState`` by issue #78, M6.8) is
     appended last, following the same additive-key convention.
 
+    ``scenery_debris`` (CR002.18, #196): the ids of map blockers a nuclear
+    blast turned into rough debris, appended last the same way.
+
     Every field of ``GameState`` is now serialized; see the module docstring
     for why reservations and engagement intent, which M5 also introduced,
     correctly have no keys of their own.
@@ -444,6 +461,7 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
         "structure_destruction": [
             structure_id.to_json() for structure_id in state.structure_destruction
         ],
+        "scenery_debris": [blocker_id.to_json() for blocker_id in state.scenery_debris],
     }
 
 

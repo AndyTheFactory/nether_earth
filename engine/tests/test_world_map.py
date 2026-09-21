@@ -55,8 +55,8 @@ def test_fixture_loads_expected_identity_and_dimensions() -> None:
     world_map = load_world_map(FIXTURE_PATH)
     assert world_map.map_id == "fixture-basic"
     assert world_map.version == 1
-    assert world_map.width == 6
-    assert world_map.height == 4
+    assert world_map.width == 12
+    assert world_map.height == 8
 
 
 def test_fixture_terrain_query() -> None:
@@ -126,7 +126,8 @@ def test_fixture_interaction_points_query() -> None:
     heli_pads = world_map.interaction_points_for(warbase_id, kind=InteractionKind.HELI_PAD)
     assert len(heli_pads) == 1
     assert heli_pads[0].id == "warbase-p1-helipad"
-    assert heli_pads[0].footprint.cells == frozenset({(4, 0)})
+    # A 2×2 pad (CR002.4): the four cells a landed commander's body covers.
+    assert heli_pads[0].footprint.cells == frozenset({(4, 1), (5, 1), (4, 0), (5, 0)})
 
     # warbase-p2 declares no warbase_capture point: open-questions.md §6 is
     # unresolved, so the schema must not require one.
@@ -151,8 +152,8 @@ def test_fixture_occupancy_reflects_structures() -> None:
 def test_fixture_spawn_positions() -> None:
     world_map = load_world_map(FIXTURE_PATH)
     assert world_map.spawn_positions == {
-        "p1_commander": (4, 1),
-        "p2_commander": (4, 2),
+        "p1_commander": (8, 2),
+        "p2_commander": (8, 5),
     }
 
 
@@ -502,7 +503,7 @@ def test_apply_overlay_replaces_ownership_and_merges_spawns_without_mutating_inp
     assert isinstance(new_warbase_p2, WarBase)
     assert new_warbase_p2.owner == PlayerId("p1")
     assert overlaid.spawn_positions["p1_commander"] == (0, 0)
-    assert overlaid.spawn_positions["p2_commander"] == (4, 2)  # untouched entry is preserved
+    assert overlaid.spawn_positions["p2_commander"] == (8, 5)  # untouched entry is preserved
 
 
 def test_apply_overlay_rejects_unknown_structure_id() -> None:

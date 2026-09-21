@@ -47,22 +47,34 @@ already attached to a robot, not flying itself onto a pad — checked
 explicitly here even though #37's invariants make ``DOCKED`` +
 "independently landing" a contradictory combination, for clarity and so
 this function's precondition list is self-documenting rather than relying
-on an invariant defined in another module), at an ``(x, y)`` that is a
-member of one of its own war base's ``HELI_PAD`` interaction-point
-footprints, and at an altitude *exactly equal* to that pad cell's surface
-height.
+on an invariant defined in another module), with its whole 2×2 body over
+one of its own war base's ``HELI_PAD`` interaction-point footprints, and at
+an altitude *exactly equal* to the pad's surface height.
 
 The heli-pad is on the war-base roof (`_specs/open-questions.md` §18,
 CR001): the original game places the "H" decoration at (anchor.x,
 anchor.y − 4) and enters construction only when the ship is over it at
 altitude exactly 15 (`cp 15`), the roof of the 15-high war-base block. The
 surface height of a pad cell is therefore the height of the static
-component occupying that cell (resolved via `collision.components_at`, the
+component occupying that cell (resolved via `collision.unit_surface_height`, the
 same per-cell lookup height-aware collision uses, so the landing altitude
 is precisely where commander collision lets the commander settle). A pad
 cell with no component is at ground level, ``rules.commander_min_altitude``.
 Anything above the surface is still airborne and does not trigger
 construction entry.
+
+2×2 pad (CR002.4 #171)
+----------------------
+
+The commander is a 2×2 body anchored at its ``(x, y)`` (`occupancy.py`,
+`_specs/open-questions.md` §21), and the pad is the 2×2 area of the "H"
+decoration: the map declares all four pad cells, anchored at the §18 roof
+location. The Spectrum's game loop only starts construction when the ship's
+anchor cell *is* the "H" decoration's cell (``La6c8``:
+``Lcdf5_find_building_decoration_with_ptr`` on the ship's map pointer), so
+the ship's body lies exactly over the pad. Here that is "every cell of the
+commander's body is a pad cell". The surface is the highest component under
+the body (the war-base roof, 15), where 2×2 commander collision rests it.
 
 Determinism and "exactly one event"
 --------------------------------------
@@ -88,12 +100,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nether_earth.collision import components_at
+from nether_earth.collision import unit_surface_height
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
+from nether_earth.occupancy import unit_footprint_cells
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
 
@@ -132,17 +145,15 @@ class CommanderConstructionEntryEligible(Event):
 def heli_pad_surface_altitude(
     world: WorldMap, x: int, y: int, rules: EngineRules = DEFAULT_RULES
 ) -> int:
-    """Return the altitude a commander rests at when landed on pad cell ``(x, y)``.
+    """Return the altitude a commander anchored at ``(x, y)`` rests at on the pad.
 
-    That is the height of the static component occupying the cell (15 on
-    the original war-base roof, `_specs/open-questions.md` §18), or
-    ``rules.commander_min_altitude`` (ground) when the cell has no
-    component. At most one component occupies a cell on a valid map; the
-    maximum is taken defensively, matching the top of the blocking surface
-    height-aware collision would rest the commander on.
+    That is the highest static surface under the commander's 2×2 body
+    (:func:`~nether_earth.collision.unit_surface_height`; 15 on the original
+    war-base roof, `_specs/open-questions.md` §18), and never below
+    ``rules.commander_min_altitude`` -- the top of the surface 2×2
+    height-aware collision rests the commander on (CR002.4, CR002.21).
     """
-    heights = [component.height for component in components_at(world, x, y)]
-    return max(heights, default=rules.commander_min_altitude)
+    return max(unit_surface_height(world, x, y), rules.commander_min_altitude)
 
 
 def detect_heli_pad_landing(
@@ -180,11 +191,11 @@ def detect_heli_pad_landing(
     - ``commander.player_id`` owns a war base in ``world.war_bases``
       (``WarBase.owner == commander.player_id`` — neither ``None``
       (neutral) nor a different player's id qualifies);
-    - ``(commander.x, commander.y)`` is a member of that war base's
-      ``HELI_PAD`` interaction-point footprint(s), resolved via
+    - every cell of the commander's 2×2 body lies in one of that war base's
+      ``HELI_PAD`` interaction-point footprints (CR002.4), resolved via
       ``world.interaction_points_for(war_base.id, kind=InteractionKind.HELI_PAD)``
       — never inferred from ``WarBase.components``;
-    - ``commander.altitude`` equals that pad cell's surface height (see
+    - ``commander.altitude`` equals the pad's surface height (see
       :func:`heli_pad_surface_altitude`) — the "sufficient contact"
       requirement; anything above it is still airborne.
 
@@ -201,8 +212,9 @@ def detect_heli_pad_landing(
         if war_base.owner != commander.player_id:
             continue
         heli_pads = world.interaction_points_for(war_base.id, kind=InteractionKind.HELI_PAD)
+        body = unit_footprint_cells(commander.x, commander.y)
         for heli_pad in heli_pads:
-            if (commander.x, commander.y) not in heli_pad.footprint.cells:
+            if not all(cell in heli_pad.footprint.cells for cell in body):
                 continue
             if commander.altitude == heli_pad_surface_altitude(
                 world, commander.x, commander.y, rules
