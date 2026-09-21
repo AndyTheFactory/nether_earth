@@ -2,7 +2,7 @@
 import 'pixi.js/unsafe-eval';
 import { Application } from 'pixi.js';
 import './style.css';
-import { Store } from './state/store.ts';
+import { Store, myConstruction } from './state/store.ts';
 import { GameController } from './app/controller.ts';
 import { WorldRenderer } from './render/renderer.ts';
 import { loadAssets } from './render/assets.ts';
@@ -12,6 +12,7 @@ import { mountLobby } from './ui/lobby.ts';
 import { Panel } from './ui/dom.ts';
 import { renderHud } from './ui/hud.ts';
 import { renderMenus } from './ui/menus.ts';
+import { ConstructionScreen } from './ui/construction.ts';
 import { renderOverlay } from './ui/overlays.ts';
 import { Radar, viewFromCorners } from './ui/radar.ts';
 
@@ -44,7 +45,9 @@ async function main(): Promise<void> {
   const menus = new Panel('menus', (a, arg) => controller.menuAction(a, arg));
   const overlay = new Panel('overlay', (a, arg) => controller.menuAction(a, arg));
   const radar = new Radar(map);
-  ui.append(hud.root, radar.root, menus.root, overlay.root);
+  const construction = new ConstructionScreen((column, piece) => controller.constructionPick(column, piece));
+  // Construction covers the play view full screen; lifecycle overlays stay above it.
+  ui.append(hud.root, radar.root, menus.root, construction.root, overlay.root);
 
   const keyboard = new KeyboardIntent(controller);
   bindKeyboard(window, keyboard);
@@ -76,6 +79,8 @@ async function main(): Promise<void> {
     const view = viewFromCorners([renderer.screenToCell(0, 0), renderer.screenToCell(w, 0), renderer.screenToCell(0, h), renderer.screenToCell(w, h)]);
     radar.update(s.ui.screen === 'match', s.latest, view);
     renderMenus(menus, s, controller.aim, controller.weaponIndex);
+    const cs = s.ui.screen === 'match' && s.latest ? myConstruction(s.latest, s.connection.session?.playerId ?? '') : null;
+    construction.update(cs, controller.buildCursor, window.innerWidth, window.innerHeight);
     renderOverlay(overlay, s, Date.now());
   });
 

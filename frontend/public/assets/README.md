@@ -13,6 +13,19 @@ not a modern RTS restyle.
 |-------------|------|------------|
 | (none yet)  |      | all ids currently use procedural placeholders |
 
+## Construction-screen module icons (CR002.9)
+
+The eight module icons of the ROBOT CONSTRUCTION screen (and the robot
+preview stacked from them) are not image files: `src/ui/construction-icons.ts`
+generates them at runtime as 24x24 1-bit sprites from a few isometric
+primitives (2:1 blocks with dithered faces, discs, lines). They are an
+original drawing made for this project in the style of the original's icons
+(one ink colour on black, isometric, measured from
+`_specs/milestones/cr002/construction-screen.png`); no sprite data was copied
+from the game or its disassembly. Same terms as the rest of this repository.
+Colours follow the original's code (`Lcc1f` in the disassembly): fitted
+modules white, the others yellow.
+
 ## Fonts (CR002.10)
 
 Self-hosted from `frontend/public/fonts/` (served from `'self'`, so the

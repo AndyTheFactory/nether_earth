@@ -11,6 +11,7 @@ npm install
 npm run dev           # http://localhost:5173
 npm test              # vitest unit tests (store, interpolation, input, fixtures)
 npm run build         # map:generate + typecheck + vite build
+npm run rules:generate # re-export module costs from engine rules.py (CI checks drift)
 npm run live:check    # two-client protocol check against a running backend (NE_WS_URL)
 ```
 
@@ -45,6 +46,7 @@ src/render/assets.ts     semantic-id asset pipeline with explicit placeholders
 src/ui/*.ts              plain-DOM lobby, HUD, construction/robot/combat menus, overlays
 src/fixtures/index.ts    typed recorded message streams; validated against protocol schemas in tests
 src/generated/maps/*.json map YAML converted by scripts/generate-map.mjs (format only)
+src/generated/rules/construction.json module costs read from engine rules.py by scripts/generate-rules.mjs
 ```
 
 ## Authority boundary
@@ -112,8 +114,22 @@ pauses with a frozen tick; reconnect resyncs and resumes; client state equals
 the server snapshot byte for byte. The backend plays every match on the
 canonical `pvp-v1` scenario and the original map (Milestone 9).
 
-Module costs are not exposed by the protocol; the construction panel shows the
-authoritative session buffer and committed pool instead of a second cost table.
+## Robot construction screen (CR002.9)
+
+Landing on a war-base heli-pad opens the full-screen ROBOT CONSTRUCTION screen
+(`src/ui/construction.ts`), laid out after the original (reference
+`_specs/milestones/cr002/construction-screen.png`). RESOURCES AVAILABLE is the
+authoritative session buffer; the module costs come from
+`src/generated/rules/construction.json`, a format-only export of the engine's
+`EngineRules.module_cost_*` defaults (the protocol does not carry costs), so
+there is no second cost table in the UI. Controls follow the Spectrum
+(disassembly `Lca0f`/`Lcb00`): the cursor starts on BIPOD; up/down walk the
+module list, left/right move between the list, START ROBOT and EXIT MENU; a
+held arrow repeats every 200 ms; Space or Enter fires on the cursor (toggle a
+module, start the robot, or exit). Clicking an option moves the cursor there
+and fires. Shortcuts: 1-3 chassis, 4-7 weapons, 8 electronics, Esc/C exit.
+Fitted modules draw white, the others yellow (`Lcc1f`); the option under the
+cursor is yellow. Every action is an existing command; the engine decides.
 Engine command rejections are not transmitted (snapshot-only broadcast policy),
 so rejection feedback is limited to protocol `error` frames plus the absence of
 a state change.

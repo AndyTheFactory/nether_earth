@@ -1,8 +1,8 @@
-// Robot command / orders / combat and construction panels (M8.6/M8.7/M8.8).
+// Robot command / orders / combat panels (M8.6/M8.7).
 // Panels show authoritative state and offer command types the UI may send;
 // they never decide whether a command is legal.
 import type { AppState } from '../state/store.ts';
-import { dockedRobot, myConstruction, myResources } from '../state/store.ts';
+import { dockedRobot, myConstruction } from '../state/store.ts';
 import { Panel, btn, esc } from './dom.ts';
 
 export const CHASSIS = ['bipod', 'tracks', 'anti_grav'] as const;
@@ -18,9 +18,9 @@ export function renderMenus(panel: Panel, s: AppState, aim: { dx: number; dy: nu
     panel.set('');
     return;
   }
-  const cs = myConstruction(snap, me);
-  if (cs) {
-    panel.set(renderConstruction(cs, myResources(snap, me)));
+  // The construction session has its own full-screen view (ui/construction.ts).
+  if (myConstruction(snap, me)) {
+    panel.set('');
     return;
   }
   const robot = dockedRobot(snap, me);
@@ -67,30 +67,4 @@ export function renderMenus(panel: Panel, s: AppState, aim: { dx: number; dy: nu
       return;
     }
   }
-}
-
-function renderConstruction(cs: NonNullable<ReturnType<typeof myConstruction>>, res: ReturnType<typeof myResources>): string {
-  const build = cs.build as { chassis?: string | null; weapons?: string[]; electronics?: string | null };
-  const buffer = cs.buffer as { general: number; category: Record<string, number> };
-  const entry = cs.entry_snapshot as { general: number; category: Record<string, number> };
-  const has = (m: string) => build.chassis === m || (build.weapons ?? []).includes(m) || build.electronics === m;
-  const mod = (m: string, key: number) => btn('module', `${key} ${m.replace('_', '-')}${has(m) ? ' ✔' : ''}`, m, has(m) ? 'on' : '');
-  let html = `<h3>CONSTRUCTION · ${esc(cs.war_base_id)}</h3>`;
-  html += `<div>chassis: ${CHASSIS.map((c, i) => mod(c, i + 1)).join(' ')}</div>`;
-  html += `<div>weapons: ${WEAPONS.map((w, i) => mod(w, i + 4)).join(' ')} · ${mod('electronics', 8)}</div>`;
-  const stack = [build.chassis, ...WEAPONS.filter((w) => (build.weapons ?? []).includes(w)), build.electronics].filter(Boolean) as string[];
-  html += `<div class="preview">stack (bottom→top): ${stack.length ? stack.map((m) => `<span class="mod ${esc(m)}">${esc(m)}</span>`).join(' ') : '<i>empty</i>'}</div>`;
-  const c = buffer.category;
-  html += `<div>session buffer: GEN ${buffer.general} · CHS ${c.chassis ?? 0} · ELE ${c.electronics ?? 0} · NUK ${c.nuclear ?? 0} · MIS ${c.missile ?? 0} · PHA ${c.phaser ?? 0} · CAN ${c.cannon ?? 0}</div>`;
-  if (res) html += `<div class="hint">committed pool: GEN ${res.general} · CHS ${res.chassis} · ELE ${res.electronics} · NUK ${res.nuclear} · MIS ${res.missile} · PHA ${res.phaser} · CAN ${res.cannon}</div>`;
-  const spentGen = entry.general - buffer.general;
-  const spentCat = Object.entries(entry.category)
-    .map(([k, v]) => [k, v - (buffer.category[k] ?? 0)] as const)
-    .filter(([, v]) => v > 0)
-    .map(([k, v]) => `${k} ${v}`)
-    .join(', ');
-  html += `<div>spent this session: general ${spentGen}${spentCat ? ` · ${esc(spentCat)}` : ''}</div>`;
-  // Spectrum semantics (CR002.12/13): EXIT MENU discards the build; both leave the screen.
-  html += `<div>${btn('cancel', 'esc Exit menu', '')} ${btn('launch', '⏎ Start robot', '')}</div>`;
-  return html;
 }
