@@ -8,10 +8,8 @@ import { TILE_H, TILE_W, depthKey, project, unproject, viewZoom, type ScreenPoin
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
+import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, shade, type SemanticAsset } from './assets.ts';
-
-/** Destroyed structures are drawn as low rubble of this height. */
-const RUBBLE_HEIGHT = 1;
 
 interface Effect {
   x: number;
@@ -41,6 +39,7 @@ export class WorldRenderer {
   private overlayLabels = new Container();
   private zoom = 1;
   private cam = { x: 24, y: 8 };
+  private readonly surface: SurfaceMap;
   private lastStructureKey = '';
   private lastResync = -1;
   private prevSnapshot: SnapshotState | null = null;
@@ -50,6 +49,7 @@ export class WorldRenderer {
     private readonly app: Application,
     private readonly map: MapData,
   ) {
+    this.surface = new SurfaceMap(map);
     this.world.addChild(this.terrain, this.scene, this.effects, this.overlay);
     this.labels.addChild(this.structureLabels, this.overlayLabels);
     app.stage.addChild(this.world, this.labels);
@@ -158,6 +158,7 @@ export class WorldRenderer {
     this.diffForEffects(snap, nowMs);
 
     const me = state.connection.session?.playerId ?? null;
+    const destroyed = new Set(snap.structure_destruction);
     const robotPos = new Map<string, { x: number; y: number; height: number }>();
 
     for (const r of snap.robots) {
@@ -182,8 +183,9 @@ export class WorldRenderer {
       let x = c.x;
       let y = c.y;
       let alt = c.altitude;
-      if (c.mode === 'docked' && c.docked_robot_id && robotPos.has(c.docked_robot_id)) {
-        const rp = robotPos.get(c.docked_robot_id)!;
+      const docked = c.mode === 'docked' && !!c.docked_robot_id && robotPos.has(c.docked_robot_id);
+      if (docked) {
+        const rp = robotPos.get(c.docked_robot_id!)!;
         x = rp.x;
         y = rp.y;
       } else {
@@ -195,7 +197,9 @@ export class WorldRenderer {
         alt = interpolateAltitude(c.altitude, vt, tick);
       }
       const g = new Graphics();
-      drawCommander(g, x, y, alt, c.player_id);
+      // Docked: resting on the robot top, so no separate shadow.
+      const surfaceZ = docked ? alt : Math.min(alt, this.surface.under(x, y, destroyed));
+      drawCommander(g, x, y, alt, c.player_id, surfaceZ);
       this.addDynamic(g, depthKey(x, y, alt) + 0.5);
       if (c.player_id === me) {
         this.cam.x += (x - this.cam.x) * 0.15;
@@ -210,7 +214,7 @@ export class WorldRenderer {
       const p = project(x, y, pr.z);
       const col = colorFor(`projectile.${pr.weapon}` as SemanticAsset);
       const g = new Graphics();
-      const sh = project(x, y, 0);
+      const sh = project(x, y, Math.min(pr.z, this.surface.under(x, y, destroyed, 0)));
       g.circle(sh.x, sh.y, 1).fill({ color: 0x000000, alpha: 0.4 });
       g.circle(p.x, p.y, pr.weapon === 'nuclear' ? 2.5 : 1.5).fill(col);
       this.addDynamic(g, depthKey(x, y, pr.z));

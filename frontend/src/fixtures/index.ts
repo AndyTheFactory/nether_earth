@@ -252,6 +252,24 @@ export const FIXTURES: Fixture[] = [
     ],
   },
   {
+    id: 'surface-shadows',
+    title: 'Shadows on roofs and the heli-pad (CR002.15)',
+    description: 'Commander hovering over the heli-pad (shadow on the war-base roof); a shot over a low block (shadow on its top).',
+    playerId: 'p1',
+    messages: [
+      ...intro(),
+      snapshot(
+        base(400, {
+          commanders: [commander('p1', 22, 5, 24), commander('p2', 494, 10, 0)],
+          robots: [robot('robot-10', 'p1', 21, 10, ['bipod', 'cannon'], { active_projectile_id: 'proj-3' })],
+          projectiles: [
+            { id: 'proj-3', owner: 'p1', source_robot_id: 'robot-10', weapon: 'cannon', x: 21, y: 7, z: 10, dx: 0, dy: -1, travelled_cells: 3, max_range_cells: 10, created_tick: 396 },
+          ],
+        }),
+      ),
+    ],
+  },
+  {
     id: 'lifecycle-waiting',
     title: 'Lobby: waiting for opponent (M7)',
     description: 'Match created, join code shown, one player ready.',
