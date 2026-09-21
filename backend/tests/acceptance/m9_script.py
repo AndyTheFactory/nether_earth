@@ -293,10 +293,18 @@ def player_one(api: Api) -> Actor:
     yield from api.land_on_heli_pad(PLAYER_ONE, "warbase-1")
     enemy = api.war_base("warbase-4")
     yield from api.advance_to_column(PLAYER_ONE, P1_STRIKER, enemy[0])
+    # The blast reaches a war base only from near its anchor (dy measured from
+    # carrier.y + 5 must stay < 7; open-questions §20), so direct-drive the
+    # striker up to the row just below the anchor, level with the guard.
+    yield from api.land_on_robot(PLAYER_ONE, P1_STRIKER)
+    yield from api.drive_to(PLAYER_ONE, enemy[0], enemy[1] + 1)
+    # Let the guard's aligned shot land before detonating.
+    yield lambda s: (g := s.robot_for(P2_GUARD)) is None or g.active_projectile_id is not None
+    yield lambda s: (g := s.robot_for(P2_GUARD)) is None or g.active_projectile_id is None
     api.mark("p1 striker in position")
-    # On arrival the completed Advance becomes Stop & Defend, which never
-    # detonates (OQ §19): the striker must still be alive, and the nuclear
-    # module is fired directly.
+    # The completed Advance became Stop & Defend, which never detonates
+    # (OQ §19): the striker must still be alive, and the nuclear module is
+    # fired directly.
     assert api.state.robot_for(P1_STRIKER) is not None, "striker detonated autonomously (OQ §19)"
     api.cmd(FireCommand, PLAYER_ONE, entity_id=P1_STRIKER, weapon=ModuleIdentity.NUCLEAR, target_x=enemy[0], target_y=enemy[1])
     yield lambda s: EntityId("warbase-4") in s.structure_destruction
@@ -304,7 +312,7 @@ def player_one(api: Api) -> Actor:
 
 
 def player_two(api: Api) -> Actor:
-    """Player 2: builds a guard, drives it onto the bottom row east of the base, and fires one aligned shot."""
+    """Player 2: builds a guard, parks it just below and east of the base, and fires one aligned shot."""
     base = api.war_base("warbase-4")
     yield from api.land_on_heli_pad(PLAYER_TWO, "warbase-4")
     yield lambda s: s.construction_session_for(PLAYER_TWO) is not None
@@ -312,10 +320,11 @@ def player_two(api: Api) -> Actor:
     yield from api.build_and_launch(PLAYER_TWO, (ModuleIdentity.BIPOD, ModuleIdentity.CANNON))
     api.mark("p2 guard launched")
 
-    # Direct control: dock and drive the guard to the bottom row, three cells east of the base column.
+    # Direct control: dock and drive the guard one row below the base anchor,
+    # three cells east of the base column -- inside the striker's blast window.
     yield from api.land_on_robot(PLAYER_TWO, P2_GUARD)
     api.mark("p2 docked on guard")
-    yield from api.drive_to(PLAYER_TWO, base[0] + 3, api.world.height - 1)
+    yield from api.drive_to(PLAYER_TWO, base[0] + 3, base[1] + 1)
     api.mark("p2 guard in position")
     yield from api.undock(PLAYER_TWO)
     yield from api.fly_commander_to(PLAYER_TWO, base[0] + 3, base[1] + 3, 12)

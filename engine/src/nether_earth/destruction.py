@@ -81,19 +81,13 @@ cannon/missile/phaser-only robot. This function therefore does not add a
 redundant runtime weapon-check of its own -- there is no reachable code path
 that would need one, and a check that can never fire would be dead code.
 
-Nuclear radius metric: a documented engine policy, NOT verified Spectrum fidelity
--------------------------------------------------------------------------------------
-See :func:`execute_nuclear_detonation`'s own docstring for the full
-reasoning. In short: this task adopts simple Manhattan distance
-(``abs(dx) + abs(dy) <= rules.nuclear_radius_cells``), reusing this
-codebase's one existing distance-metric convention (`orders.py`'s
-``_manhattan``) rather than inventing new geometry for one weapon. This is a
-deliberate, centralized, configured policy choice per
-`_specs/milestones/06-combat-damage-victory.md`'s own fidelity note for this
-exact case ("if the exact original radius metric/boundary inclusion is not
-yet verified, isolate it in one named rule/policy and document the
-configured choice instead of claiming unsupported fidelity") -- it is
-explicitly *not* a claim that the original ZX Spectrum used this metric.
+Nuclear blast shapes: the Spectrum code (CR001.2, issue #149)
+-------------------------------------------------------------------
+:func:`execute_nuclear_detonation` follows ``Lb99f_fire_nuclear_bomb``
+(`_specs/open-questions.md` §20, `functional-spec.md` §17.3,
+`technical-spec.md` §18): a trimmed 9x9 robot window around the carrier and
+a per-kind building range test that destroys at most one building. All
+shape parameters are :class:`~nether_earth.rules.EngineRules` fields.
 """
 
 from __future__ import annotations
@@ -101,16 +95,18 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
-from nether_earth.capture import CapturableStructureKind
+from nether_earth.capture import CapturableStructureKind, capture_footprint
 from nether_earth.capture import effective_world as _capture_effective_world
 from nether_earth.commander import CommanderMode
 from nether_earth.docking import CommanderUndockedEvent
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
+from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
+from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
-from nether_earth.structures import Factory, WarBase, occupied_cells
+from nether_earth.structures import Factory, WarBase
 from nether_earth.victory import VictoryEvent
 from nether_earth.victory import evaluate_victory as _evaluate_victory
 
@@ -416,54 +412,87 @@ def effective_world(base_world: WorldMap, state: GameState) -> WorldMap:
     return replace(ownership_applied, war_bases=remaining_war_bases, factories=remaining_factories)
 
 
-def _manhattan(ax: int, ay: int, bx: int, by: int) -> int:
-    """Return grid distance between two cells.
+def _in_robot_window(carrier: Robot, robot: Robot, rules: EngineRules) -> bool:
+    """Return whether ``robot`` stands inside the carrier-centred nuclear robot window.
 
-    Replicates `orders.py`'s own private ``_manhattan`` helper exactly
-    (Manhattan distance, not Euclidean/Chebyshev), for consistency with this
-    codebase's one existing distance-metric convention -- see
-    :func:`execute_nuclear_detonation`'s docstring for why this task adopts
-    that same metric for the nuclear-radius check rather than inventing a
-    second one. Reimplemented here (not imported) because ``orders._manhattan``
-    is a module-private name; importing a private name across modules would
-    couple this module to `orders.py`'s internal layout for a one-line pure
-    function.
+    The window (`Lba02_look_for_robots_in_range_of_nuclear_bomb`) is
+    ``len(rules.nuclear_robot_window_row_widths)`` rows tall, centred on the
+    carrier's row, each row centred on the carrier's column. Map-edge
+    clipping needs no code: every robot is already inside the map.
     """
-    return abs(ax - bx) + abs(ay - by)
+    widths = rules.nuclear_robot_window_row_widths
+    row = robot.y - carrier.y + len(widths) // 2
+    if not 0 <= row < len(widths):
+        return False
+    return abs(robot.x - carrier.x) <= widths[row] // 2
 
 
-def _eligible_structures_in_radius(
-    world: WorldMap,
-    epicenter_x: int,
-    epicenter_y: int,
+def _building_anchor(
+    world: WorldMap, structure: WarBase | Factory, kind: CapturableStructureKind
+) -> tuple[int, int] | None:
+    """Return the Spectrum building-struct coordinate of ``structure``, or ``None``.
+
+    The Spectrum stores one ``(x, y)`` per building (``BUILDING_STRUCT_X``/
+    ``BUILDING_STRUCT_Y``), which is also the cell its capture loop checks;
+    the engine models that cell as the structure's capture interaction point
+    (`data/maps/zx-spectrum-original.md`, "anchor coordinates"). A structure
+    that declares none has no anchor, so no blast can reach it -- the same
+    "valid, unmatched map state" treatment `capture.py` gives it.
+    """
+    interaction_kind = (
+        InteractionKind.WARBASE_CAPTURE
+        if kind is CapturableStructureKind.WAR_BASE
+        else InteractionKind.FACTORY_CAPTURE
+    )
+    cells = capture_footprint(world, structure.id, interaction_kind)
+    return min(cells) if cells else None
+
+
+def _building_in_blast_range(
+    carrier: Robot,
+    anchor: tuple[int, int],
+    kind: CapturableStructureKind,
     rules: EngineRules,
-) -> list[tuple[WarBase | Factory, CapturableStructureKind]]:
-    """Return every war base/factory in ``world`` with any cell within the nuclear radius.
+) -> bool:
+    """Apply `Lb99f_fire_nuclear_bomb`'s per-kind building range test.
 
-    A structure occupies multiple cells (`structures.py`'s
-    :func:`~nether_earth.structures.occupied_cells`); it is eligible if the
-    MINIMUM Manhattan distance from the epicenter to any of its occupied
-    cells is ``<= rules.nuclear_radius_cells``. War bases and factories are
-    combined into one canonical ``id.value``-sorted list -- simplest, and
-    avoids inventing an unspecified "which kind goes first" rule when both
-    could otherwise be sorted independently.
+    ``dx = |carrier.x - anchor.x|``; ``dy = |carrier.y + 1 - anchor.y|``
+    with a war base adding 4 more to ``carrier.y``. In range when
+    ``dx < axis``, ``dy < axis`` and ``dx + dy < sum`` -- all strict.
+    """
+    carrier_y = carrier.y + rules.nuclear_building_dy_offset
+    if kind is CapturableStructureKind.WAR_BASE:
+        carrier_y += rules.nuclear_war_base_extra_dy_offset
+        axis_limit = rules.nuclear_war_base_axis_limit
+        sum_limit = rules.nuclear_war_base_sum_limit
+    else:
+        axis_limit = rules.nuclear_factory_axis_limit
+        sum_limit = rules.nuclear_factory_sum_limit
+    dx = abs(carrier.x - anchor[0])
+    dy = abs(carrier_y - anchor[1])
+    return dx < axis_limit and dy < axis_limit and dx + dy < sum_limit
+
+
+def _first_building_in_blast(
+    world: WorldMap, carrier: Robot, rules: EngineRules
+) -> tuple[WarBase | Factory, CapturableStructureKind] | None:
+    """Return the one building a detonation by ``carrier`` destroys, or ``None``.
+
+    War bases are scanned before factories, each in the map's declared
+    order -- the original map declares them in the Spectrum's building-index
+    order (`Lbf46`/`Lbf6e` tables) -- and the first one in range wins
+    ("A nuclear bomb will only destroy at most one building"). ``world``
+    must already exclude destroyed structures. Ownership is not checked.
     """
     candidates: list[tuple[WarBase | Factory, CapturableStructureKind]] = [
         (war_base, CapturableStructureKind.WAR_BASE) for war_base in world.war_bases
     ]
     candidates.extend((factory, CapturableStructureKind.FACTORY) for factory in world.factories)
-
-    eligible: list[tuple[WarBase | Factory, CapturableStructureKind]] = []
     for structure, kind in candidates:
-        min_distance = min(
-            _manhattan(epicenter_x, epicenter_y, cell_x, cell_y)
-            for cell_x, cell_y in occupied_cells(structure)
-        )
-        if min_distance <= rules.nuclear_radius_cells:
-            eligible.append((structure, kind))
-
-    eligible.sort(key=lambda entry: entry[0].id.value)
-    return eligible
+        anchor = _building_anchor(world, structure, kind)
+        if anchor is not None and _building_in_blast_range(carrier, anchor, kind, rules):
+            return structure, kind
+    return None
 
 
 def execute_nuclear_detonation(
@@ -474,76 +503,26 @@ def execute_nuclear_detonation(
     rules: EngineRules = DEFAULT_RULES,
     sequencer: EventSequencer | None = None,
 ) -> tuple[GameState, tuple[Event, ...]]:
-    """Execute a nuclear detonation carried by ``carrier_id``: area destruction.
+    """Execute a nuclear detonation carried by ``carrier_id``.
 
     Returns ``(state, ())`` -- the caller's own ``state`` object, unchanged,
     with no events -- when ``carrier_id`` no longer names a live robot in
-    ``state.robots``. This function should only ever be invoked after
-    `combat.py`'s :func:`~nether_earth.combat.validate_fire` has confirmed
-    the carrier exists, but it guards defensively anyway, mirroring this
-    codebase's consistent idempotency/defensive-no-op convention (e.g.
-    :func:`destroy_robot`, :func:`destroy_structure`).
+    ``state.robots`` (defensive, mirroring :func:`destroy_robot`).
 
-    Radius metric -- a documented engine policy, NOT verified Spectrum fidelity
-    -------------------------------------------------------------------------------
-    Eligibility (for both robots and structures) is simple Manhattan
-    distance from the carrier's epicenter cell:
-    ``abs(dx) + abs(dy) <= rules.nuclear_radius_cells``. Disassembly evidence
-    gathered for a *different* calculation elsewhere in this milestone's
-    research (a "maximum distance in each axis 7, maximum sum of distances
-    10" hybrid shape) suggests the original nuclear-radius geometry might
-    not be simple Manhattan distance -- but no formal fidelity research task
-    in this milestone specifically resolved the nuclear-radius shape itself.
-    Per `_specs/milestones/06-combat-damage-victory.md`'s own fidelity note
-    for this exact case, this function isolates the uncertain metric behind
-    one named policy (this docstring plus :func:`_manhattan`) and documents
-    the configured choice explicitly, rather than claiming unsupported
-    fidelity: **this is a deliberate engine policy decision, chosen for
-    consistency with this engine's one existing distance-metric convention
-    (`orders.py`'s ``_manhattan``, reused by every other distance-gated
-    system: engagement intent, target selection), not an independently
-    verified reproduction of the original ZX Spectrum's nuclear blast
-    geometry.**
+    Blast shapes follow the Spectrum code (`_specs/open-questions.md` §20),
+    all measured from the carrier's position BEFORE any destruction:
 
-    Sequence, all against the epicenter recorded from ``carrier``'s
-    ``(x, y)`` BEFORE any destruction happens:
+    - **Robots:** every other robot, of either side, inside the trimmed
+      window (:func:`_in_robot_window`), in canonical ``entity_id`` order.
+    - **Buildings:** at most one -- the first war base, else factory, in
+      range of the effective world (:func:`_first_building_in_blast`), so
+      already-destroyed structures are skipped.
+    - **Carrier:** always destroyed.
 
-    1. Every robot in ``state.robots`` (excluding the carrier itself) within
-       the radius, sorted by ``entity_id.value``.
-    2. Every war base/factory in
-       ``effective_world(world, state)`` (so already-destroyed structures
-       and current runtime ownership are correctly reflected before this
-       detonation's own effects apply) with any occupied cell within the
-       radius, sorted by ``id.value`` (see
-       :func:`_eligible_structures_in_radius`).
-    3. Destruction order -- this task's own documented deterministic
-       decision: the carrier is destroyed first, unconditionally, via
-       :func:`destroy_robot`; then every eligible robot in canonical id
-       order via :func:`destroy_robot`; then every eligible structure in
-       canonical id order via :func:`destroy_structure`. ``state`` is
-       threaded sequentially through each call (each returns a new state fed
-       into the next), and every emitted event is accumulated, in that same
-       order, into the returned tuple.
-
-    ``sequencer`` is resolved to a single shared ``EventSequencer`` ONCE, at
-    the top of this function (``sequencer if sequencer is not None else
-    EventSequencer()``), and that one resolved instance -- never the
-    original, possibly-``None`` ``sequencer`` parameter -- is passed to
-    every downstream :func:`destroy_robot`/:func:`destroy_structure` call.
-    This is required for the documented carrier -> robots -> structures
-    order to actually be recoverable from event ``sequence`` numbers (which
-    is what `events.py`'s ``order_events`` sorts by): passing the original
-    ``sequencer`` straight through would mean a caller who defaults it to
-    ``None`` gets a *fresh* ``EventSequencer()`` constructed independently
-    inside each sub-call, so every emitted event would carry ``sequence ==
-    0`` instead of a monotonically increasing sequence -- silently losing
-    the ordering this function otherwise carefully constructs. Mirrors
-    `engine.py`'s own ``step`` convention of constructing one shared
-    ``EventSequencer()`` for a whole authoritative step.
-
-    Commanders are never in ``state.robots``/``world.war_bases``/
-    ``world.factories`` -- they are structurally excluded already, so this
-    function contains no commander-related special-casing at all.
+    Destruction order: carrier, then robots, then the building. ``state`` is
+    threaded through each :func:`destroy_robot`/:func:`destroy_structure`
+    call, all sharing ONE resolved ``EventSequencer`` so event ``sequence``
+    numbers preserve that order.
     """
     carrier = state.robot_for(carrier_id)
     if carrier is None:
@@ -551,20 +530,15 @@ def execute_nuclear_detonation(
 
     resolved_sequencer = sequencer if sequencer is not None else EventSequencer()
 
-    epicenter_x, epicenter_y = carrier.x, carrier.y
-
-    eligible_robots = sorted(
+    doomed_robots = sorted(
         (
             robot
             for robot in state.robots
-            if robot.entity_id != carrier_id
-            and _manhattan(epicenter_x, epicenter_y, robot.x, robot.y) <= rules.nuclear_radius_cells
+            if robot.entity_id != carrier_id and _in_robot_window(carrier, robot, rules)
         ),
         key=lambda robot: robot.entity_id.value,
     )
-    eligible_structures = _eligible_structures_in_radius(
-        effective_world(world, state), epicenter_x, epicenter_y, rules
-    )
+    doomed_building = _first_building_in_blast(effective_world(world, state), carrier, rules)
 
     events: list[Event] = []
 
@@ -573,13 +547,14 @@ def execute_nuclear_detonation(
     )
     events.extend(carrier_events)
 
-    for robot in eligible_robots:
+    for robot in doomed_robots:
         current_state, robot_events = destroy_robot(
             current_state, robot.entity_id, tick, rules, resolved_sequencer
         )
         events.extend(robot_events)
 
-    for structure, kind in eligible_structures:
+    if doomed_building is not None:
+        structure, kind = doomed_building
         current_state, structure_event = destroy_structure(
             current_state, structure.id, kind, tick, rules, resolved_sequencer
         )
@@ -617,9 +592,7 @@ def evaluate_victory_after_nuclear_detonation(
 
     Otherwise, :func:`~nether_earth.victory.evaluate_victory` is called
     EXACTLY ONCE -- this function's body contains exactly one ``if`` gate and
-    one call site, so a batch destroying multiple war bases at once (e.g. one
-    nuke wiping out both of a losing side's remaining war bases) still
-    produces at most one :class:`~nether_earth.victory.VictoryEvent`, never
+    one call site, so it produces at most one :class:`~nether_earth.victory.VictoryEvent`, never
     one per destroyed war base. It is called against
     ``effective_world(world, state)`` (this module's OWN :func:`effective_world`,
     which layers both capture ownership and destruction on top of ``world``)

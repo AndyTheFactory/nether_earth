@@ -152,7 +152,7 @@ def test_engine_rules_rejects_non_positive_module_height(field_name: str) -> Non
 
 
 def test_default_rules_match_locked_combat_range_and_effect_defaults() -> None:
-    """Issue #70 (M6.1): locked weapon ranges and nuclear radius.
+    """Issue #70 (M6.1): locked weapon ranges and effects.
 
     All values are Spectrum-compatible locked defaults from
     `_specs/milestones/06-combat-damage-victory.md` "Canonical default
@@ -163,7 +163,6 @@ def test_default_rules_match_locked_combat_range_and_effect_defaults() -> None:
     assert DEFAULT_RULES.missile_range_cells == miles_to_cells(14)
     assert DEFAULT_RULES.phaser_range_cells == miles_to_cells(10)
     assert DEFAULT_RULES.electronics_range_bonus_cells == miles_to_cells(3)
-    assert DEFAULT_RULES.nuclear_radius_cells == miles_to_cells(8)
     assert DEFAULT_RULES.normal_projectile_altitude == 10
     assert DEFAULT_RULES.cannon_damage_multiplier == 2
     assert DEFAULT_RULES.missile_damage_multiplier == 3
@@ -191,7 +190,10 @@ def test_engine_rules_accepts_custom_combat_overrides() -> None:
         "missile_range_cells",
         "phaser_range_cells",
         "electronics_range_bonus_cells",
-        "nuclear_radius_cells",
+        "nuclear_war_base_axis_limit",
+        "nuclear_war_base_sum_limit",
+        "nuclear_factory_axis_limit",
+        "nuclear_factory_sum_limit",
         "normal_projectile_altitude",
         "cannon_damage_multiplier",
         "missile_damage_multiplier",
@@ -204,3 +206,23 @@ def test_engine_rules_rejects_non_positive_combat_fields(field_name: str) -> Non
     with pytest.raises(ValueError):
         EngineRules(**{field_name: -1})
 
+
+def test_default_rules_nuclear_blast_shape_matches_spectrum_code() -> None:
+    """CR001.2 (#149), `_specs/open-questions.md` §20, `Lb99f_fire_nuclear_bomb`."""
+    assert DEFAULT_RULES.nuclear_robot_window_row_widths == (5, 7, 9, 9, 9, 9, 9, 7, 5)
+    assert DEFAULT_RULES.nuclear_building_dy_offset == 1
+    assert DEFAULT_RULES.nuclear_war_base_extra_dy_offset == 4
+    assert (DEFAULT_RULES.nuclear_war_base_axis_limit, DEFAULT_RULES.nuclear_war_base_sum_limit) == (7, 10)
+    assert (DEFAULT_RULES.nuclear_factory_axis_limit, DEFAULT_RULES.nuclear_factory_sum_limit) == (5, 7)
+
+
+@pytest.mark.parametrize("widths", [(), (5, 7), (5, 8, 5), (0,), (-1, 3, -1)])
+def test_engine_rules_rejects_malformed_nuclear_robot_window(widths: tuple[int, ...]) -> None:
+    with pytest.raises(ValueError):
+        EngineRules(nuclear_robot_window_row_widths=widths)
+
+
+@pytest.mark.parametrize("field_name", ["nuclear_building_dy_offset", "nuclear_war_base_extra_dy_offset"])
+def test_engine_rules_rejects_negative_nuclear_dy_offsets(field_name: str) -> None:
+    with pytest.raises(ValueError):
+        EngineRules(**{field_name: -1})

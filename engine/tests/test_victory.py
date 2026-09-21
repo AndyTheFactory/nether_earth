@@ -11,12 +11,12 @@ from nether_earth.destruction import (
 )
 from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
+from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import WorldMap
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
-from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState, create_game_state
-from nether_earth.structures import Component, WarBase
+from nether_earth.structures import Component, Footprint, WarBase
 from nether_earth.terrain import TerrainGrid, TerrainType
 from nether_earth.victory import VictoryEvent, evaluate_victory
 
@@ -31,7 +31,17 @@ def _world(war_bases: tuple[WarBase, ...]) -> WorldMap:
         war_bases=war_bases,
         factories=(),
         blockers=(),
-        interaction_points=(),
+        # Each war base's capture point (its nuclear-blast anchor) sits on its
+        # single component cell.
+        interaction_points=tuple(
+            InteractionPoint(
+                id=f"{wb.id.value}-capture",
+                kind=InteractionKind.WARBASE_CAPTURE,
+                structure_id=wb.id,
+                footprint=Footprint(cells=frozenset({(wb.components[0].x, wb.components[0].y)})),
+            )
+            for wb in war_bases
+        ),
         spawn_positions={},
     )
 
@@ -120,7 +130,10 @@ def test_sequencer_is_used_when_supplied() -> None:
 # --------------------------------------------------------------------------
 
 
-RADIUS = DEFAULT_RULES.nuclear_radius_cells
+#: Every `_war_base` sits at y=0, so a carrier at y=0 measures war-base
+#: dy = |0 + 1 + 4 - 0| = 5 (`_specs/open-questions.md` §20); dx = 4 keeps
+#: dx + dy = 9 < 10, the farthest in-range x offset on this row.
+IN_RANGE_DX = 4
 
 
 def _nuclear_robot(
@@ -214,15 +227,13 @@ def test_single_war_base_destruction_not_completing_the_condition_returns_none()
     assert result is None
 
 
-def test_multiple_war_base_destructions_in_one_detonation_yield_exactly_one_victory_event() -> None:
-    # `_war_base` (defined above this class of tests, from M5.7's own
-    # fixtures) places every war base at y=0, so both destroyed bases sit on
-    # opposite sides of the carrier along the x axis -- enough to prove "two
-    # war bases destroyed by one detonation" without needing a y-aware
-    # fixture (this module's existing `_war_base` deliberately has none).
+def test_one_detonation_destroys_at_most_one_of_two_war_bases_in_range() -> None:
+    # Both loser bases are in range, but a nuclear bomb destroys at most one
+    # building (`_specs/open-questions.md` §20): the first in map order goes,
+    # the other survives, so the loser still owns a war base -- no victory.
     carrier = _nuclear_robot(entity_id="carrier", x=100, y=0)
-    war_base_a = _war_base("wb-loser-a", 100 + RADIUS, PLAYER_TWO)
-    war_base_b = _war_base("wb-loser-b", 100 - RADIUS, PLAYER_TWO)
+    war_base_a = _war_base("wb-loser-a", 100 + IN_RANGE_DX, PLAYER_TWO)
+    war_base_b = _war_base("wb-loser-b", 100 - IN_RANGE_DX, PLAYER_TWO)
     winner_base = _war_base("wb-winner", 0, PLAYER_ONE)
     state = _state_with_robots((carrier,))
     world = _world((winner_base, war_base_a, war_base_b))
@@ -231,20 +242,18 @@ def test_multiple_war_base_destructions_in_one_detonation_yield_exactly_one_vict
         state, world, carrier.entity_id, tick=5
     )
     structure_events = [e for e in detonation_events if isinstance(e, StructureDestroyedEvent)]
-    assert {e.structure_id for e in structure_events} == {war_base_a.id, war_base_b.id}
+    assert [e.structure_id for e in structure_events] == [war_base_a.id]
 
     result = evaluate_victory_after_nuclear_detonation(
         detonation_events, world, detonated_state, tick=5
     )
 
-    assert result is not None
-    assert result.winner == PLAYER_ONE
-    assert result.tick == 5
+    assert result is None
 
 
 def test_full_integration_final_war_base_destruction_triggers_victory_on_same_tick() -> None:
     carrier = _nuclear_robot(entity_id="carrier", x=0, y=0)
-    loser_last_war_base = _war_base("wb-loser-last", RADIUS, PLAYER_TWO)
+    loser_last_war_base = _war_base("wb-loser-last", IN_RANGE_DX, PLAYER_TWO)
     winner_base = _war_base("wb-winner", 500, PLAYER_ONE)
     state = _state_with_robots((carrier,))
     world = _world((winner_base, loser_last_war_base))
@@ -266,7 +275,7 @@ def test_full_integration_final_war_base_destruction_triggers_victory_on_same_ti
 def test_detonation_and_victory_evaluation_are_deterministic() -> None:
     def run() -> tuple[VictoryEvent | None, tuple[str, ...]]:
         carrier = _nuclear_robot(entity_id="carrier", x=0, y=0)
-        loser_last_war_base = _war_base("wb-loser-last", RADIUS, PLAYER_TWO)
+        loser_last_war_base = _war_base("wb-loser-last", IN_RANGE_DX, PLAYER_TWO)
         winner_base = _war_base("wb-winner", 500, PLAYER_ONE)
         state = _state_with_robots((carrier,))
         world = _world((winner_base, loser_last_war_base))

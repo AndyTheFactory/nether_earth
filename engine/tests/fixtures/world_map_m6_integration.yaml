@@ -10,15 +10,15 @@
 # (`combat.Projectile.dx`/`dy` is always exactly one nonzero axis, so a
 # horizontally-fired shot never leaves its own row) or a nuclear detonation
 # whose *eligible* robots/structures are all deliberately kept on the
-# carrier's own row too (Manhattan distance along one axis only). So this
+# carrier's own row too. So this
 # fixture's lanes are separated purely by row (``y``): every robot,
 # structure, and blocker belonging to a given lane lives at that lane's own,
 # unique ``y`` value. Two lanes can therefore never share a cell regardless
 # of the ``x`` range each one uses, and the nuclear lanes (I, J) are spaced
-# 40 rows apart -- more than twice `EngineRules.nuclear_radius_cells` (16)
-# -- so a detonation centred on one lane's row can never reach a
-# neighboring lane's entities even though the blast geometry is a 2-D
-# diamond, not a 1-D segment.
+# 40 rows apart -- far beyond the nuclear blast shapes' reach (a 9x9 robot
+# window, building dy < 7; `_specs/open-questions.md` §20) -- so a
+# detonation centred on one lane's row can never reach a neighboring lane's
+# entities.
 #
 # Robots are NOT placed here: per `test_m5_integration.py`'s own convention
 # (see that file's docstring), all combat robots are constructed directly in
@@ -70,14 +70,15 @@
 #          a normal weapon can strike a structure and nothing is destroyed,
 #          because no normal-weapon code path ever calls
 #          `destruction.destroy_structure`.
-# - y=360: Lane I -- nuclear radius boundary inclusion/exclusion. All
-#          eligible/ineligible robots and structures for this lane's
-#          detonation are placed on the carrier's own row, at exactly 16
-#          (`nuclear_radius_cells`, included) and 17 (excluded) cells away
-#          in each direction, so eligibility reduces to a pure one-axis
-#          Manhattan-distance check. `factory-i-in16`/`factory-i-out17` are
-#          owned by p2 but are plain factories -- destroying one has no
-#          effect on the war-base-ownership victory condition.
+# - y=360: Lane I -- nuclear blast-shape boundary inclusion/exclusion
+#          (`_specs/open-questions.md` §20). All eligible/ineligible robots
+#          and structures for this lane's detonation are placed on the
+#          carrier's own row: robots 4 (window edge, included) and 5
+#          (excluded) cells east; factory anchors 4 (included) and 5
+#          (excluded, dx not < 5) cells west, with factory dy = 1.
+#          `factory-i-in`/`factory-i-out` are owned by p2 but are plain
+#          factories -- destroying one has no effect on the
+#          war-base-ownership victory condition.
 # - y=400: Lane J -- the victory-triggering detonation. `warbase-j-final`
 #          is p2's ONLY war base anywhere in this fixture (Lane H's
 #          `warbase-h` is p1's, and the home war base below is also p1's),
@@ -104,7 +105,7 @@ war_bases:
 
   - id: warbase-j-final
     components:
-      - {x: 110, y: 400, height: 3}
+      - {x: 104, y: 400, height: 3}
     owner: p2
 
 factories:
@@ -114,15 +115,15 @@ factories:
     factory_type: chassis
     owner: p2
 
-  - id: factory-i-in16
+  - id: factory-i-in
     components:
-      - {x: 84, y: 360, height: 3}
+      - {x: 96, y: 360, height: 3}
     factory_type: chassis
     owner: p2
 
-  - id: factory-i-out17
+  - id: factory-i-out
     components:
-      - {x: 83, y: 360, height: 3}
+      - {x: 95, y: 360, height: 3}
     factory_type: chassis
     owner: p2
 
@@ -134,3 +135,20 @@ blockers:
   - id: blocker-d3
     components:
       - {x: 15, y: 160, height: 9}
+
+# Nuclear-lane capture points: a structure's capture cell is its Spectrum
+# building anchor, which the nuclear blast measures from
+# (`_specs/open-questions.md` §20). Only the nuclear lanes declare them.
+interaction_points:
+  - id: factory-i-in-capture
+    kind: factory_capture
+    structure_id: factory-i-in
+    footprint: {x: 96, y: 360}
+  - id: factory-i-out-capture
+    kind: factory_capture
+    structure_id: factory-i-out
+    footprint: {x: 95, y: 360}
+  - id: warbase-j-final-capture
+    kind: warbase_capture
+    structure_id: warbase-j-final
+    footprint: {x: 104, y: 400}

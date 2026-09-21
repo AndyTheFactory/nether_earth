@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "rules_version": "m7",
-  "match_id": "f0f77e88455b4e8b878c53a37ebc9e82",
+  "match_id": "9543587b7f8c4de8a953087473b3e345",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -12,10 +12,10 @@
     "p1": "alice",
     "p2": "bob"
   },
-  "created_at_epoch_ms": 1789982973810,
+  "created_at_epoch_ms": 1789983978961,
   "status": "finished",
-  "finished_at_epoch_ms": 1789983014587,
-  "final_tick": 19321,
+  "finished_at_epoch_ms": 1789984021536,
+  "final_tick": 21993,
   "result": {
     "outcome": "victory",
     "reason": "zero_war_bases",
@@ -23,7 +23,7 @@
     "forfeiting_player_id": null
   },
   "final_snapshot": {
-    "tick": 19321,
+    "tick": 21993,
     "players": [
       "p1",
       "p2"
@@ -33,18 +33,13 @@
       {
         "player_id": "p1",
         "mode": "free",
-        "x": 22,
-        "y": 5,
-        "altitude": 15,
+        "x": 494,
+        "y": 9,
+        "altitude": 10,
         "docked_robot_id": null,
         "rising": false,
         "horizontal_transition": null,
-        "vertical_transition": {
-          "from_altitude": 16,
-          "to_altitude": 15,
-          "started_tick": 11860,
-          "duration_ticks": 4
-        }
+        "vertical_transition": null
       },
       {
         "player_id": "p2",
@@ -58,7 +53,7 @@
         "vertical_transition": {
           "from_altitude": 1,
           "to_altitude": 0,
-          "started_tick": 640,
+          "started_tick": 456,
           "duration_ticks": 4
         }
       }
@@ -66,17 +61,17 @@
     "resource_pools": [
       {
         "player_id": "p1",
-        "general": 27,
+        "general": 37,
         "chassis": 0,
         "electronics": 0,
         "nuclear": 0,
-        "missile": 12,
+        "missile": 14,
         "phaser": 0,
         "cannon": 0
       },
       {
         "player_id": "p2",
-        "general": 45,
+        "general": 50,
         "chassis": 0,
         "electronics": 0,
         "nuclear": 0,

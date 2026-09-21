@@ -352,14 +352,15 @@ def test_projectile_stops_at_a_structure_wall_and_never_destroys_it(world: World
 
 def test_detonation_destroys_carrier_neighbours_and_structures_but_never_commanders(world: WorldMap) -> None:
     cell = _cell(world, "warbase-2", InteractionKind.WARBASE_CAPTURE)
-    carrier = _robot("carrier", PLAYER_ONE, cell[0], cell[1] + 2, weapons=(ModuleIdentity.NUCLEAR,))
-    near = _robot("near", PLAYER_TWO, cell[0] + 3, cell[1] + 2)
-    far = _robot("far", PLAYER_TWO, cell[0] + 40, cell[1] + 2)
+    # One row below the anchor: war-base dy = |y + 1 + 4 - anchor.y| = 6 < 7 (open-questions §20).
+    carrier = _robot("carrier", PLAYER_ONE, cell[0], cell[1] + 1, weapons=(ModuleIdentity.NUCLEAR,))
+    near = _robot("near", PLAYER_TWO, cell[0] + 3, cell[1] + 1)
+    far = _robot("far", PLAYER_TWO, cell[0] + 40, cell[1] + 1)
     state = _initial(world).with_robots((carrier, near, far))
     # Player 1 rides the carrier; Player 2 hovers, free, right next to the epicentre.
     state = _docked(state, PLAYER_ONE, carrier)
     state = state.with_commanders(
-        tuple(replace(c, x=cell[0] + 1, y=cell[1] + 2, altitude=20) if c.player_id == PLAYER_TWO else c for c in state.commanders)
+        tuple(replace(c, x=cell[0] + 1, y=cell[1] + 1, altitude=20) if c.player_id == PLAYER_TWO else c for c in state.commanders)
     )
     # Start a capture of warbase-2 by the carrier's neighbour so a progress record references a doomed robot.
     state = state.with_robots(state.robots + (_robot("capturing", PLAYER_TWO, *cell),))
@@ -381,7 +382,7 @@ def test_detonation_destroys_carrier_neighbours_and_structures_but_never_command
     assert c1 is not None and c2 is not None
     assert c1.mode is CommanderMode.FREE and c1.docked_robot_id is None
     assert (c1.x, c1.y) == (carrier.x, carrier.y)
-    assert c2.mode is CommanderMode.FREE and (c2.x, c2.y) == (cell[0] + 1, cell[1] + 2)
+    assert c2.mode is CommanderMode.FREE and (c2.x, c2.y) == (cell[0] + 1, cell[1] + 1)
     assert c2.altitude >= 16  # only gravity (-1 per 4 ticks) touched it, not the blast
     # The destroyed base can no longer be captured.
     state = state.with_robots(state.robots + (_robot("late", PLAYER_ONE, *cell),))
