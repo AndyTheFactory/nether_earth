@@ -64,7 +64,7 @@ So the original has four terrain classes:
 
 **Follow-up (done, CR001.5 #152):** `data/maps/zx-spectrum-original.yaml` now carries the decoded terrain (344 rough, 436 mountain, 204 ditch cells; provenance and spot checks in `data/maps/zx-spectrum-original.md`, "Terrain"). No element type in the map was ambiguous under the classes above.
 
-**Open — scenery blockers (needs an owner decision, not blocking CR001):** the same decode places 660 cells of element types 17, 18 and 21 (boxes and walls, heights 7/15/99). `Lb513` blocks types ≥ 15 for every chassis, so in the original no robot can enter these cells. They are not terrain classes, and the map has no `blockers` section, so this clone currently lets robots walk through them. CR001 did not scope this, although the CR001.5 issue text assumed "15+ are … scenery already modeled". The decision needed is whether to encode these cells as map `blockers` and in which change request. Two things need settling first: how they interact with the commander's flight and landing (heights 7/15/99), and how they interact with projectiles.
+**Decided (owner, 2026-09-21; implementation CR002.1 #168, assets CR002.5 #172): blockers exist; asset per blocker kind is configurable, Spectrum assets only in v1.** Original note — scenery blockers: the same decode places 660 cells of element types 17, 18 and 21 (boxes and walls, heights 7/15/99). `Lb513` blocks types ≥ 15 for every chassis, so in the original no robot can enter these cells. They are not terrain classes, and the map has no `blockers` section, so this clone currently lets robots walk through them. CR001 did not scope this, although the CR001.5 issue text assumed "15+ are … scenery already modeled". The decision needed is whether to encode these cells as map `blockers` and in which change request. Two things need settling first: how they interact with the commander's flight and landing (heights 7/15/99), and how they interact with projectiles.
 
 The research history below is kept for provenance.
 
@@ -192,7 +192,7 @@ The manual's "10/14 miles" weapon ranges equal these cell counts, which shows th
 
 **Settled with no change needed:** there is no separate building collision rule; the generic altitude collision covers buildings.
 
-**Open — first move at fire time (needs an owner decision, not blocking CR001):** `Lb6d6_weapon_fire` makes the bullet's first 2-cell move at fire time. The engine creates the projectile at fire time and makes its first move on the next advance tick (every 4 ticks). The distance travelled is the same either way; only the timing of hits and termination differs, by up to one cycle (4 ticks). CR001.3 (#150) did not scope this. The decision needed is whether to move the first step to the fire tick.
+**Decided (owner, 2026-09-21; implementation CR002.2 #169): match the Spectrum — first move on the fire tick.** Original note — first move at fire time: `Lb6d6_weapon_fire` makes the bullet's first 2-cell move at fire time. The engine creates the projectile at fire time and makes its first move on the next advance tick (every 4 ticks). The distance travelled is the same either way; only the timing of hits and termination differs, by up to one cycle (4 ticks). CR001.3 (#150) did not scope this. The decision needed is whether to move the first step to the fire tick.
 
 **Still open (research only; not blocking):** the autonomous fire-decision scan (`Lb626_check_directions_with_enemy_robots`) looks 8 cells in each direction, 10 in the facing direction, and 12 facing with electronics, along the robot's lane and the lanes on either side. The engine uses weapon range for engagement. Whether to adopt the scan distances is not decided.
 
@@ -764,11 +764,7 @@ Found while researching §19. The earlier locked "8 miles = 16 cells, destroys e
 1. **Combat detail**: exact accuracy, rounding, strength, and electronics modifiers (#9).
 2. **Autonomous fire-decision scan**: the 8/10/12-cell scan distances (§8), not yet decided.
 
-These are research items. Two owner decisions found during CR001 are also
-pending. They need no more research, and neither blocks CR001:
-
-- **Scenery blockers** (§4): whether the decoded boxes and walls (element types 17, 18, 21) become map `blockers`.
-- **First projectile move at fire time** (§8): whether the engine moves a new projectile on the fire tick, as the Spectrum does.
+These are research items. The two owner decisions found during CR001 (scenery blockers §4, first projectile move §8) were decided on 2026-09-21 and are implemented by CR002 (`_specs/milestones/cr002-spectrum-fidelity-ui.md`).
 
 ## Resolution process
 
