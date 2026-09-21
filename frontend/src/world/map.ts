@@ -58,7 +58,13 @@ export interface MapData {
   version: number;
   width: number;
   height: number;
-  terrain: { default: TerrainType; cells: { x: number; y: number; type: TerrainType }[] };
+  terrain: {
+    default: TerrainType;
+    /** Height of the rough piece a nuclear blast leaves (`Ld7bc_map_piece_heights` types 6/7, CR002.21). */
+    debris_height: number;
+    /** `height`: the cell's terrain piece height (`Ld7bc_map_piece_heights`, CR002.21); absent = 0. */
+    cells: { x: number; y: number; type: TerrainType; height?: number }[];
+  };
   war_bases: MapWarBase[];
   factories: MapFactory[];
   blockers: MapBlocker[];

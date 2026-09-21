@@ -14,9 +14,6 @@ import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAss
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
 import { textOverlays } from '../state/labels.ts';
 
-/** Fallback prism height of unmapped nuclear debris: the Spectrum's debris pieces (types 6/7) are height 3. */
-const DEBRIS_HEIGHT = 3;
-
 interface Effect {
   x: number;
   y: number;
@@ -123,7 +120,8 @@ export class WorldRenderer {
     for (const { c, color, dead, debris } of blocks) {
       const g = new Graphics();
       if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
-      else if (debris) drawPrism(g, c.x, c.y, 0, DEBRIS_HEIGHT, shade(color, (c.x + c.y) % 2 ? 0.8 : 1));
+      // Fallback prism of unmapped debris: the map's rough-piece debris height (types 6/7, 3).
+      else if (debris) drawPrism(g, c.x, c.y, 0, this.map.terrain.debris_height, shade(color, (c.x + c.y) % 2 ? 0.8 : 1));
       else {
         drawPrism(g, c.x, c.y, 0, c.height, color);
         if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);

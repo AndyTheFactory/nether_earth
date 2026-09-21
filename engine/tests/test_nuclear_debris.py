@@ -235,11 +235,16 @@ def test_robots_cross_debris_at_rough_speed_through_engine_step(world: WorldMap)
     ]
 
 
-def test_commander_flies_low_over_debris(world: WorldMap) -> None:
+def test_commander_flies_over_debris_at_rough_piece_height(world: WorldMap) -> None:
+    # CR002.21: debris is a rough piece of type 6/7, 3 high (Ld7bc_map_piece_heights).
     state = _blast(world, *CARRIER_CELL)
+    debris_world = scenery_world(world, state)
+    assert world.terrain.debris_height == 3
     low = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=15, y=13, altitude=0)
-    assert not commander_horizontal_move_allowed(_state(), low, 16, 13, world=world)
-    assert commander_horizontal_move_allowed(state, low, 16, 13, world=scenery_world(world, state))
+    at_top = Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=15, y=13, altitude=3)
+    assert not commander_horizontal_move_allowed(_state(), at_top, 16, 13, world=world)
+    assert not commander_horizontal_move_allowed(state, low, 16, 13, world=debris_world)
+    assert commander_horizontal_move_allowed(state, at_top, 16, 13, world=debris_world)
 
 
 def test_projectiles_fly_over_a_debris_box_high(world: WorldMap) -> None:

@@ -50,3 +50,20 @@ test('mid-move footprint takes the highest surface it overlaps', () => {
 test('destroyed structures leave rubble height', () => {
   assert.equal(surface.under(37, 5, new Set(['factory-1'])), RUBBLE_HEIGHT);
 });
+
+test('terrain pieces have their Spectrum heights (CR002.21)', () => {
+  assert.equal(surface.heightAt(32, 12), 2); // rough, element types 2-5
+  assert.equal(surface.heightAt(54, 14), 3); // rough, element types 6/7
+  assert.equal(surface.heightAt(167, 9), 6); // mountain
+  // A 2×2 shadow next to the mountain reaches it once the body overlaps it.
+  assert.equal(surface.underUnit(165, 9), 0);
+  assert.equal(surface.underUnit(166, 9), 6);
+});
+
+test('nuclear debris is as high as a rough piece of type 6/7 (CR002.18/21)', () => {
+  const box = map.blockers.find((b) => b.destructible)!;
+  const { x, y } = box.components[0];
+  assert.equal(map.terrain.debris_height, 3);
+  assert.ok(surface.heightAt(x, y) > 3);
+  assert.equal(surface.heightAt(x, y, new Set([box.id])), 3);
+});
