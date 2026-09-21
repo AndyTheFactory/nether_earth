@@ -117,6 +117,9 @@ FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "world_map_m4_inte
 RULES = DEFAULT_RULES
 WAR_BASE_ONE = EntityId("warbase-p1")
 P1_HELI_PAD_CELL = (4, 0)
+# The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
+# commander lands at that component height (open-questions.md §18).
+PAD_ROOF_ALTITUDE = 3
 P1_EXIT_CELL = (7, 0)
 TICKS_PER_DAY = 2880
 
@@ -163,7 +166,7 @@ def _seeded_state(seed: int = 7) -> GameState:
 
 def _grounded_commander(player_id: PlayerId, cell: tuple[int, int]) -> Commander:
     x, y = cell
-    return Commander(player_id=player_id, mode=CommanderMode.FREE, x=x, y=y, altitude=0)
+    return Commander(player_id=player_id, mode=CommanderMode.FREE, x=x, y=y, altitude=PAD_ROOF_ALTITUDE)
 
 
 # ---------------------------------------------------------------------------

@@ -60,7 +60,7 @@ gameplay correctness or presentation.
 - [ ] Create in window A, join with the code in window B, both ready, match starts.
 - [ ] Each commander appears beside its own war base: Player 1 far left, Player 2 far right.
 - [ ] Move, rise and descend the commander; it is blocked by a war-base wall when low and clears it when high.
-- [ ] Land on the own heli-pad; the construction menu opens with 20 general resources.
+- [ ] Fly onto the green heli-pad on the own war-base roof and let the commander settle; the construction menu opens with 20 general resources.
 - [ ] Select chassis and weapon, launch; the robot appears at the exit and resources drop.
 - [ ] Land on the robot; direct control moves it one cell per key press; rising undocks.
 - [ ] Give Advance, Search & Capture, and Stop & Defend orders; the robot acts on its own.

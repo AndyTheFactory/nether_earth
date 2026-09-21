@@ -113,7 +113,9 @@ def _grounded_commander_on_heli_pad(player_id: PlayerId = PLAYER_ONE) -> Command
         mode=CommanderMode.FREE,
         x=x,
         y=y,
-        altitude=DEFAULT_RULES.commander_min_altitude,
+        # The pad cell is warbase-p1's 3-high component: the commander lands
+        # on that roof (open-questions.md §18).
+        altitude=3,
     )
 
 
