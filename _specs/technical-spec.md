@@ -551,7 +551,7 @@ Projectile lifecycle must be authoritative world logic. It must not depend on br
 
 Resolved from the Spectrum code (`open-questions.md` §8): a projectile advances `projectile_cells_per_advance = 2` cells every `projectile_advance_ticks = 4` ticks and ends after 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Buildings use the generic altitude collision; there is no separate building rule.
 
-Decided (`open-questions.md` §8, CR002.2 #169): as in the Spectrum, a projectile makes its first move on the fire tick, with the same checks as every later advance; later advances keep the cadence above, so the range is unchanged.
+Decided (`open-questions.md` §8, CR002.2 #169): as in the Spectrum, a projectile makes its first move on the fire tick, with the same checks as every later advance. A robot fires at most one normal weapon per game cycle (`robot_fire_cycle_ticks = 4`). An autonomous shot moves again at the cadence tick that closes its fire cycle; a direct shot is held one cycle longer (`Projectile.first_advance_tick`). Later advances keep the cadence above, so the range is unchanged.
 
 Nuclear detonation is modeled separately.
 
