@@ -142,7 +142,14 @@ class Api:
         yield from self.fly_commander_to(player, pad[0], pad[1], ROOF_CLEARANCE)
 
     def land_on_robot(self, player: PlayerId, robot_id: EntityId) -> Iterator[Predicate]:
-        """Fly above the robot, release rise, and let gravity dock the commander onto it."""
+        """Fly above the robot, release rise, and let gravity dock the commander onto it.
+
+        A freshly launched robot first walks out of its war base (CR002.3,
+        `La6c8`), so wait until it stands still before flying to it.
+        """
+        yield lambda s: (r := s.robot_for(robot_id)) is None or (
+            r.exit_steps_remaining == 0 and r.movement is None
+        )
         robot = self.state.robot_for(robot_id)
         assert robot is not None
         yield from self.fly_commander_to(player, robot.x, robot.y, robot.height + 4)

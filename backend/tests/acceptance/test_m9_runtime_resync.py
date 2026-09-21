@@ -118,17 +118,21 @@ def test_pause_freezes_in_flight_robot_move_and_resync_converges(tmp_path: Path)
                 sequence += 1
                 state = _wait_snapshot(ws_a, lambda s: (_commander(s, "p1")["x"], _commander(s, "p1")["y"]) == (22, 5))["state"]
                 _wait_snapshot(ws_a, lambda s: any(c["player_id"] == "p1" for c in s["construction_sessions"]))
-                # Electronics: the 2×2 robot starts in the base's doorway, whose
-                # walls block the east step a non-electronic Advance would take
-                # (CR002.3); electronic routing steps south out of it first.
-                for module in ("bipod", "cannon", "electronics"):
+                for module in ("bipod", "cannon"):
                     _command(ws_a, session_a, sequence, {"kind": "select_module", "module": module})
                     sequence += 1
-                _wait_snapshot(ws_a, lambda s: s["construction_sessions"][0]["build"]["electronics"] == "electronics")
+                _wait_snapshot(ws_a, lambda s: s["construction_sessions"][0]["build"]["weapons"] == ["cannon"])
                 _command(ws_a, session_a, sequence, {"kind": "launch_robot"})
                 sequence += 1
                 state = _wait_snapshot(ws_a, lambda s: len(s["robots"]) == 1)["state"]
                 robot_id = state["robots"][0]["entity_id"]
+                # The new robot first walks 5 steps south out of the war base
+                # (CR002.3, `La6c8`); an order given now would end that walk
+                # with the 2×2 body still in the doorway, so order it once out.
+                _wait_snapshot(
+                    ws_a,
+                    lambda s: s["robots"][0]["exit_steps_remaining"] == 0 and s["robots"][0]["movement"] is None,
+                )
                 _command(
                     ws_a,
                     session_a,
@@ -167,14 +171,12 @@ def test_pause_freezes_in_flight_robot_move_and_resync_converges(tmp_path: Path)
                     assert message["tick"] == last_tick + 1, "ticks must continue exactly from the resync snapshot"
                     last_tick = message["tick"]
                     robot = message["state"]["robots"][0]
-                    frozen_robot = frozen["state"]["robots"][0]
-                    if (robot["x"], robot["y"]) != (frozen_robot["x"], frozen_robot["y"]):
+                    if robot["x"] != frozen["state"]["robots"][0]["x"]:
                         break
                 else:
                     raise AssertionError("robot move never completed after resume")
                 # The frozen in-flight move completed to exactly its reserved destination.
-                movement = frozen_robot["movement"]
-                assert (robot["x"], robot["y"]) == (movement["to_x"], movement["to_y"])
+                assert robot["x"] == frozen["state"]["robots"][0]["movement"]["to_x"]
                 # Both players keep seeing one identical authoritative stream.
                 a_view = _wait_snapshot(ws_a, lambda s: s["tick"] >= last_tick)
                 b_view = _wait_snapshot(ws_b, lambda s: s["tick"] >= a_view["tick"])

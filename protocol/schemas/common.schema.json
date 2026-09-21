@@ -374,11 +374,13 @@
               "strength": { "type": "integer" },
               "last_fire_tick": {
                 "anyOf": [{ "type": "integer" }, { "type": "null" }]
-              }
+              },
+              "exit_steps_remaining": { "type": "integer", "minimum": 0 }
             },
             "required": [
               "entity_id", "owner", "x", "y", "build", "stack", "height",
-              "movement", "order", "active_projectile_id", "strength", "last_fire_tick"
+              "movement", "order", "active_projectile_id", "strength", "last_fire_tick",
+              "exit_steps_remaining"
             ],
             "additionalProperties": false
           }

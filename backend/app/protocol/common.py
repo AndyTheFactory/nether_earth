@@ -386,6 +386,7 @@ class RobotSnapshot(_SnapshotSubModel):
     active_projectile_id: EntityId | None
     strength: int
     last_fire_tick: int | None
+    exit_steps_remaining: int
 
 
 class StructureOwnershipSnapshot(_SnapshotSubModel):

@@ -32,7 +32,7 @@ function robot(entity_id: string, owner: string, x: number, y: number, stack: Ro
   const weapons = stack.filter((m) => m === 'cannon' || m === 'missile' || m === 'phaser' || m === 'nuclear');
   const electronics = stack.includes('electronics') ? 'electronics' : null;
   const height = stack.reduce((h, m) => h + (m === 'bipod' || m === 'tracks' || m === 'anti_grav' ? 4 : 2), 0);
-  return { entity_id, owner, x, y, build: { chassis, weapons, electronics }, stack, height, movement: null, order: null, active_projectile_id: null, strength: 100, last_fire_tick: null, ...extra };
+  return { entity_id, owner, x, y, build: { chassis, weapons, electronics }, stack, height, movement: null, order: null, active_projectile_id: null, strength: 100, last_fire_tick: null, exit_steps_remaining: 0, ...extra };
 }
 
 function base(tick: number, patch: Partial<SnapshotState> = {}): SnapshotState {

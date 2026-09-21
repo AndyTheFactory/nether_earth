@@ -83,7 +83,8 @@
         "order": { "kind": "advance", "distance_miles": 10, "target_x": 13 },
         "active_projectile_id": "projectile-1",
         "strength": 80,
-        "last_fire_tick": 40
+        "last_fire_tick": 40,
+        "exit_steps_remaining": 0
       }
     ],
     "structure_ownership": [

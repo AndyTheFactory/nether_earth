@@ -78,7 +78,7 @@ test('gameClock derives from ticks only', () => {
 test('dockedRobot resolves via authoritative docked_robot_id only', () => {
   const state = snap(1, {
     commanders: [{ player_id: 'p1', mode: 'docked', x: 1, y: 1, altitude: 4, docked_robot_id: 'r1', rising: false, horizontal_transition: null, vertical_transition: null, elevate_updates_remaining: 0 }],
-    robots: [{ entity_id: 'r1', owner: 'p1', x: 1, y: 1, build: {}, stack: ['bipod'], height: 4, movement: null, order: null, active_projectile_id: null, strength: 100, last_fire_tick: null }],
+    robots: [{ entity_id: 'r1', owner: 'p1', x: 1, y: 1, build: {}, stack: ['bipod'], height: 4, movement: null, order: null, active_projectile_id: null, strength: 100, last_fire_tick: null, exit_steps_remaining: 0 }],
   }).state;
   assert.equal(dockedRobot(state, 'p1')?.entity_id, 'r1');
   assert.equal(dockedRobot(state, 'p2'), null);

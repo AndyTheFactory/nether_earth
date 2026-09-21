@@ -460,6 +460,7 @@ export interface SnapshotState {
     active_projectile_id: string | null;
     strength: number;
     last_fire_tick: number | null;
+    exit_steps_remaining: number;
   }[];
   structure_ownership: {
     /**

@@ -158,6 +158,7 @@ from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
 from nether_earth.movement import folded_robot_occupancy
 from nether_earth.occupancy import OccupancyGrid, unit_footprint_cells, unit_footprint_in_bounds
+from nether_earth.orders import StopAndDefend
 from nether_earth.reservations import reservations_from_state
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot import Robot
@@ -325,6 +326,9 @@ def launch_robot(
 
     stack, height = derive_stack_and_height(robot_build, rules)
     entity_id = _next_robot_id(state, player_id)
+    # The Spectrum starts every new robot on Stop & Defend with a 5-step walk
+    # south out of the doorway (`La6c8` after `Lc849`; CR002.3, see
+    # `orders.walk_out_request`).
     robot = Robot(
         entity_id=entity_id,
         owner=player_id,
@@ -333,6 +337,8 @@ def launch_robot(
         build=robot_build,
         stack=stack,
         height=height,
+        order=StopAndDefend(),
+        exit_steps_remaining=rules.robot_launch_exit_steps,
     )
 
     committed_pool = PlayerResourcePool.from_resource_pool(player_id, session.buffer)
