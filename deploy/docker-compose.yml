@@ -27,6 +27,8 @@ services:
       - "${NETHER_EARTH_HTTP_PORT:-80}:8080"
     volumes:
       - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/nether-earth-http.inc:/etc/nginx/snippets/nether-earth-http.inc:ro
+      - ./nginx/nether-earth-locations.inc:/etc/nginx/snippets/nether-earth-locations.inc:ro
     tmpfs: [/tmp]
     depends_on:
       backend: { condition: service_healthy }

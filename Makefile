@@ -23,6 +23,9 @@ frontend-live-check:
 
 compose-check:
 	docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config -q
+	NETHER_EARTH_TLS_CERT_DIR=/tmp NETHER_EARTH_ACME_WEBROOT=/tmp docker compose -f deploy/docker-compose.yml \
+	  -f deploy/docker-compose.tls.yml --env-file deploy/.env.example config -q
+	docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example run --rm --no-deps -T gateway nginx -t
 
 VERSION ?= dev
 
