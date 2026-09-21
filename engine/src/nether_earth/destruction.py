@@ -97,6 +97,7 @@ from dataclasses import dataclass, replace
 
 from nether_earth.capture import CapturableStructureKind, capture_footprint
 from nether_earth.capture import effective_world as _capture_effective_world
+from nether_earth.collision import robot_top
 from nether_earth.commander import CommanderMode
 from nether_earth.docking import CommanderUndockedEvent
 from nether_earth.events import Event, EventSequencer
@@ -147,6 +148,8 @@ def destroy_robot(
     tick: int,
     rules: EngineRules = DEFAULT_RULES,
     sequencer: EventSequencer | None = None,
+    *,
+    world: WorldMap | None = None,
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Remove ``entity_id`` from play, with full associated-state cleanup.
 
@@ -180,8 +183,11 @@ def destroy_robot(
        :class:`~nether_earth.docking.CommanderUndockedEvent` shape (rather
        than inventing a near-duplicate event type) -- ``from_altitude`` is
        the commander's altitude immediately before this forced transition,
-       ``to_altitude`` is ``robot.height`` (the robot's last physical top
-       surface, which the commander was resting on). The commander itself
+       ``to_altitude`` is the robot's last physical top surface, which the
+       commander was resting on: :func:`~nether_earth.collision.robot_top`
+       in ``world`` (terrain altitude plus stack height, CR002.25), or
+       ``robot.height`` when no ``world`` is given (the world-less unit-test
+       path, where robots stand at altitude 0). The commander itself
        is never damaged or destroyed -- only relocated to a safe ``FREE``
        state.
     3. **Robot removal**: the robot is dropped from ``state.robots``. Per
@@ -229,7 +235,7 @@ def destroy_robot(
             freed = (
                 commander.with_docking(CommanderMode.FREE, None)
                 .with_position(robot.x, robot.y)
-                .with_altitude(robot.height)
+                .with_altitude(robot_top(world, robot) if world is not None else robot.height)
             )
             updated_commanders[index] = freed
             events.append(
@@ -665,13 +671,13 @@ def execute_nuclear_detonation(
     events: list[Event] = []
 
     current_state, carrier_events = destroy_robot(
-        state, carrier_id, tick, rules, resolved_sequencer
+        state, carrier_id, tick, rules, resolved_sequencer, world=live_world
     )
     events.extend(carrier_events)
 
     for robot in doomed_robots:
         current_state, robot_events = destroy_robot(
-            current_state, robot.entity_id, tick, rules, resolved_sequencer
+            current_state, robot.entity_id, tick, rules, resolved_sequencer, world=live_world
         )
         events.extend(robot_events)
 

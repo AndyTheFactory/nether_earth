@@ -8,7 +8,7 @@ import { TILE_H, TILE_W, depthKey, project, unproject, viewZoom, type ScreenPoin
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
-import { drawRobotStack, drawCommander, unitCentre, UNIT_SIZE, type ModuleId } from './robot.ts';
+import { drawRobotStack, drawCommander, robotGround, unitCentre, UNIT_SIZE, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
@@ -205,24 +205,26 @@ export class WorldRenderer {
 
     const me = state.connection.session?.playerId ?? null;
     const destroyed = new Set([...snap.structure_destruction, ...snap.scenery_debris]);
-    const robotPos = new Map<string, { x: number; y: number; height: number }>();
+    const robotPos = new Map<string, { x: number; y: number; top: number }>();
 
     for (const r of snap.robots) {
       const mv = isGridTransition(r.movement) ? r.movement : null;
       const p = interpolateGrid(r.x, r.y, mv, tick);
-      robotPos.set(r.entity_id, { x: p.x, y: p.y, height: r.height });
+      // Robots stand on the terrain under them (CR002.25, `Lcee8`).
+      const ground = robotGround(this.surface, r.x, r.y, mv, tick, destroyed);
+      robotPos.set(r.entity_id, { x: p.x, y: p.y, top: ground + r.height });
       const g = new Graphics();
-      drawRobotStack(g, p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height });
+      drawRobotStack(g, p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground });
       if (r.owner !== me) {
         // enemy marker ring so ownership stays readable at distance
-        drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner), 0, UNIT_SIZE);
+        drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner), ground, UNIT_SIZE);
       }
       // The anchor is the 2×2 body's cell nearest the viewer (min x, max y;
       // CR002.3), so it is the body's painter's-order key.
-      this.addDynamic(g, depthKey(p.x, p.y));
+      this.addDynamic(g, depthKey(p.x, p.y, ground));
       if (text.robotStrength) {
         const centre = unitCentre(p.x, p.y);
-        const sp = project(centre.x, centre.y, r.height + 3);
+        const sp = project(centre.x, centre.y, ground + r.height + 3);
         const label = new Text({ text: `${r.strength}`, style: { fontFamily: 'monospace', fontSize: 9, fill: ownerColor(r.owner) } });
         label.anchor.set(0.5, 1);
         this.labelAt(label, sp);
@@ -236,9 +238,12 @@ export class WorldRenderer {
       let alt = c.altitude;
       const docked = c.mode === 'docked' && !!c.docked_robot_id && robotPos.has(c.docked_robot_id);
       if (docked) {
+        // Riding the robot: drawn on its drawn top (terrain + stack), which
+        // is the authoritative altitude whenever the robot is at rest.
         const rp = robotPos.get(c.docked_robot_id!)!;
         x = rp.x;
         y = rp.y;
+        alt = rp.top;
       } else {
         const ht = isGridTransition(c.horizontal_transition) ? c.horizontal_transition : null;
         const vt = isVerticalTransition(c.vertical_transition) ? c.vertical_transition : null;
@@ -290,7 +295,10 @@ export class WorldRenderer {
       if (!snap.projectiles.some((q) => q.id === p.id)) this.fx.push({ ...unitCentre(p.x + p.dx, p.y + p.dy), z: p.z, kind: 'hit', startMs: nowMs, durationMs: 250 });
     }
     for (const r of prev.robots) {
-      if (!snap.robots.some((q) => q.entity_id === r.entity_id)) this.fx.push({ ...unitCentre(r.x, r.y), z: r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
+      if (!snap.robots.some((q) => q.entity_id === r.entity_id)) {
+        const ground = this.surface.underUnit(r.x, r.y, new Set([...prev.structure_destruction, ...prev.scenery_debris]));
+        this.fx.push({ ...unitCentre(r.x, r.y), z: ground + r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
+      }
     }
     for (const id of snap.structure_destruction) {
       if (!prev.structure_destruction.includes(id)) {

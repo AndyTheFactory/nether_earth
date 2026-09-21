@@ -93,7 +93,7 @@ const fullRobot = robot('robot-2', 'p1', 34, 11, ['tracks', 'cannon', 'missile',
   order: { kind: 'advance', distance_miles: 10, target_x: 54 },
   movement: { entity_id: 'robot-2', from_x: 33, from_y: 11, to_x: 34, to_y: 11, started_tick: 90, duration_ticks: 16 },
 });
-const enemyRobot = robot('robot-9', 'p2', 60, 8, ['anti_grav', 'phaser'], {
+const enemyRobot = robot('robot-9', 'p2', 56, 11, ['anti_grav', 'phaser'], {
   order: { kind: 'search_destroy', target: 'robot' },
   strength: 45,
 });
@@ -181,7 +181,7 @@ export const FIXTURES: Fixture[] = [
       ...intro(),
       snapshot(
         base(1000, {
-          commanders: [commander('p1', 34, 11, 12, { mode: 'docked', docked_robot_id: 'robot-2' }), commander('p2', 494, 10, 0)],
+          commanders: [commander('p1', 34, 11, 16, { mode: 'docked', docked_robot_id: 'robot-2' }) /* rough 2 + height 14 (CR002.25) */, commander('p2', 494, 10, 0)],
           robots: [
             bipodRobot,
             fullRobot,

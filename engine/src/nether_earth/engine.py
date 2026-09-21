@@ -57,6 +57,7 @@ from nether_earth.collision import (
     RobotFixture,
     commander_horizontal_move_allowed,
     commander_vertical_move_allowed,
+    unit_surface_height,
 )
 from nether_earth.combat import (
     FireCommand,
@@ -226,19 +227,37 @@ def new_game(
 
 
 def _robot_fixtures(
-    state: GameState, fixtures: tuple[RobotFixture, ...]
+    state: GameState, fixtures: tuple[RobotFixture, ...], world: WorldMap | None
 ) -> tuple[RobotFixture, ...]:
     """Return ``fixtures`` plus one :class:`RobotFixture` per live robot in ``state``.
 
-    ``Robot`` already carries the ground-rooted ``height`` the collision and
-    docking math needs (see ``collision.robot_vertical_range``); a fixture is
-    just its ``(id, owner, x, y, height)`` projection, taken from the
-    authoritative cell (a robot mid-move still stands on its origin cell
-    until the move completes -- `movement.py`). Caller-supplied fixtures
-    come first so the M3 tests' explicit surfaces keep their precedence.
+    A fixture is the robot's ``(id, owner, x, y, height)`` projection plus
+    its terrain ``altitude`` (CR002.25, ``ROBOT_STRUCT_ALTITUDE``): the
+    static surface under its 2×2 body in the physical world
+    (`destruction.scenery_world`, the world robot moves and commander
+    collision are checked against), so its top is ``altitude + height``
+    (``collision.robot_top``). Both are taken from the authoritative cell (a
+    robot mid-move still stands on its origin cell until the move completes
+    -- `movement.py`); the Spectrum's ``Lb495`` likewise updates the
+    altitude together with the robot's cell. ``world`` is ``None`` only for
+    the world-less M3 test path, where every robot stands at altitude 0.
+    Caller-supplied fixtures come first so the M3 tests' explicit surfaces
+    keep their precedence.
     """
+    physical_world = scenery_world(world, state) if world is not None else None
     return fixtures + tuple(
-        RobotFixture(id=robot.entity_id, owner=robot.owner, x=robot.x, y=robot.y, height=robot.height)
+        RobotFixture(
+            id=robot.entity_id,
+            owner=robot.owner,
+            x=robot.x,
+            y=robot.y,
+            height=robot.height,
+            altitude=(
+                unit_surface_height(physical_world, robot.x, robot.y)
+                if physical_world is not None
+                else 0
+            ),
+        )
         for robot in state.robots
     )
 
@@ -611,7 +630,7 @@ def step(
     # the M9.1 audit: without this a live commander flew through robots and
     # could never dock on one, so direct control was unreachable in a match.
     fixture_robots = robots
-    robots = _robot_fixtures(state, fixture_robots)
+    robots = _robot_fixtures(state, fixture_robots, world)
     if world is not None:
         # Nuclear debris (CR002.18) is no longer a solid blocker.
         commander_world = scenery_world(world, state)
@@ -906,7 +925,7 @@ def step(
                 events.append(vertical_event)
 
     # --- Step 5: friendly auto-dock check for every FREE commander ---------
-    robots = _robot_fixtures(state, fixture_robots)
+    robots = _robot_fixtures(state, fixture_robots, world)
     for commander in state.commanders:
         if commander.mode is not CommanderMode.FREE:
             continue
