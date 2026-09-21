@@ -90,6 +90,7 @@ function renderConstruction(cs: NonNullable<ReturnType<typeof myConstruction>>, 
     .map(([k, v]) => `${k} ${v}`)
     .join(', ');
   html += `<div>spent this session: general ${spentGen}${spentCat ? ` · ${esc(spentCat)}` : ''}</div>`;
-  html += `<div>${btn('launch', '⏎ Launch', '')} ${btn('cancel', 'C Cancel construction', '')}</div>`;
+  // Spectrum semantics (CR002.12/13): EXIT MENU discards the build; both leave the screen.
+  html += `<div>${btn('cancel', 'esc Exit menu', '')} ${btn('launch', '⏎ Start robot', '')}</div>`;
   return html;
 }
