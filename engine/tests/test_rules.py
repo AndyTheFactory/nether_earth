@@ -29,15 +29,23 @@ def test_default_rules_match_evidence_backed_ordinary_terrain_movement_ticks() -
     equ 10 ; game maximum speed is 5 frames per second``, i.e. one game
     cycle = 200ms = 4 ticks at the locked 20Hz simulation rate). See
     `rules.py`'s module docstring and `_specs/open-questions.md` §4 for the
-    full evidence trail, including the rough/ditch multipliers this
-    research pass could NOT resolve to exact disassembly values.
+    full evidence trail, and the per-terrain values
+    resolved by CR001.
     """
-    assert DEFAULT_RULES.robot_move_ticks_bipod == 24
-    assert DEFAULT_RULES.robot_move_ticks_tracks == 16
-    assert DEFAULT_RULES.robot_move_ticks_anti_grav == 12
-    # Evidence-backed: the same disassembly table shows anti-grav identical
-    # on flat/rugged terrain (3 cycles both).
-    assert DEFAULT_RULES.robot_rough_multiplier_anti_grav == 1
+    assert DEFAULT_RULES.robot_move_ticks_bipod_normal == 24
+    assert DEFAULT_RULES.robot_move_ticks_tracks_normal == 16
+    assert DEFAULT_RULES.robot_move_ticks_anti_grav_normal == 12
+
+
+def test_default_rules_match_locked_terrain_tick_table() -> None:
+    """CR001.4 (#151), `_specs/open-questions.md` §4: rugged 8/6/3 and
+    mountains 9/7/4 cycles at 4 ticks/cycle; ditch uses anti-grav's flat row."""
+    assert DEFAULT_RULES.robot_move_ticks_bipod_rough == 32
+    assert DEFAULT_RULES.robot_move_ticks_tracks_rough == 24
+    assert DEFAULT_RULES.robot_move_ticks_tracks_mountain == 28
+    assert DEFAULT_RULES.robot_move_ticks_anti_grav_rough == 12
+    assert DEFAULT_RULES.robot_move_ticks_anti_grav_mountain == 16
+    assert DEFAULT_RULES.robot_move_ticks_anti_grav_ditch == 12
 
 
 def test_engine_rules_is_frozen() -> None:

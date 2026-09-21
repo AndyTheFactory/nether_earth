@@ -121,41 +121,31 @@ named, documented, overridable ``EngineRules`` field (rather than a bare
 ``24`` literal inlined at the launch call site) following this module's
 established convention for every other rule-legality constant.
 
-Issue #60 (M5.1, `_specs/milestones/05-orders-navigation-capture.md`) adds
-the seven robot-movement timing fields (``robot_move_ticks_*``,
-``robot_rough_multiplier_*``, ``robot_ditch_multiplier_anti_grav``): the
-integer per-cell movement durations `movement.py`'s shared movement
-executor consumes. Per-cell cost is expressed as a per-chassis base
-ticks-per-cell multiplied by a per-chassis terrain multiplier (``1`` means
-"no penalty relative to ordinary terrain"), so evidence resolving either
-half of `_specs/open-questions.md` §4 lands as a value change here rather
-than a shape change.
+Issue #60 (M5.1, `_specs/milestones/05-orders-navigation-capture.md`)
+introduced the robot-movement timing fields that `movement.py`'s shared
+movement executor consumes; issue #61 (M5.2) derived the ordinary-terrain
+values from the disassembly.
 
-Issue #61 (M5.2) is the fidelity-finalization pass over these same seven
-fields, per `_specs/open-questions.md` §4 ("Exact movement speeds and
-terrain penalties -- PARTIALLY RESOLVED"). It resolved the three
-``robot_move_ticks_*`` (ordinary-terrain) defaults directly from disassembly
-evidence (`santiontanon/netherearth-disassembly`,
-``netherearth-annotated.asm``'s ``Lb61d_robot_movement_speed_table``: bipod/
-tracks/anti-grav = 6/4/3 "cycles" on flat terrain) mapped onto the locked
-20 Hz tick rate via the disassembly's own documented cadence
-(``MIN_INTERRUPTS_PER_GAME_CYCLE: equ 10 ; game maximum speed is 5 frames
-per second``, i.e. 1 cycle = 200 ms = 4 ticks): bipod ``24``, tracks ``16``,
-anti-grav ``12``. It also confirmed ``robot_rough_multiplier_anti_grav = 1``
-against the same table (anti-grav identical on flat/rugged: 3 cycles both).
+CR001.4 (issue #151) replaces the earlier base-ticks x terrain-multiplier
+shape with one integer field per enterable (chassis, terrain) pair,
+``robot_move_ticks_<chassis>_<terrain>``, per `_specs/open-questions.md` §4
+("Exact movement speeds and terrain penalties -- RESOLVED", owner decision
+2026-09-21) and `_specs/technical-spec.md` §13. The values come straight
+from ``netherearth-annotated.asm``'s ``Lb61d_robot_movement_speed_table``
+(cycles per move; bipod/tracks/anti-grav: flat 6/4/3, rugged 8/6/3,
+mountains 9/7/4) at 1 game cycle = 4 ticks
+(``MIN_INTERRUPTS_PER_GAME_CYCLE: equ 10``, i.e. 5 cycles/s at the locked
+20 Hz tick rate)::
 
-It could **not** resolve ``robot_rough_multiplier_bipod`` /
-``robot_rough_multiplier_tracks`` / ``robot_ditch_multiplier_anti_grav``
-to exact disassembly values: the raw evidence does not unambiguously
-support the locked "tracks penalized less severely than bipod on rough
-terrain" ordering (tied under an absolute-cycle-increase reading, reversed
-under a proportional reading), and neither the rough nor the ditch raw
-ratios (1.33x-1.5x) are representable as a clean integer multiplier on
-this ``int`` schema without inventing precision. Per `_specs/open-questions.md`
-§4, all three remain the pre-existing, explicitly unverified placeholder
-values (``3`` / ``2`` / ``1``) -- chosen only to satisfy the locked
-qualitative ordering, not presented as recovered exact Spectrum constants
--- pending a human decision on how to reconcile the evidence conflict.
+                normal  rough  mountain  ditch
+    bipod         24      32      -        -
+    tracks        16      24     28        -
+    anti-grav     12      12     16       12
+
+Anti-grav's ditch speed equals its flat speed because ditch element types
+have height 0 and the speed row is chosen by altitude (§4). The blocked
+pairs (``-``) are chassis terrain *legality*, owned by `movement.py`'s
+``CHASSIS_TERRAIN_PERMISSIONS``; they have no field here.
 
 Issue #70 (M6.1, `_specs/milestones/06-combat-damage-victory.md`, "Locked
 combat rules") adds the nine combat metadata fields: ``cannon_range_cells``,
@@ -308,37 +298,14 @@ class EngineRules:
       and `_specs/functional-spec.md` §11 "Construction cannot launch
       when: player already has 24 robots"). Enforced by `robot_launch.py`
       (issue #56).
-    - ``robot_move_ticks_bipod`` / ``robot_move_ticks_tracks`` /
-      ``robot_move_ticks_anti_grav``: simulation ticks a robot with that
-      chassis takes to move one cell across ordinary (``NORMAL``) terrain.
-      Defaults (``24`` / ``16`` / ``12``) are evidence-backed (issue #61,
-      disassembly ``Lb61d_robot_movement_speed_table`` flat-terrain row x
-      the evidence-derived 4-ticks-per-game-cycle conversion factor -- see
-      the module docstring) rather than placeholders; they encode both the
-      locked relative ordering "bipod < tracks < anti-grav" in speed and
-      the specific magnitude.
-    - ``robot_rough_multiplier_bipod`` / ``robot_rough_multiplier_tracks``:
-      multiplier applied to that chassis' base per-cell ticks when entering
-      ``ROUGH`` terrain. Defaults (``3`` / ``2``) remain the pre-existing,
-      explicitly *unverified* placeholders (issue #61 could not derive a
-      disassembly-exact integer multiplier -- see the module docstring);
-      they encode only the locked relative rule "rough slows bipod
-      severely, tracks less severely" and nothing more.
-    - ``robot_rough_multiplier_anti_grav``: multiplier applied to
-      anti-grav's base per-cell ticks when entering ``ROUGH`` terrain.
-      Default ``1`` is evidence-backed (issue #61: the disassembly table
-      shows anti-grav identical on flat and rugged terrain).
-    - ``robot_ditch_multiplier_anti_grav``: multiplier applied to
-      anti-grav's base per-cell ticks when entering ``DITCH`` terrain
-      (anti-grav is the only chassis permitted to; see `movement.py`).
-      Default ``1`` remains the pre-existing placeholder -- issue #61 found
-      disassembly evidence that anti-grav is *not* uniform across every
-      traversable terrain type (it is measurably slower on the most
-      extreme terrain tier), but that evidence's ~1.33x ratio has no clean
-      integer-multiplier representation on this schema, so this field is
-      flagged in `_specs/open-questions.md` §4 as a known likely
-      under-estimate rather than silently "corrected" with an invented
-      integer.
+    - ``robot_move_ticks_<chassis>_<terrain>`` (nine fields, one per
+      enterable pair): simulation ticks a robot with that chassis takes to
+      move one cell into a cell of that terrain class. Locked,
+      evidence-backed defaults per `_specs/open-questions.md` §4 (see the
+      module docstring): bipod normal ``24`` / rough ``32``; tracks normal
+      ``16`` / rough ``24`` / mountain ``28``; anti-grav normal ``12`` /
+      rough ``12`` / mountain ``16`` / ditch ``12``. Bipod on mountain or
+      ditch and tracks on ditch are blocked, not slow, so have no field.
     - ``capture_duration_ticks``: the number of continuous authoritative
       ticks a qualifying enemy robot must occupy a factory's or war base's
       canonical capture interaction location before ownership transfers
@@ -427,13 +394,15 @@ class EngineRules:
     factory_production_amount: int = 2
     war_base_production_amount: int = 5
     max_robots_per_player: int = 24
-    robot_move_ticks_bipod: int = 24
-    robot_move_ticks_tracks: int = 16
-    robot_move_ticks_anti_grav: int = 12
-    robot_rough_multiplier_bipod: int = 3
-    robot_rough_multiplier_tracks: int = 2
-    robot_rough_multiplier_anti_grav: int = 1
-    robot_ditch_multiplier_anti_grav: int = 1
+    robot_move_ticks_bipod_normal: int = 24
+    robot_move_ticks_bipod_rough: int = 32
+    robot_move_ticks_tracks_normal: int = 16
+    robot_move_ticks_tracks_rough: int = 24
+    robot_move_ticks_tracks_mountain: int = 28
+    robot_move_ticks_anti_grav_normal: int = 12
+    robot_move_ticks_anti_grav_rough: int = 12
+    robot_move_ticks_anti_grav_mountain: int = 16
+    robot_move_ticks_anti_grav_ditch: int = 12
     capture_duration_ticks: int = 1440
     cannon_range_cells: int = miles_to_cells(10)
     missile_range_cells: int = miles_to_cells(14)
@@ -494,13 +463,15 @@ class EngineRules:
         if self.max_robots_per_player <= 0:
             raise ValueError("max_robots_per_player must be a positive integer")
         for field_name in (
-            "robot_move_ticks_bipod",
-            "robot_move_ticks_tracks",
-            "robot_move_ticks_anti_grav",
-            "robot_rough_multiplier_bipod",
-            "robot_rough_multiplier_tracks",
-            "robot_rough_multiplier_anti_grav",
-            "robot_ditch_multiplier_anti_grav",
+            "robot_move_ticks_bipod_normal",
+            "robot_move_ticks_bipod_rough",
+            "robot_move_ticks_tracks_normal",
+            "robot_move_ticks_tracks_rough",
+            "robot_move_ticks_tracks_mountain",
+            "robot_move_ticks_anti_grav_normal",
+            "robot_move_ticks_anti_grav_rough",
+            "robot_move_ticks_anti_grav_mountain",
+            "robot_move_ticks_anti_grav_ditch",
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")

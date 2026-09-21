@@ -34,7 +34,7 @@ from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState, create_game_state
 from nether_earth.terrain import TerrainGrid, TerrainType
 
-BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod
+BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod_normal
 
 
 def _world(width: int = 10, height: int = 10) -> WorldMap:

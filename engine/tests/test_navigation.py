@@ -35,7 +35,7 @@ from nether_earth.state import GameState, create_game_state
 from nether_earth.structures import Blocker, Component
 from nether_earth.terrain import TerrainGrid, TerrainType
 
-BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod
+BIPOD_TICKS = DEFAULT_RULES.robot_move_ticks_bipod_normal
 
 
 def _world(
@@ -517,15 +517,19 @@ def test_electronic_replans_around_another_robots_reservation() -> None:
 
 
 def test_electronic_prefers_a_longer_ordinary_route_over_a_slower_rough_one() -> None:
-    """Uniform-cost search charges the executor's own per-cell durations."""
-    world = _world(
-        terrain_cells={(3, 5): TerrainType.ROUGH, (4, 5): TerrainType.ROUGH},
-    )
+    """Uniform-cost search charges the executor's own per-cell durations.
+
+    Bipod: straight across eight rough cells = 8 * 32 + 24 = 280 ticks; the
+    two-cell-longer ordinary detour = 11 * 24 = 264 ticks (§4 tick table).
+    """
+    rough = dict.fromkeys(((x, 5) for x in range(3, 11)), TerrainType.ROUGH)
+    world = _world(width=16, terrain_cells=rough)
     robot = _robot(x=2, y=5, electronics=ModuleIdentity.ELECTRONICS)
-    route = plan_route(robot, 5, 5, _state((robot,)), world)
+    route = plan_route(robot, 11, 5, _state((robot,)), world)
 
     assert route is not None
-    assert not set(route) & {(3, 5), (4, 5)}
+    assert not set(route) & set(rough)
+    assert len(route) == 11
 
 
 def test_electronic_takes_the_rough_route_when_it_is_genuinely_cheapest() -> None:
@@ -581,6 +585,32 @@ def test_electronics_cannot_reach_a_target_walled_off_by_a_ditch() -> None:
     route = plan_route(anti_grav, 5, 1, _state((anti_grav,)), world)
     assert route is not None
     assert (3, 1) in route
+
+
+def test_electronics_never_routes_a_bipod_over_a_mountain_but_tracks_may() -> None:
+    """§4: bipod is blocked on mountain; tracks enter it (at 28 ticks/cell)."""
+    world = _world(
+        width=6,
+        height=3,
+        terrain_cells=dict.fromkeys(((3, 0), (3, 1), (3, 2)), TerrainType.MOUNTAIN),
+    )
+    bipod = _robot(x=1, y=1, electronics=ModuleIdentity.ELECTRONICS)
+    state = _state((bipod,))
+
+    assert not cell_is_enterable(bipod, 3, 1, state, world)
+    assert (
+        ELECTRONIC_NAVIGATION.next_step(bipod, 5, 1, state, world).status
+        is NavigationStatus.UNREACHABLE
+    )
+    assert next_navigation_step(bipod, 3, 1, state, world).status is not NavigationStatus.STEP
+
+    for chassis in (ModuleIdentity.TRACKS, ModuleIdentity.ANTI_GRAV):
+        robot = _robot(x=1, y=1, chassis=chassis, electronics=ModuleIdentity.ELECTRONICS)
+        robot_state = _state((robot,))
+        assert cell_is_enterable(robot, 3, 1, robot_state, world)
+        route = plan_route(robot, 5, 1, robot_state, world)
+        assert route is not None
+        assert (3, 1) in route
 
 
 def test_a_step_into_a_ditch_stays_rejected_by_the_executor_for_both_policies() -> None:

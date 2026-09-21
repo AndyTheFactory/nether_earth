@@ -33,7 +33,8 @@ def test_every_terrain_type_round_trips_through_parse(terrain_type: TerrainType)
 
 def test_terrain_type_has_required_members() -> None:
     names = {member.name for member in TerrainType}
-    assert {"NORMAL", "ROUGH", "DITCH"} <= names
+    assert names == {"NORMAL", "ROUGH", "MOUNTAIN", "DITCH"}
+    assert TerrainType("mountain") is TerrainType.MOUNTAIN
 
 
 # --- Determinism / equality ------------------------------------------------------

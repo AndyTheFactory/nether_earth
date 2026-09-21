@@ -7,6 +7,7 @@ import { Assets, Texture } from 'pixi.js';
 export type SemanticAsset =
   | 'terrain.normal'
   | 'terrain.rough'
+  | 'terrain.mountain'
   | 'terrain.ditch'
   | 'structure.warbase'
   | 'structure.factory'
@@ -56,6 +57,7 @@ export function ownerColor(owner: string | null | undefined): number {
 export const PLACEHOLDER_COLORS: Record<SemanticAsset, number> = {
   'terrain.normal': 0x1c5a1c,
   'terrain.rough': 0x6b5a1c,
+  'terrain.mountain': 0x9a7b5a,
   'terrain.ditch': 0x123a5a,
   'structure.warbase': PALETTE.white,
   'structure.factory': PALETTE.yellow,
