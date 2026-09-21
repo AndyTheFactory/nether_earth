@@ -37,6 +37,8 @@ ORIGINAL_MAP_PATH = Path(__file__).resolve().parents[2] / "data" / "maps" / "zx-
 WAR_BASE_COMPONENT_COUNT = 60
 FACTORY_COMPONENT_COUNT = 20
 COMPONENT_HEIGHTS = {7, 15}
+#: `Ld7bc_map_piece_heights` for scenery element types 17/18/21 (CR002.1).
+BLOCKER_HEIGHTS = {7, 15, 99}
 
 #: Disassembly evidence (open-questions §18): construction is entered at
 #: altitude exactly 15 (`cp 15`), the war-base roof.
@@ -84,9 +86,10 @@ def test_map_dimensions_match_the_original(world: WorldMap) -> None:
 
 def test_every_component_is_in_bounds_and_occupancy_has_no_overlaps(world: WorldMap) -> None:
     for structure in (*world.war_bases, *world.factories, *world.blockers):
+        heights = BLOCKER_HEIGHTS if structure in world.blockers else COMPONENT_HEIGHTS
         for component in structure.components:
             assert 0 <= component.x < world.width and 0 <= component.y < world.height
-            assert component.height in COMPONENT_HEIGHTS
+            assert component.height in heights
     # ``OccupancyGrid.from_structures`` raises on any two structures sharing a cell.
     assert world.occupancy().cells()
 
@@ -154,16 +157,17 @@ def test_every_interaction_point_references_a_real_structure(world: WorldMap) ->
         assert world.structure_by_id(point.structure_id) is not None, point.id.value
 
 
-# -- terrain (decoded in CR001.5; scenery is still a documented gap) ----------
+# -- terrain (decoded in CR001.5) and scenery (blockers, CR002.1) ---------------
 
 
-def test_terrain_is_decoded_and_scenery_still_absent(world: WorldMap) -> None:
+def test_terrain_and_scenery_are_decoded(world: WorldMap) -> None:
     # CR001.5 (#152) decodes rough/mountain/ditch from the Spectrum map
-    # tables (counts pinned in test_original_map.py). Scenery blocks
-    # (element types 17/18/21) are still not modeled; see open-questions §4.
+    # tables (counts pinned in test_original_map.py). CR002.1 (#168) adds the
+    # scenery elements (types 17/18/21) as blockers; details are pinned in
+    # test_scenery_blockers.py.
     assert world.terrain.default is TerrainType.NORMAL
     assert set(world.terrain.cells.values()) == {TerrainType.ROUGH, TerrainType.MOUNTAIN, TerrainType.DITCH}
-    assert world.blockers == ()
+    assert sum(len(b.components) for b in world.blockers) == 660
 
 
 # -- spawns, clearance and reachability ----------------------------------------

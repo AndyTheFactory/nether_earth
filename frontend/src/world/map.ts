@@ -26,6 +26,8 @@ export interface MapFactory {
 
 export interface MapBlocker {
   id: string;
+  /** Opaque scenery label (e.g. `box_low`, `box_high`, `fence`) for asset mapping (CR002.5). */
+  kind?: string;
   components: MapComponent[];
 }
 

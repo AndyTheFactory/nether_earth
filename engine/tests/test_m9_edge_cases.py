@@ -196,8 +196,8 @@ def test_commander_cannot_descend_onto_the_other_commander(world: WorldMap) -> N
     state = _initial(world)
     state = state.with_commanders(
         (
-            Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=100, y=15, altitude=0),
-            Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=100, y=15, altitude=12),
+            Commander(player_id=PLAYER_ONE, mode=CommanderMode.FREE, x=104, y=15, altitude=0),
+            Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=104, y=15, altitude=12),
         )
     )
     state, _ = _step(state, world, ticks=200)  # gravity: -1 every 4 ticks
