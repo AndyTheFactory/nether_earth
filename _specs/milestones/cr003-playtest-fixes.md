@@ -107,6 +107,7 @@ Parallel groups: engine (CR003.1, CR003.2, CR003.3 → CR003.4) and frontend (CR
 
 - Render both the left (columns 12–13) and the right (columns 503–504) fence the way the right one is drawn now. Find and fix the root cause (sprite choice, facing, depth order or occlusion); do not special-case the left column.
 - Check: screenshots of both edges at the same zoom; a unit test on the resolved sprite/draw order if the cause is in code.
+- Resolved (owner decision 2026-09-22): the fence sprite's post stands on the −x column of its footprint, so it touches the play area at the right end and leaves a column gap at the left end (the Spectrum has the same asymmetry). The renderer now centres the post through a per-asset `offset` in the scenery manifest. This is presentation only, and the Spectrum's 4-px odd-parity shift is not applied. Evidence: `open-questions.md`, "Map-end fence placement".
 
 ### CR003.8 — Rules version and specs
 

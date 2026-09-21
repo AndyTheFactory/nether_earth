@@ -25,7 +25,9 @@ The map's `blockers` carry an opaque `kind` (CR002.1). `manifest.json`'s
   `src/render/scenery-sprites.ts`), `footprint` (cells along x, y; 2x2 in
   v1), `height` (the box height the sprite shows, equal to the map height of
   that kind so shadows and sprites agree), optional `ink`/`paper` colours
-  (`#rrggbb`, default black on Spectrum yellow).
+  (`#rrggbb`, default black on Spectrum yellow), optional `offset`
+  (`[right, down]` world pixels, a presentation-only shift of the drawn sprite;
+  `scenery.fence` uses it to centre the post, CR003.7).
 
 Pointing a kind at another asset, or an asset at another sprite, changes the
 render with no code change. A kind with no valid entry (unknown kind or
