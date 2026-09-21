@@ -12,6 +12,7 @@ import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
+import { textOverlays } from '../state/labels.ts';
 
 /** Fallback prism height of unmapped nuclear debris: the Spectrum's debris pieces (types 6/7) are height 3. */
 const DEBRIS_HEIGHT = 3;
@@ -77,7 +78,7 @@ export class WorldRenderer {
     }
   }
 
-  // Debug text labels only with the debug grid on (G); flags show ownership.
+  // Structure name labels are an optional overlay (CR002.23, textOverlays); flags show ownership.
   private drawStructures(state: SnapshotState | null, debug: boolean): void {
     const key = JSON.stringify([this.zoom, debug, state?.structure_ownership, state?.structure_destruction, state?.scenery_debris]);
     if (key === this.lastStructureKey) return;
@@ -188,7 +189,8 @@ export class WorldRenderer {
       this.prevSnapshot = null;
     }
     this.zoom = viewZoom(this.app.screen.width, this.app.screen.height);
-    this.drawStructures(snap, state.ui.debugGrid);
+    const text = textOverlays(state.ui);
+    this.drawStructures(snap, text.structureNames);
     for (const g of this.dynamic) g.destroy();
     this.dynamic = [];
     this.effects.clear();
@@ -215,11 +217,13 @@ export class WorldRenderer {
         drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner));
       }
       this.addDynamic(g, depthKey(p.x, p.y));
-      const sp = project(p.x, p.y, r.height + 3);
-      const label = new Text({ text: `${r.strength}`, style: { fontFamily: 'monospace', fontSize: 9, fill: ownerColor(r.owner) } });
-      label.anchor.set(0.5, 1);
-      this.labelAt(label, sp);
-      this.overlayLabels.addChild(label);
+      if (text.robotStrength) {
+        const sp = project(p.x, p.y, r.height + 3);
+        const label = new Text({ text: `${r.strength}`, style: { fontFamily: 'monospace', fontSize: 9, fill: ownerColor(r.owner) } });
+        label.anchor.set(0.5, 1);
+        this.labelAt(label, sp);
+        this.overlayLabels.addChild(label);
+      }
     }
 
     for (const c of snap.commanders) {

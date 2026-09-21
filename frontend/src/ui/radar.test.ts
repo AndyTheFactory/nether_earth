@@ -4,10 +4,11 @@ import { FIXTURES } from '../fixtures/index.ts';
 import { runFixtureMessage } from '../fixtures/harness.ts';
 import { Store } from '../state/store.ts';
 import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
-import { ownerColor, PALETTE } from '../render/assets.ts';
-import { radarMarks, radarSize, viewFromCorners, RADAR_CELLS_PER_PX, RADAR_PX_PER_ROW } from './radar.ts';
+import { PALETTE } from '../render/assets.ts';
+import { radarBitmap, radarMarks, radarScroll, radarSize, commanderCell, RADAR_COLUMNS } from './radar.ts';
 
 const map = loadMap(DEFAULT_MAP_ID);
+const W = RADAR_COLUMNS;
 
 function snapshotOf(id: string) {
   const store = new Store();
@@ -15,73 +16,110 @@ function snapshotOf(id: string) {
   return store.get().latest!;
 }
 
-const at = (x: number, y: number) => ({ x: Math.floor(x / RADAR_CELLS_PER_PX), y: y * RADAR_PX_PER_ROW });
+const staticCells = (skip: Set<string> = new Set()) =>
+  [...map.blockers, ...map.war_bases, ...map.factories].filter((s) => !skip.has(s.id)).flatMap((s) => s.components);
 
-test('radar covers the whole map', () => {
-  assert.deepEqual(radarSize(map), { width: map.width / RADAR_CELLS_PER_PX, height: map.height * RADAR_PX_PER_ROW });
+test('radar is a 128-column window, one pixel per cell and row', () => {
+  assert.equal(W, 128);
+  assert.deepEqual(radarSize(map), { width: 128, height: map.height });
 });
 
-test('every mark stays inside the radar', () => {
-  const { width, height } = radarSize(map);
+test('scroll follows the commander in 64-column steps (Lafe6_radar_scroll)', () => {
+  // Game start: scroll 0, commander at x=17 (tile 2) stays put.
+  assert.equal(radarScroll(0, 17, map.width), 0);
+  assert.equal(radarScroll(0, 111, map.width), 0); // tile 13
+  assert.equal(radarScroll(0, 112, map.width), 64); // tile 14 -> right edge band
+  // Hysteresis: back left scrolls only inside the 2-tile left band.
+  assert.equal(radarScroll(64, 80, map.width), 64); // tile 10 - 8 = 2
+  assert.equal(radarScroll(64, 79, map.width), 0); // tile 9 - 8 = 1
+  // Clamped to [0, width - 128] (the Spectrum stops at tile 48 = column 384).
+  assert.equal(radarScroll(0, 0, map.width), 0);
+  assert.equal(radarScroll(384, 511, map.width), 384);
+  // A jump (reconnect) settles in one call: 300 is tile 37, window 192..319.
+  assert.equal(radarScroll(0, 300, map.width), 192);
+  assert.equal(radarScroll(384, 17, map.width), 0);
+});
+
+test('every mark is white and inside the 128 x 16 strip, for every fixture and scroll', () => {
   for (const f of FIXTURES) {
     const store = new Store();
     for (const msg of f.messages) runFixtureMessage(store, msg, 0);
-    for (const m of radarMarks(map, store.get().latest, { minX: -40, maxX: map.width + 40 })) {
-      assert.ok(m.x >= -1 && m.x + m.w <= width + 1 && m.y >= -1 && m.y + m.h <= height + 1, `${f.id}: ${JSON.stringify(m)}`);
+    for (const scroll of [0, 64, 192, 384]) {
+      for (const m of radarMarks(map, store.get().latest, scroll, f.playerId)) {
+        assert.equal(m.color, PALETTE.brightWhite, f.id);
+        assert.ok(m.x >= 0 && m.x + m.w <= W && m.y >= 0 && m.y + m.h <= map.height && m.w >= 1 && m.h === 1, `${f.id}: ${JSON.stringify(m)}`);
+      }
     }
   }
 });
 
-test('structures are coloured by their snapshot owner, neutral ones white', () => {
-  const snap = snapshotOf('robots-orders');
-  const marks = radarMarks(map, snap, null);
-  const colorAt = (x: number, y: number) => {
-    const p = at(x, y);
-    return marks.filter((m) => m.x <= p.x && p.x < m.x + m.w && m.y <= p.y && p.y < m.y + m.h).at(-1)?.color;
-  };
-  for (const o of snap.structure_ownership) {
-    const s = [...map.war_bases, ...map.factories].find((x) => x.id === o.structure_id)!;
-    const c = s.components[0];
-    assert.equal(colorAt(c.x, c.y), ownerColor(o.owner), o.structure_id);
-  }
-  const neutral = map.factories.find((f) => !snap.structure_ownership.some((o) => o.structure_id === f.id))!;
-  assert.equal(colorAt(neutral.components[0].x, neutral.components[0].y), PALETTE.brightWhite);
-});
-
-test('robots and commanders are marked at their snapshot cells in owner colour', () => {
-  const snap = snapshotOf('robots-orders');
-  const marks = radarMarks(map, snap, null);
-  for (const r of snap.robots) {
-    const p = at(r.x, r.y);
-    assert.ok(marks.some((m) => m.x === p.x && m.y === p.y && m.color === ownerColor(r.owner)), r.entity_id);
-  }
-  for (const c of snap.commanders) {
-    const p = at(c.x, c.y);
-    assert.ok(marks.some((m) => m.x === p.x - 1 && m.w === 3 && m.y === p.y && m.color === ownerColor(c.player_id)), c.player_id);
+test('static structures and scenery inside the window are lit, nothing outside it', () => {
+  for (const scroll of [0, 64, 384]) {
+    const bits = radarBitmap(map, null, scroll, null, true);
+    const expected = new Set(staticCells().filter((c) => c.x >= scroll && c.x < scroll + W).map((c) => (c.y * W + c.x - scroll)));
+    assert.ok(expected.size > 0);
+    for (let i = 0; i < bits.length; i++) assert.equal(bits[i], expected.has(i) ? 1 : 0, `scroll ${scroll} pixel ${i % W},${Math.floor(i / W)}`);
   }
 });
 
-test('the view window is drawn as two full-height edges', () => {
-  const { height } = radarSize(map);
-  const marks = radarMarks(map, null, { minX: 10, maxX: 51 });
-  const edges = marks.slice(-2);
-  assert.deepEqual(edges.map((m) => [m.x, m.y, m.w, m.h]), [
-    [Math.floor(10 / RADAR_CELLS_PER_PX), 0, 1, height],
-    [Math.floor(51 / RADAR_CELLS_PER_PX), 0, 1, height],
-  ]);
-});
-
-test('view range comes from the corner cells of the play view', () => {
-  assert.deepEqual(viewFromCorners([{ x: 20, y: -3 }, { x: 44, y: 9 }, { x: 12, y: 20 }, { x: 36, y: 31 }]), { minX: 12, maxX: 44 });
-  assert.equal(viewFromCorners([]), null);
-});
-
-test('scenery turned into nuclear debris is no longer marked (CR002.18)', () => {
+test('robots XOR a 2x2 area at x..x+1, rows y-1..y, only when x - scroll is in [0, 126]', () => {
   const snap = snapshotOf('robots-orders');
+  const empty = { ...snap, robots: [], commanders: [] };
+  // Open ground check: pick a cell whose 2x2 area holds no static mark.
+  const base = radarBitmap(map, empty, 0, null, true);
+  let x = 40;
+  const y = 8;
+  while ([0, 1].some((dx) => [0, -1].some((dy) => base[(y + dy) * W + x + dx]))) x++;
+  const r = { ...snap.robots[0], x, y };
+  const bits = radarBitmap(map, { ...empty, robots: [r] }, 0, null, true);
+  const lit = [...bits.keys()].filter((i) => bits[i] !== base[i]).map((i) => [i % W, Math.floor(i / W)]);
+  assert.deepEqual(lit.sort(), [[x, y - 1], [x + 1, y - 1], [x, y], [x + 1, y]].sort());
+  // Outside the window, or in the last column, no mark (Ld67d_get_radar_view_pointer).
+  for (const rx of [127, 128, 300]) {
+    assert.deepEqual(radarBitmap(map, { ...empty, robots: [{ ...r, x: rx }] }, 0, null, true), base, `x ${rx}`);
+  }
+  // Scrolled: same robot drawn relative to the window start.
+  const scrolled = radarBitmap(map, { ...empty, robots: [{ ...r, x: x + 64 }] }, 64, null, true);
+  assert.equal(scrolled[y * W + x], radarBitmap(map, empty, 64, null, true)[y * W + x] ^ 1);
+});
+
+test('the local commander blinks as a 2x2 mark; other commanders are not shown', () => {
+  const snap = snapshotOf('world-static');
+  const me = 'p1';
+  const c = commanderCell(snap, me)!;
+  assert.ok(c);
+  const on = radarBitmap(map, snap, 0, me, true);
+  const off = radarBitmap(map, snap, 0, me, false);
+  const diff = [...on.keys()].filter((i) => on[i] !== off[i]).map((i) => [i % W, Math.floor(i / W)]);
+  const area = [[c.x, c.y - 1], [c.x + 1, c.y - 1], [c.x, c.y], [c.x + 1, c.y]].filter(([, y]) => y >= 0);
+  assert.deepEqual(diff.sort(), area.sort());
+  // No viewer: no commander mark at all.
+  assert.deepEqual(radarBitmap(map, snap, 0, null, true), off);
+});
+
+test('a docked commander marks its robot cell', () => {
+  const snap = snapshotOf('commander-docked');
+  const c = snap.commanders.find((k) => k.mode === 'docked')!;
+  const robot = snap.robots.find((r) => r.entity_id === c.docked_robot_id)!;
+  assert.deepEqual(commanderCell(snap, c.player_id), { x: robot.x, y: robot.y });
+});
+
+test('nuclear debris and destroyed structures are not marked (debris is below element 15)', () => {
+  const snap = { ...snapshotOf('robots-orders'), robots: [], commanders: [] };
   const box = map.blockers.find((b) => b.id === 'blocker-9')!;
-  const cells = new Set(box.components.map((c) => JSON.stringify(at(c.x, c.y))));
-  const count = (s: typeof snap) =>
-    radarMarks(map, s, null).filter((m) => m.color === PALETTE.white && cells.has(JSON.stringify({ x: m.x, y: m.y }))).length;
-  assert.ok(count(snap) > 0);
-  assert.equal(count({ ...snap, scenery_debris: ['blocker-9'] }), 0);
+  const scroll = Math.max(0, Math.min(map.width - W, Math.floor(box.components[0].x / 64) * 64));
+  const lit = (s: typeof snap, cells: { x: number; y: number }[]) => {
+    const bits = radarBitmap(map, s, scroll, null, true);
+    return cells.filter((c) => bits[c.y * W + c.x - scroll]).length;
+  };
+  assert.ok(lit(snap, box.components) > 0);
+  assert.equal(lit({ ...snap, scenery_debris: ['blocker-9'] }, box.components), 0);
+  const wb = map.war_bases[0];
+  const wbScroll = Math.floor(wb.components[0].x / 64) * 64;
+  const wbLit = (s: typeof snap) => {
+    const bits = radarBitmap(map, s, wbScroll, null, true);
+    return wb.components.filter((c) => c.x - wbScroll < W && bits[c.y * W + c.x - wbScroll]).length;
+  };
+  assert.ok(wbLit(snap) > 0);
+  assert.equal(wbLit({ ...snap, structure_destruction: [wb.id] }), 0);
 });

@@ -73,6 +73,8 @@ export interface UiState {
   pendingOrder: 'advance' | 'retreat' | 'search_capture' | 'search_destroy' | null;
   distanceMiles: number;
   debugGrid: boolean;
+  /** Structure name labels and robot strength numbers (CR002.23); default off. */
+  labels: boolean;
   notice: string | null;
   /** Wall-clock ms when the latest snapshot arrived; visual-only. */
   latestSnapshotAtMs: number;
@@ -111,6 +113,7 @@ export function initialState(): AppState {
       pendingOrder: null,
       distanceMiles: 10,
       debugGrid: false,
+      labels: false,
       notice: null,
       latestSnapshotAtMs: 0,
     },
@@ -173,8 +176,10 @@ export class Store {
     this.commit({ ...this.state, ui: { ...this.state.ui, ...patch } });
   }
 
+  /** Back to a fresh state; the viewer's labels preference survives. */
   reset(): void {
-    this.commit(initialState());
+    const init = initialState();
+    this.commit({ ...init, ui: { ...init.ui, labels: this.state.ui.labels } });
   }
 
   /** Route a lifecycle/error server message. Snapshot/resync go through the two snapshot methods. */

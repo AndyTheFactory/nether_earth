@@ -98,16 +98,31 @@ entries render as procedural Spectrum-palette prisms (see
   the roof, 4 (war base) or 2 (factory) cells behind the anchor and to the -x
   side for p1 (the Spectrum's human flag) or the +x side for p2 (the
   Insignian flag, checkered). Neutral and destroyed structures carry none.
-  Structure name/owner text labels show only with the debug grid (`G`).
+  Structure name/owner text labels show only with labels on (`L`) or the
+  debug grid (`G`).
   Fixture: `?fixture=ownership-flags` (`&until=4|5|6` holds neutral/p1/p2).
 - Robot stacks draw the snapshot's `stack` array bottom-up in the order the
   engine already canonicalised; module heights are scaled to the authoritative
   `height` so the docked commander sits on the true top.
 - Camera follows the local commander (or its docked robot). `G` toggles the
   debug grid, interaction points and capture-progress overlay.
+- Labels (CR002.23): structure name labels and robot strength numbers are an
+  optional overlay, **off by default**. `L` toggles them; the choice is saved
+  per viewer in `localStorage` (`nether.labels`, ignored when storage is
+  unavailable). `?labels=1` / `?labels=0` overrides the saved choice for that
+  page load. The debug grid (`G`) still shows structure names, not strengths.
+- Radar (CR002.22, `src/ui/radar.ts`): as on the Spectrum, a 128-column
+  window of the map at one pixel per cell, all marks white. Structures,
+  scenery boxes and fences are lit (debris and destroyed structures are not);
+  every robot is a 2x2 mark (x..x+1, rows y-1..y); the local commander is a
+  blinking 2x2 mark (its docked robot blinks). The window starts at column 0
+  and scrolls 64 columns when the commander comes within 16 columns of an
+  edge, clamped to the map; there is no view-window indicator. Source:
+  `Lafe6_radar_scroll`, `Ld5f8_update_radar_buffers`,
+  `Ld65a_flip_2x2_radar_area` in the disassembly.
 
-Known presentation limits (not gameplay): text labels (strength, debug
-structure names) draw above the scene, and there is no real art yet.
+Known presentation limits (not gameplay): text labels, when on, draw above
+the scene (a hidden robot's strength stays visible), and there is no real art yet.
 
 ## Live check status
 
