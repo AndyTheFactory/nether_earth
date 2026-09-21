@@ -117,6 +117,11 @@ M9 complete ─────────────► M10 Hardening, Deployment
 - Implements the owner decisions for open questions 4, 8, 17, 18, 19, and 20, changing behavior delivered by M2, M3, M5, and M6.
 - Must complete before the M9.8 gate and before M10 freezes rules.
 
+### CR002 — Spectrum Fidelity & UI
+
+- Change request, spec: `cr002-spectrum-fidelity-ui.md` (reference screenshots in `cr002/`). Start dependency: M10 merged, `v1.0.0-rc1` tagged.
+- Implements the owner decisions of 2026-09-21: scenery blockers, fire-tick projectile move, 2×2 robots/commander/heli-pad, construction-menu fixes, and the Spectrum look and feel (orientation, zoom, fonts, radar, construction screen, flags, occlusion, shadows).
+
 ## Cross-milestone ownership rules
 
 To prevent duplicate logic across milestones:
