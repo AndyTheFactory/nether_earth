@@ -2,7 +2,7 @@
   "schema_version": 1,
   "rules_version": "cr001",
   "rules_hash": "0a599027daae06c52cc396b6c77314a62f53317fbedd108b85cc66b5bba0188e",
-  "match_id": "fc89a5ff35f644a1927ca2878347e91d",
+  "match_id": "a793e28895ad47888bc6c5a1cdf2bc66",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -13,10 +13,10 @@
     "p1": "alice",
     "p2": "bob"
   },
-  "created_at_epoch_ms": 1790006510362,
+  "created_at_epoch_ms": 1790011819088,
   "status": "finished",
-  "finished_at_epoch_ms": 1790006541923,
-  "final_tick": 22703,
+  "finished_at_epoch_ms": 1790011873956,
+  "final_tick": 22988,
   "result": {
     "outcome": "victory",
     "reason": "zero_war_bases",
@@ -24,7 +24,7 @@
     "forfeiting_player_id": null
   },
   "final_snapshot": {
-    "tick": 22703,
+    "tick": 22988,
     "players": [
       "p1",
       "p2"
@@ -109,7 +109,7 @@
         },
         "active_projectile_id": null,
         "strength": 100,
-        "last_fire_tick": 666
+        "last_fire_tick": 714
       }
     ],
     "structure_ownership": [

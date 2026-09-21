@@ -118,10 +118,13 @@ def test_pause_freezes_in_flight_robot_move_and_resync_converges(tmp_path: Path)
                 sequence += 1
                 state = _wait_snapshot(ws_a, lambda s: (_commander(s, "p1")["x"], _commander(s, "p1")["y"]) == (22, 5))["state"]
                 _wait_snapshot(ws_a, lambda s: any(c["player_id"] == "p1" for c in s["construction_sessions"]))
-                for module in ("bipod", "cannon"):
+                # Electronics: the 2×2 robot starts in the base's doorway, whose
+                # walls block the east step a non-electronic Advance would take
+                # (CR002.3); electronic routing steps south out of it first.
+                for module in ("bipod", "cannon", "electronics"):
                     _command(ws_a, session_a, sequence, {"kind": "select_module", "module": module})
                     sequence += 1
-                _wait_snapshot(ws_a, lambda s: s["construction_sessions"][0]["build"]["weapons"] == ["cannon"])
+                _wait_snapshot(ws_a, lambda s: s["construction_sessions"][0]["build"]["electronics"] == "electronics")
                 _command(ws_a, session_a, sequence, {"kind": "launch_robot"})
                 sequence += 1
                 state = _wait_snapshot(ws_a, lambda s: len(s["robots"]) == 1)["state"]
@@ -164,12 +167,14 @@ def test_pause_freezes_in_flight_robot_move_and_resync_converges(tmp_path: Path)
                     assert message["tick"] == last_tick + 1, "ticks must continue exactly from the resync snapshot"
                     last_tick = message["tick"]
                     robot = message["state"]["robots"][0]
-                    if robot["x"] != frozen["state"]["robots"][0]["x"]:
+                    frozen_robot = frozen["state"]["robots"][0]
+                    if (robot["x"], robot["y"]) != (frozen_robot["x"], frozen_robot["y"]):
                         break
                 else:
                     raise AssertionError("robot move never completed after resume")
                 # The frozen in-flight move completed to exactly its reserved destination.
-                assert robot["x"] == frozen["state"]["robots"][0]["movement"]["to_x"]
+                movement = frozen_robot["movement"]
+                assert (robot["x"], robot["y"]) == (movement["to_x"], movement["to_y"])
                 # Both players keep seeing one identical authoritative stream.
                 a_view = _wait_snapshot(ws_a, lambda s: s["tick"] >= last_tick)
                 b_view = _wait_snapshot(ws_b, lambda s: s["tick"] >= a_view["tick"])

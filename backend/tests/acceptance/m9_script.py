@@ -41,6 +41,7 @@ from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
 from nether_earth.movement import chassis_can_enter
+from nether_earth.occupancy import unit_footprint_cells
 from nether_earth.orders import (
     Advance,
     SearchCapture,
@@ -190,6 +191,16 @@ class Api:
         dx = (x > robot.x) - (x < robot.x)
         yield from self.direct_move(player, dx, 0, abs(x - robot.x))
 
+    def drive_into_doorway(self, player: PlayerId, x: int, y: int) -> Iterator[Predicate]:
+        """Direct-control the docked robot onto a war-base capture cell ``(x, y)``.
+
+        The capture cell is the anchor of a 2×2 body standing in the base's
+        south-facing doorway (CR002.3), whose walls block a sideways entry:
+        drive to the cell just below it, then step up into the doorway.
+        """
+        yield from self.drive_to(player, x, y + 1)
+        yield from self.direct_move(player, 0, -1, 1)
+
     def advance_to_column(self, player: PlayerId, robot_id: EntityId, column: int) -> Iterator[Predicate]:
         """Chain ``Advance`` orders (max 50 miles = 100 cells each) until the robot reaches ``column``."""
         while True:
@@ -207,9 +218,9 @@ class Api:
             miles = next(
                 (
                     m
-                    for rows in (range(self.world.height), (robot.y,))
+                    for rows in (range(1, self.world.height), (robot.y,))
                     for m in range(longest, 0, -1)
-                    if self._column_is_open(robot, min(robot.x + m * 2, self.world.width - 1), rows)
+                    if self._column_is_open(robot, min(robot.x + m * 2, self.world.width - 2), rows)
                 ),
                 0,
             )
@@ -219,10 +230,14 @@ class Api:
             yield lambda s, t=target: (r := s.robot_for(robot_id)) is None or r.x >= t
 
     def _column_is_open(self, robot: Robot, column: int, rows: Iterable[int]) -> bool:
+        """Whether a 2×2 body anchored at ``column`` fits on every anchor row in ``rows`` (CR002.3)."""
         occupancy = self.world.occupancy()
         return all(
-            not occupancy.is_occupied(column, y)
-            and chassis_can_enter(robot.build.chassis, self.world.terrain.terrain_at(column, y))
+            not occupancy.blocks_unit(column, y)
+            and all(
+                chassis_can_enter(robot.build.chassis, self.world.terrain.terrain_at(x, cell_y))
+                for x, cell_y in unit_footprint_cells(column, y)
+            )
             for y in rows
         )
 
@@ -231,8 +246,9 @@ class Api:
         return min(points[0].footprint.cells)
 
     def heli_pad(self, structure_id: str) -> tuple[int, int]:
+        """The anchor of the 2×2 pad: its min-x/max-y cell (open-questions §18, CR002.4)."""
         points = self.world.interaction_points_for(EntityId(structure_id), kind=InteractionKind.HELI_PAD)
-        return min(points[0].footprint.cells)
+        return min(points[0].footprint.cells, key=lambda cell: (cell[0], -cell[1]))
 
 
 # -- the two players ----------------------------------------------------------
@@ -291,7 +307,7 @@ def player_one(api: Api) -> Actor:
     # Direct control: dock onto the scout and drive it onto the capture cell.
     yield from api.land_on_robot(PLAYER_ONE, P1_SCOUT)
     api.mark("p1 docked on scout")
-    yield from api.drive_to(PLAYER_ONE, *capture_cell)
+    yield from api.drive_into_doorway(PLAYER_ONE, *capture_cell)
     api.mark("p1 direct-controlled scout onto warbase-2 capture cell")
     yield from api.undock(PLAYER_ONE)
     yield from api.land_on_heli_pad(PLAYER_ONE, "warbase-1")
@@ -329,7 +345,9 @@ def player_one(api: Api) -> Actor:
     # beside the base instead of crossing the capture anchor itself.
     yield from api.land_on_robot(PLAYER_ONE, P1_STRIKER)
     gap_row = enemy[1] - 1
-    yield from api.drive_to(PLAYER_ONE, enemy[0] - 3, gap_row)
+    # A 2×2 body anchored on the gap row reaches four columns west of the
+    # anchor before the base wall (CR002.3).
+    yield from api.drive_to(PLAYER_ONE, enemy[0] - 4, gap_row)
     yield from api.drive_to(PLAYER_ONE, enemy[0], enemy[1] + 1)
     # Let the guard's aligned shot land before detonating. Coming down from
     # the gap row, the striker is already level with the guard (and in its
