@@ -50,9 +50,19 @@ b { color: var(--yellow); }
 /* The menus sit just above the radar strip. */
 #menus { bottom: calc(var(--radar-h) + 2px * var(--rs) + 24px); left: 8px; right: 8px; color: var(--cyan); }
 #menus h3 { font-family: var(--font-tall); margin: 0 0 4px; color: var(--white); font-size: 32px; line-height: 32px; }
-#menus .preview .mod { padding: 0 4px; border: 2px solid #888; margin-right: 4px; }
-.mod.bipod { border-color: #00d700 !important; } .mod.tracks { border-color: #d7d700 !important; } .mod.anti_grav { border-color: #00d7d7 !important; }
-.mod.cannon { border-color: #fff !important; } .mod.missile { border-color: #d70000 !important; } .mod.phaser { border-color: #d700d7 !important; } .mod.nuclear { border-color: #ff0000 !important; } .mod.electronics { border-color: #5555ff !important; }
+/* ROBOT CONSTRUCTION screen (CR002.9): full screen, black, Spectrum layout.
+   --u is one Spectrum pixel, an integer number of CSS px set by ui/construction.ts. */
+#construction { position: absolute; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; --u: 2px; }
+#construction .cs-screen { position: relative; width: calc(var(--u) * 320); height: calc(var(--u) * 208); }
+#construction .cs-text, #construction .cs-sprite, #construction .cs-piece { position: absolute; }
+#construction .cs-text { font-family: var(--font-8); font-size: calc(var(--u) * 8); line-height: calc(var(--u) * 8); white-space: pre; color: var(--cyan); pointer-events: none; }
+#construction .cs-title { font-family: var(--font-tall); font-size: calc(var(--u) * 16); line-height: calc(var(--u) * 16); color: var(--white); transform-origin: 0 0; }
+#construction .cs-wide { transform: scaleX(2); }
+#construction .cs-head { color: var(--yellow); }
+#construction .cs-value, #construction .cs-cost { color: var(--white); }
+#construction .cs-option, #construction .cs-piece { cursor: pointer; pointer-events: auto; }
+#construction .cs-text.cursor { color: var(--yellow); }
+#construction .cs-sprite { image-rendering: pixelated; pointer-events: none; }
 #overlay { inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.55); border: 0; }
 #overlay .box { background: #000; border: 4px solid var(--yellow); padding: 20px 36px; text-align: center; color: var(--cyan); }
 #overlay h2 { font-family: var(--font-tall); margin: 0 0 12px; color: var(--yellow); font-size: 64px; line-height: 64px; }
