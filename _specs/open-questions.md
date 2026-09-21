@@ -657,6 +657,30 @@ placeholders at the anchor cell. Options for the owner:
 Until decided, M9 acceptance uses option 1 as-is and does not treat pad
 placement as verified.
 
+## 19. Autonomous use of the nuclear weapon — OPEN (owner review required)
+
+Found by the M9.4 scripted match. The spec defines what a detonation does
+(`functional-spec.md` §17.3) but not when an autonomous order uses it. The
+current M5/M6 engine policy composes two rules:
+
+- Stop & Defend targets the nearest hostile robot at **any** distance (`orders._defensive_intent`);
+- autonomous fire walks weapons in canonical order (cannon, missile, phaser, nuclear) and nuclear has **no range gate** (`autonomous_combat.py`).
+
+Consequence: a nuclear carrier on Stop & Defend detonates on the first tick
+any enemy robot exists anywhere on the map, or whenever its normal weapon is
+out of range or its projectile channel is busy. Every completed Advance or
+Retreat and every fallback order becomes Stop & Defend, so this is reachable
+in a normal match and destroys the carrier plus everything within 16 cells.
+
+Options for the owner:
+
+1. autonomous orders never detonate; nuclear is a direct-control decision only;
+2. autonomous detonation only when the target (robot or structure) is within the nuclear radius;
+3. keep the current policy (not recommended: effectively a self-destruct).
+
+M9 does not change the rule. The acceptance script keeps its striker under
+direct control or tolerates the autonomous detonation.
+
 ## Remaining research
 
 Only three substantive fidelity areas remain:

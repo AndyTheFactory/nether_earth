@@ -109,3 +109,13 @@ M9 work may proceed once G1–G4 are fixed in their owning layers on the
 integration branch. Everything M9 adds afterwards is limited to fixtures,
 acceptance tests, scenario verification, replay validation and acceptance
 documentation.
+
+## 6. Defects found during M9.4–M9.6 execution
+
+| Defect | Owner | Status |
+|---|---|---|
+| Commander collision, auto-dock and follow ignored live `state.robots`; a commander could never dock, so direct control was unreachable in a real match | M3/M4 engine (`engine.step`) | fixed, commit a930be0 |
+| Snapshot and resync frames were serialized with `exclude_none`, dropping required nullable fields (`docked_robot_id`, transitions, `order`); every real-match snapshot failed the protocol schema on the wire | M7 protocol (`app.protocol.serialize_server_message`) | fixed, regression test in `tests/transport/test_snapshots.py` |
+| A nuclear carrier on Stop & Defend detonates at the nearest enemy robot at any distance | M5/M6 rule, unspecified | open, `_specs/open-questions.md` §19 |
+| Construction buffer is snapshotted at entry, so income arriving while the menu is open needs cancel and re-entry | M4 rule (locked) | documented, no change |
+| A robot launched onto the pad/exit cell encloses a grounded commander until it steps aside | M2 data, tied to §18 | documented |
