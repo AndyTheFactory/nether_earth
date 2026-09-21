@@ -52,6 +52,22 @@ test('unmapped kinds, unknown sprites and footprint mismatches fall back to plac
   assert.equal(sceneryPlacements(map, null).unmapped.length, map.blockers.length);
 });
 
+test('nuclear debris resolves through the manifest debris kind (CR002.18)', () => {
+  const debris = new Set(['blocker-9']);
+  const { placements, unmapped } = sceneryPlacements(map, shipped(), debris);
+  assert.equal(unmapped.length, 0);
+  const p = placements.find((q) => q.blockerId === 'blocker-9')!;
+  assert.equal(p.assetId, 'scenery.debris_a');
+  assert.equal(p.asset.sprite, 'spectrum.element_6');
+  assert.deepEqual(p.anchor, { x: 16, y: 14 });
+  // Data-driven: remapping the kind switches the sprite; no mapping falls back to a prism.
+  const m = shipped();
+  m.kinds['debris'] = 'scenery.debris_b';
+  assert.equal(sceneryPlacements(map, m, debris).placements.find((q) => q.blockerId === 'blocker-9')!.asset.sprite, 'spectrum.element_7');
+  delete m.kinds['debris'];
+  assert.deepEqual(sceneryPlacements(map, m, debris).unmapped.map((b) => b.id), ['blocker-9']);
+});
+
 test('anchor is the Spectrum stamp corner: min x, max y', () => {
   const { placements } = sceneryPlacements(map, shipped());
   const p = placements.find((q) => q.blockerId === 'blocker-1')!;

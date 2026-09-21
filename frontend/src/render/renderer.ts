@@ -11,7 +11,10 @@ import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from '
 import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
-import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SceneryPlacement, type SpriteSlice } from './scenery.ts';
+import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
+
+/** Fallback prism height of unmapped nuclear debris: the Spectrum's debris pieces (types 6/7) are height 3. */
+const DEBRIS_HEIGHT = 3;
 
 interface Effect {
   x: number;
@@ -42,7 +45,6 @@ export class WorldRenderer {
   private zoom = 1;
   private cam = { x: 24, y: 8 };
   private readonly surface: SurfaceMap;
-  private readonly scenery: { placements: SceneryPlacement[]; unmapped: MapData['blockers'] };
   private readonly sceneryTextures = new Map<string, { slice: SpriteSlice; texture: Texture }[]>();
   private lastStructureKey = '';
   private lastResync = -1;
@@ -54,7 +56,6 @@ export class WorldRenderer {
     private readonly map: MapData,
   ) {
     this.surface = new SurfaceMap(map);
-    this.scenery = sceneryPlacements(map, sceneryManifest());
     this.world.addChild(this.terrain, this.scene, this.effects, this.overlay);
     this.labels.addChild(this.structureLabels, this.overlayLabels);
     app.stage.addChild(this.world, this.labels);
@@ -78,7 +79,7 @@ export class WorldRenderer {
 
   // Debug text labels only with the debug grid on (G); flags show ownership.
   private drawStructures(state: SnapshotState | null, debug: boolean): void {
-    const key = JSON.stringify([this.zoom, debug, state?.structure_ownership, state?.structure_destruction]);
+    const key = JSON.stringify([this.zoom, debug, state?.structure_ownership, state?.structure_destruction, state?.scenery_debris]);
     if (key === this.lastStructureKey) return;
     this.lastStructureKey = key;
     for (const { g } of this.structureCells) g.destroy();
@@ -88,7 +89,9 @@ export class WorldRenderer {
     const destroyedIds = new Set(state?.structure_destruction ?? []);
     const destroyed = (id: string) => destroyedIds.has(id);
 
-    const blocks: { c: MapComponent; color: number; dead: boolean }[] = [];
+    // CR002.18: a nuclear blast turns destructible scenery into rough debris.
+    const debrisIds = new Set(state?.scenery_debris ?? []);
+    const blocks: { c: MapComponent; color: number; dead: boolean; debris?: boolean }[] = [];
     for (const wb of this.map.war_bases) {
       const col = ownerColor(owner(wb.id));
       for (const c of wb.components) blocks.push({ c, color: col, dead: destroyed(wb.id) });
@@ -100,8 +103,12 @@ export class WorldRenderer {
       if (debug) this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
     }
     // CR002.5: mapped blockers are Spectrum sprites (below); the rest keep placeholder prisms.
-    for (const b of this.scenery.unmapped) {
-      for (const c of b.components) blocks.push({ c, color: colorFor('structure.blocker'), dead: false });
+    // CR002.18: debris blockers resolve through the manifest's `debris` kind.
+    const scenery = sceneryPlacements(this.map, sceneryManifest(), debrisIds);
+    for (const b of scenery.unmapped) {
+      const debris = debrisIds.has(b.id);
+      const color = colorFor(debris ? 'terrain.rough' : 'structure.blocker');
+      for (const c of b.components) blocks.push({ c, color, dead: false, debris });
     }
     // Heli-pads sit on the war-base roof (open-questions §18): mark the pad
     // cell's top face with its prism so nearer blocks still occlude it.
@@ -109,9 +116,10 @@ export class WorldRenderer {
     // CR002.6: an ownership flag stands on its roof cell and is drawn with
     // that cell, so it shares the cell's place in the depth ordering.
     const flags = new Map(ownershipFlags(this.map, state?.structure_ownership ?? [], destroyedIds).map((f) => [`${f.x},${f.y}`, f.owner]));
-    for (const { c, color, dead } of blocks) {
+    for (const { c, color, dead, debris } of blocks) {
       const g = new Graphics();
       if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
+      else if (debris) drawPrism(g, c.x, c.y, 0, DEBRIS_HEIGHT, shade(color, (c.x + c.y) % 2 ? 0.8 : 1));
       else {
         drawPrism(g, c.x, c.y, 0, c.height, color);
         if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
@@ -122,7 +130,7 @@ export class WorldRenderer {
       this.structureCells.push({ g, x: c.x });
       this.scene.addChild(g);
     }
-    for (const p of this.scenery.placements) {
+    for (const p of scenery.placements) {
       const origin = spriteOrigin(p.asset, p.anchor);
       for (const { slice, texture } of this.sceneryTexturesFor(p.assetId, p.asset)) {
         const s = new Sprite(texture);
@@ -193,7 +201,7 @@ export class WorldRenderer {
     this.diffForEffects(snap, nowMs);
 
     const me = state.connection.session?.playerId ?? null;
-    const destroyed = new Set(snap.structure_destruction);
+    const destroyed = new Set([...snap.structure_destruction, ...snap.scenery_debris]);
     const robotPos = new Map<string, { x: number; y: number; height: number }>();
 
     for (const r of snap.robots) {

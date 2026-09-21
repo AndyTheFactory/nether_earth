@@ -47,7 +47,12 @@ export function radarMarks(map: MapData, snap: SnapshotState | null, view: Radar
   const marks: RadarMark[] = [];
   const owner = (id: string) => snap?.structure_ownership.find((o) => o.structure_id === id)?.owner ?? null;
   const destroyed = new Set(snap?.structure_destruction ?? []);
-  for (const b of map.blockers) for (const c of b.components) marks.push(cellRect(c.x, c.y, PALETTE.white));
+  // Nuclear debris (CR002.18) is rough ground, not scenery: no mark.
+  const debris = new Set(snap?.scenery_debris ?? []);
+  for (const b of map.blockers) {
+    if (debris.has(b.id)) continue;
+    for (const c of b.components) marks.push(cellRect(c.x, c.y, PALETTE.white));
+  }
   for (const s of [...map.war_bases, ...map.factories]) {
     const o = owner(s.id);
     const color = destroyed.has(s.id) ? DESTROYED : o ? ownerColor(o) : PALETTE.brightWhite;

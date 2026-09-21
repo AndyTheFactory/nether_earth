@@ -35,16 +35,26 @@ export interface SceneryPlacement {
   anchor: { x: number; y: number };
 }
 
+/** Manifest kind a blocker resolves through once a nuclear blast made it debris (CR002.18). */
+export const DEBRIS_KIND = 'debris';
+
 /**
  * Resolve every blocker to its asset. Blockers whose kind has no valid
  * mapping (unknown kind or asset, missing sprite, footprint mismatch) are
  * returned in `unmapped` so the renderer can fall back to placeholder prisms.
+ * Blockers listed in `debris` (snapshot `scenery_debris`) use the
+ * `debris` kind instead of their own.
  */
-export function sceneryPlacements(map: MapData, manifest: SceneryManifest | null): { placements: SceneryPlacement[]; unmapped: MapBlocker[] } {
+export function sceneryPlacements(
+  map: MapData,
+  manifest: SceneryManifest | null,
+  debris: ReadonlySet<string> = new Set(),
+): { placements: SceneryPlacement[]; unmapped: MapBlocker[] } {
   const placements: SceneryPlacement[] = [];
   const unmapped: MapBlocker[] = [];
   for (const b of map.blockers) {
-    const assetId = b.kind !== undefined ? manifest?.kinds[b.kind] : undefined;
+    const kind = debris.has(b.id) ? DEBRIS_KIND : b.kind;
+    const assetId = kind !== undefined ? manifest?.kinds[kind] : undefined;
     const asset = assetId !== undefined ? manifest?.assets[assetId] : undefined;
     const xs = b.components.map((c) => c.x);
     const ys = b.components.map((c) => c.y);

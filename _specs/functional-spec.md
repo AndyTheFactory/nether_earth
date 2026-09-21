@@ -430,6 +430,7 @@ Blast shapes, from the Spectrum code (`open-questions.md` §20):
   - A war base is in range when dx < 7, dy < 7, and dx + dy < 10.
   - A factory is in range when dx < 5, dy < 5, and dx + dy < 7.
 - **Carrier:** always destroyed.
+- **Scenery:** every scenery box (element types 17–20) whose bottom-left cell is inside the robot window becomes rough debris: the whole 2×2 box turns into rough terrain that robots can cross at rough speed. Fences are never destroyed. The debris lasts for the rest of the match.
 
 Nuclear weapons are the only way to destroy factories and war bases.
 

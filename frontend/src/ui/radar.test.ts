@@ -75,3 +75,13 @@ test('view range comes from the corner cells of the play view', () => {
   assert.deepEqual(viewFromCorners([{ x: 20, y: -3 }, { x: 44, y: 9 }, { x: 12, y: 20 }, { x: 36, y: 31 }]), { minX: 12, maxX: 44 });
   assert.equal(viewFromCorners([]), null);
 });
+
+test('scenery turned into nuclear debris is no longer marked (CR002.18)', () => {
+  const snap = snapshotOf('robots-orders');
+  const box = map.blockers.find((b) => b.id === 'blocker-9')!;
+  const cells = new Set(box.components.map((c) => JSON.stringify(at(c.x, c.y))));
+  const count = (s: typeof snap) =>
+    radarMarks(map, s, null).filter((m) => m.color === PALETTE.white && cells.has(JSON.stringify({ x: m.x, y: m.y }))).length;
+  assert.ok(count(snap) > 0);
+  assert.equal(count({ ...snap, scenery_debris: ['blocker-9'] }), 0);
+});

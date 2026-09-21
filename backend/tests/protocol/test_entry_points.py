@@ -116,6 +116,7 @@ _SNAPSHOT_FOR_RESYNC = SnapshotMessage(
         capture_progress=[],
         projectiles=[],
         structure_destruction=[],
+        scenery_debris=[],
     ),
 )
 
@@ -234,6 +235,7 @@ _REPRESENTATIVE_OUTBOUND: list[tuple[str, OutboundMessage]] = [
                 capture_progress=[],
                 projectiles=[],
                 structure_destruction=[],
+                scenery_debris=[],
             ),
         ),
     ),

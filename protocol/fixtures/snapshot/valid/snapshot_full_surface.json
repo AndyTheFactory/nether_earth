@@ -115,6 +115,7 @@
         "first_advance_tick": 48
       }
     ],
-    "structure_destruction": ["factory-9"]
+    "structure_destruction": ["factory-9"],
+    "scenery_debris": ["blocker-2"]
   }
 }

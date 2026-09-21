@@ -441,12 +441,17 @@
         "structure_destruction": {
           "type": "array",
           "items": { "$ref": "#/$defs/entityId" }
+        },
+        "scenery_debris": {
+          "description": "Ids of map blockers a nuclear blast turned into rough debris (CR002.18), canonical order. Their cells are rough terrain and no longer block.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/entityId" }
         }
       },
       "required": [
         "tick", "players", "seed", "commanders", "resource_pools",
         "construction_sessions", "robots", "structure_ownership",
-        "capture_progress", "projectiles", "structure_destruction"
+        "capture_progress", "projectiles", "structure_destruction", "scenery_debris"
       ],
       "additionalProperties": false
     }

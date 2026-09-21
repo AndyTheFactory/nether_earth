@@ -99,6 +99,7 @@ def empty_snapshot_message(match_id: str) -> SnapshotMessage:
             capture_progress=[],
             projectiles=[],
             structure_destruction=[],
+            scenery_debris=[],
         ),
     )
 

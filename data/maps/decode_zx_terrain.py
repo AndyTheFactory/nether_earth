@@ -38,6 +38,10 @@ TERRAIN_CLASS = {
 # `Lba44_robots_handled`); ``box_low``/``box_high`` are descriptive labels.
 BLOCKER_KIND = {17: "box_low", 18: "box_high", 21: "fence"}
 PIECE_HEIGHTS = {17: 7, 18: 15, 21: 99}
+# `Lba44_robots_handled` (the nuclear blast, CR002.18 #196) turns element types
+# 17-20 into rough debris; type 21 (fence) survives. Emitted as
+# ``destructible: true`` so the engine never has to branch on ``kind``.
+DESTRUCTIBLE_TYPES = range(17, 21)
 
 
 def _label_bytes(asm: str, label: str) -> list[int]:
@@ -156,10 +160,13 @@ def main() -> None:
         kinds = Counter(kind for kind, _ in blockers)
         print(f"# blockers per kind: {dict(sorted(kinds.items()))}", file=sys.stderr)
         heights = {kind: PIECE_HEIGHTS[t] for t, kind in BLOCKER_KIND.items()}
+        destructible = {kind for t, kind in BLOCKER_KIND.items() if t in DESTRUCTIBLE_TYPES}
         print("blockers:")
         for n, (kind, cells) in enumerate(blockers, start=1):
             print(f"  - id: blocker-{n}")
             print(f"    kind: {kind}")
+            if kind in destructible:
+                print("    destructible: true")
             print("    components:")
             for x, y in cells:
                 print(f"      - {{x: {x}, y: {y}, height: {heights[kind]}}}")

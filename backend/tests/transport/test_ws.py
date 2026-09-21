@@ -709,6 +709,7 @@ def test_reconnect_to_a_still_waiting_match_returns_a_valid_empty_snapshot_not_a
         "capture_progress": [],
         "projectiles": [],
         "structure_destruction": [],
+        "scenery_debris": [],
     }
 
 

@@ -106,6 +106,7 @@ from nether_earth.destruction import effective_world as destruction_effective_wo
 from nether_earth.destruction import (
     evaluate_victory_after_nuclear_detonation,
     execute_nuclear_detonation,
+    scenery_world,
 )
 from nether_earth.direct_control import DirectRobotMoveCommand, direct_robot_move_request
 from nether_earth.docking import (
@@ -608,11 +609,13 @@ def step(
     fixture_robots = robots
     robots = _robot_fixtures(state, fixture_robots)
     if world is not None:
+        # Nuclear debris (CR002.18) is no longer a solid blocker.
+        commander_world = scenery_world(world, state)
         horizontal_check = functools.partial(
-            commander_horizontal_move_allowed, world=world, robots=robots
+            commander_horizontal_move_allowed, world=commander_world, robots=robots
         )
         vertical_check = functools.partial(
-            commander_vertical_move_allowed, world=world, robots=robots
+            commander_vertical_move_allowed, world=commander_world, robots=robots
         )
     else:
         horizontal_check = _always_allow_horizontal
@@ -705,7 +708,7 @@ def step(
         batch = apply_robot_move_batch(
             (*robot_moves, *order_requests, *direct_move_requests),
             state,
-            world,
+            scenery_world(world, state),  # debris cells are rough, not blocked (CR002.18)
             tick,
             rules,
             sequencer,

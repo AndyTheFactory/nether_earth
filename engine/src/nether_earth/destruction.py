@@ -106,7 +106,8 @@ from nether_earth.map import WorldMap
 from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
-from nether_earth.structures import Factory, WarBase
+from nether_earth.structures import Blocker, Factory, WarBase
+from nether_earth.terrain import TerrainGrid, TerrainType
 from nether_earth.victory import VictoryEvent
 from nether_earth.victory import evaluate_victory as _evaluate_victory
 
@@ -118,6 +119,7 @@ __all__ = [
     "effective_world",
     "evaluate_victory_after_nuclear_detonation",
     "execute_nuclear_detonation",
+    "scenery_world",
 ]
 
 
@@ -399,8 +401,13 @@ def effective_world(base_world: WorldMap, state: GameState) -> WorldMap:
     composable function; wiring it in is later tasks' scope.
     """
     ownership_applied = _capture_effective_world(base_world, state)
-    if not state.structure_destruction:
+    if not state.structure_destruction and not state.scenery_debris:
         return ownership_applied
+
+    key = (id(ownership_applied), state.structure_destruction, state.scenery_debris)
+    cached = _EFFECTIVE_WORLD_MEMO.get(key)
+    if cached is not None and cached[0] is ownership_applied:
+        return cached[1]
 
     destroyed = set(state.structure_destruction)
     remaining_war_bases = tuple(
@@ -409,7 +416,79 @@ def effective_world(base_world: WorldMap, state: GameState) -> WorldMap:
     remaining_factories = tuple(
         factory for factory in ownership_applied.factories if factory.id not in destroyed
     )
-    return replace(ownership_applied, war_bases=remaining_war_bases, factories=remaining_factories)
+    result = _apply_debris(
+        replace(ownership_applied, war_bases=remaining_war_bases, factories=remaining_factories),
+        state.scenery_debris,
+    )
+    if len(_EFFECTIVE_WORLD_MEMO) >= _MEMO_MAX_ENTRIES:
+        _EFFECTIVE_WORLD_MEMO.clear()
+    _EFFECTIVE_WORLD_MEMO[key] = (ownership_applied, result)
+    return result
+
+
+def scenery_world(base_world: WorldMap, state: GameState) -> WorldMap:
+    """Return ``base_world`` with only ``state.scenery_debris`` applied (CR002.18).
+
+    For the physical checks `engine.py` runs against the base map -- robot
+    move validation and commander collision -- which must see debris (rough,
+    no longer blocking) without also changing how destroyed buildings are
+    treated there. Returns ``base_world`` itself when there is no debris;
+    memoized like :func:`effective_world`.
+    """
+    if not state.scenery_debris:
+        return base_world
+    key = (id(base_world), (), state.scenery_debris)
+    cached = _SCENERY_WORLD_MEMO.get(key)
+    if cached is not None and cached[0] is base_world:
+        return cached[1]
+    result = _apply_debris(base_world, state.scenery_debris)
+    if len(_SCENERY_WORLD_MEMO) >= _MEMO_MAX_ENTRIES:
+        _SCENERY_WORLD_MEMO.clear()
+    _SCENERY_WORLD_MEMO[key] = (base_world, result)
+    return result
+
+
+def _apply_debris(world: WorldMap, scenery_debris: tuple[EntityId, ...]) -> WorldMap:
+    """Return ``world`` with ``scenery_debris`` applied (CR002.18).
+
+    Each debris blocker leaves ``world.blockers`` and its cells become
+    :attr:`~nether_earth.terrain.TerrainType.ROUGH` terrain -- the same class
+    the map already gives the Spectrum's native rough pieces of types 6/7,
+    which is exactly what `Lba44_robots_handled` writes (height 3, type < 8
+    so no chassis is blocked). Ids no longer naming a blocker are ignored.
+    """
+    if not scenery_debris:
+        return world
+    debris = set(scenery_debris)
+    cells = dict(world.terrain.cells)
+    remaining: list[Blocker] = []
+    for blocker in world.blockers:
+        if blocker.id in debris:
+            for component in blocker.components:
+                cells[(component.x, component.y)] = TerrainType.ROUGH
+        else:
+            remaining.append(blocker)
+    terrain = TerrainGrid(
+        width=world.terrain.width,
+        height=world.terrain.height,
+        cells=cells,
+        default=world.terrain.default,
+    )
+    return replace(world, blockers=tuple(remaining), terrain=terrain)
+
+
+#: Memo for :func:`effective_world`, same discipline as
+#: ``capture._EFFECTIVE_WORLD_MEMO``: the function is pure, entries hold the
+#: ownership-applied world so its ``id`` cannot be recycled while cached, and
+#: returning one stable object per state keeps downstream ``id(world)`` memos
+#: (``capture_footprint``) hitting after a detonation.
+_EFFECTIVE_WORLD_MEMO: dict[
+    tuple[int, tuple[EntityId, ...], tuple[EntityId, ...]], tuple[WorldMap, WorldMap]
+] = {}
+_SCENERY_WORLD_MEMO: dict[
+    tuple[int, tuple[EntityId, ...], tuple[EntityId, ...]], tuple[WorldMap, WorldMap]
+] = {}
+_MEMO_MAX_ENTRIES = 256
 
 
 def _in_robot_window(carrier: Robot, robot: Robot, rules: EngineRules) -> bool:
@@ -420,11 +499,45 @@ def _in_robot_window(carrier: Robot, robot: Robot, rules: EngineRules) -> bool:
     carrier's row, each row centred on the carrier's column. Map-edge
     clipping needs no code: every robot is already inside the map.
     """
+    return _cell_in_window(carrier, robot.x, robot.y, rules)
+
+
+def _cell_in_window(carrier: Robot, x: int, y: int, rules: EngineRules) -> bool:
+    """Return whether cell ``(x, y)`` is inside the carrier-centred nuclear window."""
     widths = rules.nuclear_robot_window_row_widths
-    row = robot.y - carrier.y + len(widths) // 2
+    row = y - carrier.y + len(widths) // 2
     if not 0 <= row < len(widths):
         return False
-    return abs(robot.x - carrier.x) <= widths[row] // 2
+    return abs(x - carrier.x) <= widths[row] // 2
+
+
+def _blocker_anchor(blocker: Blocker) -> tuple[int, int]:
+    """Return the cell `Lba44_robots_handled` tests for ``blocker``: its bottom-left corner.
+
+    `Lbd91_add_element_to_map` stamps a 2x2 element at ``x..x+1, y-1..y``
+    and clears map bit 5 only on its ``(x, y)`` corner; the blast loop skips
+    every cell with bit 5 set. That corner is the lowest x and highest y of
+    the element's cells.
+    """
+    return (
+        min(component.x for component in blocker.components),
+        max(component.y for component in blocker.components),
+    )
+
+
+def _blockers_in_blast(world: WorldMap, carrier: Robot, rules: EngineRules) -> tuple[EntityId, ...]:
+    """Return the destructible blockers whose anchor cell lies in the nuclear window.
+
+    `Lba44_robots_handled` (CR002.18, #196) walks the same trimmed window
+    as the robot scan and replaces each element of type 17-20 anchored there
+    with rough debris; the type-21 fence survives. The map marks those
+    elements ``destructible``. ``world`` must already exclude earlier debris.
+    """
+    return tuple(
+        blocker.id
+        for blocker in world.blockers
+        if blocker.destructible and _cell_in_window(carrier, *_blocker_anchor(blocker), rules)
+    )
 
 
 def _building_anchor(
@@ -518,6 +631,9 @@ def execute_nuclear_detonation(
       range of the effective world (:func:`_first_building_in_blast`), so
       already-destroyed structures are skipped.
     - **Carrier:** always destroyed.
+    - **Scenery:** every ``destructible`` blocker anchored in the same window
+      becomes rough debris (``state.scenery_debris``; `Lba44_robots_handled`,
+      CR002.18). Fences are not destructible.
 
     Destruction order: carrier, then robots, then the building. ``state`` is
     threaded through each :func:`destroy_robot`/:func:`destroy_structure`
@@ -538,7 +654,9 @@ def execute_nuclear_detonation(
         ),
         key=lambda robot: robot.entity_id.value,
     )
-    doomed_building = _first_building_in_blast(effective_world(world, state), carrier, rules)
+    live_world = effective_world(world, state)
+    doomed_building = _first_building_in_blast(live_world, carrier, rules)
+    debris = _blockers_in_blast(live_world, carrier, rules)
 
     events: list[Event] = []
 
@@ -560,6 +678,9 @@ def execute_nuclear_detonation(
         )
         if structure_event is not None:
             events.append(structure_event)
+
+    if debris:
+        current_state = current_state.with_scenery_debris((*current_state.scenery_debris, *debris))
 
     return current_state, tuple(events)
 
