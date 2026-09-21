@@ -953,9 +953,20 @@ def step(
         command = result.command
         if isinstance(command, SelectModuleCommand):
             select_result = select_module(state, command.player, command.module, rules)
-            if select_result.accepted:
-                assert select_result.state is not None
+            # A chassis swap removes the fitted chassis first, even when the
+            # new one then turns out unaffordable (Spectrum Lca0f, CR002.20).
+            if select_result.state is not None:
                 state = select_result.state
+            if select_result.removed_chassis is not None:
+                events.append(
+                    ModuleDeselectedEvent(
+                        sequence=sequencer.next_sequence(),
+                        player=command.player,
+                        module=select_result.removed_chassis,
+                        tick=tick,
+                    )
+                )
+            if select_result.accepted:
                 events.append(
                     ModuleSelectedEvent(
                         sequence=sequencer.next_sequence(),

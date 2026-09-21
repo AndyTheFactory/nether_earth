@@ -225,14 +225,106 @@ def test_select_module_rejects_duplicate_module() -> None:
     assert dup.state is None
 
 
-def test_select_module_rejects_second_chassis() -> None:
-    state = _entered()
-    result = select_module(state, PLAYER_ONE, ModuleIdentity.BIPOD, DEFAULT_RULES)
+def _entered_with_pool(pool: PlayerResourcePool) -> GameState:
+    state = create_game_state(0, (pool.player_id,), resource_pools=(pool,))
+    result = enter_construction(state, _entry_event(player=pool.player_id), pool.player_id)
     assert result.accepted
     assert result.state is not None
-    second = select_module(result.state, PLAYER_ONE, ModuleIdentity.TRACKS, DEFAULT_RULES)
-    assert not second.accepted
-    assert second.reason is SelectModuleRejectionReason.CHASSIS_ALREADY_SELECTED
+    return result.state
+
+
+def _select_all(state: GameState, *modules: ModuleIdentity) -> GameState:
+    for module in modules:
+        result = select_module(state, PLAYER_ONE, module, DEFAULT_RULES)
+        assert result.accepted, module
+        assert result.state is not None
+        state = result.state
+    return state
+
+
+# --- chassis swap (CR002.20, Spectrum Lca0f/Lcac1/Lca57) ---------------------
+
+
+def test_select_other_chassis_swaps_with_exact_resource_accounting() -> None:
+    """Bipod -> tracks: refund bipod (capped at the entry chassis amount, rest to
+    general), then pay tracks chassis-pool first and general for the shortfall."""
+    state = _entered_with_pool(PlayerResourcePool(player_id=PLAYER_ONE, general=10, chassis=2))
+    # Bipod (3): chassis 2 -> 0, general pays the shortfall 1: 10 -> 9.
+    state = _select_all(state, ModuleIdentity.BIPOD)
+    session = state.construction_session_for(PLAYER_ONE)
+    assert session is not None
+    assert (session.buffer.amount(FactoryType.CHASSIS), session.buffer.general) == (0, 9)
+
+    result = select_module(state, PLAYER_ONE, ModuleIdentity.TRACKS, DEFAULT_RULES)
+    assert result.accepted
+    assert result.removed_chassis is ModuleIdentity.BIPOD
+    assert result.state is not None
+    swapped = result.state.construction_session_for(PLAYER_ONE)
+    assert swapped is not None
+    assert swapped.build.chassis is ModuleIdentity.TRACKS
+    # Refund bipod 3: chassis back to its entry amount 2, remainder 1 -> general 10.
+    # Tracks 5: chassis 2 -> 0, shortfall 3 from general: 10 -> 7.
+    assert (swapped.buffer.amount(FactoryType.CHASSIS), swapped.buffer.general) == (0, 7)
+    assert swapped.entry_snapshot == session.entry_snapshot
+    # Actual pool untouched.
+    assert result.state.resource_pools == state.resource_pools
+
+
+def test_chassis_swap_leaves_weapons_and_electronics_unaffected() -> None:
+    state = _entered(general=100)
+    state = _select_all(
+        state, ModuleIdentity.CANNON, ModuleIdentity.BIPOD, ModuleIdentity.PHASER, ModuleIdentity.ELECTRONICS
+    )
+    result = select_module(state, PLAYER_ONE, ModuleIdentity.ANTI_GRAV, DEFAULT_RULES)
+    assert result.accepted
+    assert result.state is not None
+    session = result.state.construction_session_for(PLAYER_ONE)
+    assert session is not None
+    assert session.build == BuildInProgress(
+        chassis=ModuleIdentity.ANTI_GRAV,
+        weapons=(ModuleIdentity.CANNON, ModuleIdentity.PHASER),
+        electronics=ModuleIdentity.ELECTRONICS,
+    )
+    spent = (
+        DEFAULT_RULES.module_cost_cannon
+        + DEFAULT_RULES.module_cost_phaser
+        + DEFAULT_RULES.module_cost_electronics
+        + DEFAULT_RULES.module_cost_anti_grav
+    )
+    assert session.buffer.general == 100 - spent
+
+
+def test_unaffordable_chassis_swap_is_rejected_with_old_chassis_removed_and_refunded() -> None:
+    """The Spectrum refunds and removes the fitted chassis before paying for the
+    new one, and its beep path (Lcaac) does not restore it: the new chassis is
+    rejected and the robot is left with no chassis, the old one refunded."""
+    state = _entered(general=11)
+    state = _select_all(state, ModuleIdentity.BIPOD, ModuleIdentity.CANNON)
+    before = state.construction_session_for(PLAYER_ONE)
+    assert before is not None
+    assert before.buffer.general == 11 - 3 - 2
+
+    # After refunding bipod, 9 < anti-grav's 10.
+    result = select_module(state, PLAYER_ONE, ModuleIdentity.ANTI_GRAV, DEFAULT_RULES)
+    assert not result.accepted
+    assert result.reason is SelectModuleRejectionReason.INSUFFICIENT_RESOURCES
+    assert result.removed_chassis is ModuleIdentity.BIPOD
+    assert result.state is not None
+    after = result.state.construction_session_for(PLAYER_ONE)
+    assert after is not None
+    assert after.build == BuildInProgress(weapons=(ModuleIdentity.CANNON,))
+    assert after.buffer.general == 11 - 2
+    assert result.state.resource_pools == state.resource_pools
+
+
+def test_unaffordable_first_chassis_is_rejected_without_state_change() -> None:
+    state = _entered(general=5)
+    # After refunding bipod, 9 < anti-grav's 10.
+    result = select_module(state, PLAYER_ONE, ModuleIdentity.ANTI_GRAV, DEFAULT_RULES)
+    assert not result.accepted
+    assert result.reason is SelectModuleRejectionReason.INSUFFICIENT_RESOURCES
+    assert result.state is None
+    assert result.removed_chassis is None
 
 
 def test_select_module_rejects_second_electronics() -> None:
@@ -265,6 +357,7 @@ def test_select_module_rejects_fourth_weapon() -> None:
 
 def test_select_module_rejects_insufficient_resources() -> None:
     state = _entered(general=1)
+    # After refunding bipod, 9 < anti-grav's 10.
     result = select_module(state, PLAYER_ONE, ModuleIdentity.ANTI_GRAV, DEFAULT_RULES)
     assert not result.accepted
     assert result.reason is SelectModuleRejectionReason.INSUFFICIENT_RESOURCES
@@ -274,6 +367,7 @@ def test_select_module_rejects_insufficient_resources() -> None:
 def test_select_module_rejection_leaves_session_unchanged() -> None:
     state = _entered(general=1)
     session_before = state.construction_session_for(PLAYER_ONE)
+    # After refunding bipod, 9 < anti-grav's 10.
     result = select_module(state, PLAYER_ONE, ModuleIdentity.ANTI_GRAV, DEFAULT_RULES)
     assert not result.accepted
     assert state.construction_session_for(PLAYER_ONE) == session_before

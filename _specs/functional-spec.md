@@ -266,6 +266,7 @@ Construction preserves original Spectrum behavior:
 - reject selection when specific + general cannot cover the component cost;
 - construction editing uses a temporary resource buffer;
 - deselecting components reverses the mixed specific/general spending semantics;
+- picking a different chassis while one is fitted swaps it (CR002.20, disassembly `Lca0f`): the fitted chassis is refunded and removed first, then the new chassis is paid for; if the new chassis is unaffordable even after that refund, it is rejected and the robot is left with no chassis (the Spectrum does not restore the old one); weapons and electronics are unaffected;
 - actual resources are committed atomically only when **Start Robot** succeeds;
 - exiting/canceling before launch consumes no permanent resources.
 

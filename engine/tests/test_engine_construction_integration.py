@@ -257,6 +257,29 @@ def test_deselect_module_refunds_buffer_through_step() -> None:
     assert session_after_deselect.buffer == session_after_select.entry_snapshot
 
 
+def test_select_other_chassis_swaps_through_step_with_deselect_then_select_events() -> None:
+    world = _world()
+    commander = _grounded_commander_on_heli_pad()
+    state = _base_state((commander,))
+    state, _events = step(state, [], world=world)
+
+    state, _events = step(
+        state, [SelectModuleCommand(player=PLAYER_ONE, sequence=0, module=ModuleIdentity.BIPOD)], world=world
+    )
+    swap = SelectModuleCommand(player=PLAYER_ONE, sequence=1, module=ModuleIdentity.TRACKS)
+    state, events = step(state, [swap], world=world)
+
+    changes = [e for e in events if isinstance(e, (ModuleDeselectedEvent, ModuleSelectedEvent))]
+    assert [(type(e), e.module) for e in changes] == [
+        (ModuleDeselectedEvent, ModuleIdentity.BIPOD),
+        (ModuleSelectedEvent, ModuleIdentity.TRACKS),
+    ]
+    session = state.construction_session_for(PLAYER_ONE)
+    assert session is not None
+    assert session.build.chassis is ModuleIdentity.TRACKS
+    assert session.buffer.general == session.entry_snapshot.general - module_cost(ModuleIdentity.TRACKS, DEFAULT_RULES)
+
+
 def test_cancel_construction_through_step_discards_session_without_touching_resources() -> None:
     world = _world()
     commander = _grounded_commander_on_heli_pad()
