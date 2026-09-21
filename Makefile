@@ -1,4 +1,10 @@
-.PHONY: python-check engine-test backend-test frontend-check protocol-check compose-check images lock
+.PHONY: build down python-check engine-test backend-test frontend-check protocol-check compose-check images lock
+
+build:
+	docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build --wait
+
+down:
+	docker compose -f deploy/docker-compose.yml --env-file deploy/.env down
 
 python-check:
 	ruff check engine backend
