@@ -580,7 +580,11 @@ async def test_registry_start_passes_on_tick_through_to_the_runtime() -> None:
 
     registry = MatchRuntimeRegistry(tick_rate_hz=1000.0)
     runtime = registry.start(match, on_tick=observer)
-    await asyncio.sleep(0.005)
+    # Poll instead of a fixed short sleep: a slow CI runner may not schedule
+    # the first tick within a few milliseconds.
+    async with asyncio.timeout(5):
+        while runtime.tick_count == 0:
+            await asyncio.sleep(0.001)
     runtime.request_cancel()
     await runtime.wait_stopped()
 
