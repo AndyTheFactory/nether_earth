@@ -24,6 +24,7 @@ from nether_earth.events import Event
 from nether_earth.map import WorldMap
 from nether_earth.state import GameState
 
+from app.config import Settings, load_settings
 from app.match.manager import MatchManager
 from app.match.models import Match
 from app.match.reconnect import (
@@ -77,6 +78,7 @@ def create_app(
     tick_rate_hz: float = TICK_RATE_HZ,
     _reconnect_monotonic_clock: Callable[[], float] = time.monotonic,
     world: WorldMap | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
     """Build a fresh, fully-wired app instance.
 
@@ -103,8 +105,22 @@ def create_app(
     docstring for why only an exact tie resolves to no-contest) without
     hand-assembling a second copy of this function's wiring (M7 Task 10
     review, Important I3).
+
+    ``settings`` carries deployment-only configuration (``app.config``);
+    ``None`` means development defaults. An explicit ``replay_dir`` wins over
+    ``settings.replay_dir``. Production disables the interactive API docs.
     """
-    fastapi_app = FastAPI(title="Nether Earth", version="0.0.0")
+    settings = settings if settings is not None else Settings()
+    if replay_dir is None:
+        replay_dir = settings.replay_dir
+    docs_enabled = not settings.production
+    fastapi_app = FastAPI(
+        title="Nether Earth",
+        version="0.0.0",
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
+    )
 
     # The scenario-overlaid real map every match on this app plays on (M9.1
     # audit gap G1). ``world`` lets a test inject a fixture world; a real
@@ -162,6 +178,7 @@ def create_app(
     # replay persistence) as every other `FINISHED` transition.
     reconnect_coordinator.bind_finish_hook(match_manager.finish_match)
 
+    fastapi_app.state.settings = settings
     fastapi_app.state.match_manager = match_manager
     fastapi_app.state.runtime_registry = runtime_registry
     fastapi_app.state.connection_registry = connection_registry
@@ -178,4 +195,4 @@ def create_app(
     return fastapi_app
 
 
-app = create_app()
+app = create_app(settings=load_settings())

@@ -22,7 +22,7 @@ frontend-live-check:
 	cd frontend && npm run live:check
 
 compose-check:
-	docker compose -f deploy/docker-compose.yml config >/dev/null
+	docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config -q
 
 VERSION ?= dev
 
