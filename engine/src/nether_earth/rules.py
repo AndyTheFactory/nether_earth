@@ -406,6 +406,13 @@ class EngineRules:
       along its firing axis on each advance (CR001, #150, per
       `_specs/open-questions.md` §8 resolution: ``Lb724_bullet_update_internal``
       moves a bullet 2 map cells per update on either axis). Default ``2``.
+    - ``robot_fire_cycle_ticks``: the length, in ticks, of the game cycle in
+      which a robot may fire at most one normal weapon (CR002.2 #169, owner
+      decision 2026-09-21, `_specs/open-questions.md` §8). Fire cycles are
+      the aligned windows ``tick // robot_fire_cycle_ticks``. Default ``4``
+      (1 game cycle). On the Spectrum an AI robot fires only inside its
+      update in ``Lb0ca_update_robots_bullets_and_ai`` and a combat-mode
+      shot uses up one time step, so neither fires twice in a cycle.
     """
 
     commander_min_altitude: int = 0
@@ -463,6 +470,7 @@ class EngineRules:
     phaser_damage_multiplier: int = 4
     projectile_advance_ticks: int = 4
     projectile_cells_per_advance: int = 2
+    robot_fire_cycle_ticks: int = 4
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -555,6 +563,8 @@ class EngineRules:
             raise ValueError("nuclear building dy offsets must be non-negative")
         if self.projectile_cells_per_advance <= 0:
             raise ValueError("projectile_cells_per_advance must be a positive integer")
+        if self.robot_fire_cycle_ticks <= 0:
+            raise ValueError("robot_fire_cycle_ticks must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

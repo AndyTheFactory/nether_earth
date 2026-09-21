@@ -385,6 +385,7 @@ class RobotSnapshot(_SnapshotSubModel):
     order: dict[str, Any] | None
     active_projectile_id: EntityId | None
     strength: int
+    last_fire_tick: int | None
 
 
 class StructureOwnershipSnapshot(_SnapshotSubModel):
@@ -413,6 +414,7 @@ class ProjectileSnapshot(_SnapshotSubModel):
     travelled_cells: int
     max_range_cells: int
     created_tick: int
+    first_advance_tick: int
 
 
 class SnapshotState(_SnapshotSubModel):

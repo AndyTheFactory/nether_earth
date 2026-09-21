@@ -650,30 +650,38 @@ def test_advance_projectiles_deterministic_regardless_of_input_order() -> None:
 
 
 def _fly_until_terminated(
-    robot: Robot, world: WorldMap, rules: EngineRules = DEFAULT_RULES
+    robot: Robot, world: WorldMap, rules: EngineRules = DEFAULT_RULES, *, autonomous: bool = False
 ) -> tuple[Projectile, ProjectileTerminatedEvent, int]:
     """Fire east from ``robot`` and advance until the projectile terminates.
 
     Returns the projectile as last seen in flight, the termination event,
     and the number of moves made (the fire-tick move, CR002.2 #169, plus
-    every cadence advance that moved it).
+    every cadence advance that moved it; a direct shot is held for the rest
+    of its fire cycle).
     """
     request = _request(robot_id=robot.entity_id.value, weapon=robot.build.weapons[0], target_x=robot.x + 1)
-    state, result, _ = apply_fire(request, _state((robot,)), world, tick=0, rules=rules)
+    state, result, _ = apply_fire(
+        request, _state((robot,)), world, tick=0, rules=rules, autonomous=autonomous
+    )
     assert result.accepted
     last = state.projectiles[0]
     assert last.travelled_cells == rules.projectile_cells_per_advance  # moved on the fire tick
-    for moves, tick in enumerate(range(4, 4 * 100, 4), start=1):
+    moves = 1
+    for tick in range(4, 4 * 100, 4):
         state, events = advance_projectiles(state, world, tick=tick, rules=rules)
         if events:
             event = events[0]
             assert isinstance(event, ProjectileTerminatedEvent)
             return last, event, moves
-        assert state.projectiles[0].travelled_cells == last.travelled_cells + 2
-        last = state.projectiles[0]
+        now = state.projectiles[0]
+        if now.travelled_cells != last.travelled_cells:
+            assert now.travelled_cells == last.travelled_cells + 2
+            moves += 1
+        last = now
     raise AssertionError("projectile never terminated")
 
 
+@pytest.mark.parametrize("autonomous", [False, True])
 @pytest.mark.parametrize(
     ("weapon", "electronics", "expected_cells"),
     [
@@ -686,12 +694,12 @@ def _fly_until_terminated(
     ],
 )
 def test_projectile_travels_exactly_its_code_derived_range(
-    weapon: ModuleIdentity, electronics: ModuleIdentity | None, expected_cells: int
+    weapon: ModuleIdentity, electronics: ModuleIdentity | None, expected_cells: int, autonomous: bool
 ) -> None:
     robot = _robot(x=2, y=5, weapons=(weapon,), electronics=electronics)
     world = _world(width=40)
 
-    last, event, moves = _fly_until_terminated(robot, world)
+    last, event, moves = _fly_until_terminated(robot, world, autonomous=autonomous)
 
     assert last.max_range_cells == expected_cells
     assert last.travelled_cells == expected_cells
@@ -856,39 +864,117 @@ def test_static_collision_on_the_fire_tick_frees_the_channel() -> None:
     assert firer_after is not None and firer_after.active_projectile_id is None
 
 
-def test_target_three_cells_away_is_hit_on_the_next_cadence_tick() -> None:
+@pytest.mark.parametrize(("autonomous", "hit_tick"), [(True, 8), (False, 12)])
+def test_target_three_cells_away_is_hit_after_the_fire_cycle(autonomous: bool, hit_tick: int) -> None:
+    """Fired on tick 5 (cycle 4-7): an AI shot moves again at 8, a direct shot at 12."""
     firer = _robot(entity_id="robot-firer", x=5, y=5)
     target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=8, y=5))
     state, _, events = apply_fire(
-        _request(robot_id="robot-firer"), _state((firer, target)), _world(), tick=5
+        _request(robot_id="robot-firer"), _state((firer, target)), _world(), tick=5,
+        autonomous=autonomous,
     )
     assert len(events) == 1
     assert (state.projectiles[0].x, state.projectiles[0].travelled_cells) == (7, 2)
 
-    for tick in (6, 7):
+    for tick in range(6, hit_tick):
         state, events = advance_projectiles(state, _world(), tick=tick)
         assert events == ()
-    _, events = advance_projectiles(state, _world(), tick=8)
+    _, events = advance_projectiles(state, _world(), tick=hit_tick)
 
     assert events[0].reason is ProjectileTerminationReason.ROBOT_HIT
     assert events[0].hit_robot_id == target.entity_id
 
 
-def test_fire_tick_move_then_cadence_timeline_keeps_the_total_range() -> None:
-    """Fired on tick 5: 2 cells at once, then 2 per cadence tick; expires on tick 24 at 10 cells."""
+@pytest.mark.parametrize(
+    ("autonomous", "expected", "expiry_tick"),
+    [
+        # AI: 2 cells on the fire tick + 2 at the cycle's closing cadence tick.
+        (True, {5: 4, 8: 6, 12: 8, 16: 10, 20: 12}, 24),
+        # Direct (combat mode): only the fire-tick move in its fire cycle.
+        (False, {5: 4, 8: 4, 12: 6, 16: 8, 20: 10, 24: 12}, 28),
+    ],
+)
+def test_fire_cycle_timeline_keeps_the_total_range(
+    autonomous: bool, expected: dict[int, int], expiry_tick: int
+) -> None:
     firer = _robot(entity_id="robot-firer", x=2, y=5)
+    world = _world(width=40)
     state, _, _ = apply_fire(
-        _request(robot_id="robot-firer", target_x=3), _state((firer,)), _world(width=40), tick=5
+        _request(robot_id="robot-firer", target_x=3), _state((firer,)), world, tick=5,
+        autonomous=autonomous,
     )
     positions = {5: state.projectiles[0].x}
-    for tick in range(6, 25):
-        state, events = advance_projectiles(state, _world(width=40), tick=tick)
-        if state.projectiles:
-            positions[tick] = state.projectiles[0].x
-        else:
+    for tick in range(6, 40):
+        state, events = advance_projectiles(state, world, tick=tick)
+        if not state.projectiles:
             (event,) = events
             assert event.reason is ProjectileTerminationReason.RANGE_EXHAUSTED
-            assert (tick, event.x) == (24, 2 + DEFAULT_RULES.cannon_range_cells)
+            assert (tick, event.x) == (expiry_tick, 2 + DEFAULT_RULES.cannon_range_cells)
             break
+        positions[tick] = state.projectiles[0].x
 
-    assert [positions[t] for t in (5, 8, 12, 16, 20)] == [4, 6, 8, 10, 12]
+    assert {t: positions[t] for t in expected} == expected
+
+
+def test_direct_and_autonomous_first_advance_ticks() -> None:
+    firer = _robot(entity_id="robot-firer", x=2, y=5)
+    for tick, auto, direct in ((4, 8, 12), (5, 8, 12), (7, 8, 12), (8, 12, 16)):
+        a_state, _, _ = apply_fire(
+            _request(robot_id="robot-firer"), _state((firer,)), _world(), tick=tick, autonomous=True
+        )
+        d_state, _, _ = apply_fire(
+            _request(robot_id="robot-firer"), _state((firer,)), _world(), tick=tick
+        )
+        assert a_state.projectiles[0].first_advance_tick == auto
+        assert d_state.projectiles[0].first_advance_tick == direct
+
+
+# --- CR002.2 (#169): at most one shot per robot per game cycle -------------------
+
+
+@pytest.mark.parametrize("autonomous", [False, True])
+def test_robot_fires_at_most_once_per_game_cycle(autonomous: bool) -> None:
+    """An adjacent target is hit on the fire tick, freeing the channel; the cycle rule still holds."""
+    firer = _robot(entity_id="robot-firer", x=5, y=5)
+    target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=6, y=5))
+    state = _state((firer, target))
+    request = _request(robot_id="robot-firer")
+
+    accepted_ticks = []
+    for tick in range(4, 16):
+        state, result, _ = apply_fire(request, state, _world(), tick=tick, autonomous=autonomous)
+        if result.accepted:
+            accepted_ticks.append(tick)
+        else:
+            assert result.reason is FireRejectionReason.ALREADY_FIRED_THIS_CYCLE
+
+    assert accepted_ticks == [4, 8, 12]  # one per 4-tick cycle
+    firer_after = state.robot_for(firer.entity_id)
+    assert firer_after is not None and firer_after.last_fire_tick == 12
+
+
+def test_fire_cycle_rejection_leaves_state_unchanged() -> None:
+    firer = _robot(entity_id="robot-firer", x=5, y=5)
+    target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=6, y=5))
+    state, _, _ = apply_fire(_request(robot_id="robot-firer"), _state((firer, target)), _world(), tick=9)
+
+    again, result, events = apply_fire(_request(robot_id="robot-firer"), state, _world(), tick=11)
+
+    assert result.reason is FireRejectionReason.ALREADY_FIRED_THIS_CYCLE
+    assert again is state
+    assert events == ()
+
+
+def test_fire_cycle_length_is_an_engine_rule() -> None:
+    rules = EngineRules(robot_fire_cycle_ticks=8)
+    firer = _robot(entity_id="robot-firer", x=5, y=5)
+    target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=6, y=5))
+    state = _state((firer, target))
+    accepted = []
+    for tick in range(8, 24):
+        state, result, _ = apply_fire(_request(robot_id="robot-firer"), state, _world(), tick=tick, rules=rules)
+        if result.accepted:
+            accepted.append(tick)
+    assert accepted == [8, 16]
+    with pytest.raises(ValueError):
+        EngineRules(robot_fire_cycle_ticks=0)

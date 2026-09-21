@@ -82,7 +82,8 @@
         "movement": null,
         "order": { "kind": "advance", "distance_miles": 10, "target_x": 13 },
         "active_projectile_id": "projectile-1",
-        "strength": 80
+        "strength": 80,
+        "last_fire_tick": 40
       }
     ],
     "structure_ownership": [
@@ -110,7 +111,8 @@
         "dy": 0,
         "travelled_cells": 2,
         "max_range_cells": 12,
-        "created_tick": 40
+        "created_tick": 40,
+        "first_advance_tick": 48
       }
     ],
     "structure_destruction": ["factory-9"]

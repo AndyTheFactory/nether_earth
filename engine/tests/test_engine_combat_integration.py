@@ -270,8 +270,9 @@ def test_projectile_advances_over_ticks_and_damages_the_robot_it_hits() -> None:
     )
     state, _events = step(state, [command], world=world)
 
-    # Ticks 2..(4*ADVANCE - 1): the projectile is still travelling.
-    for _tick in range(2, 4 * ADVANCE):
+    # Ticks 2..(5*ADVANCE - 1): the projectile is still travelling (a direct
+    # shot is held for the rest of its fire cycle, CR002.2 #169).
+    for _tick in range(2, 5 * ADVANCE):
         state, events = step(state, [], world=world)
         assert _of(events, RobotDamagedEvent) == []
     assert len(state.projectiles) == 1
@@ -740,3 +741,51 @@ def test_combat_state_round_trips_into_the_snapshot() -> None:
 
     assert state.robot_for(target.entity_id).strength == 100 - CANNON_DAMAGE  # type: ignore[union-attr]
     assert f'"strength": {100 - CANNON_DAMAGE}' in snapshot_to_json_string(state)
+
+
+# --------------------------------------------------------------------------
+# CR002.2 (#169): at most one shot per robot per game cycle
+# --------------------------------------------------------------------------
+
+
+def test_autonomous_robot_next_to_its_target_fires_once_per_game_cycle() -> None:
+    world = _world()
+    hunter = _gunner(
+        "robot-a", PLAYER_ONE, QUIET_X, QUIET_Y, order=SearchDestroy(target=SearchDestroyTarget.ROBOT)
+    )
+    prey = _gunner("robot-z", PLAYER_TWO, QUIET_X + 1, QUIET_Y, strength=10_000)
+    state = _state((hunter, prey))
+
+    fire_ticks = []
+    for _tick in range(1, 41):
+        state, events = step(state, [], world=world)
+        fire_ticks += [
+            e.tick for e in _of(events, ProjectileFiredEvent) if e.source_robot_id == hunter.entity_id  # type: ignore[attr-defined]
+        ]
+
+    cycle = DEFAULT_RULES.robot_fire_cycle_ticks
+    assert len(fire_ticks) == 40 // cycle + 1  # cycles 0..10 over ticks 1..40
+    assert len({tick // cycle for tick in fire_ticks}) == len(fire_ticks)
+
+
+def test_direct_fire_every_tick_at_an_adjacent_target_fires_once_per_game_cycle() -> None:
+    world = _world()
+    shooter = _gunner("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
+    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 1, QUIET_Y, strength=10_000)
+    state = _state((shooter, target))
+
+    fire_ticks = []
+    for tick in range(1, 17):
+        command = FireCommand(
+            player=PLAYER_ONE,
+            sequence=0,
+            entity_id=shooter.entity_id,
+            weapon=ModuleIdentity.CANNON,
+            target_x=QUIET_X + 1,
+            target_y=QUIET_Y,
+        )
+        state, events = step(state, [command], world=world)
+        fire_ticks += [e.tick for e in _of(events, ProjectileFiredEvent)]  # type: ignore[attr-defined]
+        assert state.tick == tick
+
+    assert fire_ticks == [1, 4, 8, 12, 16]

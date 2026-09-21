@@ -230,7 +230,9 @@ def consume_engagement_intent(
             return state, ()
         return execute_nuclear_detonation(state, world, intent.robot_id, tick, rules, sequencer)
 
-    new_state, _result, events = apply_fire(request, state, world, tick, rules, sequencer)
+    new_state, _result, events = apply_fire(
+        request, state, world, tick, rules, sequencer, autonomous=True
+    )
     return new_state, events
 
 
