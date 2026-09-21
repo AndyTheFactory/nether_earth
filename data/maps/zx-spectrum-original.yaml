@@ -1802,6 +1802,1168 @@ factories:
       - {x: 469, y: 3, height: 7}
     factory_type: chassis
 
+# Blockers: the 165 scenery elements (660 cells) decoded from the Spectrum
+# map-element tables by `data/maps/decode_zx_terrain.py <asm> blockers`
+# (CR002.1, #168). One entry per 2x2 element; kind per element type:
+# 17 box_low (height 7), 18 box_high (height 15), 21 fence (height 99).
+# Do not hand-edit; re-run the decoder. See the evidence doc, "Blockers/scenery".
+blockers:
+  - id: blocker-1
+    kind: fence
+    components:
+      - {x: 12, y: 0, height: 99}
+      - {x: 12, y: 1, height: 99}
+      - {x: 13, y: 0, height: 99}
+      - {x: 13, y: 1, height: 99}
+  - id: blocker-2
+    kind: fence
+    components:
+      - {x: 12, y: 2, height: 99}
+      - {x: 12, y: 3, height: 99}
+      - {x: 13, y: 2, height: 99}
+      - {x: 13, y: 3, height: 99}
+  - id: blocker-3
+    kind: fence
+    components:
+      - {x: 12, y: 4, height: 99}
+      - {x: 12, y: 5, height: 99}
+      - {x: 13, y: 4, height: 99}
+      - {x: 13, y: 5, height: 99}
+  - id: blocker-4
+    kind: fence
+    components:
+      - {x: 12, y: 6, height: 99}
+      - {x: 12, y: 7, height: 99}
+      - {x: 13, y: 6, height: 99}
+      - {x: 13, y: 7, height: 99}
+  - id: blocker-5
+    kind: fence
+    components:
+      - {x: 12, y: 8, height: 99}
+      - {x: 12, y: 9, height: 99}
+      - {x: 13, y: 8, height: 99}
+      - {x: 13, y: 9, height: 99}
+  - id: blocker-6
+    kind: fence
+    components:
+      - {x: 12, y: 10, height: 99}
+      - {x: 12, y: 11, height: 99}
+      - {x: 13, y: 10, height: 99}
+      - {x: 13, y: 11, height: 99}
+  - id: blocker-7
+    kind: fence
+    components:
+      - {x: 12, y: 12, height: 99}
+      - {x: 12, y: 13, height: 99}
+      - {x: 13, y: 12, height: 99}
+      - {x: 13, y: 13, height: 99}
+  - id: blocker-8
+    kind: fence
+    components:
+      - {x: 12, y: 14, height: 99}
+      - {x: 12, y: 15, height: 99}
+      - {x: 13, y: 14, height: 99}
+      - {x: 13, y: 15, height: 99}
+  - id: blocker-9
+    kind: box_low
+    components:
+      - {x: 16, y: 13, height: 7}
+      - {x: 16, y: 14, height: 7}
+      - {x: 17, y: 13, height: 7}
+      - {x: 17, y: 14, height: 7}
+  - id: blocker-10
+    kind: box_low
+    components:
+      - {x: 32, y: 2, height: 7}
+      - {x: 32, y: 3, height: 7}
+      - {x: 33, y: 2, height: 7}
+      - {x: 33, y: 3, height: 7}
+  - id: blocker-11
+    kind: box_high
+    components:
+      - {x: 63, y: 1, height: 15}
+      - {x: 63, y: 2, height: 15}
+      - {x: 64, y: 1, height: 15}
+      - {x: 64, y: 2, height: 15}
+  - id: blocker-12
+    kind: box_high
+    components:
+      - {x: 65, y: 1, height: 15}
+      - {x: 65, y: 2, height: 15}
+      - {x: 66, y: 1, height: 15}
+      - {x: 66, y: 2, height: 15}
+  - id: blocker-13
+    kind: box_high
+    components:
+      - {x: 70, y: 0, height: 15}
+      - {x: 70, y: 1, height: 15}
+      - {x: 71, y: 0, height: 15}
+      - {x: 71, y: 1, height: 15}
+  - id: blocker-14
+    kind: box_low
+    components:
+      - {x: 70, y: 14, height: 7}
+      - {x: 70, y: 15, height: 7}
+      - {x: 71, y: 14, height: 7}
+      - {x: 71, y: 15, height: 7}
+  - id: blocker-15
+    kind: box_low
+    components:
+      - {x: 72, y: 14, height: 7}
+      - {x: 72, y: 15, height: 7}
+      - {x: 73, y: 14, height: 7}
+      - {x: 73, y: 15, height: 7}
+  - id: blocker-16
+    kind: box_high
+    components:
+      - {x: 94, y: 14, height: 15}
+      - {x: 94, y: 15, height: 15}
+      - {x: 95, y: 14, height: 15}
+      - {x: 95, y: 15, height: 15}
+  - id: blocker-17
+    kind: box_high
+    components:
+      - {x: 96, y: 14, height: 15}
+      - {x: 96, y: 15, height: 15}
+      - {x: 97, y: 14, height: 15}
+      - {x: 97, y: 15, height: 15}
+  - id: blocker-18
+    kind: box_high
+    components:
+      - {x: 98, y: 14, height: 15}
+      - {x: 98, y: 15, height: 15}
+      - {x: 99, y: 14, height: 15}
+      - {x: 99, y: 15, height: 15}
+  - id: blocker-19
+    kind: box_high
+    components:
+      - {x: 100, y: 14, height: 15}
+      - {x: 100, y: 15, height: 15}
+      - {x: 101, y: 14, height: 15}
+      - {x: 101, y: 15, height: 15}
+  - id: blocker-20
+    kind: box_high
+    components:
+      - {x: 106, y: 3, height: 15}
+      - {x: 106, y: 4, height: 15}
+      - {x: 107, y: 3, height: 15}
+      - {x: 107, y: 4, height: 15}
+  - id: blocker-21
+    kind: box_high
+    components:
+      - {x: 108, y: 3, height: 15}
+      - {x: 108, y: 4, height: 15}
+      - {x: 109, y: 3, height: 15}
+      - {x: 109, y: 4, height: 15}
+  - id: blocker-22
+    kind: box_high
+    components:
+      - {x: 108, y: 12, height: 15}
+      - {x: 108, y: 13, height: 15}
+      - {x: 109, y: 12, height: 15}
+      - {x: 109, y: 13, height: 15}
+  - id: blocker-23
+    kind: box_high
+    components:
+      - {x: 110, y: 3, height: 15}
+      - {x: 110, y: 4, height: 15}
+      - {x: 111, y: 3, height: 15}
+      - {x: 111, y: 4, height: 15}
+  - id: blocker-24
+    kind: box_high
+    components:
+      - {x: 110, y: 12, height: 15}
+      - {x: 110, y: 13, height: 15}
+      - {x: 111, y: 12, height: 15}
+      - {x: 111, y: 13, height: 15}
+  - id: blocker-25
+    kind: box_high
+    components:
+      - {x: 112, y: 3, height: 15}
+      - {x: 112, y: 4, height: 15}
+      - {x: 113, y: 3, height: 15}
+      - {x: 113, y: 4, height: 15}
+  - id: blocker-26
+    kind: box_high
+    components:
+      - {x: 112, y: 12, height: 15}
+      - {x: 112, y: 13, height: 15}
+      - {x: 113, y: 12, height: 15}
+      - {x: 113, y: 13, height: 15}
+  - id: blocker-27
+    kind: box_high
+    components:
+      - {x: 114, y: 12, height: 15}
+      - {x: 114, y: 13, height: 15}
+      - {x: 115, y: 12, height: 15}
+      - {x: 115, y: 13, height: 15}
+  - id: blocker-28
+    kind: box_high
+    components:
+      - {x: 121, y: 8, height: 15}
+      - {x: 121, y: 9, height: 15}
+      - {x: 122, y: 8, height: 15}
+      - {x: 122, y: 9, height: 15}
+  - id: blocker-29
+    kind: box_high
+    components:
+      - {x: 121, y: 10, height: 15}
+      - {x: 121, y: 11, height: 15}
+      - {x: 122, y: 10, height: 15}
+      - {x: 122, y: 11, height: 15}
+  - id: blocker-30
+    kind: box_high
+    components:
+      - {x: 121, y: 12, height: 15}
+      - {x: 121, y: 13, height: 15}
+      - {x: 122, y: 12, height: 15}
+      - {x: 122, y: 13, height: 15}
+  - id: blocker-31
+    kind: box_high
+    components:
+      - {x: 121, y: 14, height: 15}
+      - {x: 121, y: 15, height: 15}
+      - {x: 122, y: 14, height: 15}
+      - {x: 122, y: 15, height: 15}
+  - id: blocker-32
+    kind: box_low
+    components:
+      - {x: 127, y: 11, height: 7}
+      - {x: 127, y: 12, height: 7}
+      - {x: 128, y: 11, height: 7}
+      - {x: 128, y: 12, height: 7}
+  - id: blocker-33
+    kind: box_low
+    components:
+      - {x: 129, y: 6, height: 7}
+      - {x: 129, y: 7, height: 7}
+      - {x: 130, y: 6, height: 7}
+      - {x: 130, y: 7, height: 7}
+  - id: blocker-34
+    kind: box_high
+    components:
+      - {x: 133, y: 10, height: 15}
+      - {x: 133, y: 11, height: 15}
+      - {x: 134, y: 10, height: 15}
+      - {x: 134, y: 11, height: 15}
+  - id: blocker-35
+    kind: box_high
+    components:
+      - {x: 133, y: 12, height: 15}
+      - {x: 133, y: 13, height: 15}
+      - {x: 134, y: 12, height: 15}
+      - {x: 134, y: 13, height: 15}
+  - id: blocker-36
+    kind: box_high
+    components:
+      - {x: 134, y: 3, height: 15}
+      - {x: 134, y: 4, height: 15}
+      - {x: 135, y: 3, height: 15}
+      - {x: 135, y: 4, height: 15}
+  - id: blocker-37
+    kind: box_high
+    components:
+      - {x: 136, y: 3, height: 15}
+      - {x: 136, y: 4, height: 15}
+      - {x: 137, y: 3, height: 15}
+      - {x: 137, y: 4, height: 15}
+  - id: blocker-38
+    kind: box_high
+    components:
+      - {x: 138, y: 3, height: 15}
+      - {x: 138, y: 4, height: 15}
+      - {x: 139, y: 3, height: 15}
+      - {x: 139, y: 4, height: 15}
+  - id: blocker-39
+    kind: box_high
+    components:
+      - {x: 140, y: 3, height: 15}
+      - {x: 140, y: 4, height: 15}
+      - {x: 141, y: 3, height: 15}
+      - {x: 141, y: 4, height: 15}
+  - id: blocker-40
+    kind: box_low
+    components:
+      - {x: 191, y: 2, height: 7}
+      - {x: 191, y: 3, height: 7}
+      - {x: 192, y: 2, height: 7}
+      - {x: 192, y: 3, height: 7}
+  - id: blocker-41
+    kind: box_high
+    components:
+      - {x: 191, y: 7, height: 15}
+      - {x: 191, y: 8, height: 15}
+      - {x: 192, y: 7, height: 15}
+      - {x: 192, y: 8, height: 15}
+  - id: blocker-42
+    kind: box_low
+    components:
+      - {x: 191, y: 12, height: 7}
+      - {x: 191, y: 13, height: 7}
+      - {x: 192, y: 12, height: 7}
+      - {x: 192, y: 13, height: 7}
+  - id: blocker-43
+    kind: box_low
+    components:
+      - {x: 193, y: 2, height: 7}
+      - {x: 193, y: 3, height: 7}
+      - {x: 194, y: 2, height: 7}
+      - {x: 194, y: 3, height: 7}
+  - id: blocker-44
+    kind: box_low
+    components:
+      - {x: 193, y: 7, height: 7}
+      - {x: 193, y: 8, height: 7}
+      - {x: 194, y: 7, height: 7}
+      - {x: 194, y: 8, height: 7}
+  - id: blocker-45
+    kind: box_low
+    components:
+      - {x: 193, y: 12, height: 7}
+      - {x: 193, y: 13, height: 7}
+      - {x: 194, y: 12, height: 7}
+      - {x: 194, y: 13, height: 7}
+  - id: blocker-46
+    kind: box_low
+    components:
+      - {x: 195, y: 2, height: 7}
+      - {x: 195, y: 3, height: 7}
+      - {x: 196, y: 2, height: 7}
+      - {x: 196, y: 3, height: 7}
+  - id: blocker-47
+    kind: box_low
+    components:
+      - {x: 195, y: 7, height: 7}
+      - {x: 195, y: 8, height: 7}
+      - {x: 196, y: 7, height: 7}
+      - {x: 196, y: 8, height: 7}
+  - id: blocker-48
+    kind: box_low
+    components:
+      - {x: 195, y: 12, height: 7}
+      - {x: 195, y: 13, height: 7}
+      - {x: 196, y: 12, height: 7}
+      - {x: 196, y: 13, height: 7}
+  - id: blocker-49
+    kind: box_low
+    components:
+      - {x: 197, y: 2, height: 7}
+      - {x: 197, y: 3, height: 7}
+      - {x: 198, y: 2, height: 7}
+      - {x: 198, y: 3, height: 7}
+  - id: blocker-50
+    kind: box_low
+    components:
+      - {x: 197, y: 7, height: 7}
+      - {x: 197, y: 8, height: 7}
+      - {x: 198, y: 7, height: 7}
+      - {x: 198, y: 8, height: 7}
+  - id: blocker-51
+    kind: box_low
+    components:
+      - {x: 197, y: 12, height: 7}
+      - {x: 197, y: 13, height: 7}
+      - {x: 198, y: 12, height: 7}
+      - {x: 198, y: 13, height: 7}
+  - id: blocker-52
+    kind: box_low
+    components:
+      - {x: 199, y: 2, height: 7}
+      - {x: 199, y: 3, height: 7}
+      - {x: 200, y: 2, height: 7}
+      - {x: 200, y: 3, height: 7}
+  - id: blocker-53
+    kind: box_low
+    components:
+      - {x: 199, y: 7, height: 7}
+      - {x: 199, y: 8, height: 7}
+      - {x: 200, y: 7, height: 7}
+      - {x: 200, y: 8, height: 7}
+  - id: blocker-54
+    kind: box_low
+    components:
+      - {x: 199, y: 12, height: 7}
+      - {x: 199, y: 13, height: 7}
+      - {x: 200, y: 12, height: 7}
+      - {x: 200, y: 13, height: 7}
+  - id: blocker-55
+    kind: box_low
+    components:
+      - {x: 201, y: 2, height: 7}
+      - {x: 201, y: 3, height: 7}
+      - {x: 202, y: 2, height: 7}
+      - {x: 202, y: 3, height: 7}
+  - id: blocker-56
+    kind: box_low
+    components:
+      - {x: 201, y: 7, height: 7}
+      - {x: 201, y: 8, height: 7}
+      - {x: 202, y: 7, height: 7}
+      - {x: 202, y: 8, height: 7}
+  - id: blocker-57
+    kind: box_low
+    components:
+      - {x: 201, y: 12, height: 7}
+      - {x: 201, y: 13, height: 7}
+      - {x: 202, y: 12, height: 7}
+      - {x: 202, y: 13, height: 7}
+  - id: blocker-58
+    kind: box_low
+    components:
+      - {x: 203, y: 2, height: 7}
+      - {x: 203, y: 3, height: 7}
+      - {x: 204, y: 2, height: 7}
+      - {x: 204, y: 3, height: 7}
+  - id: blocker-59
+    kind: box_low
+    components:
+      - {x: 203, y: 7, height: 7}
+      - {x: 203, y: 8, height: 7}
+      - {x: 204, y: 7, height: 7}
+      - {x: 204, y: 8, height: 7}
+  - id: blocker-60
+    kind: box_low
+    components:
+      - {x: 203, y: 12, height: 7}
+      - {x: 203, y: 13, height: 7}
+      - {x: 204, y: 12, height: 7}
+      - {x: 204, y: 13, height: 7}
+  - id: blocker-61
+    kind: box_low
+    components:
+      - {x: 205, y: 2, height: 7}
+      - {x: 205, y: 3, height: 7}
+      - {x: 206, y: 2, height: 7}
+      - {x: 206, y: 3, height: 7}
+  - id: blocker-62
+    kind: box_low
+    components:
+      - {x: 205, y: 7, height: 7}
+      - {x: 205, y: 8, height: 7}
+      - {x: 206, y: 7, height: 7}
+      - {x: 206, y: 8, height: 7}
+  - id: blocker-63
+    kind: box_low
+    components:
+      - {x: 205, y: 12, height: 7}
+      - {x: 205, y: 13, height: 7}
+      - {x: 206, y: 12, height: 7}
+      - {x: 206, y: 13, height: 7}
+  - id: blocker-64
+    kind: box_low
+    components:
+      - {x: 207, y: 2, height: 7}
+      - {x: 207, y: 3, height: 7}
+      - {x: 208, y: 2, height: 7}
+      - {x: 208, y: 3, height: 7}
+  - id: blocker-65
+    kind: box_low
+    components:
+      - {x: 207, y: 7, height: 7}
+      - {x: 207, y: 8, height: 7}
+      - {x: 208, y: 7, height: 7}
+      - {x: 208, y: 8, height: 7}
+  - id: blocker-66
+    kind: box_low
+    components:
+      - {x: 207, y: 12, height: 7}
+      - {x: 207, y: 13, height: 7}
+      - {x: 208, y: 12, height: 7}
+      - {x: 208, y: 13, height: 7}
+  - id: blocker-67
+    kind: box_low
+    components:
+      - {x: 209, y: 2, height: 7}
+      - {x: 209, y: 3, height: 7}
+      - {x: 210, y: 2, height: 7}
+      - {x: 210, y: 3, height: 7}
+  - id: blocker-68
+    kind: box_high
+    components:
+      - {x: 209, y: 7, height: 15}
+      - {x: 209, y: 8, height: 15}
+      - {x: 210, y: 7, height: 15}
+      - {x: 210, y: 8, height: 15}
+  - id: blocker-69
+    kind: box_low
+    components:
+      - {x: 209, y: 12, height: 7}
+      - {x: 209, y: 13, height: 7}
+      - {x: 210, y: 12, height: 7}
+      - {x: 210, y: 13, height: 7}
+  - id: blocker-70
+    kind: box_low
+    components:
+      - {x: 211, y: 2, height: 7}
+      - {x: 211, y: 3, height: 7}
+      - {x: 212, y: 2, height: 7}
+      - {x: 212, y: 3, height: 7}
+  - id: blocker-71
+    kind: box_low
+    components:
+      - {x: 211, y: 12, height: 7}
+      - {x: 211, y: 13, height: 7}
+      - {x: 212, y: 12, height: 7}
+      - {x: 212, y: 13, height: 7}
+  - id: blocker-72
+    kind: box_low
+    components:
+      - {x: 213, y: 2, height: 7}
+      - {x: 213, y: 3, height: 7}
+      - {x: 214, y: 2, height: 7}
+      - {x: 214, y: 3, height: 7}
+  - id: blocker-73
+    kind: box_low
+    components:
+      - {x: 213, y: 12, height: 7}
+      - {x: 213, y: 13, height: 7}
+      - {x: 214, y: 12, height: 7}
+      - {x: 214, y: 13, height: 7}
+  - id: blocker-74
+    kind: box_low
+    components:
+      - {x: 215, y: 12, height: 7}
+      - {x: 215, y: 13, height: 7}
+      - {x: 216, y: 12, height: 7}
+      - {x: 216, y: 13, height: 7}
+  - id: blocker-75
+    kind: box_low
+    components:
+      - {x: 217, y: 12, height: 7}
+      - {x: 217, y: 13, height: 7}
+      - {x: 218, y: 12, height: 7}
+      - {x: 218, y: 13, height: 7}
+  - id: blocker-76
+    kind: box_low
+    components:
+      - {x: 219, y: 12, height: 7}
+      - {x: 219, y: 13, height: 7}
+      - {x: 220, y: 12, height: 7}
+      - {x: 220, y: 13, height: 7}
+  - id: blocker-77
+    kind: box_low
+    components:
+      - {x: 221, y: 12, height: 7}
+      - {x: 221, y: 13, height: 7}
+      - {x: 222, y: 12, height: 7}
+      - {x: 222, y: 13, height: 7}
+  - id: blocker-78
+    kind: box_low
+    components:
+      - {x: 223, y: 12, height: 7}
+      - {x: 223, y: 13, height: 7}
+      - {x: 224, y: 12, height: 7}
+      - {x: 224, y: 13, height: 7}
+  - id: blocker-79
+    kind: box_low
+    components:
+      - {x: 225, y: 12, height: 7}
+      - {x: 225, y: 13, height: 7}
+      - {x: 226, y: 12, height: 7}
+      - {x: 226, y: 13, height: 7}
+  - id: blocker-80
+    kind: box_low
+    components:
+      - {x: 227, y: 12, height: 7}
+      - {x: 227, y: 13, height: 7}
+      - {x: 228, y: 12, height: 7}
+      - {x: 228, y: 13, height: 7}
+  - id: blocker-81
+    kind: box_low
+    components:
+      - {x: 229, y: 10, height: 7}
+      - {x: 229, y: 11, height: 7}
+      - {x: 230, y: 10, height: 7}
+      - {x: 230, y: 11, height: 7}
+  - id: blocker-82
+    kind: box_low
+    components:
+      - {x: 229, y: 12, height: 7}
+      - {x: 229, y: 13, height: 7}
+      - {x: 230, y: 12, height: 7}
+      - {x: 230, y: 13, height: 7}
+  - id: blocker-83
+    kind: box_high
+    components:
+      - {x: 233, y: 6, height: 15}
+      - {x: 233, y: 7, height: 15}
+      - {x: 234, y: 6, height: 15}
+      - {x: 234, y: 7, height: 15}
+  - id: blocker-84
+    kind: box_high
+    components:
+      - {x: 233, y: 8, height: 15}
+      - {x: 233, y: 9, height: 15}
+      - {x: 234, y: 8, height: 15}
+      - {x: 234, y: 9, height: 15}
+  - id: blocker-85
+    kind: box_high
+    components:
+      - {x: 233, y: 10, height: 15}
+      - {x: 233, y: 11, height: 15}
+      - {x: 234, y: 10, height: 15}
+      - {x: 234, y: 11, height: 15}
+  - id: blocker-86
+    kind: box_high
+    components:
+      - {x: 233, y: 12, height: 15}
+      - {x: 233, y: 13, height: 15}
+      - {x: 234, y: 12, height: 15}
+      - {x: 234, y: 13, height: 15}
+  - id: blocker-87
+    kind: box_high
+    components:
+      - {x: 233, y: 14, height: 15}
+      - {x: 233, y: 15, height: 15}
+      - {x: 234, y: 14, height: 15}
+      - {x: 234, y: 15, height: 15}
+  - id: blocker-88
+    kind: box_high
+    components:
+      - {x: 289, y: 2, height: 15}
+      - {x: 289, y: 3, height: 15}
+      - {x: 290, y: 2, height: 15}
+      - {x: 290, y: 3, height: 15}
+  - id: blocker-89
+    kind: box_low
+    components:
+      - {x: 299, y: 8, height: 7}
+      - {x: 299, y: 9, height: 7}
+      - {x: 300, y: 8, height: 7}
+      - {x: 300, y: 9, height: 7}
+  - id: blocker-90
+    kind: box_high
+    components:
+      - {x: 307, y: 12, height: 15}
+      - {x: 307, y: 13, height: 15}
+      - {x: 308, y: 12, height: 15}
+      - {x: 308, y: 13, height: 15}
+  - id: blocker-91
+    kind: box_low
+    components:
+      - {x: 320, y: 9, height: 7}
+      - {x: 320, y: 10, height: 7}
+      - {x: 321, y: 9, height: 7}
+      - {x: 321, y: 10, height: 7}
+  - id: blocker-92
+    kind: box_low
+    components:
+      - {x: 322, y: 11, height: 7}
+      - {x: 322, y: 12, height: 7}
+      - {x: 323, y: 11, height: 7}
+      - {x: 323, y: 12, height: 7}
+  - id: blocker-93
+    kind: box_low
+    components:
+      - {x: 324, y: 13, height: 7}
+      - {x: 324, y: 14, height: 7}
+      - {x: 325, y: 13, height: 7}
+      - {x: 325, y: 14, height: 7}
+  - id: blocker-94
+    kind: box_high
+    components:
+      - {x: 329, y: 11, height: 15}
+      - {x: 329, y: 12, height: 15}
+      - {x: 330, y: 11, height: 15}
+      - {x: 330, y: 12, height: 15}
+  - id: blocker-95
+    kind: box_high
+    components:
+      - {x: 336, y: 4, height: 15}
+      - {x: 336, y: 5, height: 15}
+      - {x: 337, y: 4, height: 15}
+      - {x: 337, y: 5, height: 15}
+  - id: blocker-96
+    kind: box_high
+    components:
+      - {x: 336, y: 8, height: 15}
+      - {x: 336, y: 9, height: 15}
+      - {x: 337, y: 8, height: 15}
+      - {x: 337, y: 9, height: 15}
+  - id: blocker-97
+    kind: box_low
+    components:
+      - {x: 338, y: 2, height: 7}
+      - {x: 338, y: 3, height: 7}
+      - {x: 339, y: 2, height: 7}
+      - {x: 339, y: 3, height: 7}
+  - id: blocker-98
+    kind: box_high
+    components:
+      - {x: 338, y: 4, height: 15}
+      - {x: 338, y: 5, height: 15}
+      - {x: 339, y: 4, height: 15}
+      - {x: 339, y: 5, height: 15}
+  - id: blocker-99
+    kind: box_high
+    components:
+      - {x: 338, y: 8, height: 15}
+      - {x: 338, y: 9, height: 15}
+      - {x: 339, y: 8, height: 15}
+      - {x: 339, y: 9, height: 15}
+  - id: blocker-100
+    kind: box_low
+    components:
+      - {x: 338, y: 12, height: 7}
+      - {x: 338, y: 13, height: 7}
+      - {x: 339, y: 12, height: 7}
+      - {x: 339, y: 13, height: 7}
+  - id: blocker-101
+    kind: box_high
+    components:
+      - {x: 340, y: 4, height: 15}
+      - {x: 340, y: 5, height: 15}
+      - {x: 341, y: 4, height: 15}
+      - {x: 341, y: 5, height: 15}
+  - id: blocker-102
+    kind: box_high
+    components:
+      - {x: 340, y: 8, height: 15}
+      - {x: 340, y: 9, height: 15}
+      - {x: 341, y: 8, height: 15}
+      - {x: 341, y: 9, height: 15}
+  - id: blocker-103
+    kind: box_high
+    components:
+      - {x: 342, y: 4, height: 15}
+      - {x: 342, y: 5, height: 15}
+      - {x: 343, y: 4, height: 15}
+      - {x: 343, y: 5, height: 15}
+  - id: blocker-104
+    kind: box_high
+    components:
+      - {x: 342, y: 8, height: 15}
+      - {x: 342, y: 9, height: 15}
+      - {x: 343, y: 8, height: 15}
+      - {x: 343, y: 9, height: 15}
+  - id: blocker-105
+    kind: box_low
+    components:
+      - {x: 342, y: 12, height: 7}
+      - {x: 342, y: 13, height: 7}
+      - {x: 343, y: 12, height: 7}
+      - {x: 343, y: 13, height: 7}
+  - id: blocker-106
+    kind: box_low
+    components:
+      - {x: 342, y: 14, height: 7}
+      - {x: 342, y: 15, height: 7}
+      - {x: 343, y: 14, height: 7}
+      - {x: 343, y: 15, height: 7}
+  - id: blocker-107
+    kind: box_low
+    components:
+      - {x: 344, y: 0, height: 7}
+      - {x: 344, y: 1, height: 7}
+      - {x: 345, y: 0, height: 7}
+      - {x: 345, y: 1, height: 7}
+  - id: blocker-108
+    kind: box_high
+    components:
+      - {x: 344, y: 4, height: 15}
+      - {x: 344, y: 5, height: 15}
+      - {x: 345, y: 4, height: 15}
+      - {x: 345, y: 5, height: 15}
+  - id: blocker-109
+    kind: box_high
+    components:
+      - {x: 344, y: 8, height: 15}
+      - {x: 344, y: 9, height: 15}
+      - {x: 345, y: 8, height: 15}
+      - {x: 345, y: 9, height: 15}
+  - id: blocker-110
+    kind: box_low
+    components:
+      - {x: 344, y: 14, height: 7}
+      - {x: 344, y: 15, height: 7}
+      - {x: 345, y: 14, height: 7}
+      - {x: 345, y: 15, height: 7}
+  - id: blocker-111
+    kind: box_high
+    components:
+      - {x: 346, y: 4, height: 15}
+      - {x: 346, y: 5, height: 15}
+      - {x: 347, y: 4, height: 15}
+      - {x: 347, y: 5, height: 15}
+  - id: blocker-112
+    kind: box_high
+    components:
+      - {x: 346, y: 8, height: 15}
+      - {x: 346, y: 9, height: 15}
+      - {x: 347, y: 8, height: 15}
+      - {x: 347, y: 9, height: 15}
+  - id: blocker-113
+    kind: box_low
+    components:
+      - {x: 346, y: 10, height: 7}
+      - {x: 346, y: 11, height: 7}
+      - {x: 347, y: 10, height: 7}
+      - {x: 347, y: 11, height: 7}
+  - id: blocker-114
+    kind: box_low
+    components:
+      - {x: 346, y: 14, height: 7}
+      - {x: 346, y: 15, height: 7}
+      - {x: 347, y: 14, height: 7}
+      - {x: 347, y: 15, height: 7}
+  - id: blocker-115
+    kind: box_high
+    components:
+      - {x: 348, y: 4, height: 15}
+      - {x: 348, y: 5, height: 15}
+      - {x: 349, y: 4, height: 15}
+      - {x: 349, y: 5, height: 15}
+  - id: blocker-116
+    kind: box_high
+    components:
+      - {x: 348, y: 8, height: 15}
+      - {x: 348, y: 9, height: 15}
+      - {x: 349, y: 8, height: 15}
+      - {x: 349, y: 9, height: 15}
+  - id: blocker-117
+    kind: box_high
+    components:
+      - {x: 350, y: 0, height: 15}
+      - {x: 350, y: 1, height: 15}
+      - {x: 351, y: 0, height: 15}
+      - {x: 351, y: 1, height: 15}
+  - id: blocker-118
+    kind: box_high
+    components:
+      - {x: 350, y: 2, height: 15}
+      - {x: 350, y: 3, height: 15}
+      - {x: 351, y: 2, height: 15}
+      - {x: 351, y: 3, height: 15}
+  - id: blocker-119
+    kind: box_high
+    components:
+      - {x: 350, y: 4, height: 15}
+      - {x: 350, y: 5, height: 15}
+      - {x: 351, y: 4, height: 15}
+      - {x: 351, y: 5, height: 15}
+  - id: blocker-120
+    kind: box_high
+    components:
+      - {x: 350, y: 8, height: 15}
+      - {x: 350, y: 9, height: 15}
+      - {x: 351, y: 8, height: 15}
+      - {x: 351, y: 9, height: 15}
+  - id: blocker-121
+    kind: box_high
+    components:
+      - {x: 352, y: 8, height: 15}
+      - {x: 352, y: 9, height: 15}
+      - {x: 353, y: 8, height: 15}
+      - {x: 353, y: 9, height: 15}
+  - id: blocker-122
+    kind: box_high
+    components:
+      - {x: 352, y: 10, height: 15}
+      - {x: 352, y: 11, height: 15}
+      - {x: 353, y: 10, height: 15}
+      - {x: 353, y: 11, height: 15}
+  - id: blocker-123
+    kind: box_high
+    components:
+      - {x: 352, y: 12, height: 15}
+      - {x: 352, y: 13, height: 15}
+      - {x: 353, y: 12, height: 15}
+      - {x: 353, y: 13, height: 15}
+  - id: blocker-124
+    kind: box_high
+    components:
+      - {x: 352, y: 14, height: 15}
+      - {x: 352, y: 15, height: 15}
+      - {x: 353, y: 14, height: 15}
+      - {x: 353, y: 15, height: 15}
+  - id: blocker-125
+    kind: box_low
+    components:
+      - {x: 356, y: 4, height: 7}
+      - {x: 356, y: 5, height: 7}
+      - {x: 357, y: 4, height: 7}
+      - {x: 357, y: 5, height: 7}
+  - id: blocker-126
+    kind: box_high
+    components:
+      - {x: 358, y: 4, height: 15}
+      - {x: 358, y: 5, height: 15}
+      - {x: 359, y: 4, height: 15}
+      - {x: 359, y: 5, height: 15}
+  - id: blocker-127
+    kind: box_low
+    components:
+      - {x: 360, y: 4, height: 7}
+      - {x: 360, y: 5, height: 7}
+      - {x: 361, y: 4, height: 7}
+      - {x: 361, y: 5, height: 7}
+  - id: blocker-128
+    kind: box_low
+    components:
+      - {x: 379, y: 3, height: 7}
+      - {x: 379, y: 4, height: 7}
+      - {x: 380, y: 3, height: 7}
+      - {x: 380, y: 4, height: 7}
+  - id: blocker-129
+    kind: box_high
+    components:
+      - {x: 394, y: 0, height: 15}
+      - {x: 394, y: 1, height: 15}
+      - {x: 395, y: 0, height: 15}
+      - {x: 395, y: 1, height: 15}
+  - id: blocker-130
+    kind: box_low
+    components:
+      - {x: 401, y: 14, height: 7}
+      - {x: 401, y: 15, height: 7}
+      - {x: 402, y: 14, height: 7}
+      - {x: 402, y: 15, height: 7}
+  - id: blocker-131
+    kind: box_high
+    components:
+      - {x: 409, y: 0, height: 15}
+      - {x: 409, y: 1, height: 15}
+      - {x: 410, y: 0, height: 15}
+      - {x: 410, y: 1, height: 15}
+  - id: blocker-132
+    kind: box_low
+    components:
+      - {x: 464, y: 9, height: 7}
+      - {x: 464, y: 10, height: 7}
+      - {x: 465, y: 9, height: 7}
+      - {x: 465, y: 10, height: 7}
+  - id: blocker-133
+    kind: box_low
+    components:
+      - {x: 467, y: 12, height: 7}
+      - {x: 467, y: 13, height: 7}
+      - {x: 468, y: 12, height: 7}
+      - {x: 468, y: 13, height: 7}
+  - id: blocker-134
+    kind: box_low
+    components:
+      - {x: 474, y: 4, height: 7}
+      - {x: 474, y: 5, height: 7}
+      - {x: 475, y: 4, height: 7}
+      - {x: 475, y: 5, height: 7}
+  - id: blocker-135
+    kind: box_low
+    components:
+      - {x: 474, y: 8, height: 7}
+      - {x: 474, y: 9, height: 7}
+      - {x: 475, y: 8, height: 7}
+      - {x: 475, y: 9, height: 7}
+  - id: blocker-136
+    kind: box_low
+    components:
+      - {x: 476, y: 2, height: 7}
+      - {x: 476, y: 3, height: 7}
+      - {x: 477, y: 2, height: 7}
+      - {x: 477, y: 3, height: 7}
+  - id: blocker-137
+    kind: box_high
+    components:
+      - {x: 476, y: 4, height: 15}
+      - {x: 476, y: 5, height: 15}
+      - {x: 477, y: 4, height: 15}
+      - {x: 477, y: 5, height: 15}
+  - id: blocker-138
+    kind: box_high
+    components:
+      - {x: 476, y: 8, height: 15}
+      - {x: 476, y: 9, height: 15}
+      - {x: 477, y: 8, height: 15}
+      - {x: 477, y: 9, height: 15}
+  - id: blocker-139
+    kind: box_low
+    components:
+      - {x: 476, y: 10, height: 7}
+      - {x: 476, y: 11, height: 7}
+      - {x: 477, y: 10, height: 7}
+      - {x: 477, y: 11, height: 7}
+  - id: blocker-140
+    kind: box_low
+    components:
+      - {x: 478, y: 0, height: 7}
+      - {x: 478, y: 1, height: 7}
+      - {x: 479, y: 0, height: 7}
+      - {x: 479, y: 1, height: 7}
+  - id: blocker-141
+    kind: box_high
+    components:
+      - {x: 478, y: 2, height: 15}
+      - {x: 478, y: 3, height: 15}
+      - {x: 479, y: 2, height: 15}
+      - {x: 479, y: 3, height: 15}
+  - id: blocker-142
+    kind: box_low
+    components:
+      - {x: 478, y: 4, height: 7}
+      - {x: 478, y: 5, height: 7}
+      - {x: 479, y: 4, height: 7}
+      - {x: 479, y: 5, height: 7}
+  - id: blocker-143
+    kind: box_low
+    components:
+      - {x: 478, y: 8, height: 7}
+      - {x: 478, y: 9, height: 7}
+      - {x: 479, y: 8, height: 7}
+      - {x: 479, y: 9, height: 7}
+  - id: blocker-144
+    kind: box_high
+    components:
+      - {x: 478, y: 10, height: 15}
+      - {x: 478, y: 11, height: 15}
+      - {x: 479, y: 10, height: 15}
+      - {x: 479, y: 11, height: 15}
+  - id: blocker-145
+    kind: box_low
+    components:
+      - {x: 478, y: 12, height: 7}
+      - {x: 478, y: 13, height: 7}
+      - {x: 479, y: 12, height: 7}
+      - {x: 479, y: 13, height: 7}
+  - id: blocker-146
+    kind: box_high
+    components:
+      - {x: 480, y: 0, height: 15}
+      - {x: 480, y: 1, height: 15}
+      - {x: 481, y: 0, height: 15}
+      - {x: 481, y: 1, height: 15}
+  - id: blocker-147
+    kind: box_low
+    components:
+      - {x: 480, y: 2, height: 7}
+      - {x: 480, y: 3, height: 7}
+      - {x: 481, y: 2, height: 7}
+      - {x: 481, y: 3, height: 7}
+  - id: blocker-148
+    kind: box_low
+    components:
+      - {x: 480, y: 4, height: 7}
+      - {x: 480, y: 5, height: 7}
+      - {x: 481, y: 4, height: 7}
+      - {x: 481, y: 5, height: 7}
+  - id: blocker-149
+    kind: box_low
+    components:
+      - {x: 480, y: 10, height: 7}
+      - {x: 480, y: 11, height: 7}
+      - {x: 481, y: 10, height: 7}
+      - {x: 481, y: 11, height: 7}
+  - id: blocker-150
+    kind: box_high
+    components:
+      - {x: 480, y: 12, height: 15}
+      - {x: 480, y: 13, height: 15}
+      - {x: 481, y: 12, height: 15}
+      - {x: 481, y: 13, height: 15}
+  - id: blocker-151
+    kind: box_low
+    components:
+      - {x: 480, y: 14, height: 7}
+      - {x: 480, y: 15, height: 7}
+      - {x: 481, y: 14, height: 7}
+      - {x: 481, y: 15, height: 7}
+  - id: blocker-152
+    kind: box_low
+    components:
+      - {x: 482, y: 0, height: 7}
+      - {x: 482, y: 1, height: 7}
+      - {x: 483, y: 0, height: 7}
+      - {x: 483, y: 1, height: 7}
+  - id: blocker-153
+    kind: box_high
+    components:
+      - {x: 482, y: 4, height: 15}
+      - {x: 482, y: 5, height: 15}
+      - {x: 483, y: 4, height: 15}
+      - {x: 483, y: 5, height: 15}
+  - id: blocker-154
+    kind: box_low
+    components:
+      - {x: 482, y: 12, height: 7}
+      - {x: 482, y: 13, height: 7}
+      - {x: 483, y: 12, height: 7}
+      - {x: 483, y: 13, height: 7}
+  - id: blocker-155
+    kind: box_high
+    components:
+      - {x: 482, y: 14, height: 15}
+      - {x: 482, y: 15, height: 15}
+      - {x: 483, y: 14, height: 15}
+      - {x: 483, y: 15, height: 15}
+  - id: blocker-156
+    kind: box_low
+    components:
+      - {x: 484, y: 4, height: 7}
+      - {x: 484, y: 5, height: 7}
+      - {x: 485, y: 4, height: 7}
+      - {x: 485, y: 5, height: 7}
+  - id: blocker-157
+    kind: box_low
+    components:
+      - {x: 484, y: 14, height: 7}
+      - {x: 484, y: 15, height: 7}
+      - {x: 485, y: 14, height: 7}
+      - {x: 485, y: 15, height: 7}
+  - id: blocker-158
+    kind: fence
+    components:
+      - {x: 503, y: 0, height: 99}
+      - {x: 503, y: 1, height: 99}
+      - {x: 504, y: 0, height: 99}
+      - {x: 504, y: 1, height: 99}
+  - id: blocker-159
+    kind: fence
+    components:
+      - {x: 503, y: 2, height: 99}
+      - {x: 503, y: 3, height: 99}
+      - {x: 504, y: 2, height: 99}
+      - {x: 504, y: 3, height: 99}
+  - id: blocker-160
+    kind: fence
+    components:
+      - {x: 503, y: 4, height: 99}
+      - {x: 503, y: 5, height: 99}
+      - {x: 504, y: 4, height: 99}
+      - {x: 504, y: 5, height: 99}
+  - id: blocker-161
+    kind: fence
+    components:
+      - {x: 503, y: 6, height: 99}
+      - {x: 503, y: 7, height: 99}
+      - {x: 504, y: 6, height: 99}
+      - {x: 504, y: 7, height: 99}
+  - id: blocker-162
+    kind: fence
+    components:
+      - {x: 503, y: 8, height: 99}
+      - {x: 503, y: 9, height: 99}
+      - {x: 504, y: 8, height: 99}
+      - {x: 504, y: 9, height: 99}
+  - id: blocker-163
+    kind: fence
+    components:
+      - {x: 503, y: 10, height: 99}
+      - {x: 503, y: 11, height: 99}
+      - {x: 504, y: 10, height: 99}
+      - {x: 504, y: 11, height: 99}
+  - id: blocker-164
+    kind: fence
+    components:
+      - {x: 503, y: 12, height: 99}
+      - {x: 503, y: 13, height: 99}
+      - {x: 504, y: 12, height: 99}
+      - {x: 504, y: 13, height: 99}
+  - id: blocker-165
+    kind: fence
+    components:
+      - {x: 503, y: 14, height: 99}
+      - {x: 503, y: 15, height: 99}
+      - {x: 504, y: 14, height: 99}
+      - {x: 504, y: 15, height: 99}
+
 interaction_points:
   - id: warbase-1-warbase-capture
     kind: warbase_capture
