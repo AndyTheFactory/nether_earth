@@ -159,7 +159,7 @@ GameRules:
     commander_max_altitude = 48
     commander_vertical_update_ticks = 4
     commander_ascent_step = 2
-    commander_descent_step = 1
+    commander_descent_step = 2  # owner deviation from the Spectrum's 1 (CR003.1)
     commander_exit_elevate_updates = 5  # lift after construction exit and undock
 
     normal_projectile_altitude = 10
@@ -328,15 +328,17 @@ Commander:
 
 Vertical physics runs every `commander_vertical_update_ticks` simulation ticks.
 
-Default Spectrum behavior:
+Default behavior (Spectrum-compatible except gravity):
 
 ```text
 min altitude = 0
 max altitude = 48
 vertical cadence = every 4 ticks
 ascent = +2
-fall/gravity = -1
+fall/gravity = -2   (Spectrum: -1; owner decision CR003.1 #216, open-questions.md §13)
 ```
+
+Gravity descends one altitude unit at a time up to `commander_descent_step` and stops at the last legal altitude, so it lands exactly on a surface at an odd altitude (static component, terrain, robot top or another commander) rather than skipping past it or stopping a step above it (`commander_movement._gravity_landing_altitude`).
 
 Horizontal and vertical movement may occur simultaneously.
 

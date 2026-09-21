@@ -9,16 +9,22 @@ envelope. Later milestones are expected to extend :class:`EngineRules`
 gain configurable numeric constants.
 
 Locked defaults (`_specs/open-questions.md` §13, `_specs/technical-spec.md`
-§9, `_specs/functional-spec.md` §8.2) are Spectrum-compatible:
+§9, `_specs/functional-spec.md` §8.2) are Spectrum-compatible except the
+descent step:
 
 - ``commander_min_altitude = 0``
 - ``commander_max_altitude = 48``
 - ``commander_vertical_update_ticks = 4``
 - ``commander_ascent_step = 2``
-- ``commander_descent_step = 1``
+- ``commander_descent_step = 2``
 
 Open-question note (`_specs/open-questions.md` §13): the minimum/maximum
-altitude and the +2/-1 ascent/descent step sizes are RESOLVED and locked.
+altitude and the +2/-2 ascent/descent step sizes are RESOLVED and locked.
+The Spectrum's gravity is -1 per game cycle (``Lafc3_gravity``); the owner
+changed it to -2 (CR003.1 #216, owner decision 2026-09-22), a deliberate
+deviation so 48 -> 0 takes 4.8 s like the ascent. Gravity still stops on
+the surface under the ship at an odd altitude
+(``commander_movement._gravity_landing_altitude``).
 The *tick cadence* of a vertical "update" (``commander_vertical_update_ticks``)
 is recorded here as its documented canonical default of ``4`` (matching the
 value milestone issue #43 references as locked), but the underlying
@@ -37,7 +43,7 @@ describe the collision *rules* (height-aware, vertical-range overlap) but
 not a concrete height constant. Height-aware collision cannot be implemented
 against a zero-thickness point, so this field supplies a documented,
 overridable default (``4``, deliberately small relative to the 0..48
-altitude envelope and the +2/-1 step sizes) rather than silently hardcoding
+altitude envelope and the +2/-2 step sizes) rather than silently hardcoding
 an unverified number inside ``collision.py``. Like
 ``commander_vertical_update_ticks``, this is a "documented default, not
 independently verified" constant: later Spectrum sprite-geometry evidence
@@ -261,8 +267,8 @@ class EngineRules:
     - ``commander_ascent_step``: altitude gained per vertical update while
       ascending (locked Spectrum default ``2``).
     - ``commander_descent_step``: altitude lost per vertical update while
-      descending/falling (locked Spectrum default ``1``; intentionally
-      asymmetric with ascent per `_specs/open-questions.md` §13).
+      descending/falling (default ``2``, owner deviation from the
+      Spectrum's ``1``, CR003.1 #216 and `_specs/open-questions.md` §13).
     - ``commander_height``: the commander's physical vertical extent, in the
       same altitude units as ``commander_min_altitude``/``commander_max_altitude``,
       used by height-aware collision (`collision.py`, issue #39) to turn an
@@ -423,7 +429,7 @@ class EngineRules:
     commander_max_altitude: int = 48
     commander_vertical_update_ticks: int = 4
     commander_ascent_step: int = 2
-    commander_descent_step: int = 1
+    commander_descent_step: int = 2
     commander_height: int = 4
     commander_horizontal_move_ticks: int = 4
     commander_exit_elevate_updates: int = 5
