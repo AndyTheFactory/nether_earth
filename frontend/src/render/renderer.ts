@@ -7,6 +7,7 @@ import { surfaceHeightAt, terrainAt } from '../world/map.ts';
 import { TILE_H, TILE_W, depthKey, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
+import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
 import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, shade, type SemanticAsset } from './assets.ts';
@@ -71,26 +72,28 @@ export class WorldRenderer {
     }
   }
 
-  private drawStructures(state: SnapshotState | null): void {
-    const key = JSON.stringify([this.zoom, state?.structure_ownership, state?.structure_destruction]);
+  // Debug text labels only with the debug grid on (G); flags show ownership.
+  private drawStructures(state: SnapshotState | null, debug: boolean): void {
+    const key = JSON.stringify([this.zoom, debug, state?.structure_ownership, state?.structure_destruction]);
     if (key === this.lastStructureKey) return;
     this.lastStructureKey = key;
     for (const { g } of this.structureCells) g.destroy();
     this.structureCells = [];
     this.structureLabels.removeChildren().forEach((t) => t.destroy());
     const owner = (id: string) => state?.structure_ownership.find((o) => o.structure_id === id)?.owner ?? null;
-    const destroyed = (id: string) => state?.structure_destruction.includes(id) ?? false;
+    const destroyedIds = new Set(state?.structure_destruction ?? []);
+    const destroyed = (id: string) => destroyedIds.has(id);
 
     const blocks: { c: MapComponent; color: number; dead: boolean }[] = [];
     for (const wb of this.map.war_bases) {
       const col = ownerColor(owner(wb.id));
       for (const c of wb.components) blocks.push({ c, color: col, dead: destroyed(wb.id) });
-      this.label(wb.id, wb.components, `WAR BASE ${owner(wb.id) ?? 'neutral'}${destroyed(wb.id) ? ' ✕' : ''}`, col);
+      if (debug) this.label(wb.id, wb.components, `WAR BASE ${owner(wb.id) ?? 'neutral'}${destroyed(wb.id) ? ' ✕' : ''}`, col);
     }
     for (const f of this.map.factories) {
       const col = shade(colorFor('structure.factory'), owner(f.id) ? 1.2 : 0.9);
       for (const c of f.components) blocks.push({ c, color: col, dead: destroyed(f.id) });
-      this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
+      if (debug) this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
     }
     for (const b of this.map.blockers) {
       for (const c of b.components) blocks.push({ c, color: colorFor('structure.blocker'), dead: false });
@@ -98,12 +101,17 @@ export class WorldRenderer {
     // Heli-pads sit on the war-base roof (open-questions §18): mark the pad
     // cell's top face with its prism so nearer blocks still occlude it.
     const pads = new Set(this.map.interaction_points.filter((ip) => ip.kind === 'heli_pad').map((ip) => `${ip.footprint.x},${ip.footprint.y}`));
+    // CR002.6: an ownership flag stands on its roof cell and is drawn with
+    // that cell, so it shares the cell's place in the depth ordering.
+    const flags = new Map(ownershipFlags(this.map, state?.structure_ownership ?? [], destroyedIds).map((f) => [`${f.x},${f.y}`, f.owner]));
     for (const { c, color, dead } of blocks) {
       const g = new Graphics();
       if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
       else {
         drawPrism(g, c.x, c.y, 0, c.height, color);
         if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+        const flag = flags.get(`${c.x},${c.y}`);
+        if (flag) drawFlag(g, c.x, c.y, c.height, flag);
       }
       g.zIndex = depthKey(c.x, c.y);
       this.structureCells.push({ g, x: c.x });
@@ -145,7 +153,7 @@ export class WorldRenderer {
       this.prevSnapshot = null;
     }
     this.zoom = viewZoom(this.app.screen.width, this.app.screen.height);
-    this.drawStructures(snap);
+    this.drawStructures(snap, state.ui.debugGrid);
     for (const g of this.dynamic) g.destroy();
     this.dynamic = [];
     this.effects.clear();
@@ -308,4 +316,18 @@ export class WorldRenderer {
     const w = unproject((sx - this.world.position.x) / this.zoom, (sy - this.world.position.y) / this.zoom);
     return { x: Math.round(w.x), y: Math.round(w.y) };
   }
+}
+
+/** Spectrum flag sprite at native size (world units are Spectrum pixels), pole foot on the roof centre. */
+function drawFlag(g: Graphics, x: number, y: number, z: number, owner: FlagOwner): void {
+  const rows = FLAG_SPRITES[owner];
+  const foot = project(x, y, z);
+  const left = Math.round(foot.x) - FLAG_POLE_COLUMN;
+  const top = Math.round(foot.y) - rows.length;
+  rows.forEach((row, r) => {
+    for (let col = 0; col < row.length; col++) {
+      if (row[col] === ' ') continue;
+      g.rect(left + col, top + r, 1, 1).fill(row[col] === '#' ? PALETTE.black : ownerColor(owner));
+    }
+  });
 }
