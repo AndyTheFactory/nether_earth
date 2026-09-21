@@ -17,6 +17,7 @@
     "pixi.js": "8.8.1"
   },
   "devDependencies": {
+    "@types/node": "22.20.4",
     "ajv": "8.17.1",
     "js-yaml": "4.1.0",
     "json-schema-to-typescript": "15.0.4",

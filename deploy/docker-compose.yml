@@ -13,9 +13,10 @@ services:
 
   frontend:
     build:
-      context: ../frontend
+      context: ..
+      dockerfile: frontend/Dockerfile
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -25,7 +26,7 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     volumes:
-      - ../replays:/app/replays
+      - ../replays:/var/lib/nether-earth/replays
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
       interval: 10s

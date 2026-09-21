@@ -1,16 +1,40 @@
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1
+# Production backend image. Build context: repository root.
+#   docker build -f backend/Dockerfile -t nether-earth-backend:<version> .
 
-WORKDIR /app
+FROM python:3.12-slim-bookworm AS build
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
+WORKDIR /src
+COPY backend/requirements.lock backend/requirements.lock
+# Third-party dependencies come only from the pinned lock file; the two
+# first-party packages are then built without dependency resolution.
+RUN python -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-deps --require-virtualenv -r backend/requirements.lock
+COPY engine engine
+COPY backend/pyproject.toml backend/pyproject.toml
+COPY backend/app backend/app
+RUN /opt/venv/bin/pip install --no-deps --require-virtualenv ./engine ./backend \
+ && /opt/venv/bin/pip check
+
+FROM python:3.12-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    NETHER_EARTH_REPLAY_DIR=/app/replays \
-    NETHER_EARTH_MAP_DIR=/app/data/maps
-
-COPY engine /app/engine
-COPY backend /app/backend
-COPY data /app/data
-RUN python -m pip install --no-cache-dir /app/engine /app/backend
-
-WORKDIR /app/backend
+    PATH=/opt/venv/bin:$PATH \
+    NETHER_EARTH_ENV=production \
+    NETHER_EARTH_REPLAY_DIR=/var/lib/nether-earth/replays \
+    NETHER_EARTH_MAP_DIR=/opt/nether-earth/data/maps
+RUN groupadd --system --gid 10001 nether \
+ && useradd --system --uid 10001 --gid nether --no-create-home --shell /usr/sbin/nologin nether \
+ && install -d -o nether -g nether /var/lib/nether-earth/replays
+COPY --from=build /opt/venv /opt/venv
+COPY data/maps /opt/nether-earth/data/maps
+USER nether:nether
+WORKDIR /var/lib/nether-earth
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
+  CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"]
+# --ws-max-size bounds inbound WebSocket frames at the server. Access logs
+# come from the Nginx gateway instead.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*", "--no-server-header", \
+     "--no-access-log", "--ws-max-size", "16384", "--timeout-graceful-shutdown", "10"]

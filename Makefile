@@ -1,4 +1,4 @@
-.PHONY: python-check engine-test backend-test frontend-check protocol-check compose-check
+.PHONY: python-check engine-test backend-test frontend-check protocol-check compose-check images lock
 
 python-check:
 	ruff check engine backend
@@ -23,3 +23,17 @@ frontend-live-check:
 
 compose-check:
 	docker compose -f deploy/docker-compose.yml config >/dev/null
+
+VERSION ?= dev
+
+images:
+	docker build -f backend/Dockerfile -t nether-earth-backend:$(VERSION) .
+	docker build -f frontend/Dockerfile -t nether-earth-frontend:$(VERSION) .
+
+lock:
+	docker run --rm -v "$(CURDIR)":/src:ro python:3.12-slim-bookworm sh -c '\
+	  cp -r /src/engine /src/backend /tmp/ && \
+	  pip install -q --root-user-action=ignore --disable-pip-version-check /tmp/engine /tmp/backend && \
+	  pip freeze --exclude nether-earth-engine --exclude nether-earth-backend' > backend/requirements.lock.new
+	{ head -3 backend/requirements.lock; cat backend/requirements.lock.new; } > backend/requirements.lock.tmp
+	mv backend/requirements.lock.tmp backend/requirements.lock && rm backend/requirements.lock.new
