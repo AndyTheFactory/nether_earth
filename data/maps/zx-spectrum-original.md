@@ -330,6 +330,10 @@ survive whole, 4 cells each, 660 cells in all.
 - **`kind` is data.** The engine reads the physical effect from each
   component's cell and height only. `kind` is an opaque label that the
   frontend maps to an asset (CR002.5).
+- **`destructible: true`** (CR002.18, #196) marks the 149 box elements
+  (types 17 and 18). The nuclear blast (`Lba44_robots_handled`) turns element
+  types 17–20 into rough debris and skips type 21, the fence. The decoder
+  emits the flag, so the engine never branches on `kind`.
 - **Rules** (`_specs/open-questions.md` §4, "Scenery blockers"):
   - robots of every chassis are blocked (`Lb513`/`Lb5cd`: type ≥ 8/12/15);
   - the commander crosses a box at altitude ≥ its height and rests on top of

@@ -28,6 +28,8 @@ export interface MapBlocker {
   id: string;
   /** Opaque scenery label (e.g. `box_low`, `box_high`, `fence`) for asset mapping (CR002.5). */
   kind?: string;
+  /** A nuclear blast turns it into rough debris (CR002.18); ids land in `SnapshotState.scenery_debris`. */
+  destructible?: boolean;
   components: MapComponent[];
 }
 

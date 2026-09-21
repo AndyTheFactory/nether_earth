@@ -538,6 +538,10 @@ export interface SnapshotState {
     first_advance_tick: number;
   }[];
   structure_destruction: string[];
+  /**
+   * Ids of map blockers a nuclear blast turned into rough debris (CR002.18), canonical order. Their cells are rough terrain and no longer block.
+   */
+  scenery_debris: string[];
 }
 /**
  * Sent by a client re-establishing a WebSocket connection to an existing match after a disconnect.

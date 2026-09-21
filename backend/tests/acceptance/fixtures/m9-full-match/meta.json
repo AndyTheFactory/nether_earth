@@ -130,6 +130,7 @@
     "projectiles": [],
     "structure_destruction": [
       "warbase-4"
-    ]
+    ],
+    "scenery_debris": []
   }
 }

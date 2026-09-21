@@ -435,3 +435,5 @@ class SnapshotState(_SnapshotSubModel):
     capture_progress: list[CaptureProgressSnapshot]
     projectiles: list[ProjectileSnapshot]
     structure_destruction: list[EntityId]
+    #: Blocker ids turned into rough debris by a nuclear blast (CR002.18).
+    scenery_debris: list[EntityId]

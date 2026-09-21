@@ -21,6 +21,7 @@ function snap(tick: number, extra: Partial<SnapshotState> = {}): SnapshotMessage
       capture_progress: [],
       projectiles: [],
       structure_destruction: [],
+      scenery_debris: [],
       ...extra,
     },
   };

@@ -129,6 +129,7 @@ def test_snapshot_key_order_is_fixed() -> None:
         "capture_progress",
         "projectiles",
         "structure_destruction",
+        "scenery_debris",
     ]
 
 

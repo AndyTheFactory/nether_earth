@@ -593,8 +593,9 @@ On detonation:
 1. robots: destroy every robot inside the carrier-centred 9×9 window with trimmed corners (row widths 5/7/9/9/9/9/9/7/5);
 2. buildings: scan war bases, then factories, in canonical order; destroy the **first** one in range (war base: dx<7, dy<7, dx+dy<10; factory: dx<5, dy<5, dx+dy<7; dy measured from carrier.y+1, plus 4 for war bases); at most one building per detonation;
 3. destroy carrier robot;
-4. update ownership/victory;
-5. emit deterministic events.
+4. scenery: every map blocker marked `destructible` whose bottom-left (anchor) cell is inside the robot window becomes debris. `GameState.scenery_debris` records its id (canonical order, snapshotted). The effective world drops the blocker and makes its cells rough terrain, and the base `WorldMap` is not mutated. Fences are not `destructible`;
+5. update ownership/victory;
+6. emit deterministic events.
 
 The shape parameters are `EngineRules` data.
 

@@ -51,6 +51,7 @@ function base(tick: number, patch: Partial<SnapshotState> = {}): SnapshotState {
     capture_progress: [],
     projectiles: [],
     structure_destruction: [],
+    scenery_debris: [],
     ...patch,
   };
 }

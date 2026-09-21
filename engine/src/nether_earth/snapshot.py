@@ -81,6 +81,10 @@ same "new keys are appended after existing keys" precedent. No dedicated
 per-entry snapshot helper is needed (unlike ``structure_ownership``/
 ``capture_progress``/``projectiles``) because each entry is a bare id, not a
 multi-field record.
+
+Scenery debris (CR002.18, #196): ``GameState.scenery_debris`` is serialized
+as ``"scenery_debris"``, a plain list of blocker ids in canonical order,
+appended after ``structure_destruction`` the same way.
 """
 
 from __future__ import annotations
@@ -424,6 +428,9 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     ``structure_destruction`` (added to ``GameState`` by issue #78, M6.8) is
     appended last, following the same additive-key convention.
 
+    ``scenery_debris`` (CR002.18, #196): the ids of map blockers a nuclear
+    blast turned into rough debris, appended last the same way.
+
     Every field of ``GameState`` is now serialized; see the module docstring
     for why reservations and engagement intent, which M5 also introduced,
     correctly have no keys of their own.
@@ -450,6 +457,7 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
         "structure_destruction": [
             structure_id.to_json() for structure_id in state.structure_destruction
         ],
+        "scenery_debris": [blocker_id.to_json() for blocker_id in state.scenery_debris],
     }
 
 

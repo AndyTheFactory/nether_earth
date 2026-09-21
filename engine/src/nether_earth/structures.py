@@ -164,12 +164,17 @@ class Blocker:
     ``kind`` is an opaque data label (e.g. ``"box_low"``, ``"fence"`` on the
     original map, CR002.1 #168) that presentation layers map to an asset.
     The engine never branches on it: a blocker's gameplay effect comes only
-    from its components' cells and heights.
+    from its components' cells and heights, and ``destructible``.
+
+    ``destructible`` (CR002.18, #196) marks scenery a nuclear blast turns
+    into rough debris (`Lba44_robots_handled`: element types 17-20; the
+    type-21 fence is not destructible). Map data, default ``False``.
     """
 
     id: EntityId
     components: tuple[Component, ...]
     kind: str | None = None
+    destructible: bool = False
 
     def __post_init__(self) -> None:
         _validate_components(self.components, context="Blocker")
@@ -330,8 +335,9 @@ def parse_factories(raw: "list[Any] | None") -> tuple[Factory, ...]:
 def parse_blockers(raw: "list[Any] | None") -> tuple[Blocker, ...]:
     """Parse a YAML ``blockers`` list into a tuple of :class:`Blocker`.
 
-    Each entry has ``id``, ``components`` and an optional ``kind`` (a
-    non-empty string label, see :class:`Blocker`). Blockers are unowned
+    Each entry has ``id``, ``components``, an optional ``kind`` (a
+    non-empty string label) and an optional boolean ``destructible`` (see
+    :class:`Blocker`). Blockers are unowned
     generic scenery and never carry ``owner``/``factory_type``. Validates the
     same component shape as :func:`parse_war_bases`.
     """
@@ -358,6 +364,14 @@ def parse_blockers(raw: "list[Any] | None") -> tuple[Blocker, ...]:
         if kind is not None and (not isinstance(kind, str) or not kind.strip()):
             raise StructureValidationError(f"{context}: kind must be a non-empty string")
 
-        blockers.append(Blocker(id=EntityId(raw_id), components=components, kind=kind))
+        destructible = entry.get("destructible", False)
+        if not isinstance(destructible, bool):
+            raise StructureValidationError(f"{context}: destructible must be a boolean")
+
+        blockers.append(
+            Blocker(
+                id=EntityId(raw_id), components=components, kind=kind, destructible=destructible
+            )
+        )
 
     return tuple(blockers)

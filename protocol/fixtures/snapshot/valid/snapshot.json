@@ -46,6 +46,7 @@
     "structure_ownership": [],
     "capture_progress": [],
     "projectiles": [],
-    "structure_destruction": []
+    "structure_destruction": [],
+    "scenery_debris": []
   }
 }

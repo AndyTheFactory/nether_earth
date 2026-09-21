@@ -23,7 +23,7 @@ Implement the owner change request of 2026-09-21: close the two pending owner de
 ## Dependencies
 
 - Start: M10 merged and `v1.0.0-rc1` tagged (current `main`).
-- Gameplay-rule changes (CR002.1–CR002.4, CR002.12, CR002.13) require one rules-version bump (CR002.16); old replays are rejected, not mis-verified.
+- Gameplay-rule changes (CR002.1–CR002.4, CR002.12, CR002.13, CR002.18) require one rules-version bump (CR002.16); old replays are rejected, not mis-verified.
 - Where the disassembly does not settle a detail (anchor cells, flight over walls, post-launch state), stop and ask the owner instead of choosing.
 
 ## Tasks
@@ -47,8 +47,9 @@ Tracker: #185.
 | CR002.13 (#180) | Cannot exit the war-base construction menu | — |
 | CR002.14 (#181) | Occlusion: units behind structures are hidden | CR002.7 |
 | CR002.15 (#182) | Commander shadow ignores the height of buildings under it | CR002.4 |
-| CR002.16 (#183) | Rules version bump and spec updates for CR002 | CR002.1–CR002.4, CR002.12, CR002.13 |
+| CR002.16 (#183) | Rules version bump and spec updates for CR002 | CR002.1–CR002.4, CR002.12, CR002.13, CR002.18 |
 | CR002.17 (#184) | CR002 acceptance gate | all |
+| CR002.18 (#196) | Nuclear blast turns scenery boxes into rough debris; fences survive | CR002.1 |
 
 Parallel groups: engine (CR002.1, CR002.2, then CR002.3 → CR002.4, CR002.12, CR002.13) and frontend (CR002.6, CR002.7 → CR002.14, CR002.8, CR002.10 → CR002.9, CR002.11, CR002.5 after CR002.1). CR002.7 and CR002.14 both touch `projection.ts`/`renderer.ts`: merge one after the other.
 

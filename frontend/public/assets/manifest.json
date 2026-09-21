@@ -4,7 +4,8 @@
     "kinds": {
       "box_low": "scenery.box_low",
       "box_high": "scenery.box_high",
-      "fence": "scenery.fence"
+      "fence": "scenery.fence",
+      "debris": "scenery.debris_a"
     },
     "assets": {
       "scenery.box_low": { "sprite": "spectrum.element_17", "footprint": [2, 2], "height": 7 },

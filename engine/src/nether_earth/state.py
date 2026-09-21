@@ -134,11 +134,21 @@ existing callers keep working unchanged. `destruction.py`'s
 turns this into "excluded from ``WorldMap.war_bases``/``factories``" for
 every downstream consumer, mirroring `capture.py`'s
 :func:`~nether_earth.capture.effective_world` shape one layer further.
+
+Scenery debris field (CR002.18, issue #196): ``scenery_debris`` holds the ids
+of map blockers a nuclear blast has turned into rough debris
+(`Lba44_robots_handled`). Same shape and invariants as
+``structure_destruction`` (canonical sorted tuple, each id once, default
+``()``). `destruction.py`'s
+:func:`~nether_earth.destruction.execute_nuclear_detonation` is the sole
+writer; :func:`~nether_earth.destruction.effective_world` is the sole reader
+that drops those blockers and makes their cells rough terrain. The base
+``WorldMap`` is never mutated.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from nether_earth.commander import Commander
@@ -327,6 +337,12 @@ def _canonical_structure_destruction(
     return tuple(sorted(structure_destruction, key=lambda structure_id: structure_id.value))
 
 
+def _canonical_scenery_debris(scenery_debris: tuple[EntityId, ...]) -> tuple[EntityId, ...]:
+    """Return ``scenery_debris`` sorted by ``EntityId.value``; no id may appear twice."""
+    if len(set(scenery_debris)) != len(scenery_debris):
+        raise ValueError("duplicate scenery debris entry: a blocker can only become debris once")
+    return tuple(sorted(scenery_debris, key=lambda blocker_id: blocker_id.value))
+
 @dataclass(frozen=True, slots=True)
 class GameState:
     """Minimal authoritative engine state: tick, players, commanders, resource pools, and construction sessions.
@@ -415,6 +431,7 @@ class GameState:
     capture_progress: tuple[CaptureProgress, ...] = ()
     projectiles: tuple[Projectile, ...] = ()
     structure_destruction: tuple[EntityId, ...] = ()
+    scenery_debris: tuple[EntityId, ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -438,6 +455,7 @@ class GameState:
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -471,6 +489,7 @@ class GameState:
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -513,6 +532,7 @@ class GameState:
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -557,6 +577,7 @@ class GameState:
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -597,6 +618,7 @@ class GameState:
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def robot_for(self, entity_id: EntityId) -> Robot | None:
@@ -644,6 +666,7 @@ class GameState:
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def structure_ownership_for(self, structure_id: EntityId) -> StructureOwnership | None:
@@ -677,6 +700,7 @@ class GameState:
             capture_progress=canonical_capture_progress,
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def capture_progress_for(self, structure_id: EntityId) -> CaptureProgress | None:
@@ -712,6 +736,7 @@ class GameState:
             capture_progress=self.capture_progress,
             projectiles=canonical_projectiles,
             structure_destruction=self.structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def projectile_for(self, entity_id: EntityId) -> Projectile | None:
@@ -748,11 +773,20 @@ class GameState:
             capture_progress=self.capture_progress,
             projectiles=self.projectiles,
             structure_destruction=canonical_structure_destruction,
+            scenery_debris=self.scenery_debris,
         )
 
     def structure_destroyed(self, structure_id: EntityId) -> bool:
         """Return whether ``structure_id`` has been permanently destroyed."""
         return structure_id in self.structure_destruction
+
+    def with_scenery_debris(self, scenery_debris: tuple[EntityId, ...]) -> GameState:
+        """Return a new ``GameState`` with ``scenery_debris`` replaced (CR002.18).
+
+        Canonical (sorted by ``EntityId.value``), each id at most once; every
+        other field is carried over unchanged.
+        """
+        return replace(self, scenery_debris=_canonical_scenery_debris(tuple(scenery_debris)))
 
 
 def create_game_state(
@@ -767,6 +801,7 @@ def create_game_state(
     capture_progress: tuple[CaptureProgress, ...] | list[CaptureProgress] | None = None,
     projectiles: tuple[Projectile, ...] | list[Projectile] | None = None,
     structure_destruction: tuple[EntityId, ...] | list[EntityId] | None = None,
+    scenery_debris: tuple[EntityId, ...] | list[EntityId] | None = None,
 ) -> GameState:
     """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress``/``projectiles``/``structure_destruction`` normalized.
 
@@ -894,4 +929,7 @@ def create_game_state(
         capture_progress=canonical_capture_progress,
         projectiles=canonical_projectiles,
         structure_destruction=canonical_structure_destruction,
+        scenery_debris=_canonical_scenery_debris(
+            () if scenery_debris is None else tuple(scenery_debris)
+        ),
     )
