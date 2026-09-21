@@ -15,6 +15,7 @@ onto the developer's filesystem outside of a ``tmp_path`` -- see
 ``tmp_path``-scoped directory for exactly this reason.
 """
 
+import asyncio
 import logging
 import tempfile
 import time
@@ -30,7 +31,7 @@ from nether_earth.state import GameState
 from app.config import Settings, load_settings
 from app.logging_setup import configure_logging
 from app.match.manager import MatchManager
-from app.match.models import Match
+from app.match.models import Match, MatchRuntimeState
 from app.match.reconnect import (
     DEFAULT_GRACE_SECONDS,
     DisconnectEvent,
@@ -39,6 +40,9 @@ from app.match.reconnect import (
 )
 from app.match.runtime import TICK_RATE_HZ, MatchRuntimeRegistry, TickCommandObserver, TickObserver
 from app.match.world import load_standard_world
+from app.protocol import serialize_server_message
+from app.protocol.common import PROTOCOL_VERSION, ErrorInfo
+from app.protocol.server_messages import ServerError
 from app.replay import ReplayWriter, make_replay_lifecycle_notifier, make_replay_tick_recorder
 from app.transport import ConnectionRegistry, create_websocket_router
 from app.transport.disconnects import make_disconnect_notifier
@@ -46,6 +50,9 @@ from app.transport.snapshots import make_tick_broadcaster
 from app.transport.victory import make_victory_finalizer
 
 logger = logging.getLogger(__name__)
+
+#: How often expired matches are looked for (M10.6).
+SWEEP_INTERVAL_S = 15.0
 
 
 def _replay_dir_status(base_dir: Path) -> str:
@@ -133,6 +140,34 @@ def create_app(
     docs_enabled = not settings.production
     shutting_down = False
 
+    async def sweep_expired_matches() -> None:
+        """Dispose finished/abandoned matches; tell lobby owners theirs expired."""
+        for match in match_manager.sweep():
+            if match.state is not MatchRuntimeState.WAITING:
+                continue
+            expired = serialize_server_message(
+                ServerError(
+                    protocol_version=PROTOCOL_VERSION,
+                    type="error",
+                    match_id=match.match_id,
+                    error=ErrorInfo(code="match_expired", message="no opponent joined in time"),
+                )
+            )
+            for websocket in connection_registry.connections_for(match.match_id):
+                try:
+                    await asyncio.wait_for(websocket.send_text(expired), 5)
+                    await asyncio.wait_for(websocket.close(code=1000), 5)
+                except Exception:
+                    logger.debug("could not notify expired lobby socket", exc_info=True)
+
+    async def sweep_forever() -> None:
+        while True:
+            await asyncio.sleep(SWEEP_INTERVAL_S)
+            try:
+                await sweep_expired_matches()
+            except Exception:
+                logger.exception("match sweep failed", extra={"event": "match_sweep_failed"})
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         nonlocal shutting_down
@@ -146,7 +181,9 @@ def create_app(
                 "max_matches": settings.max_matches,
             },
         )
+        sweeper = asyncio.create_task(sweep_forever())
         yield
+        sweeper.cancel()
         shutting_down = True
         logger.info(
             "backend stopping; in-memory matches end with the process",
@@ -208,6 +245,8 @@ def create_app(
         on_match_start=replay_writer.start_match,
         on_match_finish=replay_writer.finish_match,
         max_matches=settings.max_matches,
+        finished_retention_s=settings.finished_retention_s,
+        waiting_timeout_s=settings.waiting_timeout_s,
     )
     # Breaks the construction-order cycle (this coordinator must exist
     # before `MatchManager` can be constructed with it, but the natural
@@ -221,6 +260,7 @@ def create_app(
 
     fastapi_app.state.settings = settings
     fastapi_app.state.match_manager = match_manager
+    fastapi_app.state.sweep_expired_matches = sweep_expired_matches
     fastapi_app.state.runtime_registry = runtime_registry
     fastapi_app.state.connection_registry = connection_registry
 

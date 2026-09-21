@@ -502,9 +502,14 @@ class ReplayWriter:
 
     def _append_jsonl(self, match_id: str, filename: str, line: dict[str, Any]) -> None:
         path = match_dir(self._base_dir, match_id) / filename
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(line))
-            handle.write("\n")
+        # One raw O_APPEND write per line (called every tick for every match):
+        # same per-tick durability as a buffered text handle, a fraction of
+        # its setup cost (M10.6 profiling).
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        try:
+            os.write(fd, (json.dumps(line) + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
 
 
 def make_replay_tick_recorder(writer: ReplayWriter, match_id: str) -> TickCommandObserver:

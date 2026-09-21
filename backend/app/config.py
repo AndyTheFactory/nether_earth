@@ -22,6 +22,8 @@ class ConfigError(ValueError):
 
 
 DEFAULT_MAX_MATCHES = 200
+DEFAULT_FINISHED_RETENTION_S = 300
+DEFAULT_WAITING_TIMEOUT_S = 900
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 _LOG_FORMATS = ("json", "text")
 
@@ -35,6 +37,11 @@ class Settings:
     replay_dir: Path | None = None
     #: Upper bound on matches held in memory at once (any state).
     max_matches: int = DEFAULT_MAX_MATCHES
+    #: Seconds a finished match stays resolvable (reconnecting players still
+    #: get the result) before it is dropped from memory.
+    finished_retention_s: int = DEFAULT_FINISHED_RETENTION_S
+    #: Seconds a lobby may wait for its second player before it is dropped.
+    waiting_timeout_s: int = DEFAULT_WAITING_TIMEOUT_S
     log_level: str = "INFO"
     #: ``json`` (one object per line; production default) or ``text``.
     log_format: str = "text"
@@ -97,6 +104,12 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         public_base_url=public_base_url,
         replay_dir=replay_dir,
         max_matches=_positive_int(env, "NETHER_EARTH_MAX_MATCHES", DEFAULT_MAX_MATCHES),
+        finished_retention_s=_positive_int(
+            env, "NETHER_EARTH_FINISHED_MATCH_RETENTION_SECONDS", DEFAULT_FINISHED_RETENTION_S
+        ),
+        waiting_timeout_s=_positive_int(
+            env, "NETHER_EARTH_WAITING_MATCH_TIMEOUT_SECONDS", DEFAULT_WAITING_TIMEOUT_S
+        ),
         log_level=log_level,
         log_format=log_format,
     )

@@ -20,6 +20,7 @@ import logging
 import secrets
 import string
 import threading
+import time
 import unicodedata
 import uuid
 from collections.abc import Callable
@@ -171,6 +172,9 @@ class MatchManager:
         on_match_start: Callable[[Match, Scenario, BootstrapMap], None] | None = None,
         on_match_finish: Callable[[Match], None] | None = None,
         max_matches: int | None = None,
+        finished_retention_s: float | None = None,
+        waiting_timeout_s: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
         # ``world`` (M9.1 audit gap G1): the scenario-overlaid real map. When
@@ -197,6 +201,10 @@ class MatchManager:
         # Capacity bound (M10.4): matches in any state count, so abandoned
         # lobbies cannot grow memory without limit. ``None`` = unbounded.
         self._max_matches = max_matches
+        # Disposal policy for `sweep` (M10.6); ``None`` = keep forever.
+        self._finished_retention_s = finished_retention_s
+        self._waiting_timeout_s = waiting_timeout_s
+        self._clock = clock
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
         self._match_id_by_join_code: dict[str, str] = {}
@@ -215,7 +223,9 @@ class MatchManager:
             match_seed = seed if seed is not None else secrets.randbits(63)
             session_token = _generate_session_token()
 
-            match = Match(match_id=match_id, join_code=join_code, seed=match_seed)
+            match = Match(
+                match_id=match_id, join_code=join_code, seed=match_seed, created_at=self._clock()
+            )
             match.players[PLAYER_ONE] = PlayerSlot(
                 player_id=PLAYER_ONE, nickname=nickname, session_token=session_token
             )
@@ -346,6 +356,7 @@ class MatchManager:
         with self._lock:
             match = self._get_match_locked(match_id)
             if match.state is not MatchRuntimeState.FINISHED:
+                match.finished_at = self._clock()
                 result = match.result
                 logger.info(
                     "match finished",
@@ -401,6 +412,40 @@ class MatchManager:
             "match disposed",
             extra={"event": "match_disposed", "match_id": match_id, "state": match.state.value},
         )
+
+    def sweep(self) -> list[Match]:
+        """Dispose finished matches past retention and lobbies past the waiting timeout.
+
+        Returns the disposed matches (their final state intact) so the caller
+        can tell any still-connected sockets. ``ACTIVE``/``PAUSED`` matches
+        are never touched: they end through victory or the reconnect-grace
+        policy and are then swept as ``FINISHED``. Without this, every match
+        ever played stayed in memory for the life of the process.
+        """
+        now = self._clock()
+        with self._lock:
+            expired = [
+                match.match_id
+                for match in self._matches.values()
+                if (
+                    match.state is MatchRuntimeState.FINISHED
+                    and self._finished_retention_s is not None
+                    and match.finished_at is not None
+                    and now - match.finished_at >= self._finished_retention_s
+                )
+                or (
+                    match.state is MatchRuntimeState.WAITING
+                    and self._waiting_timeout_s is not None
+                    and now - match.created_at >= self._waiting_timeout_s
+                )
+            ]
+            disposed = [self._matches[match_id] for match_id in expired]
+        for match_id in expired:
+            try:
+                self.dispose_match(match_id)
+            except MatchNotFoundError:
+                pass  # disposed concurrently; nothing left to do.
+        return disposed
 
     # -- lookup ---------------------------------------------------------------
 

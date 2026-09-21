@@ -16,7 +16,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 _STANDARD_ATTRS = frozenset(
-    logging.LogRecord("", 0, "", 0, "", (), None).__dict__.keys() | {"message", "asctime"}
+    logging.LogRecord("", 0, "", 0, "", (), None).__dict__.keys()
+    | {"message", "asctime", "color_message"}
 )
 
 
