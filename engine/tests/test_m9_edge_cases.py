@@ -17,7 +17,7 @@ from nether_earth import engine
 from nether_earth.capture import StructureCapturedEvent
 from nether_earth.combat import FireCommand, ProjectileTerminatedEvent, RobotDamagedEvent
 from nether_earth.commander import Commander, CommanderMode
-from nether_earth.commander_movement import CommanderMoveCommand, CommanderSetVerticalIntentCommand
+from nether_earth.commander_movement import CommanderSetVerticalIntentCommand
 from nether_earth.commands import Command
 from nether_earth.construction_commands import (
     LaunchRobotCommand,
@@ -27,6 +27,7 @@ from nether_earth.construction_commands import (
 from nether_earth.destruction import RobotDestroyedEvent, StructureDestroyedEvent
 from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.events import Event
+from nether_earth.heli_pad import heli_pad_surface_altitude
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap, load_world_map
@@ -125,7 +126,7 @@ def _commander_on_pad_with_session(state: GameState, world: WorldMap, player: Pl
     pad = _cell(world, base, InteractionKind.HELI_PAD)
     commander = state.commander_for(player)
     assert commander is not None
-    moved = replace(commander, x=pad[0], y=pad[1], altitude=0)
+    moved = replace(commander, x=pad[0], y=pad[1], altitude=heli_pad_surface_altitude(world, *pad))
     state = state.with_commanders(tuple(moved if c.player_id == player else c for c in state.commanders))
     state, _ = _step(state, world)
     assert state.construction_session_for(player) is not None
@@ -392,20 +393,20 @@ def test_detonation_destroys_carrier_neighbours_and_structures_but_never_command
 # -- launch onto a shared pad/exit cell then commander/robot separation ---------------
 
 
-def test_launched_robot_and_grounded_commander_share_the_exit_until_the_commander_steps_aside(world: WorldMap) -> None:
-    """Documents the current pad == exit placeholder behaviour (open-questions §18)."""
+def test_launched_robot_appears_at_the_anchor_exit_while_the_commander_stays_on_the_roof_pad(world: WorldMap) -> None:
+    """Roof pad at (anchor.x, anchor.y - 4); the robot exits at the anchor (open-questions §18)."""
     state = _commander_on_pad_with_session(_initial(world), world, PLAYER_ONE, "warbase-1")
+    pad = _cell(world, "warbase-1", InteractionKind.HELI_PAD)
+    exit_cell = _cell(world, "warbase-1", InteractionKind.EXIT)
+    assert exit_cell == (pad[0], pad[1] + 4)
     state, _ = _step(state, world, (SelectModuleCommand(player=PLAYER_ONE, sequence=0, module=ModuleIdentity.BIPOD),))
     state, _ = _step(state, world, (SelectModuleCommand(player=PLAYER_ONE, sequence=1, module=ModuleIdentity.CANNON),))
-    state, _ = _step(state, world, (LaunchRobotCommand(player=PLAYER_ONE, sequence=2),))
+    state, events = _step(state, world, (LaunchRobotCommand(player=PLAYER_ONE, sequence=2),))
+    assert len(_events(events, RobotLaunchedEvent)) == 1
     robot = state.robots_for(PLAYER_ONE)[0]
+    assert (robot.x, robot.y) == exit_cell
     commander = state.commander_for(PLAYER_ONE)
-    assert commander is not None and (commander.x, commander.y, commander.altitude) == (robot.x, robot.y, 0)
-    # Enclosed: rising is blocked by the robot above.
+    assert commander is not None and (commander.x, commander.y, commander.altitude) == (*pad, 15)
+    # The commander is not enclosed by the robot: it can take off from the roof.
     state, _ = _step(state, world, (CommanderSetVerticalIntentCommand(player=PLAYER_ONE, sequence=3, rising=True),), ticks=12)
-    assert state.commander_for(PLAYER_ONE).altitude == 0  # type: ignore[union-attr]
-    # Stepping aside on the ground is allowed, after which rising works.
-    state, _ = _step(state, world, (CommanderMoveCommand(player=PLAYER_ONE, sequence=4, dx=-1, dy=0),), ticks=8)
-    state, _ = _step(state, world, ticks=12)
-    commander = state.commander_for(PLAYER_ONE)
-    assert commander is not None and commander.x == robot.x - 1 and commander.altitude > 0
+    assert state.commander_for(PLAYER_ONE).altitude > 15  # type: ignore[union-attr]

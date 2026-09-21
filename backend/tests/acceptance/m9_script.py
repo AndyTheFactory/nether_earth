@@ -51,6 +51,9 @@ from nether_earth.robot_build import ModuleIdentity
 from nether_earth.state import GameState
 
 SCRIPT_SEED = 20260920
+#: Flight altitude that clears the 15-high war-base roof the heli-pad sits on
+#: (open-questions §18); the script only uses it to route, never to decide landing.
+ROOF_CLEARANCE = 16
 #: Hard stop so a regression that stalls the script fails instead of hanging.
 MAX_TICKS = 40_000
 
@@ -111,15 +114,23 @@ class Api:
             None,
         )
         if enclosing is not None and commander.mode is CommanderMode.FREE:
-            # A robot launched onto the pad/exit cell the grounded commander
-            # occupies (M9.3: pad == exit placeholder) encloses it; step
-            # aside on the ground before rising.
+            # A robot standing on the grounded commander's cell encloses it;
+            # step aside on the ground before rising.
             yield from self.move_commander_to(player, commander.x - 1, commander.y)
         self.cmd(CommanderSetVerticalIntentCommand, player, rising=True)
         yield lambda s: (c := s.commander_for(player)) is not None and c.altitude >= altitude
         yield from self.move_commander_to(player, x, y)
         self.cmd(CommanderSetVerticalIntentCommand, player, rising=False)
         yield self.ticks(1)
+
+    def land_on_heli_pad(self, player: PlayerId, structure_id: str) -> Iterator[Predicate]:
+        """Fly above the roof-top heli-pad, release rise, and let gravity settle the commander on it.
+
+        The pad is on the war-base roof (open-questions §18); the engine
+        enters construction once the commander rests at the roof height.
+        """
+        pad = self.heli_pad(structure_id)
+        yield from self.fly_commander_to(player, pad[0], pad[1], ROOF_CLEARANCE)
 
     def land_on_robot(self, player: PlayerId, robot_id: EntityId) -> Iterator[Predicate]:
         """Fly above the robot, release rise, and let gravity dock the commander onto it."""
@@ -220,7 +231,7 @@ P2_GUARD = EntityId("robot-p2-1")
 def player_one(api: Api) -> Actor:
     """Player 1: scout captures a factory and the neutral warbase-2; a striker destroys warbase-4."""
     pad = api.heli_pad("warbase-1")
-    yield from api.move_commander_to(PLAYER_ONE, *pad)
+    yield from api.land_on_heli_pad(PLAYER_ONE, "warbase-1")
     yield lambda s: s.construction_session_for(PLAYER_ONE) is not None
     api.mark("p1 construction entered")
 
@@ -256,7 +267,7 @@ def player_one(api: Api) -> Actor:
     yield from api.drive_to(PLAYER_ONE, *capture_cell)
     api.mark("p1 direct-controlled scout onto warbase-2 capture cell")
     yield from api.undock(PLAYER_ONE)
-    yield from api.fly_commander_to(PLAYER_ONE, pad[0], pad[1], 16)
+    yield from api.land_on_heli_pad(PLAYER_ONE, "warbase-1")
     yield lambda s: s.construction_session_for(PLAYER_ONE) is not None
     yield lambda s: (o := s.structure_ownership_for(EntityId("warbase-2"))) is not None and o.owner == PLAYER_ONE
     api.mark("p1 captured warbase-2")
@@ -279,7 +290,7 @@ def player_one(api: Api) -> Actor:
     yield from api.land_on_robot(PLAYER_ONE, P1_STRIKER)
     yield from api.drive_to(PLAYER_ONE, pad[0], api.world.height - 1)
     yield from api.undock(PLAYER_ONE)
-    yield from api.fly_commander_to(PLAYER_ONE, pad[0], pad[1], 16)
+    yield from api.land_on_heli_pad(PLAYER_ONE, "warbase-1")
     enemy = api.war_base("warbase-4")
     yield from api.advance_to_column(PLAYER_ONE, P1_STRIKER, enemy[0])
     api.mark("p1 striker in position")
@@ -294,8 +305,8 @@ def player_one(api: Api) -> Actor:
 
 def player_two(api: Api) -> Actor:
     """Player 2: builds a guard, drives it onto the bottom row east of the base, and fires one aligned shot."""
-    pad = api.heli_pad("warbase-4")
-    yield from api.move_commander_to(PLAYER_TWO, *pad)
+    base = api.war_base("warbase-4")
+    yield from api.land_on_heli_pad(PLAYER_TWO, "warbase-4")
     yield lambda s: s.construction_session_for(PLAYER_TWO) is not None
     api.mark("p2 construction entered")
     yield from api.build_and_launch(PLAYER_TWO, (ModuleIdentity.BIPOD, ModuleIdentity.CANNON))
@@ -304,10 +315,10 @@ def player_two(api: Api) -> Actor:
     # Direct control: dock and drive the guard to the bottom row, three cells east of the base column.
     yield from api.land_on_robot(PLAYER_TWO, P2_GUARD)
     api.mark("p2 docked on guard")
-    yield from api.drive_to(PLAYER_TWO, pad[0] + 3, api.world.height - 1)
+    yield from api.drive_to(PLAYER_TWO, base[0] + 3, api.world.height - 1)
     api.mark("p2 guard in position")
     yield from api.undock(PLAYER_TWO)
-    yield from api.fly_commander_to(PLAYER_TWO, pad[0] + 3, pad[1] + 3, 12)
+    yield from api.fly_commander_to(PLAYER_TWO, base[0] + 3, base[1] + 3, 12)
     yield lambda s: (c := s.commander_for(PLAYER_TWO)) is not None and c.altitude == 0
     api.mark("p2 commander parked")
 

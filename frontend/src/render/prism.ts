@@ -20,10 +20,10 @@ export function drawPrism(g: Graphics, x: number, y: number, z0: number, height:
   }
 }
 
-export function drawDiamond(g: Graphics, x: number, y: number, color: number, alpha = 1, stroke?: number): void {
+export function drawDiamond(g: Graphics, x: number, y: number, color: number, alpha = 1, stroke?: number, z = 0): void {
   const hw = CELL_W / 2;
   const hh = CELL_H / 2;
-  const p = project(x, y);
+  const p = project(x, y, z);
   g.poly([p.x, p.y - hh, p.x + hw, p.y, p.x, p.y + hh, p.x - hw, p.y]).fill({ color, alpha });
   if (stroke !== undefined) g.stroke({ color: stroke, width: 1, alpha: 0.6 });
 }

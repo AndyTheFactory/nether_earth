@@ -68,3 +68,12 @@ export function terrainAt(map: MapData, x: number, y: number): TerrainType {
   }
   return map.terrain.default;
 }
+
+/** Top of the static structure component standing on (x, y), or 0 on open ground. Presentation only. */
+export function surfaceHeightAt(map: MapData, x: number, y: number): number {
+  let top = 0;
+  for (const s of [...map.war_bases, ...map.factories, ...map.blockers]) {
+    for (const c of s.components) if (c.x === x && c.y === y) top = Math.max(top, c.height);
+  }
+  return top;
+}

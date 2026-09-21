@@ -825,11 +825,11 @@ interaction_points:
   - id: warbase-1-helipad
     kind: heli_pad
     structure_id: warbase-1
-    footprint: {x: 22, y: 9}  # UNVERIFIED placeholder, see evidence doc
+    footprint: {x: 22, y: 5}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
   - id: warbase-1-exit
     kind: exit
     structure_id: warbase-1
-    footprint: {x: 22, y: 9}  # UNVERIFIED placeholder, see evidence doc
+    footprint: {x: 22, y: 9}  # anchor cell, open-questions.md §18
   - id: warbase-2-warbase-capture
     kind: warbase_capture
     structure_id: warbase-2
@@ -837,11 +837,11 @@ interaction_points:
   - id: warbase-2-helipad
     kind: heli_pad
     structure_id: warbase-2
-    footprint: {x: 261, y: 8}  # UNVERIFIED placeholder, see evidence doc
+    footprint: {x: 261, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
   - id: warbase-2-exit
     kind: exit
     structure_id: warbase-2
-    footprint: {x: 261, y: 8}  # UNVERIFIED placeholder, see evidence doc
+    footprint: {x: 261, y: 8}  # anchor cell, open-questions.md §18
   - id: warbase-3-warbase-capture
     kind: warbase_capture
     structure_id: warbase-3
@@ -849,11 +849,11 @@ interaction_points:
   - id: warbase-3-helipad
     kind: heli_pad
     structure_id: warbase-3
-    footprint: {x: 369, y: 8}  # UNVERIFIED placeholder, see evidence doc
+    footprint: {x: 369, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
   - id: warbase-3-exit
     kind: exit
     structure_id: warbase-3
-    footprint: {x: 369, y: 8}  # UNVERIFIED placeholder, see evidence doc
+    footprint: {x: 369, y: 8}  # anchor cell, open-questions.md §18
   - id: warbase-4-warbase-capture
     kind: warbase_capture
     structure_id: warbase-4
@@ -861,11 +861,11 @@ interaction_points:
   - id: warbase-4-helipad
     kind: heli_pad
     structure_id: warbase-4
-    footprint: {x: 494, y: 8}  # UNVERIFIED placeholder, see evidence doc
+    footprint: {x: 494, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
   - id: warbase-4-exit
     kind: exit
     structure_id: warbase-4
-    footprint: {x: 494, y: 8}  # UNVERIFIED placeholder, see evidence doc
+    footprint: {x: 494, y: 8}  # anchor cell, open-questions.md §18
   - id: factory-1-capture
     kind: factory_capture
     structure_id: factory-1

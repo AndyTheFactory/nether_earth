@@ -91,6 +91,9 @@ H_TICKS = RULES.commander_horizontal_move_ticks  # 4
 ASCENT = RULES.commander_ascent_step  # 2
 DESCENT = RULES.commander_descent_step  # 1
 HEIGHT = RULES.commander_height  # 4
+# The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
+# commander lands at that component height (open-questions.md §18).
+PAD_ROOF_ALTITUDE = 3
 
 
 def _scenario_and_map() -> tuple[Scenario, BootstrapMap]:
@@ -464,7 +467,9 @@ def test_enemy_robot_contact_stops_descent_without_docking_or_control_transfer()
 
 
 def test_landing_on_own_heli_pad_emits_construction_entry_eligible() -> None:
-    p1 = _free(PLAYER_ONE, x=4, y=0, altitude=0)  # p1's own heli-pad cell
+    # p1's own heli-pad cell, resting on warbase-p1's 3-high roof component
+    # (open-questions.md §18: land at the pad cell's component height).
+    p1 = _free(PLAYER_ONE, x=4, y=0, altitude=PAD_ROOF_ALTITUDE)
     state = _new_game((p1,))
     world = _world()
 
@@ -478,11 +483,35 @@ def test_landing_on_own_heli_pad_emits_construction_entry_eligible() -> None:
 
 def test_landing_on_the_other_players_heli_pad_grants_no_entry() -> None:
     # p1's commander lands on p2's heli-pad cell -- not p1's own war base.
-    p1 = _free(PLAYER_ONE, x=4, y=3, altitude=0)
+    p1 = _free(PLAYER_ONE, x=4, y=3, altitude=PAD_ROOF_ALTITUDE)
     state = _new_game((p1,))
     world = _world()
 
     _state, events = step(state, [], world=world)
+    assert not any(isinstance(e, CommanderConstructionEntryEligible) for e in events)
+
+
+def test_descending_onto_own_roof_heli_pad_settles_and_enters_through_step() -> None:
+    # Flying one descent step above the pad; height-aware collision lets the
+    # commander settle on the 3-high roof component, where it lands.
+    p1 = _free(PLAYER_ONE, x=4, y=0, altitude=PAD_ROOF_ALTITUDE + DESCENT)
+    state = _new_game((p1,))
+    world = _world()
+
+    landing: list[CommanderConstructionEntryEligible] = []
+    for _ in range(3 * V_TICKS):
+        state, events = step(state, [], world=world)
+        landing.extend(e for e in events if isinstance(e, CommanderConstructionEntryEligible))
+
+    assert state.commander_for(PLAYER_ONE).altitude == PAD_ROOF_ALTITUDE  # type: ignore[union-attr]
+    assert landing and landing[0].war_base_id == EntityId("warbase-p1")
+
+
+def test_ground_level_below_the_roof_heli_pad_is_not_a_landing() -> None:
+    p1 = _free(PLAYER_ONE, x=4, y=0, altitude=0)
+    state = _new_game((p1,))
+
+    _state, events = step(state, [], world=_world())
     assert not any(isinstance(e, CommanderConstructionEntryEligible) for e in events)
 
 
@@ -518,21 +547,11 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     5. p1 undocks (through one ascent step) and starts climbing away.
 
     Landing on the friendly war-base heli-pad (bullet 9 of the milestone
-    scenario) is deliberately *not* chained onto this same flight: this
-    fixture's heli-pad footprint cell, ``(4, 0)``, coincides with one of
-    ``warbase-p1``'s own physical components (height 3) -- flying a
-    commander into that column at low altitude is itself blocked by height-
-    aware collision (the same rule phase 3/4 above already exercises), so no
-    in-flight path through this map can *reach* grounded altitude 0 there.
-    Heli-pad landing eligibility is a pure function of authoritative state
-    (`heli_pad.py`'s own docstring: "a pure function of its arguments"), not
-    of how a commander arrived at that state, so it is exercised directly
-    and thoroughly by ``test_landing_on_own_heli_pad_emits_construction_entry_eligible``/
-    ``test_landing_on_the_other_players_heli_pad_grants_no_entry`` above
-    (matching the exact same "construct the commander already at the
-    landing cell" style issue #42's own
-    ``test_heli_pad_landing_eligibility_through_step`` precedent uses) rather
-    than being force-fit onto the end of this flight scenario.
+    scenario) is deliberately *not* chained onto this same flight: it is
+    exercised by ``test_landing_on_own_heli_pad_emits_construction_entry_eligible``
+    and ``test_descending_onto_own_roof_heli_pad_settles_and_enters_through_step``
+    above (the pad is on ``warbase-p1``'s 3-high roof component, where
+    height-aware collision lets the commander settle; open-questions.md §18).
 
     Returns the final state and the full ordered event stream, so callers
     can replay this twice and diff the results for determinism.

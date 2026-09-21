@@ -3,7 +3,7 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
-import { terrainAt } from '../world/map.ts';
+import { surfaceHeightAt, terrainAt } from '../world/map.ts';
 import { CELL_H, CELL_W, depthKey, project } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
@@ -83,10 +83,16 @@ export class WorldRenderer {
     for (const b of this.map.blockers) {
       for (const c of b.components) blocks.push({ c, color: colorFor('structure.blocker'), dead: false });
     }
+    // Heli-pads sit on the war-base roof (open-questions §18): mark the pad
+    // cell's top face right after its prism so nearer blocks still occlude it.
+    const pads = new Set(this.map.interaction_points.filter((ip) => ip.kind === 'heli_pad').map((ip) => `${ip.footprint.x},${ip.footprint.y}`));
     blocks.sort((a, b) => depthKey(a.c.x, a.c.y) - depthKey(b.c.x, b.c.y));
     for (const { c, color, dead } of blocks) {
       if (dead) drawPrism(g, c.x, c.y, 0, 1, shade(color, 0.3), 0.8);
-      else drawPrism(g, c.x, c.y, 0, c.height, color);
+      else {
+        drawPrism(g, c.x, c.y, 0, c.height, color);
+        if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+      }
     }
   }
 
@@ -247,7 +253,7 @@ export class WorldRenderer {
     }
     for (const ip of this.map.interaction_points) {
       const col = ip.kind === 'heli_pad' ? PALETTE.brightGreen : ip.kind === 'exit' ? PALETTE.brightYellow : PALETTE.brightCyan;
-      drawDiamond(g, ip.footprint.x, ip.footprint.y, col, 0.5);
+      drawDiamond(g, ip.footprint.x, ip.footprint.y, col, 0.5, undefined, surfaceHeightAt(this.map, ip.footprint.x, ip.footprint.y));
     }
     for (const cp of snap.capture_progress) {
       const comps = [...this.map.war_bases, ...this.map.factories].find((s) => s.id === cp.structure_id)?.components ?? [];

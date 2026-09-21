@@ -41,6 +41,9 @@ from nether_earth.state import GameState
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "world_map_basic.yaml"
 
 P1_HELI_PAD_CELL = (4, 0)
+# The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
+# commander lands at that component height (open-questions.md §18).
+PAD_ROOF_ALTITUDE = 3
 
 
 def _scenario_and_map() -> tuple[Scenario, BootstrapMap]:
@@ -298,7 +301,7 @@ def test_undocking_through_step() -> None:
 
 
 def test_heli_pad_landing_eligibility_through_step() -> None:
-    commander = _free_commander(PLAYER_ONE, *P1_HELI_PAD_CELL, altitude=0)
+    commander = _free_commander(PLAYER_ONE, *P1_HELI_PAD_CELL, altitude=PAD_ROOF_ALTITUDE)
     state = _base_state((commander,))
 
     _new_state, events = step(state, [], world=_world())
@@ -311,7 +314,7 @@ def test_heli_pad_landing_eligibility_through_step() -> None:
 
 def test_heli_pad_landing_not_detected_without_world() -> None:
     """Ruling 1: heli-pad detection is skipped entirely when world is None."""
-    commander = _free_commander(PLAYER_ONE, *P1_HELI_PAD_CELL, altitude=0)
+    commander = _free_commander(PLAYER_ONE, *P1_HELI_PAD_CELL, altitude=PAD_ROOF_ALTITUDE)
     state = _base_state((commander,))
 
     _new_state, events = step(state, [])  # world=None

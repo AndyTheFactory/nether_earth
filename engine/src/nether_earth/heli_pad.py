@@ -39,20 +39,30 @@ None`` is neutral/unclaimed (`structures.py`); an enemy-owned war base has
 a different ``owner``. Both cases must not grant construction entry — only
 the commander's own war base's heli-pad does.
 
-Landing = grounded + on a heli-pad cell
------------------------------------------
+Landing = resting on a heli-pad cell's surface
+-----------------------------------------------
 
 "Landing" means the commander is ``FREE`` (a ``DOCKED`` commander is
 already attached to a robot, not flying itself onto a pad — checked
 explicitly here even though #37's invariants make ``DOCKED`` +
 "independently landing" a contradictory combination, for clarity and so
 this function's precondition list is self-documenting rather than relying
-on an invariant defined in another module), at
-``rules.commander_min_altitude`` (grounded — the "sufficient contact"
-acceptance criterion; anything above ground level is still airborne and
-must not trigger construction entry even if directly above a heli-pad
-cell), and at an ``(x, y)`` that is a member of one of its own war base's
-``HELI_PAD`` interaction-point footprints.
+on an invariant defined in another module), at an ``(x, y)`` that is a
+member of one of its own war base's ``HELI_PAD`` interaction-point
+footprints, and at an altitude *exactly equal* to that pad cell's surface
+height.
+
+The heli-pad is on the war-base roof (`_specs/open-questions.md` §18,
+CR001): the original game places the "H" decoration at (anchor.x,
+anchor.y − 4) and enters construction only when the ship is over it at
+altitude exactly 15 (`cp 15`), the roof of the 15-high war-base block. The
+surface height of a pad cell is therefore the height of the static
+component occupying that cell (resolved via `collision.components_at`, the
+same per-cell lookup height-aware collision uses, so the landing altitude
+is precisely where commander collision lets the commander settle). A pad
+cell with no component is at ground level, ``rules.commander_min_altitude``.
+Anything above the surface is still airborne and does not trigger
+construction entry.
 
 Determinism and "exactly one event"
 --------------------------------------
@@ -78,6 +88,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from nether_earth.collision import components_at
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
@@ -89,6 +100,7 @@ from nether_earth.state import GameState
 __all__ = [
     "CommanderConstructionEntryEligible",
     "detect_heli_pad_landing",
+    "heli_pad_surface_altitude",
 ]
 
 
@@ -115,6 +127,22 @@ class CommanderConstructionEntryEligible(Event):
     player: PlayerId
     war_base_id: EntityId
     tick: int
+
+
+def heli_pad_surface_altitude(
+    world: WorldMap, x: int, y: int, rules: EngineRules = DEFAULT_RULES
+) -> int:
+    """Return the altitude a commander rests at when landed on pad cell ``(x, y)``.
+
+    That is the height of the static component occupying the cell (15 on
+    the original war-base roof, `_specs/open-questions.md` §18), or
+    ``rules.commander_min_altitude`` (ground) when the cell has no
+    component. At most one component occupies a cell on a valid map; the
+    maximum is taken defensively, matching the top of the blocking surface
+    height-aware collision would rest the commander on.
+    """
+    heights = [component.height for component in components_at(world, x, y)]
+    return max(heights, default=rules.commander_min_altitude)
 
 
 def detect_heli_pad_landing(
@@ -149,16 +177,16 @@ def detect_heli_pad_landing(
 
     - ``commander.mode is CommanderMode.FREE`` — a docked commander is not
       independently landing (see module docstring);
-    - ``commander.altitude == rules.commander_min_altitude`` — grounded,
-      the "sufficient contact" requirement (anything else, including a
-      commander merely close to the ground, does not count);
     - ``commander.player_id`` owns a war base in ``world.war_bases``
       (``WarBase.owner == commander.player_id`` — neither ``None``
       (neutral) nor a different player's id qualifies);
     - ``(commander.x, commander.y)`` is a member of that war base's
       ``HELI_PAD`` interaction-point footprint(s), resolved via
       ``world.interaction_points_for(war_base.id, kind=InteractionKind.HELI_PAD)``
-      — never inferred from ``WarBase.components``.
+      — never inferred from ``WarBase.components``;
+    - ``commander.altitude`` equals that pad cell's surface height (see
+      :func:`heli_pad_surface_altitude`) — the "sufficient contact"
+      requirement; anything above it is still airborne.
 
     A war base with zero declared heli-pad interaction points simply never
     matches (``interaction_points_for`` returns an empty tuple), which is a
@@ -168,15 +196,17 @@ def detect_heli_pad_landing(
 
     if commander.mode is not CommanderMode.FREE:
         return None
-    if commander.altitude != rules.commander_min_altitude:
-        return None
 
     for war_base in world.war_bases:
         if war_base.owner != commander.player_id:
             continue
         heli_pads = world.interaction_points_for(war_base.id, kind=InteractionKind.HELI_PAD)
         for heli_pad in heli_pads:
-            if (commander.x, commander.y) in heli_pad.footprint.cells:
+            if (commander.x, commander.y) not in heli_pad.footprint.cells:
+                continue
+            if commander.altitude == heli_pad_surface_altitude(
+                world, commander.x, commander.y, rules
+            ):
                 resolved_sequencer = sequencer if sequencer is not None else EventSequencer()
                 return CommanderConstructionEntryEligible(
                     sequence=resolved_sequencer.next_sequence(),

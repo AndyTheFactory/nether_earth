@@ -96,8 +96,8 @@ structures (no cross-layer occlusion), and there is no real art yet.
 ## Live check status
 
 `npm run live:check` against the real backend passes 15/15 checks: create,
-join, ready and start; commander move and rise; heli-pad landing opens a
-construction session; build and launch at the war-base exit; an Advance order
+join, ready and start; commander move and rise; landing on the roof-top
+heli-pad (altitude 15, open-questions §18) opens a construction session; build and launch at the war-base exit; an Advance order
 starts autonomous movement; direct fire creates a projectile; disconnect
 pauses with a frozen tick; reconnect resyncs and resumes; client state equals
 the server snapshot byte for byte. The backend plays every match on the

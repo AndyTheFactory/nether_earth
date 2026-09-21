@@ -103,14 +103,20 @@ def test_pause_freezes_in_flight_robot_move_and_resync_converges(tmp_path: Path)
                 session_a = {"matchId": match_id, "playerId": "p1", "sessionToken": created["sessionToken"]}
                 session_b = {"matchId": match_id, "playerId": "p2", "sessionToken": joined["sessionToken"]}
 
-                # -- 1. Player 1: walk to the pad, build, launch, order an advance.
+                # -- 1. Player 1: fly onto the roof-top pad (open-questions §18),
+                #       build, launch, order an advance.
                 sequence = 0
-                for dx, dy in [(1, 0)] * 5 + [(0, -1)]:
+                _command(ws_a, session_a, sequence, {"kind": "commander_set_vertical_intent", "rising": True})
+                sequence += 1
+                _wait_snapshot(ws_a, lambda s: _commander(s, "p1")["altitude"] >= 16)
+                for dx, dy in [(1, 0)] * 5 + [(0, -1)] * 5:
                     _command(ws_a, session_a, sequence, {"kind": "commander_move", "dx": dx, "dy": dy})
                     sequence += 1
                     _wait_snapshot(ws_a, lambda s: _commander(s, "p1").get("horizontal_transition") is None and s["tick"] > 0)
                     _wait_snapshot(ws_a, lambda s: _commander(s, "p1").get("horizontal_transition") is None)
-                state = _wait_snapshot(ws_a, lambda s: (_commander(s, "p1")["x"], _commander(s, "p1")["y"]) == (22, 9))["state"]
+                _command(ws_a, session_a, sequence, {"kind": "commander_set_vertical_intent", "rising": False})
+                sequence += 1
+                state = _wait_snapshot(ws_a, lambda s: (_commander(s, "p1")["x"], _commander(s, "p1")["y"]) == (22, 5))["state"]
                 _wait_snapshot(ws_a, lambda s: any(c["player_id"] == "p1" for c in s["construction_sessions"]))
                 for module in ("bipod", "cannon"):
                     _command(ws_a, session_a, sequence, {"kind": "select_module", "module": module})

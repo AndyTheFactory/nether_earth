@@ -109,10 +109,15 @@ async function main() {
   a.command({ kind: 'commander_set_vertical_intent', rising: false });
   await a.wait((m) => m.type === 'snapshot' && me()?.altitude === 0, 15000, 'commander landed');
 
-  // Real construction flow (M9): walk to the own war base's heli-pad (canonical
-  // scenario: Player 1 spawns at (17, 10), warbase-1 pad at (22, 9)), enter
-  // construction on landing, build, launch, and order the robot.
-  const PAD = { x: 22, y: 9 };
+  // Real construction flow (M9, CR001 §18): fly to the own war base's roof-top
+  // heli-pad (canonical scenario: Player 1 spawns at (17, 10); warbase-1 anchor
+  // (22, 9), pad on the 15-high roof at (22, 5)), release rise so the commander
+  // settles on the roof, enter construction on landing, build, launch, and
+  // order the robot.
+  const PAD = { x: 22, y: 5 };
+  const ROOF_CLEARANCE = 16;
+  a.command({ kind: 'commander_set_vertical_intent', rising: true });
+  await a.wait((m) => m.type === 'snapshot' && me()?.altitude >= ROOF_CLEARANCE, 15000, 'commander above the roof');
   const step = async () => {
     const c = me();
     const dx = Math.sign(PAD.x - c.x);
@@ -121,15 +126,16 @@ async function main() {
     await a.wait((m) => m.type === 'snapshot' && !me().horizontal_transition && (me().x !== c.x || me().y !== c.y), 5000, 'commander step');
   };
   while (me().x !== PAD.x || me().y !== PAD.y) await step();
-  await a.wait((m) => m.type === 'snapshot' && a.latest.construction_sessions.some((s) => s.player_id === a.session.playerId), 5000, 'construction session');
-  check('landing on the heli-pad opens a construction session', true, `tick ${a.latest.tick}`);
+  a.command({ kind: 'commander_set_vertical_intent', rising: false });
+  await a.wait((m) => m.type === 'snapshot' && a.latest.construction_sessions.some((s) => s.player_id === a.session.playerId), 30000, 'construction session');
+  check('landing on the roof heli-pad opens a construction session', me().altitude === 15, `tick ${a.latest.tick}, alt ${me().altitude}`);
   a.command({ kind: 'select_module', module: 'bipod' });
   a.command({ kind: 'select_module', module: 'cannon' });
   await a.wait((m) => m.type === 'snapshot' && a.latest.construction_sessions[0]?.build.weapons.includes('cannon'), 5000, 'modules selected');
   a.command({ kind: 'launch_robot' });
   await a.wait((m) => m.type === 'snapshot' && a.latest.robots.length === 1, 5000, 'robot launched');
   const robot = a.latest.robots[0];
-  check('robot built and launched at the war-base exit', robot.owner === a.session.playerId, `${robot.entity_id} at (${robot.x}, ${robot.y})`);
+  check('robot built and launched at the war-base exit', robot.owner === a.session.playerId && robot.x === PAD.x && robot.y === PAD.y + 4, `${robot.entity_id} at (${robot.x}, ${robot.y})`);
   a.command({ kind: 'set_robot_order', entityId: robot.entity_id, order: { kind: 'advance', distanceMiles: 10 } });
   await a.wait((m) => m.type === 'snapshot' && a.latest.robots[0]?.order?.kind === 'advance' && a.latest.robots[0]?.movement, 5000, 'robot moving');
   check('robot order accepted and autonomous movement started', true, `order ${a.latest.robots[0].order.kind}`);

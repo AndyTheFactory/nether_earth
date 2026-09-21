@@ -28,12 +28,10 @@ sign-off before being treated as final authoritative geometry:
   or a screenshot, so treat the exact cell/height values as **evidence-based
   but unverified reconstruction**, not observed fact.
 - **Heli-pad and exit interaction points** (`*-helipad`, `*-exit` in
-  `interaction_points`): marked `UNVERIFIED placeholder` inline in the YAML.
-  I could not find or decode the exact heli-pad/exit cell offset in the
-  disassembly in this pass, so each is placed at the war base's own verified
-  anchor cell as a minimal placeholder so the schema's interaction-point
-  contract is populated. These are **not** evidence for the real offset and
-  must not be treated as final positions.
+  `interaction_points`): resolved by `_specs/open-questions.md` §18 (CR001).
+  The heli-pad is on the war-base roof at (anchor.x, anchor.y − 4) (a 15-high
+  component on every war base); the exit is the anchor cell. See
+  "Heli-pad / exit interaction points" below.
 - **Terrain** (rough/ditch cell placement): left entirely at the schema
   default (`normal`) — see "Terrain" below for why.
 - **Generic blockers/scenery** (boxes/cubes): omitted entirely — see
@@ -235,23 +233,16 @@ cross-check) is the appropriate next step before treating this composition
 as final authoritative gameplay geometry, per the milestone's human-review
 gate.
 
-## Heli-pad / exit interaction points — UNVERIFIED PLACEHOLDER (needs human review)
+## Heli-pad / exit interaction points — RESOLVED (open-questions.md §18)
 
-I found robot-order and navigation code referencing entering/exiting a war
-base (e.g. `ROBOT_STRUCT_DESIRED_MOVE_DIRECTION` defaulting to "move down (to
-exit the warbase)", and "Check if the entrance to the warbase is blocked"),
-which confirms the *concept* of a war-base entrance/exit exists in the
-original game, but I did not find or decode an explicit, separate
-heli-pad/exit coordinate offset (distinct from the anchor cell already used
-for capture) in this pass. Rather than omit these interaction points
-entirely — the schema requires later milestones to have something to
-consume, and the milestone instructions explicitly ask for a best-effort
-placement even when unverified — each war base's `*-helipad` and `*-exit`
-entries are placed at the war base's own anchor cell, and each is marked
-`# UNVERIFIED placeholder, see evidence doc` inline in the YAML. These
-coordinates must not be treated as authoritative; a follow-up research pass
-(or owner decision) should replace them with real evidence or an explicitly
-chosen convention.
+`Lbb86_assign_warbase_to_player` places the war-base "H" decoration at
+(anchor.x, anchor.y − 4), and the game loop enters construction only when the
+ship is over that decoration at altitude exactly 15 (`cp 15`) — the roof of
+the 15-high war-base block. The robot then starts at (pad.x, pad.y + 4), the
+anchor cell (`Lcb52_construction_screen_start_robot`). Accordingly each
+`*-helipad` point sits at (anchor.x, anchor.y − 4) and each `*-exit` point at
+the anchor cell. The engine's landing rule is "altitude equals the pad cell's
+component height" (`engine/src/nether_earth/heli_pad.py`).
 
 ## Terrain — NOT ATTEMPTED (left at default)
 
