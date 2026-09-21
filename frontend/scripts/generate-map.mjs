@@ -19,7 +19,11 @@ for (const id of MAP_IDS) {
     version: raw.version,
     width: raw.width,
     height: raw.height,
-    terrain: { default: raw.terrain?.default ?? 'normal', cells: raw.terrain?.cells ?? [] },
+    terrain: {
+      default: raw.terrain?.default ?? 'normal',
+      debris_height: raw.terrain?.debris_height ?? 0,
+      cells: raw.terrain?.cells ?? [],
+    },
     war_bases: raw.war_bases ?? [],
     factories: raw.factories ?? [],
     blockers: raw.blockers ?? [],

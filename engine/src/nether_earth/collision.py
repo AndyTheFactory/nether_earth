@@ -51,6 +51,23 @@ occupies ``[0, h)`` in that cell's column. This matches
 standing on the map) and is the only height reference available anywhere in
 the locked specs or `structures.py`'s per-component ``height`` field.
 
+Terrain piece heights -- one surface-height function (CR002.21, #203)
+----------------------------------------------------------------------
+Terrain pieces are solid too: the Spectrum's ``Lb052_check_player_collision``
+and ``Lb5d6_map_altitude_2x2`` read every map piece's height from
+``Ld7bc_map_piece_heights``, terrain (rough 2/3, mountain 6) as well as
+buildings and scenery. :func:`surface_height_at` is this engine's one reading
+of that table for a cell: the highest static component there or the terrain
+piece height (`terrain.TerrainGrid.height_at`; nuclear debris gets the rough
+piece height, `destruction.scenery_world`). :func:`unit_surface_height` is
+``Lb5d6``: the highest of the four cells under a 2×2 body. Commander
+collision/landing/gravity (below), projectile termination and the damage
+``ground_height`` (`combat.py`) and the heli-pad rest altitude
+(`heli_pad.py`) all read it, so static heights have one definition. Terrain
+is ground-rooted like a component: a piece of height ``h`` occupies
+``[0, h)``, so the ship rests on rough at altitude 3 and cannot fly into it
+lower down, as ``Lb052``/``Lafc3_gravity`` keep ``altitude >= height``.
+
 The robot fixture placeholder
 -------------------------------
 No robot subsystem exists yet (M4/M5). `_specs/milestones/03-commander-movement-docking.md`
@@ -127,6 +144,8 @@ __all__ = [
     "component_vertical_range",
     "components_at",
     "robot_vertical_range",
+    "surface_height_at",
+    "unit_surface_height",
 ]
 
 
@@ -252,6 +271,27 @@ def components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
     return tuple(matches)
 
 
+def surface_height_at(world: WorldMap, x: int, y: int) -> int:
+    """Return the height of the static surface on cell ``(x, y)`` (``Ld7bc_map_piece_heights``).
+
+    The highest static component there, or the terrain piece height when
+    that is higher (see the module docstring); 0 off the map.
+    """
+    if not (0 <= x < world.width and 0 <= y < world.height):
+        return 0
+    component_heights = (component.height for component in components_at(world, x, y))
+    return max((world.terrain.height_at(x, y), *component_heights))
+
+
+def unit_surface_height(world: WorldMap, x: int, y: int) -> int:
+    """Return the highest static surface under the 2×2 body anchored at ``(x, y)``.
+
+    The engine's ``Lb5d6_map_altitude_2x2``: the maximum of
+    :func:`surface_height_at` over the body's four cells (off-map cells are 0).
+    """
+    return max(surface_height_at(world, cx, cy) for cx, cy in unit_footprint_cells(x, y))
+
+
 def _robots_overlapping(
     robots: tuple[RobotFixture, ...], x: int, y: int
 ) -> tuple[RobotFixture, ...]:
@@ -300,10 +340,11 @@ def _blocking_ranges_at(
     """Return every static-geometry/robot vertical range under the 2×2 body at ``(x, y)``.
 
     ``(x, y)`` is a commander anchor (CR002.4, `_specs/open-questions.md`
-    §21). Static components are read from the four body cells, as the
-    Spectrum's ``Lb052_check_player_collision`` reads the map pieces of its
-    2×2 area; robots count when their own 2×2 body overlaps (``Lb052``'s 3×3
-    window of robot anchors). Cells off the map hold no component.
+    §21). Static geometry -- components and terrain pieces -- is one
+    ground-rooted range up to :func:`unit_surface_height`, as the Spectrum's
+    ``Lb052_check_player_collision`` takes the highest map piece of its 2×2
+    area; robots count when their own 2×2 body overlaps (``Lb052``'s 3×3
+    window of robot anchors). Cells off the map hold nothing.
 
     Does not include commanders -- callers combine this with an explicit
     opposing-commander check so the commander-vs-commander rule (which
@@ -311,11 +352,8 @@ def _blocking_ranges_at(
     "descend through it" rule) stays visible at the call site rather than
     being folded into an opaque range list.
     """
-    ranges = [
-        component_vertical_range(component)
-        for cell_x, cell_y in unit_footprint_cells(x, y)
-        for component in components_at(world, cell_x, cell_y)
-    ]
+    static_top = unit_surface_height(world, x, y)
+    ranges = [VerticalRange(bottom=0, top=static_top)] if static_top > 0 else []
     ranges.extend(robot_vertical_range(robot) for robot in _robots_overlapping(robots, x, y))
     return tuple(ranges)
 
