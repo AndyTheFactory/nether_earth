@@ -79,6 +79,11 @@ export class KeyboardIntent {
     if (this.held.size) this.sink.move(this.current());
   }
 
+  /** The held direction, or null when no movement key is down. */
+  heldIntent(): MoveIntent | null {
+    return this.held.size ? this.current() : null;
+  }
+
   /** window blur / visibility change: stop everything, no stuck intent. */
   releaseAll(): void {
     this.held.clear();

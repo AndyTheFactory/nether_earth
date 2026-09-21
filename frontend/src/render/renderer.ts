@@ -259,9 +259,10 @@ export class WorldRenderer {
       drawCommander(g, x, y, alt, c.player_id, surfaceZ);
       this.addDynamic(g, depthKey(x, y, alt) + 0.5);
       if (c.player_id === me) {
+        // Locked to the interpolated position (CR003.5): no lag, no overshoot.
         const centre = unitCentre(x, y);
-        this.cam.x += (centre.x - this.cam.x) * 0.15;
-        this.cam.y += (centre.y - this.cam.y) * 0.15;
+        this.cam.x = centre.x;
+        this.cam.y = centre.y;
       }
     }
 

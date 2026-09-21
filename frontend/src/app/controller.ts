@@ -10,6 +10,8 @@ import type { InputSink, MoveIntent } from '../input/keyboard.ts';
 import { findFixture } from '../fixtures/index.ts';
 import { playFixture, runFixtureMessage } from '../fixtures/harness.ts';
 import { CAPTURE_TARGETS, DESTROY_TARGETS, CHASSIS, WEAPONS, MAX_ORDER_MILES } from '../ui/menus.ts';
+import { shouldSendCommanderMove } from '../input/move-schedule.ts';
+import { isGridTransition } from '../render/interpolation.ts';
 import { COL_PIECES, cursorFor, cursorTarget, moveCursor, type BuildCursor, type CursorColumn } from '../ui/construction.ts';
 
 const SESSION_KEY = 'nether-earth.session';
@@ -23,6 +25,7 @@ export class GameController implements InputSink {
   /** Construction-screen cursor (UI-only; resets on every new session). */
   buildCursor: BuildCursor | null = null;
   private lastCursorMoveMs = -Infinity;
+  private lastCommanderMoveMs = -Infinity;
   private client: GameClient;
   private stopFixture: (() => void) | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -218,12 +221,36 @@ export class GameController implements InputSink {
         return;
       case 'none': {
         const c = myCommander(s.latest, me);
-        if (c?.mode === 'free') this.sender.command({ kind: 'commander_move', dx: intent.dx, dy: intent.dy });
+        if (c?.mode !== 'free') return;
+        // CR003.5: timed so the next cell starts as soon as the engine allows.
+        const now = this.now();
+        const due = shouldSendCommanderMove({
+          nowMs: now,
+          latestTick: s.latest.tick,
+          latestSnapshotAtMs: s.ui.latestSnapshotAtMs,
+          transition: isGridTransition(c.horizontal_transition) ? c.horizontal_transition : null,
+          lastSentMs: this.lastCommanderMoveMs,
+        });
+        if (!due) return;
+        this.lastCommanderMoveMs = now;
+        this.sender.command({ kind: 'commander_move', dx: intent.dx, dy: intent.dy });
         return;
       }
       default:
         return;
     }
+  }
+
+  /**
+   * Frame-rate poll of the held direction (CR003.5). Only the free
+   * commander's move is polled this often; the scheduler decides when to send.
+   * Other held-key uses keep the keyboard's own pulse cadence.
+   */
+  pollCommanderMove(intent: MoveIntent | null): void {
+    const s = this.store.get();
+    if (!intent || s.ui.menu !== 'none' || !s.latest) return;
+    if (myConstruction(s.latest, s.connection.session?.playerId ?? '')) return;
+    this.move(intent);
   }
 
   vertical(rising: boolean): void {

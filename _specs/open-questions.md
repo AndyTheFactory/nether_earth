@@ -829,6 +829,12 @@ Engine: `CancelConstructionCommand` (EXIT MENU) and a successful `launch_robot` 
 
 **Modality (owner decision 2026-09-21):** the Spectrum pauses the whole game during construction (it is single-player). In PvP only the building player's commander is frozen (its moves and vertical physics are no-ops while its session is open); the match, the opponent and all robots keep running. This is a locked PvP adaptation.
 
+## 23. Idle tick between commander cells — OPEN (found in CR003.5 #220)
+
+CR003.5 asks for held-key commander moves with no idle tick, checked as "each move's `started_tick` equals the previous move's end tick", with no engine or protocol change. The engine cannot produce that. `engine.step` applies the tick's commands (Step 1) before it resolves due horizontal transitions (Step 2). On the completion tick `started_tick + commander_horizontal_move_ticks` the commander still has its transition when the command is applied, so the command is rejected (`MOVE_IN_PROGRESS`), and the transition is only then cleared. The earliest next start is therefore the end tick + 1: a 5-tick cadence (4 moving + 1 idle), even with a command queued on every tick (verified in the engine and on a live backend).
+
+The frontend fix (CR003.5) schedules sends so every cell starts on that earliest tick (no extra idle ticks from input timing), and the camera follows the interpolated position. Removing the remaining idle tick needs an owner decision, for example: accept the 5-tick cadence; or change the engine so a move can start on the tick the previous one completes (resolve completions before commands, or accept a move queued for the completion tick), which is a gameplay-timing change and a rules-version bump.
+
 ## Remaining research
 
 1. **Combat detail**: exact accuracy, rounding, strength, and electronics modifiers (§9).
