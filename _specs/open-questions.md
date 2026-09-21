@@ -829,11 +829,13 @@ Engine: `CancelConstructionCommand` (EXIT MENU) and a successful `launch_robot` 
 
 **Modality (owner decision 2026-09-21):** the Spectrum pauses the whole game during construction (it is single-player). In PvP only the building player's commander is frozen (its moves and vertical physics are no-ops while its session is open); the match, the opponent and all robots keep running. This is a locked PvP adaptation.
 
-## 23. Idle tick between commander cells — OPEN (found in CR003.5 #220)
+## 23. Idle tick between commander cells — RESOLVED (CR003.10 #232, owner decision 2026-09-22; found in CR003.5 #220)
 
 CR003.5 asks for held-key commander moves with no idle tick, checked as "each move's `started_tick` equals the previous move's end tick", with no engine or protocol change. The engine cannot produce that. `engine.step` applies the tick's commands (Step 1) before it resolves due horizontal transitions (Step 2). On the completion tick `started_tick + commander_horizontal_move_ticks` the commander still has its transition when the command is applied, so the command is rejected (`MOVE_IN_PROGRESS`), and the transition is only then cleared. The earliest next start is therefore the end tick + 1: a 5-tick cadence (4 moving + 1 idle), even with a command queued on every tick (verified in the engine and on a live backend).
 
 The frontend fix (CR003.5) schedules sends so every cell starts on that earliest tick (no extra idle ticks from input timing), and the camera follows the interpolated position. Removing the remaining idle tick needs an owner decision, for example: accept the 5-tick cadence; or change the engine so a move can start on the tick the previous one completes (resolve completions before commands, or accept a move queued for the completion tick), which is a gameplay-timing change and a rules-version bump.
+
+**Resolution (owner decision 2026-09-22, CR003.10 #232).** Fix it in the engine. `engine.step` now resolves due commander horizontal transitions (Step 2) before it applies the tick's commander commands (Step 1). A `commander_move` that arrives on the completion tick starts at once, so a held key moves 4 ticks per cell with no idle tick (starts at ticks 1, 5, 9, …). Robots are unchanged: `engine.step` already resolved due robot moves (Step 2b) before it started the tick's robot moves (Step 2c), so an order-driven or direct-control robot could already start its next move on the completion tick, and its Spectrum-calibrated cadence (`movement.move_duration_ticks`, the §8 update gating) does not change. The change only reorders commander steps, so the rules data and the M9 full-match fixture are unchanged; `RULES_VERSION` is bumped with the rest of CR003 by CR003.8 (#223). The CR003.5 scheduler lead is now 3 ticks, because the target tick is one tick earlier.
 
 ## Remaining research
 

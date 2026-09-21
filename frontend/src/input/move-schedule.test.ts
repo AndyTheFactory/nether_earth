@@ -35,8 +35,8 @@ test('move in flight: hold until the estimated tick is within the lead of its en
 /**
  * Held key against a model of the server: a fixed 50 ms tick, commands
  * applied at the first step after they arrive, a commander_move rejected while
- * a move is in flight, and completions resolved after commands in the same
- * step (engine.step order). Snapshots and commands each take `oneWayMs`.
+ * a move is in flight, and completions resolved before commands in the same
+ * step (engine.step order, CR003.10). Snapshots and commands each take `oneWayMs`.
  */
 function holdKey(oneWayMs: number, pollMs: number, jitterMs: number, cells: number): GridTransition[] {
   const starts: GridTransition[] = [];
@@ -56,11 +56,11 @@ function holdKey(oneWayMs: number, pollMs: number, jitterMs: number, cells: numb
       tick += 1;
       const arrived = inbound.filter((a) => a <= nextStep).length;
       inbound.splice(0, arrived);
+      if (transition && tick >= transition.started_tick + transition.duration_ticks) transition = null;
       if (arrived && !transition) {
         transition = move(tick);
         starts.push(transition);
       }
-      if (transition && tick >= transition.started_tick + transition.duration_ticks) transition = null;
       snapshots.push({ at: nextStep + oneWayMs, tick, t: transition });
       nextStep += TICK_MS;
     }
@@ -85,9 +85,9 @@ test('held key: each cell starts on the first tick the engine accepts it (10 cel
     assert.equal(starts.length, 10);
     for (let i = 1; i < starts.length; i++) {
       const prevEnd = starts[i - 1].started_tick + starts[i - 1].duration_ticks;
-      // The engine applies commands before resolving completions within a
-      // step, so prevEnd + 1 is the earliest tick a new move can start.
-      assert.equal(starts[i].started_tick, prevEnd + 1, `latency ${oneWayMs} ms, cell ${i}`);
+      // The engine resolves completions before applying commands within a
+      // step (CR003.10), so a new move starts on the previous one's end tick.
+      assert.equal(starts[i].started_tick, prevEnd, `latency ${oneWayMs} ms, cell ${i}`);
     }
   }
 });

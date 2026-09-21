@@ -644,6 +644,15 @@ def step(
         horizontal_check = _always_allow_horizontal
         vertical_check = _always_allow_vertical
 
+    # --- Step 2: resolve horizontal transitions due to complete ------------
+    # CR003.10 (#232, open-questions §23): runs *before* Step 1 so a
+    # commander move completing on this tick is cleared before this tick's
+    # commander_move is applied; a held key then starts the next cell on the
+    # completion tick (4 ticks per cell, no idle tick). Robots already
+    # resolve completions (Step 2b) before starting moves (Step 2c).
+    state, completed_events = advance_all_horizontal_transitions(state, tick, sequencer)
+    events.extend(completed_events)
+
     # --- Step 1: apply accepted commander commands, canonical order --------
     for result in results:
         if not result.accepted:
@@ -673,10 +682,6 @@ def step(
             state, intent_event = set_vertical_intent(command, state, tick, sequencer)
             if intent_event is not None:
                 events.append(intent_event)
-
-    # --- Step 2: resolve horizontal transitions due to complete ------------
-    state, completed_events = advance_all_horizontal_transitions(state, tick, sequencer)
-    events.extend(completed_events)
 
     # --- Step 2b: resolve robot move transitions due to complete -----------
     state, robot_move_events = advance_all_robot_transitions(state, tick, sequencer)

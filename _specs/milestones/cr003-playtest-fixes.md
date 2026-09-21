@@ -44,7 +44,7 @@ References are to `netherearth-annotated.asm` (`santiontanon/netherearth-disasse
 ## Dependencies
 
 - Start: CR002 merged work on `main` (`RULES_VERSION = "cr002"`).
-- CR003.1–CR003.4 change gameplay rules. They share one rules-version bump (CR003.8), and old replays are rejected, not mis-verified.
+- CR003.1–CR003.4 and CR003.10 change gameplay rules. They share one rules-version bump (CR003.8), and old replays are rejected, not mis-verified.
 
 ## Tasks
 
@@ -59,7 +59,8 @@ Tracker: #225.
 | CR003.5 (#220) | Smooth commander movement (frontend only) | — |
 | CR003.6 (#221) | Robot menu in the right-hand HUD column | — |
 | CR003.7 (#222) | Left map-edge wall renders like the right one | — |
-| CR003.8 (#223) | Rules version bump, spec updates, fixture regeneration | CR003.1–CR003.4 |
+| CR003.8 (#223) | Rules version bump, spec updates, fixture regeneration | CR003.1–CR003.4, CR003.10 |
+| CR003.10 (#232) | Commander moves chain without an idle tick (engine step order) | — |
 | CR003.9 (#224) | CR003 acceptance gate | all |
 
 Parallel groups: engine (CR003.1, CR003.2, CR003.3 → CR003.4) and frontend (CR003.5, CR003.6, CR003.7). CR003.5 and CR003.7 both touch `renderer.ts`, so merge one after the other.
@@ -107,6 +108,15 @@ Parallel groups: engine (CR003.1, CR003.2, CR003.3 → CR003.4) and frontend (CR
 
 - Render both the left (columns 12–13) and the right (columns 503–504) fence the way the right one is drawn now. Find and fix the root cause (sprite choice, facing, depth order or occlusion); do not special-case the left column.
 - Check: screenshots of both edges at the same zoom; a unit test on the resolved sprite/draw order if the cause is in code.
+
+### CR003.10 — Commander moves chain without an idle tick
+
+Found by CR003.5 (`open-questions.md` §23). Owner decision (2026-09-22): fix it in the engine.
+
+- `engine.step` resolves due commander horizontal transitions before it applies the tick's commands, so a `commander_move` on the completion tick starts at once (4 ticks per cell, no idle tick).
+- Robots keep their cadence: they already resolve due moves (Step 2b) before starting new ones (Step 2c).
+- Tests: a `commander_move` held on every tick starts cells at ticks 1, 5, 9, …; the robot move tests pass unchanged. The CR003.5 scheduler model and lead follow the new order.
+- `RULES_VERSION` is bumped by CR003.8.
 
 ### CR003.8 — Rules version and specs
 
