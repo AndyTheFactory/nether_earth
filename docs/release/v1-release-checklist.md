@@ -13,6 +13,16 @@
 - Patch releases (`1.0.x`): fixes only. Minor (`1.x.0`): compatible additions. Any change to
   the wire protocol version or replay `schema_version` is called out in the release notes.
 
+## Release candidates
+
+- Pre-releases use `1.0.0-rcN` in all three version files (PEP 440 accepts it; Python
+  reports it normalized as `1.0.0rcN`) and the tag `v1.0.0-rcN`, published as a GitHub
+  **pre-release**.
+- `v1.0.0-rc1` (2026-09-21, owner decision): cut after M9, CR001 and M10 acceptance.
+  Waived for rc1: item 11 (production human two-player match — postponed to a later story)
+  and item 15 (first release, no rollback target exists; confirmed by the owner).
+  CR002 (#185) continues on `main` towards the next candidate.
+
 ## Gate: every box ticked, with the evidence linked in the release PR/issue
 
 Blocking items: a release **must not** be tagged with any of them open, or with any
