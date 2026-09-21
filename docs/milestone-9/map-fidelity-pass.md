@@ -16,7 +16,7 @@ Automated checks: `engine/tests/test_m9_map_fidelity.py`,
 | War-base **exit** = anchor cell | **verified (new)** | `Lcb52_construction_screen_start_robot`: robot placed at player y + 4 while the player sits on the pad at (anchor.x, anchor.y − 4) → anchor |
 | War-base **heli-pad** | **deviates** — owner decision (open-questions §18) | `Lbb86_assign_warbase_to_player` puts the "H" decoration at (anchor.x, anchor.y − 4); construction requires altitude 15 (`cp 15`) on it, i.e. the roof. Engine M3 rule is ground-level landing; data keeps the ground placeholder at the anchor |
 | Commander spawn P1 (17,10) alt 0 | **verified (new)** | `La600_start` |
-| Commander spawn P2 (499,9) | provisional convention | mirrored offset; no evidence (single-player original) — open-questions §17 |
+| Commander spawn P2 (499,9) alt 0 | locked PvP adaptation — owner decision (open-questions §17, CR001) | mirrored offset of P1; no Spectrum evidence (single-player original) |
 | Starting ownership left/right, interior neutral | spec-locked | open-questions §2; `initialize_map` in the original assigns bases 1–3 to the AI, which the PvP scenario intentionally replaces |
 | Starting resources 20 | verified | `INITIAL_PLAYER_RESOURCES equ 20` |
 | Terrain rough/ditch | not decoded (M2 gap) | map is uniformly NORMAL; asserted so nothing unverified sneaks in |

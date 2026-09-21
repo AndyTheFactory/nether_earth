@@ -675,13 +675,14 @@ from war base 0's capture anchor (22, 9), just outside the base on the side
 facing away from the map interior. The original is single-player, so there is
 no evidence for Player 2.
 
-Provisional data (M9, `map_overlay.default_pvp_overlay`):
+Locked data (`map_overlay.default_pvp_overlay`, pinned by
+`engine/tests/test_map_overlay.py`):
 
 - `p1_commander` = extreme-left war-base anchor + (−5, +1) → (17, 10) on the original map (evidence-backed);
-- `p2_commander` = extreme-right war-base anchor + (+5, +1) → (499, 9) (mirrored convention, **not evidence**).
+- `p2_commander` = extreme-right war-base anchor + (+5, +1) → (499, 9) (mirror of Player 1; locked PvP adaptation confirmed by the owner, not Spectrum evidence).
 
-Spawns are overlay data, not engine rules; changing the convention is a data
-edit in one place. Owner must confirm or replace the Player 2 convention.
+Both commanders start at altitude 0. Spawns are overlay data, not engine
+rules, and live in one place.
 
 ## 18. War-base heli-pad location and landing height — RESOLVED (CR001, owner decision 2026-09-21)
 
