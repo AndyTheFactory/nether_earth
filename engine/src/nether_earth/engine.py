@@ -42,7 +42,11 @@ import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from nether_earth.autonomous_combat import consume_engagement_intents, gate_order_requests
+from nether_earth.autonomous_combat import (
+    consume_engagement_intents,
+    gate_order_requests,
+    settle_walk_outs,
+)
 from nether_earth.capture import (
     CapturableStructureKind,
     NeutralStructureAcquiredEvent,
@@ -716,7 +720,17 @@ def step(
             rules,
             sequencer,
         )
-        state = batch.state
+        # CR002.3: count down (or end) launch walk-outs against the state
+        # the orders were gated on (see `autonomous_combat.settle_walk_outs`).
+        state = settle_walk_outs(
+            state,
+            batch.state,
+            evaluations,
+            (event.entity_id for event in batch.started),
+            destruction_effective_world(world, state),
+            tick,
+            rules,
+        )
         events.extend(batch.contentions)
         events.extend(batch.started)
 

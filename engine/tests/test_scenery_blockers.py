@@ -15,6 +15,10 @@ Evidence (`santiontanon/netherearth-disassembly` @ 762e33e,
 - projectiles: `Lb724_bullet_update_internal` destroys the bullet when
   ``Lb5d6_map_altitude_2x2 >= BULLET_STRUCT_ALTITUDE`` (10, set by
   `Lb6d6_weapon_fire`), so height-7 boxes are overflown and 15/99 stop it.
+
+Robots, the commander and projectiles are 2×2 bodies anchored at their
+``(x, y)`` (CR002.3/CR002.4, `_specs/open-questions.md` §21), so the
+approach positions below are body anchors.
 """
 
 from __future__ import annotations
@@ -42,6 +46,7 @@ from nether_earth.movement import (
     validate_robot_move,
 )
 from nether_earth.navigation import plan_route
+from nether_earth.occupancy import unit_footprint_cells
 from nether_earth.robot import Robot
 from nether_earth.robot_build import CHASSIS_MODULES, ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
@@ -62,22 +67,35 @@ def world() -> WorldMap:
 
 
 def _free(world: WorldMap, x: int, y: int) -> bool:
-    return (
-        0 <= x < world.width
-        and 0 <= y < world.height
-        and not world.occupancy().is_occupied(x, y)
-        and world.terrain.terrain_at(x, y) is TerrainType.NORMAL
+    """Whether a 2×2 body anchored at ``(x, y)`` stands on free, flat ground."""
+    occupancy = world.occupancy()
+    return all(
+        0 <= cx < world.width
+        and 0 <= cy < world.height
+        and not occupancy.is_occupied(cx, cy)
+        and world.terrain.terrain_at(cx, cy) is TerrainType.NORMAL
+        for cx, cy in unit_footprint_cells(x, y)
     )
 
 
+def _box_origin(blocker: Blocker) -> tuple[int, int]:
+    """Return the west column and top row of a 2x2 blocker."""
+    return min(c.x for c in blocker.components), min(c.y for c in blocker.components)
+
+
 def _approach(world: WorldMap, kind: str) -> tuple[Blocker, tuple[int, int], tuple[int, int]]:
-    """Return a ``kind`` blocker, a free cell west of it, and the blocker cell east of that."""
+    """Return a ``kind`` blocker, a free body anchor just west of it, and the next anchor east.
+
+    The body at the first anchor touches the blocker's west side row for
+    row; the body at the second overlaps the blocker's west column.
+    """
     for blocker in world.blockers:
         if blocker.kind != kind:
             continue
-        for component in sorted(blocker.components, key=lambda c: (c.x, c.y)):
-            if _free(world, component.x - 1, component.y):
-                return blocker, (component.x - 1, component.y), (component.x, component.y)
+        bx, by = _box_origin(blocker)
+        start = (bx - 2, by + 1)
+        if _free(world, *start):
+            return blocker, start, (start[0] + 1, start[1])
     raise AssertionError(f"no {kind} blocker with free ground to its west")
 
 
@@ -137,11 +155,11 @@ def test_no_chassis_can_step_into_a_blocker(world: WorldMap, chassis: ModuleIden
 @pytest.mark.parametrize("chassis", sorted(CHASSIS_MODULES, key=lambda m: m.value))
 def test_navigation_routes_around_a_blocker(world: WorldMap, chassis: ModuleIdentity) -> None:
     start, goal = next(
-        ((c.x - 1, c.y), (c.x + 2, c.y))
+        ((bx - 2, by + 1), (bx + 2, by + 1))
         for b in world.blockers
         if b.kind == "box_high"
-        for c in sorted(b.components, key=lambda c: (c.x, c.y))
-        if _free(world, c.x - 1, c.y) and _free(world, c.x + 2, c.y)
+        for bx, by in (_box_origin(b),)
+        if _free(world, bx - 2, by + 1) and _free(world, bx + 2, by + 1)
     )
     robot = _robot(chassis, *start, electronics=True)
 
@@ -149,7 +167,8 @@ def test_navigation_routes_around_a_blocker(world: WorldMap, chassis: ModuleIden
 
     assert route is not None and route[-1] == goal
     blocked = {(c.x, c.y) for b in world.blockers for c in b.components}
-    assert not blocked.intersection(route)
+    for anchor in route:
+        assert not blocked.intersection(unit_footprint_cells(*anchor))
     assert len(route) > goal[0] - start[0]  # a detour, not the straight line through the box
 
 

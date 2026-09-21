@@ -498,6 +498,10 @@ def _in_robot_window(carrier: Robot, robot: Robot, rules: EngineRules) -> bool:
     ``len(rules.nuclear_robot_window_row_widths)`` rows tall, centred on the
     carrier's row, each row centred on the carrier's column. Map-edge
     clipping needs no code: every robot is already inside the map.
+
+    The window tests robot *anchors* (the Spectrum scans the map marks,
+    which sit on each robot's anchor cell), so a 2×2 robot counts only
+    when its anchor is inside (CR002.3, `_specs/open-questions.md` §21).
     """
     return _cell_in_window(carrier, robot.x, robot.y, rules)
 

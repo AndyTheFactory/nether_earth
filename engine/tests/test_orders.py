@@ -299,7 +299,8 @@ def test_invalid_order_falls_back_to_stop_and_defend() -> None:
 
 def test_advance_from_the_eastern_edge_is_impossible_and_falls_back() -> None:
     world = _empty_world(width=10)
-    robot = _robot(x=9, y=5, order=Advance(10))
+    # 2×2 bodies (CR002.3): the easternmost anchor column is width - 2.
+    robot = _robot(x=8, y=5, order=Advance(10))
     evaluation = evaluate_order(robot, _state((robot,)), world)
     assert evaluation is not None
     assert evaluation.status is OrderStatus.FALLBACK
@@ -319,7 +320,8 @@ def test_advance_beyond_the_map_clamps_to_the_edge_rather_than_failing() -> None
     evaluation = evaluate_order(robot, _state((robot,)), world)
     assert evaluation is not None
     assert isinstance(evaluation.order, Advance)
-    assert evaluation.order.target_x == world.width - 1
+    # The last anchor column a 2×2 body can stand on (CR002.3).
+    assert evaluation.order.target_x == world.width - 2
 
 
 def test_zero_mile_advance_completes_immediately() -> None:
@@ -421,7 +423,7 @@ def test_a_non_electronic_robot_blocked_by_a_wall_keeps_its_order() -> None:
     """The locked 'may get stuck' behavior is not an impossible order."""
     wall = _wall(((5, 4), (5, 5), (5, 6)))
     world = _empty_world(width=20, blockers=(wall,))
-    robot = _robot(x=4, y=5, order=Advance(4, target_x=12))
+    robot = _robot(x=3, y=5, order=Advance(4, target_x=12))  # body (3..4, 4..5)
     state = _state((robot,))
 
     decision = next_navigation_step(robot, 12, 5, state, world)
@@ -436,7 +438,10 @@ def test_a_non_electronic_robot_blocked_by_a_wall_keeps_its_order() -> None:
 
 def test_an_electronic_robot_with_no_route_falls_back() -> None:
     """UNREACHABLE is a *proof* of impossibility, so the order is abandoned."""
-    box = _wall(((3, 4), (3, 6), (2, 5), (4, 5)), entity_id="box")
+    # Walls every side of the robot's 2×2 body (3..4, 4..5), CR002.3.
+    box = _wall(
+        ((2, 4), (2, 5), (5, 4), (5, 5), (3, 3), (4, 3), (3, 6), (4, 6)), entity_id="box"
+    )
     world = _empty_world(width=20, blockers=(box,))
     robot = _robot(
         x=3, y=5, electronics=ModuleIdentity.ELECTRONICS, order=Advance(4, target_x=11)
@@ -924,7 +929,7 @@ def test_robots_without_an_order_are_skipped() -> None:
 def test_evaluate_orders_walks_robots_in_canonical_entity_id_order() -> None:
     world = _empty_world(width=40)
     robots = tuple(
-        _robot(f"robot-{name}", x=index, y=index, order=Advance(2))
+        _robot(f"robot-{name}", x=3 * index, y=index + 1, order=Advance(2))
         for index, name in enumerate(("c", "a", "b"))
     )
     evaluations = evaluate_orders(_state(robots), world)
@@ -938,7 +943,7 @@ def test_evaluate_orders_walks_robots_in_canonical_entity_id_order() -> None:
 def test_evaluate_orders_is_independent_of_robot_submission_order() -> None:
     world = _empty_world(width=40)
     robots = tuple(
-        _robot(f"robot-{name}", x=index, y=index, order=Advance(2))
+        _robot(f"robot-{name}", x=3 * index, y=index + 1, order=Advance(2))
         for index, name in enumerate(("c", "a", "b"))
     )
     forward = evaluate_orders(_state(robots), world)

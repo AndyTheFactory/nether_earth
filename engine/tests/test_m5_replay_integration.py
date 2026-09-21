@@ -36,6 +36,7 @@ from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.movement import RobotMoveStartedEvent
+from nether_earth.occupancy import unit_footprint_cells
 from nether_earth.orders import (
     Advance,
     RobotEngagementIntentEvent,
@@ -67,10 +68,12 @@ WAR_BASE_ONE = EntityId("warbase-p1")
 WAR_BASE_TWO = EntityId("warbase-p2")
 FACTORY_ONE = EntityId("factory-1")
 
-#: The contested neutral-factory capture cell. ``ROBOT_WEST``/``ROBOT_EAST``
-#: start exactly one cell either side of it, so both request it on the same
-#: tick and contend for it.
-FACTORY_CAPTURE_CELL = (5, 5)
+#: The contested neutral-factory capture point: two cells, one per robot.
+#: ``ROBOT_WEST``/``ROBOT_EAST`` start one step west/east of it; their 2×2
+#: destination bodies (CR002.3) overlap, so they contend on the same tick.
+#: (Two 2×2 robots can never claim the same anchor: a robot one step from it
+#: already overlaps the other's body.)
+FACTORY_CAPTURE_CELLS = ((5, 5), (6, 5))
 #: PLAYER_ONE's war-base capture cell; PLAYER_TWO's ``ROBOT_CAPTOR`` stands
 #: on it from tick 0.
 WARBASE_CAPTURE_CELL = (2, 12)
@@ -132,7 +135,7 @@ def _world() -> WorldMap:
                 id="factory-1-capture",
                 kind=InteractionKind.FACTORY_CAPTURE,
                 structure_id=FACTORY_ONE,
-                footprint=_footprint(FACTORY_CAPTURE_CELL),
+                footprint=Footprint(cells=frozenset(FACTORY_CAPTURE_CELLS)),
             ),
             InteractionPoint(
                 id="warbase-p1-capture",
@@ -206,8 +209,8 @@ def _replay_twice(fixture: ReplayFixture) -> tuple[GameState, tuple[Event, ...]]
 
 
 def _contention_robots() -> tuple[Robot, ...]:
-    west = FACTORY_CAPTURE_CELL[0] - 1, FACTORY_CAPTURE_CELL[1]
-    east = FACTORY_CAPTURE_CELL[0] + 1, FACTORY_CAPTURE_CELL[1]
+    west = FACTORY_CAPTURE_CELLS[0][0] - 1, FACTORY_CAPTURE_CELLS[0][1]
+    east = FACTORY_CAPTURE_CELLS[1][0] + 1, FACTORY_CAPTURE_CELLS[1][1]
     return (
         _robot(ROBOT_WEST, PLAYER_ONE, *west),
         _robot(ROBOT_EAST, PLAYER_TWO, *east),
@@ -215,7 +218,7 @@ def _contention_robots() -> tuple[Robot, ...]:
 
 
 def _contention_commands() -> dict[int, tuple[Command, ...]]:
-    """Order both robots onto the same neutral-factory capture cell at tick 1."""
+    """Order both robots onto the same neutral-factory capture point at tick 1."""
     return {
         1: (
             SetRobotOrderCommand(
@@ -235,7 +238,7 @@ def _contention_commands() -> dict[int, tuple[Command, ...]]:
 
 
 def test_same_tick_contention_replays_with_an_identical_winner() -> None:
-    """Both robots claim one cell on one tick; the seeded winner is stable."""
+    """Both robots claim overlapping bodies on one tick; the seeded winner is stable."""
     fixture = _fixture(
         tick_count=3,
         commands_by_tick=_contention_commands(),
@@ -252,7 +255,7 @@ def test_same_tick_contention_replays_with_an_identical_winner() -> None:
     winner = state.robot_for(started[0].entity_id)
     assert winner is not None
     assert winner.movement is not None
-    assert (winner.movement.to_x, winner.movement.to_y) == FACTORY_CAPTURE_CELL
+    assert (winner.movement.to_x, winner.movement.to_y) in FACTORY_CAPTURE_CELLS
 
 
 def test_in_progress_move_is_serialized_mid_flight_and_replays_identically() -> None:
@@ -274,7 +277,9 @@ def test_in_progress_move_is_serialized_mid_flight_and_replays_identically() -> 
     assert robot.movement.duration_ticks == TRACKS_MOVE_TICKS
     # Authoritative position is still the origin cell: only rendering may
     # interpolate towards the destination.
-    assert (robot.x, robot.y) != FACTORY_CAPTURE_CELL
+    assert (robot.x, robot.y) not in FACTORY_CAPTURE_CELLS
+    destination = (robot.movement.to_x, robot.movement.to_y)
+    assert destination in FACTORY_CAPTURE_CELLS
 
     snapshot = to_snapshot(state)
     serialized = {entry["entity_id"]: entry for entry in snapshot["robots"]}
@@ -282,8 +287,8 @@ def test_in_progress_move_is_serialized_mid_flight_and_replays_identically() -> 
         "entity_id": robot.entity_id.to_json(),
         "from_x": robot.x,
         "from_y": robot.y,
-        "to_x": FACTORY_CAPTURE_CELL[0],
-        "to_y": FACTORY_CAPTURE_CELL[1],
+        "to_x": destination[0],
+        "to_y": destination[1],
         "started_tick": 1,
         "duration_ticks": TRACKS_MOVE_TICKS,
     }
@@ -307,11 +312,14 @@ def test_reservations_are_fully_derivable_from_the_serialized_movement_state() -
 
     table = reservations_from_state(state)
     snapshot = to_snapshot(state)
+    # Each in-flight move reserves its whole 2×2 destination body (CR002.3).
     rebuilt = {
-        (entry["movement"]["to_x"], entry["movement"]["to_y"]): entry["movement"]["entity_id"]
+        cell: entry["movement"]["entity_id"]
         for entry in snapshot["robots"]
         if entry["movement"] is not None
+        for cell in unit_footprint_cells(entry["movement"]["to_x"], entry["movement"]["to_y"])
     }
+    assert rebuilt
     assert rebuilt == {
         cell: holder.to_json() for cell, holder in table.holders.items()
     }

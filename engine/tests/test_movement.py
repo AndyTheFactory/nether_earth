@@ -373,7 +373,7 @@ def test_every_chassis_may_enter_rough_terrain(chassis: ModuleIdentity) -> None:
 def test_destination_occupied_by_a_structure_is_rejected() -> None:
     world = _world(
         blockers=(
-            Blocker(id=EntityId("blocker-1"), components=(Component(x=6, y=5, height=4),)),
+            Blocker(id=EntityId("blocker-1"), components=(Component(x=7, y=4, height=4),)),
         )
     )
 
@@ -383,7 +383,9 @@ def test_destination_occupied_by_a_structure_is_rejected() -> None:
 
 
 def test_destination_occupied_by_another_robot_is_rejected() -> None:
-    robots = (_robot(), _robot(entity_id="robot-player-two-1", owner=PLAYER_TWO, x=6, y=5))
+    # 2×2 bodies (CR002.3): the other robot's body (7..8, 5..6) touches the
+    # mover's body (5..6, 4..5) today and overlaps its next one (6..7, 4..5).
+    robots = (_robot(), _robot(entity_id="robot-player-two-1", owner=PLAYER_TWO, x=7, y=6))
 
     result = validate_robot_move(_east(), _state(robots), _world())
 
@@ -391,11 +393,15 @@ def test_destination_occupied_by_another_robot_is_rejected() -> None:
 
 
 def test_occupancy_check_uses_the_shared_m2_fold() -> None:
-    robots = (_robot(), _robot(entity_id="robot-player-two-1", owner=PLAYER_TWO, x=6, y=5))
+    robots = (_robot(), _robot(entity_id="robot-player-two-1", owner=PLAYER_TWO, x=7, y=5))
     grid = folded_robot_occupancy(_world(), _state(robots))
 
-    assert grid.occupant_at(6, 5) == EntityId("robot-player-two-1")
-    assert grid.occupant_at(5, 5) == EntityId("robot-player-one-1")
+    # Each robot occupies its whole 2×2 body (CR002.3).
+    for cell in ((7, 5), (8, 5), (7, 4), (8, 4)):
+        assert grid.occupant_at(*cell) == EntityId("robot-player-two-1")
+    for cell in ((5, 5), (6, 5), (5, 4), (6, 4)):
+        assert grid.occupant_at(*cell) == EntityId("robot-player-one-1")
+    assert grid.occupant_at(5, 6) is None and grid.occupant_at(5, 3) is None
 
 
 def test_commander_overlapping_the_destination_blocks_the_move() -> None:

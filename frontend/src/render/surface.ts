@@ -53,4 +53,12 @@ export class SurfaceMap {
     for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) top = Math.max(top, this.heightAt(cx, cy, destroyed));
     return top;
   }
+
+  /**
+   * Highest surface under the 2×2 unit body anchored at (x, y) (CR002.3/4):
+   * columns x..x+1, rows y-1..y; fractional anchors (mid-move) widen it.
+   */
+  underUnit(x: number, y: number, destroyed: ReadonlySet<string> = new Set()): number {
+    return this.under(x + 0.5, y - 0.5, destroyed, 2);
+  }
 }

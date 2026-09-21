@@ -38,6 +38,12 @@ overlap") and §14 ("stops at the top of the ... stack").
 
 Ground-rooted geometry
 -----------------------
+2×2 bodies (CR002.3 #170, CR002.4 #171): a commander's and a robot's
+``(x, y)`` is the anchor of a 2×2 body (`occupancy.py`,
+`_specs/open-questions.md` §21). Every query below tests whole bodies:
+static components under any of the four cells, and robots/commanders whose
+bodies overlap.
+
 Static components and the (placeholder) robot fixture are modeled as
 ground-rooted physical stacks: a component/robot of height ``h`` at a cell
 occupies ``[0, h)`` in that cell's column. This matches
@@ -101,6 +107,11 @@ from dataclasses import dataclass
 from nether_earth.commander import Commander
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.map import WorldMap
+from nether_earth.occupancy import (
+    unit_footprint_cells,
+    unit_footprint_in_bounds,
+    unit_footprints_overlap,
+)
 from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
@@ -241,9 +252,11 @@ def components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
     return tuple(matches)
 
 
-def _robots_at(robots: tuple[RobotFixture, ...], x: int, y: int) -> tuple[RobotFixture, ...]:
-    """Return every ``robots`` fixture at ``(x, y)``."""
-    return tuple(robot for robot in robots if robot.x == x and robot.y == y)
+def _robots_overlapping(
+    robots: tuple[RobotFixture, ...], x: int, y: int
+) -> tuple[RobotFixture, ...]:
+    """Return every ``robots`` fixture whose 2×2 body overlaps the body anchored at ``(x, y)``."""
+    return tuple(robot for robot in robots if unit_footprints_overlap(robot.x, robot.y, x, y))
 
 
 def commander_blocks_cell(
@@ -255,14 +268,16 @@ def commander_blocks_cell(
     *,
     rules: EngineRules = DEFAULT_RULES,
 ) -> bool:
-    """Return ``True`` iff ``commander`` blocks ``(x, y)`` at ``vertical_range``.
+    """Return ``True`` iff ``commander`` blocks a 2×2 body anchored at ``(x, y)``.
 
     This is the stable, forward-compatible query named by the issue's
     "expose the commander blocking query/contract needed later by robot
     movement" acceptance criterion (M5 robot movement will call this per
     commander it needs to check, without duplicating overlap math -- see
-    the module docstring). ``commander`` blocks the cell iff it currently
-    occupies ``(x, y)`` and its own vertical range (from ``rules``, default
+    the module docstring). ``(x, y)`` is the anchor of the other unit's 2×2
+    body (CR002.3/CR002.4, `_specs/open-questions.md` §21): ``commander``
+    blocks it iff the commander's own 2×2 body overlaps that body and its
+    vertical range (from ``rules``, default
     :data:`~nether_earth.rules.DEFAULT_RULES`) overlaps ``vertical_range``.
 
     ``state`` is accepted (and currently unused beyond documenting the
@@ -271,7 +286,7 @@ def commander_blocks_cell(
     -- it is not validated here to keep this a pure, allocation-free query.
     """
     del state  # reserved for future contract stability; see docstring
-    if commander.x != x or commander.y != y:
+    if not unit_footprints_overlap(commander.x, commander.y, x, y):
         return False
     return commander_vertical_range(commander.altitude, rules).overlaps(vertical_range)
 
@@ -282,7 +297,13 @@ def _blocking_ranges_at(
     y: int,
     robots: tuple[RobotFixture, ...],
 ) -> tuple[VerticalRange, ...]:
-    """Return every static-geometry/robot vertical range occupying ``(x, y)``.
+    """Return every static-geometry/robot vertical range under the 2×2 body at ``(x, y)``.
+
+    ``(x, y)`` is a commander anchor (CR002.4, `_specs/open-questions.md`
+    §21). Static components are read from the four body cells, as the
+    Spectrum's ``Lb052_check_player_collision`` reads the map pieces of its
+    2×2 area; robots count when their own 2×2 body overlaps (``Lb052``'s 3×3
+    window of robot anchors). Cells off the map hold no component.
 
     Does not include commanders -- callers combine this with an explicit
     opposing-commander check so the commander-vs-commander rule (which
@@ -290,8 +311,12 @@ def _blocking_ranges_at(
     "descend through it" rule) stays visible at the call site rather than
     being folded into an opaque range list.
     """
-    ranges = [component_vertical_range(component) for component in components_at(world, x, y)]
-    ranges.extend(robot_vertical_range(robot) for robot in _robots_at(robots, x, y))
+    ranges = [
+        component_vertical_range(component)
+        for cell_x, cell_y in unit_footprint_cells(x, y)
+        for component in components_at(world, cell_x, cell_y)
+    ]
+    ranges.extend(robot_vertical_range(robot) for robot in _robots_overlapping(robots, x, y))
     return tuple(ranges)
 
 
@@ -337,11 +362,19 @@ def commander_horizontal_move_allowed(
       at most one commander, so this is effectively "the opposing
       commander" in the locked 2-player v1 scope, expressed generally).
 
+    ``(dest_x, dest_y)`` is the anchor of the commander's 2×2 body
+    (CR002.4): every source is tested against the whole body (see
+    :func:`_blocking_ranges_at`), and a body that would leave the map is
+    refused (the Spectrum keeps the ship's rows inside the map the same
+    way, ``Laf90``).
+
     ``world``/``robots`` are keyword-only so a later ``functools.partial``
     binding (see the module docstring's #38/#42 integration contract)
     leaves ``(state, commander, dest_x, dest_y)`` as the exact positional
     shape #38's ``HorizontalMoveCheck`` expects.
     """
+    if not unit_footprint_in_bounds(dest_x, dest_y, world.width, world.height):
+        return False
     mover_range = commander_vertical_range(commander.altitude, rules)
 
     for blocking_range in _blocking_ranges_at(world, dest_x, dest_y, robots):

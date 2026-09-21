@@ -3,12 +3,12 @@ import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js
 import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
-import { surfaceHeightAt, terrainAt } from '../world/map.ts';
+import { footprintCells, surfaceHeightAt, terrainAt } from '../world/map.ts';
 import { TILE_H, TILE_W, depthKey, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
-import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
+import { drawRobotStack, drawCommander, unitCentre, UNIT_SIZE, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
@@ -111,9 +111,12 @@ export class WorldRenderer {
       const color = colorFor(debris ? 'terrain.rough' : 'structure.blocker');
       for (const c of b.components) blocks.push({ c, color, dead: false, debris });
     }
-    // Heli-pads sit on the war-base roof (open-questions §18): mark the pad
-    // cell's top face with its prism so nearer blocks still occlude it.
-    const pads = new Set(this.map.interaction_points.filter((ip) => ip.kind === 'heli_pad').map((ip) => `${ip.footprint.x},${ip.footprint.y}`));
+    // Heli-pads sit on the war-base roof (open-questions §18): mark each of
+    // the 2×2 pad's cells (CR002.4) on its prism's top face so nearer blocks
+    // still occlude it.
+    const pads = new Set(
+      this.map.interaction_points.filter((ip) => ip.kind === 'heli_pad').flatMap((ip) => footprintCells(ip).map((c) => `${c.x},${c.y}`)),
+    );
     // CR002.6: an ownership flag stands on its roof cell and is drawn with
     // that cell, so it shares the cell's place in the depth ordering.
     const flags = new Map(ownershipFlags(this.map, state?.structure_ownership ?? [], destroyedIds).map((f) => [`${f.x},${f.y}`, f.owner]));
@@ -214,11 +217,14 @@ export class WorldRenderer {
       drawRobotStack(g, p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height });
       if (r.owner !== me) {
         // enemy marker ring so ownership stays readable at distance
-        drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner));
+        drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner), 0, UNIT_SIZE);
       }
+      // The anchor is the 2×2 body's cell nearest the viewer (min x, max y;
+      // CR002.3), so it is the body's painter's-order key.
       this.addDynamic(g, depthKey(p.x, p.y));
       if (text.robotStrength) {
-        const sp = project(p.x, p.y, r.height + 3);
+        const centre = unitCentre(p.x, p.y);
+        const sp = project(centre.x, centre.y, r.height + 3);
         const label = new Text({ text: `${r.strength}`, style: { fontFamily: 'monospace', fontSize: 9, fill: ownerColor(r.owner) } });
         label.anchor.set(0.5, 1);
         this.labelAt(label, sp);
@@ -245,23 +251,28 @@ export class WorldRenderer {
       }
       const g = new Graphics();
       // Docked: resting on the robot top, so no separate shadow.
-      const surfaceZ = docked ? alt : Math.min(alt, this.surface.under(x, y, destroyed));
+      // The shadow falls on the highest surface under the 2×2 body (CR002.4).
+      const surfaceZ = docked ? alt : Math.min(alt, this.surface.underUnit(x, y, destroyed));
       drawCommander(g, x, y, alt, c.player_id, surfaceZ);
       this.addDynamic(g, depthKey(x, y, alt) + 0.5);
       if (c.player_id === me) {
-        this.cam.x += (x - this.cam.x) * 0.15;
-        this.cam.y += (y - this.cam.y) * 0.15;
+        const centre = unitCentre(x, y);
+        this.cam.x += (centre.x - this.cam.x) * 0.15;
+        this.cam.y += (centre.y - this.cam.y) * 0.15;
       }
     }
 
     for (const pr of snap.projectiles) {
       // Projectiles advance 2 cells per 4-tick engine cadence; between
       // cadence ticks we slide them toward their next authoritative cell.
+      // Its (x, y) anchors a 2×2 body like a robot's (CR002.3): draw it at the
+      // body centre, shadowed on the highest piece under the body.
       const { x, y } = interpolateProjectile(pr, snap.tick, tick);
-      const p = project(x, y, pr.z);
+      const centre = unitCentre(x, y);
+      const p = project(centre.x, centre.y, pr.z);
       const col = colorFor(`projectile.${pr.weapon}` as SemanticAsset);
       const g = new Graphics();
-      const sh = project(x, y, Math.min(pr.z, this.surface.under(x, y, destroyed, 0)));
+      const sh = project(centre.x, centre.y, Math.min(pr.z, this.surface.underUnit(x, y, destroyed)));
       g.circle(sh.x, sh.y, 1).fill({ color: 0x000000, alpha: 0.4 });
       g.circle(p.x, p.y, pr.weapon === 'nuclear' ? 2.5 : 1.5).fill(col);
       this.addDynamic(g, depthKey(x, y, pr.z));
@@ -278,10 +289,10 @@ export class WorldRenderer {
     this.prevSnapshot = snap;
     if (!prev || snap.tick <= prev.tick) return;
     for (const p of prev.projectiles) {
-      if (!snap.projectiles.some((q) => q.id === p.id)) this.fx.push({ x: p.x + p.dx, y: p.y + p.dy, z: p.z, kind: 'hit', startMs: nowMs, durationMs: 250 });
+      if (!snap.projectiles.some((q) => q.id === p.id)) this.fx.push({ ...unitCentre(p.x + p.dx, p.y + p.dy), z: p.z, kind: 'hit', startMs: nowMs, durationMs: 250 });
     }
     for (const r of prev.robots) {
-      if (!snap.robots.some((q) => q.entity_id === r.entity_id)) this.fx.push({ x: r.x, y: r.y, z: r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
+      if (!snap.robots.some((q) => q.entity_id === r.entity_id)) this.fx.push({ ...unitCentre(r.x, r.y), z: r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
     }
     for (const id of snap.structure_destruction) {
       if (!prev.structure_destruction.includes(id)) {
@@ -329,7 +340,7 @@ export class WorldRenderer {
     }
     for (const ip of this.map.interaction_points) {
       const col = ip.kind === 'heli_pad' ? PALETTE.brightGreen : ip.kind === 'exit' ? PALETTE.brightYellow : PALETTE.brightCyan;
-      drawDiamond(g, ip.footprint.x, ip.footprint.y, col, 0.5, undefined, surfaceHeightAt(this.map, ip.footprint.x, ip.footprint.y));
+      for (const c of footprintCells(ip)) drawDiamond(g, c.x, c.y, col, 0.5, undefined, surfaceHeightAt(this.map, c.x, c.y));
     }
     for (const cp of snap.capture_progress) {
       const comps = [...this.map.war_bases, ...this.map.factories].find((s) => s.id === cp.structure_id)?.components ?? [];

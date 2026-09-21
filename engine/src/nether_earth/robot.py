@@ -207,10 +207,17 @@ class Robot:
     active_projectile_id: EntityId | None = None
     strength: int = 100
     last_fire_tick: int | None = None
+    #: Steps left in the launch walk-out (CR002.3, `_specs/open-questions.md`
+    #: "Remaining research" item 5 resolved): a new robot walks south out of
+    #: its war base's doorway before settling into Stop & Defend. See
+    #: `robot_launch.py` and `orders.py`.
+    exit_steps_remaining: int = 0
 
     def __post_init__(self) -> None:
         if self.height <= 0:
             raise ValueError("height must be a positive integer")
+        if self.exit_steps_remaining < 0:
+            raise ValueError("exit_steps_remaining must be non-negative")
         if not self.stack:
             raise ValueError("stack must not be empty")
         if self.movement is not None and self.movement.entity_id != self.entity_id:
@@ -250,6 +257,7 @@ class Robot:
             active_projectile_id=self.active_projectile_id,
             strength=self.strength,
             last_fire_tick=self.last_fire_tick,
+            exit_steps_remaining=self.exit_steps_remaining,
         )
 
     def with_position(self, x: int, y: int) -> Robot:
@@ -278,6 +286,7 @@ class Robot:
             active_projectile_id=self.active_projectile_id,
             strength=self.strength,
             last_fire_tick=self.last_fire_tick,
+            exit_steps_remaining=self.exit_steps_remaining,
         )
 
     def with_order(self, order: Order | None) -> Robot:
@@ -303,6 +312,7 @@ class Robot:
             active_projectile_id=self.active_projectile_id,
             strength=self.strength,
             last_fire_tick=self.last_fire_tick,
+            exit_steps_remaining=self.exit_steps_remaining,
         )
 
     def with_active_projectile(self, active_projectile_id: EntityId | None) -> Robot:
@@ -326,6 +336,7 @@ class Robot:
             active_projectile_id=active_projectile_id,
             strength=self.strength,
             last_fire_tick=self.last_fire_tick,
+            exit_steps_remaining=self.exit_steps_remaining,
         )
 
     def with_strength(self, strength: int) -> Robot:
@@ -355,4 +366,5 @@ class Robot:
             active_projectile_id=self.active_projectile_id,
             strength=strength,
             last_fire_tick=self.last_fire_tick,
+            exit_steps_remaining=self.exit_steps_remaining,
         )

@@ -52,7 +52,7 @@ CARRIER_CELL = (16, 11)
 BOX_ID = EntityId("blocker-9")
 BOX_CELLS = {(16, 13), (17, 13), (16, 14), (17, 14)}
 FENCES_IN_WINDOW = {EntityId("blocker-5"), EntityId("blocker-6"), EntityId("blocker-7")}
-MOVER_CELL = (15, 13)  # free ground between the fence and the box
+MOVER_CELL = (14, 14)  # 2×2 body (14..15, 13..14): free ground between the fence and the box
 
 
 @pytest.fixture(scope="module")
@@ -231,7 +231,7 @@ def test_robots_cross_debris_at_rough_speed_through_engine_step(world: WorldMap)
     state, events = step(state, [], world=world, robot_moves=[move_east])
     started = [e for e in events if isinstance(e, RobotMoveStartedEvent)]
     assert [(e.to_x, e.to_y, e.duration_ticks) for e in started] == [
-        (16, 13, DEFAULT_RULES.robot_move_ticks_bipod_rough)
+        (15, 14, DEFAULT_RULES.robot_move_ticks_bipod_rough)
     ]
 
 

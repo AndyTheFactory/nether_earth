@@ -136,10 +136,14 @@ async function main() {
   await a.wait((m) => m.type === 'snapshot' && a.latest.robots.length === 1, 5000, 'robot launched');
   const robot = a.latest.robots[0];
   check('robot built and launched at the war-base exit', robot.owner === a.session.playerId && robot.x === PAD.x && robot.y === PAD.y + 4, `${robot.entity_id} at (${robot.x}, ${robot.y})`);
+  // CR002.3 (`La6c8`): a new robot walks 5 steps south out of the war base on Stop & Defend.
+  await a.wait((m) => m.type === 'snapshot' && a.latest.robots[0]?.exit_steps_remaining === 0 && !a.latest.robots[0]?.movement, 15000, 'robot walked out');
+  const out = a.latest.robots[0];
+  check('launched robot walks 5 cells south out of the war base', out.x === PAD.x && out.y === PAD.y + 9 && out.order?.kind === 'stop_and_defend', `(${out.x}, ${out.y}) order ${out.order?.kind}`);
   a.command({ kind: 'set_robot_order', entityId: robot.entity_id, order: { kind: 'advance', distanceMiles: 10 } });
   await a.wait((m) => m.type === 'snapshot' && a.latest.robots[0]?.order?.kind === 'advance' && a.latest.robots[0]?.movement, 5000, 'robot moving');
   check('robot order accepted and autonomous movement started', true, `order ${a.latest.robots[0].order.kind}`);
-  a.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon: 'cannon', targetX: robot.x + 5, targetY: robot.y });
+  a.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon: 'cannon', targetX: out.x + 5, targetY: out.y });
   await a.wait((m) => m.type === 'snapshot' && a.latest.projectiles.length === 1, 5000, 'projectile fired');
   check('direct fire produces an authoritative projectile', a.latest.projectiles[0].source_robot_id === robot.entity_id);
   // CR001 §8: a projectile moves 2 cells per advance; a cannon without electronics ranges 10 cells.

@@ -100,9 +100,13 @@ WAR_BASE_TWO = EntityId("warbase-p2")
 FACTORY_NEUTRAL = EntityId("factory-neutral")
 FACTORY_ENEMY = EntityId("factory-enemy")
 
-FACTORY_NEUTRAL_CELL = (20, 12)
-FACTORY_ENEMY_CELL = (25, 19)
-WARBASE_ONE_CELL = (2, 21)
+# 2×2 bodies (CR002.3): the neutral factory has a two-cell capture point so
+# the two contention robots each have their own nearest capture cell (two
+# robots can never claim the same anchor: a robot one step from it already
+# overlaps the other's body).
+FACTORY_NEUTRAL_CELLS = ((19, 17), (20, 17))
+FACTORY_ENEMY_CELL = (25, 30)
+WARBASE_ONE_CELL = (2, 31)
 
 # --------------------------------------------------------------------------
 # Command-schedule tick constants
@@ -147,17 +151,17 @@ def _robot(
 def _initial_robots() -> tuple[Robot, ...]:
     return (
         # Chassis terrain-permission / movement-duration lane.
-        _robot(ROBOT_BIPOD, PLAYER_ONE, 0, 0, chassis=ModuleIdentity.BIPOD, order=Advance(3)),
-        _robot(ROBOT_TRACKS, PLAYER_ONE, 0, 1, chassis=ModuleIdentity.TRACKS, order=Advance(3)),
+        _robot(ROBOT_BIPOD, PLAYER_ONE, 0, 1, chassis=ModuleIdentity.BIPOD, order=Advance(3)),
+        _robot(ROBOT_TRACKS, PLAYER_ONE, 0, 3, chassis=ModuleIdentity.TRACKS, order=Advance(3)),
         _robot(
-            ROBOT_ANTIGRAV, PLAYER_ONE, 0, 2, chassis=ModuleIdentity.ANTI_GRAV, order=Advance(3)
+            ROBOT_ANTIGRAV, PLAYER_ONE, 0, 5, chassis=ModuleIdentity.ANTI_GRAV, order=Advance(3)
         ),
         # Navigation lane: identical Advance goal, dumb vs electronic tracks.
         _robot(
             ROBOT_NAV_DUMB,
             PLAYER_ONE,
             10,
-            6,
+            8,
             chassis=ModuleIdentity.TRACKS,
             order=Advance(8),
         ),
@@ -165,54 +169,54 @@ def _initial_robots() -> tuple[Robot, ...]:
             ROBOT_NAV_SMART,
             PLAYER_ONE,
             10,
-            7,
+            11,
             chassis=ModuleIdentity.TRACKS,
             electronics=ModuleIdentity.ELECTRONICS,
             order=Advance(8),
         ),
         # Contention lane: both order Search & Capture(neutral factory) at
-        # tick 1, one cell either side of the shared capture cell.
+        # tick 1, one step west/east of the two-cell capture point.
         _robot(
             ROBOT_CONTEND_WEST,
             PLAYER_ONE,
-            FACTORY_NEUTRAL_CELL[0] - 1,
-            FACTORY_NEUTRAL_CELL[1],
+            FACTORY_NEUTRAL_CELLS[0][0] - 1,
+            FACTORY_NEUTRAL_CELLS[0][1],
             chassis=ModuleIdentity.TRACKS,
         ),
         _robot(
             ROBOT_CONTEND_EAST,
             PLAYER_TWO,
-            FACTORY_NEUTRAL_CELL[0] + 1,
-            FACTORY_NEUTRAL_CELL[1],
+            FACTORY_NEUTRAL_CELLS[1][0] + 1,
+            FACTORY_NEUTRAL_CELLS[1][1],
             chassis=ModuleIdentity.TRACKS,
         ),
         # Commander-blocking lane.
-        _robot(ROBOT_BLOCKED, PLAYER_ONE, 1, 14, chassis=ModuleIdentity.TRACKS, order=Advance(1)),
+        _robot(ROBOT_BLOCKED, PLAYER_ONE, 1, 22, chassis=ModuleIdentity.TRACKS, order=Advance(1)),
         # Search & Destroy / engagement-intent lane.
         _robot(
             ROBOT_DEFENDER,
             PLAYER_ONE,
             5,
-            16,
+            26,
             chassis=ModuleIdentity.TRACKS,
             order=StopAndDefend(),
         ),
         _robot(
             ROBOT_ATTACKER,
             PLAYER_TWO,
-            6,
-            16,
+            7,
+            26,
             chassis=ModuleIdentity.TRACKS,
             order=SearchDestroy(target=SearchDestroyTarget.ROBOT),
         ),
         # Direct-control lane.
-        _robot(ROBOT_DIRECT, PLAYER_ONE, 2, 18, chassis=ModuleIdentity.TRACKS),
+        _robot(ROBOT_DIRECT, PLAYER_ONE, 2, 28, chassis=ModuleIdentity.TRACKS),
         # Capture lane.
         _robot(
             ROBOT_FACTORY_CAPTOR,
             PLAYER_TWO,
             23,
-            19,
+            30,
             chassis=ModuleIdentity.TRACKS,
             order=SearchCapture(target=SearchCaptureTarget.ENEMY_FACTORY),
         ),
@@ -232,11 +236,12 @@ def _commanders() -> tuple[Commander, ...]:
             player_id=PLAYER_ONE,
             mode=CommanderMode.DOCKED,
             x=2,
-            y=18,
+            y=28,
             altitude=0,
             docked_robot_id=ROBOT_DIRECT,
         ),
-        Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=2, y=14, altitude=0),
+        # Its body (3..4, 22..23) overlaps the lane robot's next body.
+        Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=3, y=23, altitude=0),
     )
 
 
@@ -270,8 +275,8 @@ def _commands_by_tick() -> dict[int, tuple[Command, ...]]:
     )
 
     # p2's commander unblocks the commander-blocking lane by stepping aside
-    # (off the lane's row entirely, so it never re-blocks the robot's goal
-    # cell at x=3).
+    # (its body leaves the lane's rows entirely, so it never re-blocks the
+    # robot's goal at x=3).
     add(TICK_UNBLOCK, CommanderMoveCommand(player=PLAYER_TWO, sequence=0, dx=0, dy=1))
 
     # Interrupt the war-base captor's in-progress capture, then send it
@@ -305,7 +310,7 @@ def _scenario_and_map() -> tuple[Scenario, BootstrapMap]:
         map_version=MAP_VERSION,
         player_starting_warbases=1,
     )
-    map_data = BootstrapMap(map_id=MAP_ID, version=MAP_VERSION, width=32, height=24)
+    map_data = BootstrapMap(map_id=MAP_ID, version=MAP_VERSION, width=40, height=32)
     return scenario, map_data
 
 
@@ -389,17 +394,21 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     # ---------------------------------------------------------------
     assert BIPOD_TICKS > TRACKS_TICKS > ANTI_TICKS  # locked relative speed ranking
 
+    # 2×2 bodies (CR002.3): each move is charged by the governing terrain
+    # of the destination body, and a body with any cell the chassis cannot
+    # enter is refused.
     bipod_moves = move_started_by_robot[ROBOT_BIPOD]
     assert bipod_moves[0].duration_ticks == BIPOD_TICKS
-    assert bipod_moves[0].to_x == 1 and bipod_moves[0].to_y == 0  # into NORMAL
+    assert bipod_moves[0].to_x == 1 and bipod_moves[0].to_y == 1  # body over NORMAL
     assert bipod_moves[1].duration_ticks == ROUGH_BIPOD_TICKS
-    assert bipod_moves[1].to_x == 2 and bipod_moves[1].to_y == 0  # into ROUGH
-    # Bipod cannot enter the ditch at x=3: no further move is ever started,
-    # so it remains stuck at the rough cell for the rest of the run.
+    assert bipod_moves[1].to_x == 2 and bipod_moves[1].to_y == 1  # body over ROUGH
+    # Bipod cannot enter a body over the ditch at x=4: no further move is
+    # ever started, so it remains stuck on the rough body for the rest of
+    # the run.
     assert len(bipod_moves) == 2
     bipod_robot = final.robot_for(ROBOT_BIPOD)
     assert bipod_robot is not None
-    assert (bipod_robot.x, bipod_robot.y) == (2, 0)
+    assert (bipod_robot.x, bipod_robot.y) == (2, 1)
 
     tracks_moves = move_started_by_robot[ROBOT_TRACKS]
     assert tracks_moves[0].duration_ticks == TRACKS_TICKS
@@ -407,17 +416,18 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert len(tracks_moves) == 2  # tracks cannot enter the ditch either
     tracks_robot = final.robot_for(ROBOT_TRACKS)
     assert tracks_robot is not None
-    assert (tracks_robot.x, tracks_robot.y) == (2, 1)
+    assert (tracks_robot.x, tracks_robot.y) == (2, 3)
 
     antigrav_moves = move_started_by_robot[ROBOT_ANTIGRAV]
     assert antigrav_moves[0].duration_ticks == ANTI_TICKS  # normal
     assert antigrav_moves[1].duration_ticks == ROUGH_ANTI_TICKS  # rough
-    assert antigrav_moves[2].duration_ticks == DITCH_ANTI_TICKS  # ditch
+    assert antigrav_moves[2].duration_ticks == ROUGH_ANTI_TICKS  # rough + ditch: rough governs
+    assert antigrav_moves[3].duration_ticks == DITCH_ANTI_TICKS  # ditch
     # Anti-grav may enter every terrain type and completes the full
     # Advance(3 miles = 6 cells) order, transitioning to Stop & Defend.
     antigrav_robot = final.robot_for(ROBOT_ANTIGRAV)
     assert antigrav_robot is not None
-    assert (antigrav_robot.x, antigrav_robot.y) == (0 + miles_to_cells(3), 2)
+    assert (antigrav_robot.x, antigrav_robot.y) == (0 + miles_to_cells(3), 5)
     assert antigrav_robot.order == StopAndDefend()
 
     # ---------------------------------------------------------------
@@ -433,10 +443,10 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     before_unblock = states[TICK_UNBLOCK - 1]
     still_blocked = before_unblock.robot_for(ROBOT_BLOCKED)
     assert still_blocked is not None
-    assert (still_blocked.x, still_blocked.y) == (1, 14)  # never advanced past the commander
+    assert (still_blocked.x, still_blocked.y) == (1, 22)  # never advanced past the commander
     after_unblock = final.robot_for(ROBOT_BLOCKED)
     assert after_unblock is not None
-    assert (after_unblock.x, after_unblock.y) == (1 + miles_to_cells(1), 14)
+    assert (after_unblock.x, after_unblock.y) == (1 + miles_to_cells(1), 22)
     assert after_unblock.order == StopAndDefend()
 
     # ---------------------------------------------------------------
@@ -455,8 +465,9 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     winner = final.robot_for(winner_id)
     loser = final.robot_for(loser_id)
     assert winner is not None and loser is not None
-    assert (winner.x, winner.y) == FACTORY_NEUTRAL_CELL
-    assert (loser.x, loser.y) != FACTORY_NEUTRAL_CELL  # the loser never claims the cell
+    assert (winner.x, winner.y) in FACTORY_NEUTRAL_CELLS
+    # The loser never reaches the capture point: the winner's body blocks it.
+    assert (loser.x, loser.y) not in FACTORY_NEUTRAL_CELLS
 
     # ---------------------------------------------------------------
     # 5. Neutral factory instant acquisition.
@@ -525,10 +536,10 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     # ---------------------------------------------------------------
     direct_moves = move_started_by_robot[ROBOT_DIRECT]
     assert len(direct_moves) == 1
-    assert direct_moves[0].to_x == 3 and direct_moves[0].to_y == 18
+    assert direct_moves[0].to_x == 3 and direct_moves[0].to_y == 28
     direct_robot = final.robot_for(ROBOT_DIRECT)
     assert direct_robot is not None
-    assert (direct_robot.x, direct_robot.y) == (3, 18)
+    assert (direct_robot.x, direct_robot.y) == (3, 28)
 
     # ---------------------------------------------------------------
     # 9. Search & Destroy target selection + engagement intent, no
@@ -546,8 +557,8 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     defender_final = final.robot_for(ROBOT_DEFENDER)
     attacker_final = final.robot_for(ROBOT_ATTACKER)
     assert defender_final is not None and attacker_final is not None
-    assert (defender_final.x, defender_final.y) == (5, 16)
-    assert (attacker_final.x, attacker_final.y) == (6, 16)
+    assert (defender_final.x, defender_final.y) == (5, 26)
+    assert (attacker_final.x, attacker_final.y) == (7, 26)
 
     # ---------------------------------------------------------------
     # 10. Navigation: non-electronic stuck vs electronic replanning.
@@ -555,10 +566,10 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     dumb_final = final.robot_for(ROBOT_NAV_DUMB)
     smart_final = final.robot_for(ROBOT_NAV_SMART)
     assert dumb_final is not None and smart_final is not None
-    # The dumb robot never gets past the wall's leading edge (x=14): it has
-    # no detour logic even though the row-9 gap is a valid, shorter-than-
-    # infinite route.
-    assert dumb_final.x == 14
+    # The dumb robot never gets past the wall's leading edge: its 2×2 body
+    # (13..14) stops against the wall at x=15. It has no detour logic even
+    # though the rows 12-13 gap is a valid, shorter-than-infinite route.
+    assert dumb_final.x == 13
     assert dumb_final.order != StopAndDefend()  # never completes -- permanently stuck
     # The electronic robot successfully routes around the wall and
     # completes its Advance.

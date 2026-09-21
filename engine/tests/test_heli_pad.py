@@ -2,9 +2,12 @@
 
 Uses the shared M2 fixture map (`fixtures/world_map_basic.yaml`), which
 declares two war bases (``warbase-p1`` owned by ``p1``, ``warbase-p2``
-owned by ``p2``) each with a single-cell ``HELI_PAD`` interaction point:
-``warbase-p1-helipad`` at ``(4, 0)`` and ``warbase-p2-helipad`` at
-``(4, 3)``, each on a 3-high war-base component (the fixture's "roof"). See `_specs/milestones/03-commander-movement-docking.md`
+owned by ``p2``) each with a 2×2 ``HELI_PAD`` interaction point (CR002.4,
+`_specs/open-questions.md` §21): ``warbase-p1-helipad`` anchored at
+``(4, 1)`` (cells x 4..5, y 0..1) and ``warbase-p2-helipad`` anchored at
+``(4, 3)`` (cells x 4..5, y 2..3), each over a 3-high war-base component
+(the fixture's "roof"). A commander lands when its 2×2 body lies exactly
+over the pad, i.e. its anchor is the pad's anchor. See `_specs/milestones/03-commander-movement-docking.md`
 ("War-base heli-pad interaction") for the acceptance criteria this file
 covers: friendly, enemy, neutral, misaligned (wrong X/Y), insufficient
 contact (wrong altitude), and docked-mode cases.
@@ -37,8 +40,8 @@ PLAYER_ONE = PlayerId("p1")
 PLAYER_TWO = PlayerId("p2")
 PLAYER_NEUTRAL_OBSERVER = PlayerId("p3")
 
-# Fixture heli-pad cells, from world_map_basic.yaml.
-P1_HELI_PAD_CELL = (4, 0)
+# Fixture heli-pad anchors, from world_map_basic.yaml (2×2 pads, CR002.4).
+P1_HELI_PAD_CELL = (4, 1)
 P2_HELI_PAD_CELL = (4, 3)
 # Both fixture pad cells sit on 3-high components: landing is at that height
 # (open-questions.md §18: land at the pad cell's component height).
@@ -167,6 +170,18 @@ def test_adjacent_cell_to_heli_pad_does_not_trigger(world: WorldMap) -> None:
     assert event is None
 
 
+@pytest.mark.parametrize(("dx", "dy"), [(1, 0), (-1, 0), (0, 1), (1, 1)])
+def test_a_body_only_partly_over_the_pad_does_not_trigger(
+    world: WorldMap, dx: int, dy: int
+) -> None:
+    """The whole 2×2 body must lie over the pad (the Spectrum's ship anchor
+    must be the "H" decoration's own cell), even at the roof altitude."""
+    x, y = P1_HELI_PAD_CELL
+    commander = _free_commander(PLAYER_ONE, x + dx, y + dy, altitude=PAD_ROOF_ALTITUDE)
+
+    assert detect_heli_pad_landing(_state_with_commander(commander), world, commander, tick=1) is None
+
+
 # --- Insufficient contact: wrong altitude -----------------------------------------
 
 
@@ -196,10 +211,17 @@ def test_surface_altitude_is_the_pad_cell_component_height(world: WorldMap) -> N
 
 
 def _world_with_ground_level_p1_pad(cell: tuple[int, int]) -> WorldMap:
+    """Move p1's 2×2 pad so it is anchored at ``cell``."""
     raw = yaml.safe_load(FIXTURE_PATH.read_text(encoding="utf-8"))
+    x, y = cell
     for point in raw["interaction_points"]:
         if point["id"] == "warbase-p1-helipad":
-            point["footprint"] = {"x": cell[0], "y": cell[1]}
+            point["footprint"] = [
+                {"x": x, "y": y},
+                {"x": x + 1, "y": y},
+                {"x": x, "y": y - 1},
+                {"x": x + 1, "y": y - 1},
+            ]
 
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as handle:
         yaml.safe_dump(raw, handle)
@@ -211,7 +233,7 @@ def _world_with_ground_level_p1_pad(cell: tuple[int, int]) -> WorldMap:
 def test_pad_cell_without_a_component_lands_at_custom_min_altitude() -> None:
     # A pad on a free cell has a ground-level surface: rules.commander_min_altitude,
     # read from the rules object rather than a hardcoded 0.
-    free_cell = (3, 0)
+    free_cell = (8, 6)
     ground_world = _world_with_ground_level_p1_pad(free_cell)
     custom_rules = EngineRules(commander_min_altitude=2, commander_max_altitude=48)
     assert heli_pad_surface_altitude(ground_world, *free_cell, custom_rules) == 2
@@ -245,6 +267,14 @@ def test_original_map_roof_pad_lands_at_15_not_at_the_anchor_on_the_ground() -> 
     for altitude in (0, 14, 16):
         near = _free_commander(PLAYER_ONE, anchor_x, anchor_y - 4, altitude=altitude)
         assert detect_heli_pad_landing(_state_with_commander(near), original, near, tick=1) is None
+
+    # The 2×2 pad (CR002.4): a body shifted by one cell is not over the "H".
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        shifted = _free_commander(PLAYER_ONE, anchor_x + dx, anchor_y - 4 + dy, altitude=15)
+        assert (
+            detect_heli_pad_landing(_state_with_commander(shifted), original, shifted, tick=1)
+            is None
+        )
 
     at_anchor = _free_commander(PLAYER_ONE, anchor_x, anchor_y, altitude=0)
     assert detect_heli_pad_landing(_state_with_commander(at_anchor), original, at_anchor, tick=1) is None

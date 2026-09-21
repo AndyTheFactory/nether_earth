@@ -35,11 +35,22 @@ export interface MapBlocker {
 
 export type InteractionKind = 'warbase_capture' | 'factory_capture' | 'heli_pad' | 'exit';
 
+export interface MapCell {
+  x: number;
+  y: number;
+}
+
 export interface MapInteractionPoint {
   id: string;
   kind: InteractionKind;
   structure_id: string;
-  footprint: { x: number; y: number };
+  /** One cell, or a cell list (the 2×2 heli-pad, CR002.4). */
+  footprint: MapCell | MapCell[];
+}
+
+/** The cells of an interaction point's footprint. */
+export function footprintCells(ip: MapInteractionPoint): MapCell[] {
+  return Array.isArray(ip.footprint) ? ip.footprint : [ip.footprint];
 }
 
 export interface MapData {

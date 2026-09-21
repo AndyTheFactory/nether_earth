@@ -114,13 +114,21 @@ Direct (combat-mode) fire is not an order and is not gated here; it keeps
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 
 from nether_earth.combat import FireRequest, apply_fire, validate_fire, weapon_range_cells
+from nether_earth.commander import CommanderMode
 from nether_earth.destruction import effective_world, execute_nuclear_detonation
 from nether_earth.events import Event, EventSequencer
+from nether_earth.ids import EntityId
 from nether_earth.map import WorldMap
-from nether_earth.movement import RobotMoveRequest, robot_move_duration_ticks
-from nether_earth.orders import EngagementIntent, EngagementTargetKind, OrderEvaluation
+from nether_earth.movement import RobotMoveRequest, robot_move_duration_ticks, unit_move_terrain
+from nether_earth.orders import (
+    EngagementIntent,
+    EngagementTargetKind,
+    OrderEvaluation,
+    StopAndDefend,
+)
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
@@ -132,6 +140,7 @@ __all__ = [
     "consume_engagement_intent",
     "consume_engagement_intents",
     "gate_order_requests",
+    "settle_walk_outs",
 ]
 
 
@@ -261,11 +270,13 @@ def autonomous_update_period_ticks(
 
     ``Lb5f3_determine_speed_based_on_terrain`` reloads the counter from the
     terrain the robot stands on after the update; a firing update does not
-    move, so that is the robot's own cell. The value is the same
+    move, so that is the highest piece under the robot's own 2×2 body
+    (``Lb5d6_map_altitude_2x2``, CR002.3; see
+    :func:`~nether_earth.movement.unit_move_terrain`). The value is the same
     per-(chassis, terrain) table the move duration uses
     (`_specs/open-questions.md` §4).
     """
-    return robot_move_duration_ticks(robot, world.terrain.terrain_at(robot.x, robot.y), rules)
+    return robot_move_duration_ticks(robot, unit_move_terrain(world, robot.x, robot.y), rules)
 
 
 def autonomous_update_due(
@@ -401,3 +412,63 @@ def consume_engagement_intents(
         )
         events.extend(new_events)
     return state, tuple(events)
+
+
+def settle_walk_outs(
+    entry_state: GameState,
+    state: GameState,
+    evaluations: Iterable[OrderEvaluation],
+    started: Iterable[EntityId],
+    world: WorldMap,
+    tick: int,
+    rules: EngineRules = DEFAULT_RULES,
+) -> GameState:
+    """Update every walking-out robot's ``exit_steps_remaining`` after the tick's move batch.
+
+    ``entry_state`` is the state the tick's orders were evaluated and gated
+    against; ``state`` is the state after the move batch; ``started`` names
+    the robots whose move started this tick. For each robot still walking
+    out, following ``Lb1e9_no_enemy_robots_in_sight``:
+
+    - a commander docked on it ends the walk-out: the Spectrum does not
+      update a robot the ship has landed on, and leaving it zeroes its
+      steps (see :func:`~nether_earth.orders.apply_set_robot_order`);
+    - its walk-out step started: one step fewer;
+    - otherwise, if this tick was one of its own updates
+      (:func:`autonomous_update_due`), the
+      walk-out ends -- the step south was blocked, lost a same-tick
+      contention, or the update fired instead (``Lb154``'s enemy-in-sight
+      branch overwrites the steps before any move);
+    - between updates nothing changes.
+    """
+    # A Stop & Defend evaluation only ever carries a walk-out request.
+    walking = {
+        evaluation.robot_id
+        for evaluation in evaluations
+        if evaluation.request is not None and isinstance(evaluation.order, StopAndDefend)
+    }
+    docked = {
+        commander.docked_robot_id
+        for commander in state.commanders
+        if commander.mode is CommanderMode.DOCKED
+    }
+    started_ids = set(started)
+    updated: list[Robot] = []
+    changed = False
+    for robot in state.robots:
+        steps = robot.exit_steps_remaining
+        if steps > 0:
+            entry = entry_state.robot_for(robot.entity_id)
+            if robot.entity_id in docked:
+                steps = 0
+            elif robot.entity_id in started_ids and robot.entity_id in walking:
+                steps -= 1
+            elif entry is not None and entry.movement is None and autonomous_update_due(
+                entry, world, tick, rules
+            ):
+                steps = 0
+        if steps != robot.exit_steps_remaining:
+            robot = replace(robot, exit_steps_remaining=steps)
+            changed = True
+        updated.append(robot)
+    return state.with_robots(tuple(updated)) if changed else state

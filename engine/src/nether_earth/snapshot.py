@@ -331,6 +331,9 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
 
     Extended again by CR002.2 (#169) with ``last_fire_tick``, appended last:
     it gates the one-shot-per-game-cycle fire rule.
+
+    Extended again by CR002.3 (#170) with ``exit_steps_remaining``, appended
+    last: the steps left in a launched robot's walk out of its war base.
     """
     return {
         "entity_id": robot.entity_id.to_json(),
@@ -349,6 +352,7 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
         ),
         "strength": robot.strength,
         "last_fire_tick": robot.last_fire_tick,
+        "exit_steps_remaining": robot.exit_steps_remaining,
     }
 
 

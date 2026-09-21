@@ -116,11 +116,11 @@ FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "world_map_m4_inte
 
 RULES = DEFAULT_RULES
 WAR_BASE_ONE = EntityId("warbase-p1")
-P1_HELI_PAD_CELL = (4, 0)
+P1_HELI_PAD_CELL = (4, 1)  # 2×2 pad anchor (CR002.4)
 # The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
 # commander lands at that component height (open-questions.md §18).
 PAD_ROOF_ALTITUDE = 3
-P1_EXIT_CELL = (7, 0)
+P1_EXIT_CELL = (7, 1)  # 2×2 robot body anchor (CR002.3)
 TICKS_PER_DAY = 2880
 
 
@@ -322,7 +322,7 @@ def test_robot_cap_rejects_a_25th_launch() -> None:
         Robot(
             entity_id=EntityId(f"seed-robot-{i}"),
             owner=PLAYER_ONE,
-            x=100 + i,
+            x=100 + 2 * i,
             y=100,
             build=build,
             stack=stack,

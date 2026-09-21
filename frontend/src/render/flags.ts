@@ -13,7 +13,7 @@
 // - Decorations 7/8 draw sprites #2a/#2b (L86b4_iso_graphic_40 and
 //   L8752_iso_graphic_42): a pole with its cloth to the right; the human
 //   flag's cloth is striped, the Insignian one's checkered.
-import type { MapData } from '../world/map.ts';
+import { footprintCells, type MapData } from '../world/map.ts';
 
 export type FlagOwner = 'p1' | 'p2';
 
@@ -54,7 +54,8 @@ export function ownershipFlags(
     const owner = owners.get(ip.structure_id);
     if ((owner !== 'p1' && owner !== 'p2') || destroyed.has(ip.structure_id)) continue;
     const off = FLAG_OFFSET[ip.kind];
-    flags.push({ structureId: ip.structure_id, owner, x: ip.footprint.x + FLAG_SIDE[owner] * off, y: ip.footprint.y - off });
+    const [anchor] = footprintCells(ip); // capture points are single cells
+    flags.push({ structureId: ip.structure_id, owner, x: anchor.x + FLAG_SIDE[owner] * off, y: anchor.y - off });
   }
   return flags;
 }

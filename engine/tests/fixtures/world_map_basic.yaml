@@ -2,10 +2,16 @@
 # a generic blocker, a composed factory, composed war bases (one with
 # components at different heights), interaction points, and spawn
 # positions. Not gameplay data - see test_world_map.py.
+#
+# CR002.3/CR002.4 (open-questions.md §21): commanders and robots are 2×2
+# bodies anchored at their (x, y) (the body covers x..x+1, y-1..y). The map
+# is 12x8 so two commanders fit beside the original structures, each
+# heli-pad lists the four cells of a 2×2 pad over its war base, and the
+# commander spawns stand on free ground.
 id: fixture-basic
 version: 1
-width: 6
-height: 4
+width: 12
+height: 8
 
 terrain:
   default: normal
@@ -41,7 +47,7 @@ interaction_points:
   - id: warbase-p1-helipad
     kind: heli_pad
     structure_id: warbase-p1
-    footprint: {x: 4, y: 0}
+    footprint: [{x: 4, y: 1}, {x: 5, y: 1}, {x: 4, y: 0}, {x: 5, y: 0}]
 
   - id: warbase-p1-exit
     kind: exit
@@ -56,7 +62,7 @@ interaction_points:
   - id: warbase-p2-helipad
     kind: heli_pad
     structure_id: warbase-p2
-    footprint: {x: 4, y: 3}
+    footprint: [{x: 4, y: 3}, {x: 5, y: 3}, {x: 4, y: 2}, {x: 5, y: 2}]
 
   - id: warbase-p2-exit
     kind: exit
@@ -64,5 +70,5 @@ interaction_points:
     footprint: {x: 5, y: 3}
 
 spawn_positions:
-  p1_commander: {x: 4, y: 1}
-  p2_commander: {x: 4, y: 2}
+  p1_commander: {x: 8, y: 2}
+  p2_commander: {x: 8, y: 5}

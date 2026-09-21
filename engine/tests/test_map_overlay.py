@@ -198,8 +198,8 @@ def test_apply_overlay_merges_new_spawn_position() -> None:
 
     assert overlaid.spawn_positions["neutral_flag"] == (1, 2)
     # Base map's own spawns are preserved alongside the new one.
-    assert overlaid.spawn_positions["p1_commander"] == (4, 1)
-    assert overlaid.spawn_positions["p2_commander"] == (4, 2)
+    assert overlaid.spawn_positions["p1_commander"] == (8, 2)
+    assert overlaid.spawn_positions["p2_commander"] == (8, 5)
 
 
 def test_apply_overlay_overrides_existing_spawn_position() -> None:
@@ -212,7 +212,7 @@ def test_apply_overlay_overrides_existing_spawn_position() -> None:
     overlaid = apply_overlay(world_map, overlay)
 
     assert overlaid.spawn_positions["p1_commander"] == (2, 3)
-    assert overlaid.spawn_positions["p2_commander"] == (4, 2)
+    assert overlaid.spawn_positions["p2_commander"] == (8, 5)
 
 
 # --- Spawn-position bounds validation --------------------------------------------
@@ -225,11 +225,11 @@ def test_apply_overlay_overrides_existing_spawn_position() -> None:
 
 
 def test_apply_overlay_rejects_spawn_position_outside_grid_x() -> None:
-    world_map = load_world_map(FIXTURE_PATH)  # width=6, height=4
+    world_map = load_world_map(FIXTURE_PATH)  # width=12, height=8
     overlay = ScenarioOverlay(
         id="out-of-bounds-x",
         ownership={},
-        spawn_positions={"bad": (6, 0)},
+        spawn_positions={"bad": (12, 0)},
     )
     with pytest.raises(OverlayValidationError, match="outside the"):
         apply_overlay(world_map, overlay)
@@ -240,7 +240,7 @@ def test_apply_overlay_rejects_spawn_position_outside_grid_y() -> None:
     overlay = ScenarioOverlay(
         id="out-of-bounds-y",
         ownership={},
-        spawn_positions={"bad": (0, 4)},
+        spawn_positions={"bad": (0, 8)},
     )
     with pytest.raises(OverlayValidationError, match="outside the"):
         apply_overlay(world_map, overlay)
@@ -258,7 +258,7 @@ def test_apply_overlay_rejects_negative_spawn_position() -> None:
 
 
 def test_apply_overlay_accepts_spawn_position_on_grid_boundary() -> None:
-    world_map = load_world_map(FIXTURE_PATH)  # width=6, height=4
+    world_map = load_world_map(FIXTURE_PATH)  # width=12, height=8
     overlay = ScenarioOverlay(
         id="boundary-overlay",
         ownership={},
@@ -316,7 +316,7 @@ def test_two_overlays_from_one_base_map_are_independent() -> None:
     assert warbase_p1_a.owner == PlayerId("p1")
     assert warbase_p2_a.owner == PlayerId("p1")
     assert map_a.spawn_positions["p1_commander"] == (0, 0)
-    assert map_a.spawn_positions["p2_commander"] == (4, 2)  # base value, untouched by overlay_a
+    assert map_a.spawn_positions["p2_commander"] == (8, 5)  # base value, untouched by overlay_a
 
     warbase_p1_b = map_b.structure_by_id(EntityId("warbase-p1"))
     warbase_p2_b = map_b.structure_by_id(EntityId("warbase-p2"))
@@ -324,7 +324,7 @@ def test_two_overlays_from_one_base_map_are_independent() -> None:
     assert warbase_p1_b.owner == PlayerId("p2")
     assert warbase_p2_b.owner == PlayerId("p2")
     assert map_b.spawn_positions["p2_commander"] == (1, 1)
-    assert map_b.spawn_positions["p1_commander"] == (4, 1)  # base value, untouched by overlay_b
+    assert map_b.spawn_positions["p1_commander"] == (8, 2)  # base value, untouched by overlay_b
 
     # Neither overlaid map affected the other, nor the shared base map.
     assert map_a != map_b
@@ -333,7 +333,7 @@ def test_two_overlays_from_one_base_map_are_independent() -> None:
     assert isinstance(base_warbase_p1, WarBase) and isinstance(base_warbase_p2, WarBase)
     assert base_warbase_p1.owner == PlayerId("p1")
     assert base_warbase_p2.owner == PlayerId("p2")
-    assert base_map.spawn_positions == {"p1_commander": (4, 1), "p2_commander": (4, 2)}
+    assert base_map.spawn_positions == {"p1_commander": (8, 2), "p2_commander": (8, 5)}
 
 
 # --- Determinism -----------------------------------------------------------------

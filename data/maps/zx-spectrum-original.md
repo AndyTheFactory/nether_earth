@@ -29,8 +29,9 @@ sign-off before being treated as final authoritative geometry:
   but unverified reconstruction**, not observed fact.
 - **Heli-pad and exit interaction points** (`*-helipad`, `*-exit` in
   `interaction_points`): resolved by `_specs/open-questions.md` §18 (CR001).
-  The heli-pad is on the war-base roof at (anchor.x, anchor.y − 4) (a 15-high
-  component on every war base); the exit is the anchor cell. See
+  The heli-pad is the 2×2 roof area anchored at (anchor.x, anchor.y − 4) (four
+  15-high components on every war base, CR002.4); the exit is the anchor cell
+  of the new robot's 2×2 body. See
   "Heli-pad / exit interaction points" below.
 - **Terrain**: decoded from the disassembly in CR001.5 (#152) — see
   "Terrain" below. Tier-2 evidence, spot-checked against the speccy.cz image.
@@ -243,6 +244,13 @@ anchor cell (`Lcb52_construction_screen_start_robot`). Accordingly each
 `*-helipad` point sits at (anchor.x, anchor.y − 4) and each `*-exit` point at
 the anchor cell. The engine's landing rule is "altitude equals the pad cell's
 component height" (`engine/src/nether_earth/heli_pad.py`).
+
+CR002.4 (#171, open-questions.md §21): units are 2×2 bodies anchored at
+their `(x, y)` (the body covers x..x+1, y−1..y). Each `*-helipad` point lists
+the four cells of the 2×2 pad anchored at (anchor.x, anchor.y − 4), all on
+the 15-high roof; the commander lands when its body lies exactly over them
+(the Spectrum's ship anchor is on the "H" decoration's cell). Each `*-exit`
+and capture point stays a single cell: the anchor a robot must stand on.
 
 ## Terrain — DECODED (tier 2; CR001.5, issue #152)
 

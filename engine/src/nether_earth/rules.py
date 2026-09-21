@@ -413,6 +413,12 @@ class EngineRules:
       (1 game cycle). On the Spectrum an AI robot fires only inside its
       update in ``Lb0ca_update_robots_bullets_and_ai`` and a combat-mode
       shot uses up one time step, so neither fires twice in a cycle.
+    - ``robot_launch_exit_steps``: how many steps south a newly launched
+      robot walks out of its war base before settling into Stop & Defend
+      (CR002.3, owner decision 2026-09-21, `_specs/open-questions.md` §21).
+      ``La6c8``, right after ``Lc849_robot_construction_if_possible``, sets
+      ``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING`` to 5 ("walk 5 steps
+      after exiting the base, and stop"). Default ``5``; ``0`` disables it.
     """
 
     commander_min_altitude: int = 0
@@ -471,6 +477,7 @@ class EngineRules:
     projectile_advance_ticks: int = 4
     projectile_cells_per_advance: int = 2
     robot_fire_cycle_ticks: int = 4
+    robot_launch_exit_steps: int = 5
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -565,6 +572,8 @@ class EngineRules:
             raise ValueError("projectile_cells_per_advance must be a positive integer")
         if self.robot_fire_cycle_ticks <= 0:
             raise ValueError("robot_fire_cycle_ticks must be a positive integer")
+        if self.robot_launch_exit_steps < 0:
+            raise ValueError("robot_launch_exit_steps must be non-negative")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should
