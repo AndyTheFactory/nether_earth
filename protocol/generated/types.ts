@@ -395,6 +395,7 @@ export interface SnapshotState {
     vertical_transition: {
       [k: string]: unknown;
     } | null;
+    elevate_updates_remaining: number;
   }[];
   resource_pools: {
     /**

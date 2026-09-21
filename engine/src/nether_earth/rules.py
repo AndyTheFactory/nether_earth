@@ -281,6 +281,13 @@ class EngineRules:
       (documented canonical default ``4``; see the module docstring for why
       this exact duration is not independently spec-verified, unlike the
       vertical envelope above).
+    - ``commander_construction_exit_elevate_updates``: number of vertical
+      updates for which a commander automatically ascends
+      (``commander_ascent_step`` each) after leaving the construction screen
+      by EXIT MENU or START ROBOT (CR002.12/CR002.13). Spectrum evidence:
+      ``Lcb8e_construction_screen_exit`` sets ``Lfd30_player_elevate_timer``
+      to 5, and ``Laf11_player_ship_keyboard_control`` ascends 2 per frame
+      while the timer runs. Default ``5``.
     - ``module_height_bipod`` / ``module_height_tracks`` /
       ``module_height_anti_grav`` / ``module_height_cannon`` /
       ``module_height_missile`` / ``module_height_phaser`` /
@@ -408,6 +415,7 @@ class EngineRules:
     commander_descent_step: int = 1
     commander_height: int = 4
     commander_horizontal_move_ticks: int = 4
+    commander_construction_exit_elevate_updates: int = 5
     module_height_bipod: int = 4
     module_height_tracks: int = 4
     module_height_anti_grav: int = 4
@@ -471,6 +479,8 @@ class EngineRules:
             raise ValueError("commander_height must be a positive integer")
         if self.commander_horizontal_move_ticks <= 0:
             raise ValueError("commander_horizontal_move_ticks must be a positive integer")
+        if self.commander_construction_exit_elevate_updates < 0:
+            raise ValueError("commander_construction_exit_elevate_updates must be non-negative")
         for field_name in (
             "module_height_bipod",
             "module_height_tracks",

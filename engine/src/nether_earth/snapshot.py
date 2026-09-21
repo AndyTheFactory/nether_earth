@@ -162,6 +162,7 @@ def _commander_snapshot(commander: Commander) -> dict[str, Any]:
         "rising": commander.rising,
         "horizontal_transition": _grid_transition_snapshot(commander.horizontal_transition),
         "vertical_transition": _vertical_transition_snapshot(commander.vertical_transition),
+        "elevate_updates_remaining": commander.elevate_updates_remaining,
     }
 
 

@@ -11,7 +11,10 @@ hidden side effects).
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 from nether_earth.commander import Commander, CommanderMode
+from nether_earth.commander_movement import CommanderMoveCommand, CommanderSetVerticalIntentCommand
 from nether_earth.construction_commands import (
     CancelConstructionCommand,
     ConstructionCancelledEvent,
@@ -539,3 +542,168 @@ def test_identical_command_stream_produces_identical_state_events_and_snapshot()
     assert len(state_1.robots) == 1
     assert state_1.robots[0].build.chassis == ModuleIdentity.ANTI_GRAV
     assert state_1.robots[0].build.weapons == (ModuleIdentity.PHASER,)
+
+
+# --- Leaving the construction screen (CR002.12 #179 / CR002.13 #180) --------
+#
+# Spectrum semantics: EXIT MENU (``Lcb8e_construction_screen_exit``) discards
+# the build and sets ``Lfd30_player_elevate_timer`` to 5; START ROBOT
+# (``Lcb52_construction_screen_start_robot``) commits the robot and falls
+# through to the same exit. The ship then ascends ``commander_ascent_step``
+# per vertical update for 5 updates before gravity applies again, so the
+# screen does not re-open on the next tick.
+
+PAD_ALTITUDE = 3  # the pad cell's component height in `_world()`
+EXIT_PEAK = PAD_ALTITUDE + DEFAULT_RULES.commander_construction_exit_elevate_updates * (
+    DEFAULT_RULES.commander_ascent_step
+)
+
+
+def _in_session_with(modules: tuple[ModuleIdentity, ...]) -> GameState:
+    world = _world()
+    state = _base_state((_grounded_commander_on_heli_pad(),))
+    state, _events = step(state, [], world=world)
+    selects = [
+        SelectModuleCommand(player=PLAYER_ONE, sequence=i, module=m) for i, m in enumerate(modules)
+    ]
+    state, _events = step(state, selects, world=world)
+    assert state.construction_session_for(PLAYER_ONE) is not None
+    return state
+
+
+def _altitudes_until_reentry(state: GameState, world: WorldMap) -> tuple[GameState, list[int]]:
+    """Step with no commands until construction re-opens; return the altitude trace."""
+    trace: list[int] = []
+    for _ in range(200):
+        state, events = step(state, [], world=world)
+        commander = state.commander_for(PLAYER_ONE)
+        assert commander is not None
+        trace.append(commander.altitude)
+        if any(isinstance(e, ConstructionEnteredEvent) for e in events):
+            return state, trace
+    raise AssertionError("construction never re-opened")
+
+
+def _assert_exit_ascent(trace: list[int]) -> None:
+    # Up by +2 per vertical update to exactly pad + 10, then gravity -1 per
+    # update back onto the pad; no overshoot, no teleport.
+    peak_index = trace.index(max(trace))
+    assert max(trace) == EXIT_PEAK
+    assert trace[-1] == PAD_ALTITUDE
+    rising = [a for i, a in enumerate(trace[: peak_index + 1]) if i == 0 or a != trace[i - 1]]
+    assert rising == list(range(PAD_ALTITUDE + 2, EXIT_PEAK + 1, 2))
+    falling = trace[peak_index:]
+    assert all(b in (a, a - 1) for a, b in pairwise(falling))
+
+
+def test_exit_menu_with_build_in_progress_closes_screen_and_lifts_commander() -> None:
+    world = _world()
+    state = _in_session_with((ModuleIdentity.BIPOD, ModuleIdentity.CANNON))
+    pools_before = state.resource_pools
+
+    exit_menu = CancelConstructionCommand(player=PLAYER_ONE, sequence=0)
+    state, events = step(state, [exit_menu], world=world)
+
+    assert any(isinstance(e, ConstructionCancelledEvent) for e in events)
+    assert state.construction_session_for(PLAYER_ONE) is None
+    assert state.resource_pools == pools_before
+    commander = state.commander_for(PLAYER_ONE)
+    assert commander is not None
+    assert commander.elevate_updates_remaining == 5
+    assert commander.altitude == PAD_ALTITUDE
+
+    # Regression (#180): the screen used to re-open on the very next tick.
+    state, events = step(state, [], world=world)
+    assert state.construction_session_for(PLAYER_ONE) is None
+    assert not any(isinstance(e, ConstructionEnteredEvent) for e in events)
+
+    state, trace = _altitudes_until_reentry(state, world)
+    _assert_exit_ascent(trace)
+    # Left alone on the pad, the screen re-opens with a fresh, empty build.
+    session = state.construction_session_for(PLAYER_ONE)
+    assert session is not None
+    assert session.build.chassis is None and session.build.weapons == ()
+
+
+def test_exit_menu_without_build_in_progress_closes_screen_and_lifts_commander() -> None:
+    world = _world()
+    state = _in_session_with(())
+    pools_before = state.resource_pools
+
+    state, _events = step(state, [CancelConstructionCommand(player=PLAYER_ONE, sequence=0)], world=world)
+
+    assert state.construction_session_for(PLAYER_ONE) is None
+    assert state.resource_pools == pools_before
+    state, trace = _altitudes_until_reentry(state, world)
+    _assert_exit_ascent(trace)
+
+
+def test_start_robot_launches_closes_screen_and_lifts_commander() -> None:
+    world = _world()
+    state = _in_session_with((ModuleIdentity.BIPOD, ModuleIdentity.CANNON))
+
+    state, events = step(state, [LaunchRobotCommand(player=PLAYER_ONE, sequence=0)], world=world)
+
+    assert any(isinstance(e, RobotLaunchedEvent) for e in events)
+    assert state.construction_session_for(PLAYER_ONE) is None
+    assert [(r.x, r.y) for r in state.robots_for(PLAYER_ONE)] == [EXIT_CELL]
+    commander = state.commander_for(PLAYER_ONE)
+    assert commander is not None
+    assert (commander.x, commander.y) == HELI_PAD_CELL
+    assert commander.elevate_updates_remaining == 5
+
+    # Regression (#179): no immediate re-entry; the commander lifts off the
+    # pad by the Spectrum exit ascent, not further.
+    state, events = step(state, [], world=world)
+    assert state.construction_session_for(PLAYER_ONE) is None
+    state, trace = _altitudes_until_reentry(state, world)
+    _assert_exit_ascent(trace)
+
+
+def test_rejected_start_robot_keeps_the_screen_open_and_commander_on_pad() -> None:
+    world = _world()
+    state = _in_session_with((ModuleIdentity.BIPOD,))  # no weapon
+
+    state, _events = step(state, [LaunchRobotCommand(player=PLAYER_ONE, sequence=0)], world=world)
+
+    assert state.construction_session_for(PLAYER_ONE) is not None
+    commander = state.commander_for(PLAYER_ONE)
+    assert commander is not None
+    assert commander.elevate_updates_remaining == 0
+    assert commander.altitude == PAD_ALTITUDE
+
+
+def test_commander_cannot_leave_the_pad_while_the_screen_is_open() -> None:
+    world = _world()
+    state = _in_session_with(())
+    rise = CommanderSetVerticalIntentCommand(player=PLAYER_ONE, sequence=0, rising=True)
+    move = CommanderMoveCommand(player=PLAYER_ONE, sequence=1, dx=1, dy=0)
+
+    state, _events = step(state, [rise, move], world=world)
+    for _ in range(12):
+        state, _events = step(state, [], world=world)
+
+    commander = state.commander_for(PLAYER_ONE)
+    assert commander is not None
+    assert (commander.x, commander.y, commander.altitude) == (*HELI_PAD_CELL, PAD_ALTITUDE)
+    assert commander.horizontal_transition is None
+    assert state.construction_session_for(PLAYER_ONE) is not None
+
+
+def test_after_exit_menu_the_commander_can_fly_away_without_reentering() -> None:
+    world = _world()
+    state = _in_session_with(())
+    state, _events = step(state, [CancelConstructionCommand(player=PLAYER_ONE, sequence=0)], world=world)
+
+    rise = CommanderSetVerticalIntentCommand(player=PLAYER_ONE, sequence=0, rising=True)
+    move = CommanderMoveCommand(player=PLAYER_ONE, sequence=1, dx=0, dy=1)
+    state, _events = step(state, [rise, move], world=world)
+    for _ in range(40):
+        state, events = step(state, [], world=world)
+        assert not any(isinstance(e, ConstructionEnteredEvent) for e in events)
+
+    commander = state.commander_for(PLAYER_ONE)
+    assert commander is not None
+    assert (commander.x, commander.y) == (HELI_PAD_CELL[0], HELI_PAD_CELL[1] + 1)
+    assert commander.altitude > EXIT_PEAK  # rise held: keeps climbing after the exit ascent
+    assert state.construction_session_for(PLAYER_ONE) is None

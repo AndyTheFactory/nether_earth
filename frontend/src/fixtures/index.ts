@@ -24,7 +24,7 @@ function pool(player_id: string, general: number, extra: Partial<Pool> = {}): Po
 }
 
 function commander(player_id: string, x: number, y: number, altitude: number, extra: Partial<Commander> = {}): Commander {
-  return { player_id, mode: 'free', x, y, altitude, docked_robot_id: null, rising: false, horizontal_transition: null, vertical_transition: null, ...extra };
+  return { player_id, mode: 'free', x, y, altitude, docked_robot_id: null, rising: false, horizontal_transition: null, vertical_transition: null, elevate_updates_remaining: 0, ...extra };
 }
 
 function robot(entity_id: string, owner: string, x: number, y: number, stack: Robot['stack'], extra: Partial<Robot> = {}): Robot {

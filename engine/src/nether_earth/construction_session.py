@@ -154,6 +154,7 @@ __all__ = [
     "cancel_construction",
     "deselect_module",
     "enter_construction",
+    "exit_construction",
     "select_module",
 ]
 
@@ -561,6 +562,39 @@ def cancel_construction(state: GameState, player_id: PlayerId) -> GameState:
     if remaining == state.construction_sessions:
         return state
     return state.with_construction_sessions(remaining)
+
+
+def exit_construction(
+    state: GameState, player_id: PlayerId, rules: EngineRules = DEFAULT_RULES
+) -> GameState:
+    """Leave ``player_id``'s construction screen: drop the session and start the exit ascent.
+
+    Spectrum semantics (CR002.12/CR002.13): EXIT MENU
+    (``Lcb8e_construction_screen_exit``) discards the build-in-progress
+    (the resource buffer is only copied to the player on START ROBOT) and
+    sets ``Lfd30_player_elevate_timer`` to 5, so the ship automatically
+    ascends for that many vertical updates before gravity applies again.
+    START ROBOT (``Lcb52_construction_screen_start_robot``) falls through to
+    the same exit after committing the robot, which is why
+    :func:`~nether_earth.robot_launch.launch_robot` calls this too.
+
+    The session removal is :func:`cancel_construction` (``resource_pools``
+    untouched). The player's commander gets
+    ``rules.commander_construction_exit_elevate_updates`` automatic-ascent
+    updates; while any remain, the commander does not re-enter construction
+    (``engine.step`` Step 7), so it lifts off the pad instead of re-opening
+    the screen on the next tick. A no-op if ``player_id`` has no session.
+    """
+    if state.construction_session_for(player_id) is None:
+        return state
+    state = cancel_construction(state, player_id)
+    commander = state.commander_for(player_id)
+    if commander is None:
+        return state
+    lifted = commander.with_elevate_updates(rules.commander_construction_exit_elevate_updates)
+    return state.with_commanders(
+        tuple(lifted if c.player_id == player_id else c for c in state.commanders)
+    )
 
 
 def _replace_session(state: GameState, session: ConstructionSession) -> GameState:

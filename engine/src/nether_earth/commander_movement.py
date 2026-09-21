@@ -515,10 +515,23 @@ def apply_vertical_physics(
     unchanged with no event -- collision hooks (e.g. resting on an
     enemy-robot stack) are expected to be expressed via ``vertical_check``,
     not embedded here.
+
+    Automatic ascent (CR002.12/CR002.13): while
+    ``commander.elevate_updates_remaining`` is positive the update ascends
+    regardless of ``rising`` and consumes one unit of the counter, even when
+    the ascent itself is clamped or blocked (Spectrum
+    ``Lafa2_player_ship_keyboard_control_altitude`` decrements
+    ``Lfd30_player_elevate_timer`` before its ``MAX_PLAYER_ALTITUDE`` check).
     """
     if commander.mode is not CommanderMode.FREE:
         return commander, None
-    candidate = _clamped_vertical_step(commander, rules)
+    if commander.elevate_updates_remaining > 0:
+        commander = commander.with_elevate_updates(commander.elevate_updates_remaining - 1)
+        candidate = min(
+            commander.altitude + rules.commander_ascent_step, rules.commander_max_altitude
+        )
+    else:
+        candidate = _clamped_vertical_step(commander, rules)
     if candidate == commander.altitude:
         return commander, None
     if not vertical_check(state, commander, candidate):
