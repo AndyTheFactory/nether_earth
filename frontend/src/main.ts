@@ -1,3 +1,5 @@
+// Eval-free shader/uniform code paths, so the production CSP needs no 'unsafe-eval'.
+import 'pixi.js/unsafe-eval';
 import { Application } from 'pixi.js';
 import './style.css';
 import { Store } from './state/store.ts';
