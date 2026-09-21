@@ -14,6 +14,10 @@ Evidence (`santiontanon/netherearth-disassembly`, `netherearth-annotated.asm`):
 - `La69a` docks when ``altitude - height - altitude == 0`` (`La720_land_on_robot`).
 - `Lb513_get_robot_movement_possibilities`: the ship is an obstacle to the
   robot when it is lower than height + altitude.
+- Bullets (owner decision 2026-09-22, not evidence-derived): the engine's
+  §8 altitude gate compares the robot's top with the bullet altitude, so a
+  short robot on a mountain is hit and the same robot on flat ground is
+  flown over.
 - `Lcee8_draw_robot_to_buffer` draws the robot at elevation
   ``ROBOT_STRUCT_ALTITUDE`` (frontend, `frontend/src/render/robot.test.ts`).
 
@@ -29,7 +33,13 @@ from pathlib import Path
 import pytest
 
 from nether_earth.collision import robot_top, unit_surface_height
-from nether_earth.combat import apply_damage
+from nether_earth.combat import (
+    Projectile,
+    ProjectileTerminatedEvent,
+    ProjectileTerminationReason,
+    advance_projectiles,
+    apply_damage,
+)
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.commander_movement import CommanderMoveCommand
 from nether_earth.docking import CommanderDockedEvent, CommanderUndockedEvent
@@ -296,3 +306,49 @@ def test_commander_is_ejected_at_the_raised_top_when_its_robot_is_destroyed(
     assert commander.altitude == top
     undocked = [e for e in events if isinstance(e, CommanderUndockedEvent)]
     assert [e.to_altitude for e in undocked] == [top]
+
+
+# -- bullet altitude gate (owner decision 2026-09-22) ---------------------------------
+
+
+def _east_bullet(x: int, y: int) -> Projectile:
+    return Projectile(
+        id=EntityId("projectile-1"),
+        owner=PLAYER_ONE,
+        source_robot_id=EntityId("robot-gun"),
+        weapon=ModuleIdentity.CANNON,
+        x=x,
+        y=y,
+        z=DEFAULT_RULES.normal_projectile_altitude,
+        dx=1,
+        dy=0,
+        travelled_cells=0,
+        max_range_cells=40,
+        created_tick=0,
+    )
+
+
+@pytest.mark.parametrize(("anchor", "hit"), [(MOUNTAIN_ANCHOR, True), (FLAT_ANCHOR, False)])
+def test_bullet_gate_uses_the_robot_top(
+    world: WorldMap, anchor: tuple[int, int], hit: bool
+) -> None:
+    # Height-6 robot: below the bullet altitude (10) on flat ground, top 12 on a mountain.
+    robot = _robot(*anchor, owner=PLAYER_TWO)
+    assert robot.height < DEFAULT_RULES.normal_projectile_altitude
+    x, y = anchor
+    # The bullet lands at anchor x - 1, whose 2×2 body overlaps the robot's.
+    state = create_game_state(0, (PLAYER_ONE, PLAYER_TWO), robots=[robot]).with_projectiles(
+        (_east_bullet(x - 3, y),)
+    )
+    assert unit_surface_height(world, x - 1, y) < DEFAULT_RULES.normal_projectile_altitude
+
+    state, events = advance_projectiles(state, world, tick=4)
+
+    if hit:
+        assert state.projectiles == ()
+        assert [(e.reason, e.hit_robot_id) for e in events if isinstance(e, ProjectileTerminatedEvent)] == [
+            (ProjectileTerminationReason.ROBOT_HIT, ROBOT_ID)
+        ]
+    else:
+        assert events == ()
+        assert [(p.x, p.y) for p in state.projectiles] == [(x - 1, y)]

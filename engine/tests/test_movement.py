@@ -472,9 +472,12 @@ def test_commander_blocking_uses_the_rules_passed_in_not_the_defaults(
     monkeypatch.setattr(movement_module, "commander_blocks_cell", spy)
     custom_rules = EngineRules(commander_height=17)
 
+    # The commander's body overlaps the destination body (so the query is
+    # reached: CR002.25 skips it for commanders whose bodies do not overlap),
+    # high above the robot so the move itself is legal.
     validate_robot_move(
         _east(),
-        _state((_robot(),), commanders=(_commander(x=8, y=8),)),
+        _state((_robot(),), commanders=(_commander(x=7, y=5, altitude=40),)),
         _world(),
         custom_rules,
     )

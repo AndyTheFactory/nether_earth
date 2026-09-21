@@ -111,6 +111,7 @@ from nether_earth.occupancy import (
     unit_footprint,
     unit_footprint_cells,
     unit_footprint_in_bounds,
+    unit_footprints_overlap,
 )
 from nether_earth.robot import Robot, RobotMoveTransition
 from nether_earth.robot_build import CHASSIS_MODULES, ModuleIdentity
@@ -546,11 +547,19 @@ def commander_blocks_robot_cell(
     :func:`~nether_earth.collision.commander_horizontal_move_allowed`,
     which forwards ``rules`` into the identical call.
     """
+    candidates = tuple(
+        commander
+        for commander in state.commanders
+        if commander.docked_robot_id != robot.entity_id
+        and unit_footprints_overlap(commander.x, commander.y, x, y)
+    )
+    if not candidates:
+        # Navigation asks this for every cell it searches; skip the surface lookup.
+        return False
     vertical_range = VerticalRange(bottom=0, top=robot_top(world, robot))
     return any(
         commander_blocks_cell(state, commander, x, y, vertical_range, rules=rules)
-        for commander in state.commanders
-        if commander.docked_robot_id != robot.entity_id
+        for commander in candidates
     )
 
 

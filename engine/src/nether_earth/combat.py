@@ -45,7 +45,9 @@ Per `_specs/open-questions.md` §8's disassembly evidence
 an obstacle or robot blocks a projectile whenever its height is
 **greater than or equal to** the projectile's flight altitude. This is a
 direct ``>=`` comparison against ``structures.Component.height`` /
-``robot.Robot.height`` -- it deliberately does **not** go through
+a robot's top (CR002.25, owner decision 2026-09-22: the terrain altitude
+under its 2×2 body plus its stack height, :func:`~nether_earth.collision.robot_top`)
+-- it deliberately does **not** go through
 `collision.py`'s :class:`~nether_earth.collision.VerticalRange`/
 :meth:`~nether_earth.collision.VerticalRange.overlaps`, whose exclusive
 "touching is not blocking" semantics are correct for a solid body resting on
@@ -146,7 +148,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from nether_earth.collision import unit_surface_height
+from nether_earth.collision import robot_top, unit_surface_height
 from nether_earth.commands import Command
 from nether_earth.destruction import destroy_robot
 from nether_earth.events import Event, EventSequencer
@@ -727,6 +729,7 @@ def _components_at_inclusive_blocking(
 
 def _robot_hit_at(
     state: GameState,
+    world: WorldMap,
     x: int,
     y: int,
     source_robot_id: EntityId,
@@ -736,8 +739,10 @@ def _robot_hit_at(
 
     A robot is a candidate when its 2×2 body overlaps the projectile's 2×2
     body (CR002.3; the Spectrum's 3×3 scan of robot anchors around the
-    bullet), ``robot.height >= rules.normal_projectile_altitude`` (see the
-    module docstring's "Height-collision semantics" section), and it is not
+    bullet), its top ``robot_top(world, robot) >= rules.normal_projectile_altitude``
+    (terrain altitude plus stack height; owner decision 2026-09-22, CR002.25:
+    a short robot on a mountain is hit, the same robot on flat ground is flown
+    over; see the module docstring's "Height-collision semantics" section), and it is not
     the projectile's own firer (defensive: a landing position never
     overlaps the firer's body). Candidates are taken in the Spectrum's scan
     order -- anchor row, then anchor column -- so the result is
@@ -750,7 +755,7 @@ def _robot_hit_at(
             for robot in state.robots
             if unit_footprints_overlap(robot.x, robot.y, x, y)
             and robot.entity_id != source_robot_id
-            and robot.height >= rules.normal_projectile_altitude
+            and robot_top(world, robot) >= rules.normal_projectile_altitude
         ),
         key=lambda robot: (robot.y, robot.x),
     )
@@ -814,7 +819,7 @@ def _projectile_terminal_reason(
     if _components_at_inclusive_blocking(world, new_x, new_y, rules):
         return ProjectileTerminationReason.STATIC_COLLISION, None
 
-    hit_robot_id = _robot_hit_at(state, new_x, new_y, projectile.source_robot_id, rules)
+    hit_robot_id = _robot_hit_at(state, world, new_x, new_y, projectile.source_robot_id, rules)
     if hit_robot_id is not None:
         return ProjectileTerminationReason.ROBOT_HIT, hit_robot_id
 
