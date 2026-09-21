@@ -32,8 +32,8 @@ sign-off before being treated as final authoritative geometry:
   The heli-pad is on the war-base roof at (anchor.x, anchor.y − 4) (a 15-high
   component on every war base); the exit is the anchor cell. See
   "Heli-pad / exit interaction points" below.
-- **Terrain** (rough/ditch cell placement): left entirely at the schema
-  default (`normal`) — see "Terrain" below for why.
+- **Terrain**: decoded from the disassembly in CR001.5 (#152) — see
+  "Terrain" below. Tier-2 evidence, spot-checked against the speccy.cz image.
 - **Generic blockers/scenery** (boxes/cubes): omitted entirely — see
   "Blockers/scenery" below for why.
 
@@ -244,34 +244,76 @@ anchor cell (`Lcb52_construction_screen_start_robot`). Accordingly each
 the anchor cell. The engine's landing rule is "altitude equals the pad cell's
 component height" (`engine/src/nether_earth/heli_pad.py`).
 
-## Terrain — NOT ATTEMPTED (left at default)
+## Terrain — DECODED (tier 2; CR001.5, issue #152)
 
-`Lbda9_map_elements_part1` / `Lbe79_map_elements_part2` contain ~130 further
-`(type, x, y)` map-element entries (rocks, ravines, other scenery — element
-type bytes ranging roughly `0x02`-`0x12` plus several more `0x8x` complex
-structures) at real coordinates across the whole map. This is real evidence
-that a rich terrain/scenery layer exists, but decoding which element-type
-numbers correspond to `ROUGH` vs `DITCH` vs decorative/solid scenery (as
-opposed to war bases/factories, whose type-to-meaning mapping was directly
-evidenced above) was not completed in this pass — it would require either
-further disassembly tracing of how each element type affects movement/
-collision, or emulator/screenshot cross-referencing. Rather than guess a
-rough/ditch classification, `terrain.default: normal` is left as the only
-terrain data in this map, and no `terrain.cells` overrides are present. This
-is an explicit gap, not a claim that the original map is flat.
+`data/maps/decode_zx_terrain.py` rebuilds the map buffer exactly as
+`Lbc6f_initialize_map` does and writes the `terrain.cells` block of the YAML:
 
-## Blockers/scenery — NOT ATTEMPTED (omitted)
+1. `Lbcd6_add_elements_to_map` walks `Lbda9_map_elements_part1` (x < 256) and
+   `Lbe79_map_elements_part2` (x = byte + 256), `(type, x, y)` triples ending
+   in `0`. A type with the msb set is a complex structure
+   (`Lbf9c_map_complex_structure_ptrs[type & #7f]`, stamped by
+   `Lbd61_add_complex_structure_to_map`); any other type is one element.
+2. `Lbd91_add_element_to_map` writes an element as a 2x2 block covering
+   `x..x+1`, `y-1..y` (two bytes per row, then `dec h; dec h` = one row up).
+3. `Lbcf9_add_warbases_and_factories_to_map` then stamps war bases and
+   factories over the terrain, so a structure cell never carries terrain.
+4. Each cell's element type index (`and #1f`, as `Lb513` and
+   `Ld7bc_map_piece_heights` read it) is classified per
+   `_specs/open-questions.md` §4: 0–1 normal, 2–7 rough, 8–11 mountain,
+   12–14 ditch. Only non-normal cells are written.
 
-For the same reason as terrain, the ~130 generic map-element entries above
-are not translated into `blockers` entries: several of their type bytes are
-also "complex structures" (indices 2-10 of
-`Lbf9c_map_complex_structure_ptrs`, i.e. `Lbff4`, `Lc018`, `Lc03c`, etc.)
-whose shapes I did not decode, and I don't have confirmed evidence
-distinguishing solid/collidable scenery from purely decorative map dressing.
-Per the milestone's explicit allowance to leave unsupported data out of the
-YAML entirely, no `blockers` section is present in this map. This is a real
-gap for a later ingestion pass, not a claim that the original map had no
-scenery.
+**Self-check.** The same decode yields exactly the 720 type-15/16 structure
+cells (4 war bases × 60 + 24 factories × 20) already in the YAML, with the same
+heights (15 → 7, 16 → 15). This confirms the 2x2 stamping direction and the
+coordinate convention used here. No element stamps outside the 512 × 16 map.
+
+**Cell counts** (8192 cells in all):
+
+| Class | Element types present | Cells |
+|---|---|---|
+| normal (default) | 0 (type 1 is never placed) | 5828 |
+| rough | 2: 80, 3: 88, 4: 84, 5: 68, 6: 12, 7: 12 | 344 |
+| mountain | 8: 124, 9: 108, 10: 96, 11: 108 | 436 |
+| ditch | 12: 48, 13: 108, 14: 48 | 204 |
+| war base / factory | 15: 304, 16: 416 | 720 |
+| scenery (not modeled, see below) | 17: 324, 18: 272, 21: 64 | 660 |
+
+`engine/tests/test_original_map.py` pins the rough/mountain/ditch counts and
+checks that every exit and capture cell can be reached from every war-base exit
+by every chassis.
+
+**Spot checks against `https://maps.speccy.cz/maps/NetherEarth.png`**
+(fetched and viewed at full resolution; tier-4 visual evidence). In the image
+the strip runs left to right in increasing x, and y increases towards the blue
+edge.
+
+- x 32–55, y 7–14 (east of war base 1): the decode gives a rough field
+  around a mountain core (x 44–53, y 9–14). The image shows a dotted
+  rough patch on the blue-edge side with peaked mountains inside it.
+- x 72–73, y 1–8 and x 83–84, y 7–14: the decode gives two ditches across the
+  strip, the first on the far side and the second on the blue-edge side. The
+  image shows two dark diagonal trenches in the same order and on the same
+  sides.
+- x ≤ 254, y 9–14 and x 264–281 (war base 2 surroundings): the decode gives a
+  rough field west of war base 2, then two mountain blocks east of it (x 270–277,
+  y 1–6 and x 264–281, y 9–14). The image shows a dotted field west of the red
+  base and two peaked blocks east of it, with the larger one on the blue-edge
+  side.
+
+The image is not precise enough to confirm individual cells. The cell-level
+values rest on the disassembly decode.
+
+## Blockers/scenery — NOT MODELED (omitted; open-questions §4 follow-up)
+
+The same decode shows 660 cells of element types 17, 18 and 21. These are box
+and wall scenery (`Ld7bc_map_piece_heights`: 7, 15 and 99), visible as solid
+blocks in the speccy.cz image. `Lb513_get_robot_movement_possibilities`
+blocks types ≥ 15 for every chassis, so in the original these cells stop all
+robots. They are not terrain classes and are outside CR001.5, so this map still
+has no `blockers` section. Until they are added as blockers, robots can walk
+through these cells in this clone. The gap is recorded in
+`_specs/open-questions.md` §4.
 
 ## Spawn positions
 
@@ -283,8 +325,10 @@ not require this map to declare any.
 
 ## Reproducibility
 
-`data/maps/zx-spectrum-original.yaml` is deterministic, hand-derived data
-(no code-generation step in the repo); regenerating it from the same
-disassembly bytes as documented above will always produce the same file.
+`data/maps/zx-spectrum-original.yaml` is deterministic data. The structures
+and interaction points were derived by hand. The `terrain.cells` block is the
+output of `python data/maps/decode_zx_terrain.py <netherearth-annotated.asm>`
+and must be regenerated, not edited by hand. Running either derivation again
+on the same disassembly bytes always gives the same file.
 `engine/tests/test_original_map.py` asserts that loading it twice produces
 canonical-equal `WorldMap` values.

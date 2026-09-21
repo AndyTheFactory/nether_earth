@@ -19,7 +19,7 @@ submit command Y".
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from dataclasses import dataclass, field
 
 from nether_earth import engine
@@ -40,6 +40,7 @@ from nether_earth.events import Event, order_events
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
+from nether_earth.movement import chassis_can_enter
 from nether_earth.orders import (
     Advance,
     SearchCapture,
@@ -47,6 +48,7 @@ from nether_earth.orders import (
     SetRobotOrderCommand,
     StopAndDefend,
 )
+from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState
@@ -191,17 +193,33 @@ class Api:
             remaining = column - robot.x
             if remaining <= 0:
                 return
-            # An Advance goal is the cell (robot.x + 2*miles, robot.y); a goal
-            # inside a structure is legitimately unreachable, so shorten the
-            # leg until the goal cell is free ground.
-            occupancy = self.world.occupancy()
-            miles = min(50, (remaining + 1) // 2)
-            while miles > 0 and occupancy.is_occupied(min(robot.x + miles * 2, self.world.width - 1), robot.y):
-                miles -= 1
+            # An Advance goal is the cell (goal column, robot's *current* row);
+            # a detour around terrain can change the row mid-leg, and a goal
+            # inside a structure or impassable terrain is legitimately
+            # unreachable, so prefer the longest leg whose goal column is
+            # enterable ground on every row, else on the current row.
+            longest = min(50, (remaining + 1) // 2)
+            miles = next(
+                (
+                    m
+                    for rows in (range(self.world.height), (robot.y,))
+                    for m in range(longest, 0, -1)
+                    if self._column_is_open(robot, min(robot.x + m * 2, self.world.width - 1), rows)
+                ),
+                0,
+            )
             assert miles > 0, f"no free Advance goal east of {(robot.x, robot.y)}"
             self.cmd(SetRobotOrderCommand, player, entity_id=robot_id, order=Advance(distance_miles=miles))
             target = min(robot.x + miles * 2, column)
             yield lambda s, t=target: (r := s.robot_for(robot_id)) is None or r.x >= t
+
+    def _column_is_open(self, robot: Robot, column: int, rows: Iterable[int]) -> bool:
+        occupancy = self.world.occupancy()
+        return all(
+            not occupancy.is_occupied(column, y)
+            and chassis_can_enter(robot.build.chassis, self.world.terrain.terrain_at(column, y))
+            for y in rows
+        )
 
     def war_base(self, structure_id: str) -> tuple[int, int]:
         points = self.world.interaction_points_for(EntityId(structure_id), kind=InteractionKind.WARBASE_CAPTURE)

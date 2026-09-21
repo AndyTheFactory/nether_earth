@@ -19,8 +19,8 @@ Automated checks: `engine/tests/test_m9_map_fidelity.py`,
 | Commander spawn P2 (499,9) alt 0 | locked PvP adaptation — owner decision (open-questions §17, CR001) | mirrored offset of P1; no Spectrum evidence (single-player original) |
 | Starting ownership left/right, interior neutral | spec-locked | open-questions §2; `initialize_map` in the original assigns bases 1–3 to the AI, which the PvP scenario intentionally replaces |
 | Starting resources 20 | verified | `INITIAL_PLAYER_RESOURCES equ 20` |
-| Terrain rough/ditch | not decoded (M2 gap) | map is uniformly NORMAL; asserted so nothing unverified sneaks in |
-| Scenery blockers | not decoded (M2 gap) | ~130 map elements in `Lbda9`/`Lbe79`; omitted |
+| Terrain rough/mountain/ditch | **decoded (CR001.5, #152)** | 344 rough, 436 mountain, 204 ditch cells; see `data/maps/zx-spectrum-original.md` "Terrain" |
+| Scenery blockers | decoded, not modeled | 660 cells of element types 17/18/21; omitted, see open-questions §4 |
 | Commander clearance | verified against engine rule | grounded commander blocked by a 15-high component, clears it at altitude 15; max altitude 48 ≥ 15 |
 | Spawn → roof pad reachability | verified on real map | BFS with `commander_horizontal_move_allowed` at roof altitude 15 (unreachable on the ground); the commander settles on the roof at 15 |
 

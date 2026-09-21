@@ -62,7 +62,9 @@ So the original has four terrain classes:
 
 **Owner decisions:** adopt the table as per-(chassis, terrain) tick values and add a `MOUNTAIN` terrain class. The earlier qualitative claim "tracks slow down less than bipod on rough" is revised to "tracks stay faster than bipod; both lose 8 ticks per cell on rough." Anti-grav's ditch speed equal to its flat speed is **correct**; it is not an under-estimate. The earlier mountains→ditch mapping below was wrong.
 
-**Follow-up:** the shipped map has no terrain data (`data/maps/zx-spectrum-original.md`, "Terrain — NOT ATTEMPTED"). The element-type classes above give the decoding rule.
+**Follow-up (done, CR001.5 #152):** `data/maps/zx-spectrum-original.yaml` now carries the decoded terrain (344 rough, 436 mountain, 204 ditch cells; provenance and spot checks in `data/maps/zx-spectrum-original.md`, "Terrain"). No element type in the map was ambiguous under the classes above.
+
+**Open — scenery blockers (needs an owner decision, not blocking CR001):** the same decode places 660 cells of element types 17, 18 and 21 (boxes and walls, heights 7/15/99). `Lb513` blocks types ≥ 15 for every chassis, so in the original no robot can enter these cells. They are not terrain classes, and the map has no `blockers` section, so this clone currently lets robots walk through them. CR001 did not scope this, although the CR001.5 issue text assumed "15+ are … scenery already modeled". The decision needed is whether to encode these cells as map `blockers` and in which change request. Two things need settling first: how they interact with the commander's flight and landing (heights 7/15/99), and how they interact with projectiles.
 
 The research history below is kept for provenance.
 
