@@ -270,6 +270,28 @@ export const FIXTURES: Fixture[] = [
     ],
   },
   {
+    id: 'ownership-flags',
+    title: 'Ownership flags and a capture (CR002.6)',
+    description: 'warbase-1 p1, factory-2 p2, factory-3 neutral; factory-1 goes neutral → p1 → p2 one snapshot apart (?until=4..6 to hold a step).',
+    playerId: 'p1',
+    messages: [
+      ...intro(),
+      ...[null, 'p1', 'p2'].map((owner, i) =>
+        snapshot(
+          base(700 + i, {
+            commanders: [commander('p1', 40, 9, 0), commander('p2', 494, 10, 0)],
+            structure_ownership: [
+              { structure_id: 'warbase-1', owner: 'p1' },
+              { structure_id: 'warbase-4', owner: 'p2' },
+              { structure_id: 'factory-2', owner: 'p2' },
+              ...(owner ? [{ structure_id: 'factory-1', owner }] : []),
+            ],
+          }),
+        ),
+      ),
+    ],
+  },
+  {
     id: 'lifecycle-waiting',
     title: 'Lobby: waiting for opponent (M7)',
     description: 'Match created, join code shown, one player ready.',

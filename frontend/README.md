@@ -90,16 +90,22 @@ entries render as procedural Spectrum-palette prisms (see
 - Structures, scenery, robots, commanders and projectiles share one painter's
   order, so units behind a block are hidden by it. Shadows land on the
   surface under them (ground, roof, heli-pad).
-- Ownership: p1 cyan, p2 magenta, neutral white. Factories are yellow with a
-  type label; destroyed structures collapse to a dark 1-unit slab.
+- Ownership: p1 cyan, p2 magenta, neutral white. Factories are yellow;
+  destroyed structures collapse to a dark 1-unit slab.
+- Ownership flags (CR002.6, `render/flags.ts`): the Spectrum flag sprites on
+  the roof, 4 (war base) or 2 (factory) cells behind the anchor and to the -x
+  side for p1 (the Spectrum's human flag) or the +x side for p2 (the
+  Insignian flag, checkered). Neutral and destroyed structures carry none.
+  Structure name/owner text labels show only with the debug grid (`G`).
+  Fixture: `?fixture=ownership-flags` (`&until=4|5|6` holds neutral/p1/p2).
 - Robot stacks draw the snapshot's `stack` array bottom-up in the order the
   engine already canonicalised; module heights are scaled to the authoritative
   `height` so the docked commander sits on the true top.
 - Camera follows the local commander (or its docked robot). `G` toggles the
   debug grid, interaction points and capture-progress overlay.
 
-Known presentation limits (not gameplay): text labels (strength, structure
-names) draw above the scene, and there is no real art yet.
+Known presentation limits (not gameplay): text labels (strength, debug
+structure names) draw above the scene, and there is no real art yet.
 
 ## Live check status
 
