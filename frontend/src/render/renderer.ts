@@ -5,7 +5,7 @@ import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
 import { surfaceHeightAt, terrainAt } from '../world/map.ts';
 import { CELL_H, CELL_W, depthKey, project } from './projection.ts';
-import { displayTick, interpolateAltitude, interpolateGrid, isGridTransition, isVerticalTransition } from './interpolation.ts';
+import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
 import { colorFor, ownerColor, PALETTE, shade, type SemanticAsset } from './assets.ts';
@@ -180,11 +180,9 @@ export class WorldRenderer {
     for (const it of items) this.entities.addChild(it.g);
 
     for (const pr of snap.projectiles) {
-      // Projectiles advance one cell per engine cadence; between snapshots we
-      // slide them along their authoritative direction by the tick fraction.
-      const frac = tick - snap.tick;
-      const x = pr.x + pr.dx * frac;
-      const y = pr.y + pr.dy * frac;
+      // Projectiles advance 2 cells per 4-tick engine cadence; between
+      // cadence ticks we slide them toward their next authoritative cell.
+      const { x, y } = interpolateProjectile(pr, snap.tick, tick);
       const p = project(x, y, pr.z);
       const col = colorFor(`projectile.${pr.weapon}` as SemanticAsset);
       this.projectiles.circle(p.x, p.y, pr.weapon === 'nuclear' ? 5 : 3).fill(col);

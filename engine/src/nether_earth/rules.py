@@ -157,11 +157,10 @@ per-kind blast-shape fields in CR001.2, `_specs/open-questions.md` §20),
 canonical locked Spectrum weapon range/effect defaults from the milestone
 spec's "Canonical default ranges/effects" section, converted from miles to
 cells via the shared ``miles_to_cells`` helper already defined in this
-module: cannon 10 miles = 20 cells, missile 14 miles = 28 cells, phaser
-10 miles = 20 cells, electronics bonus 3 miles = 6 cells, nuclear radius
-8 miles = 16 cells. All weapon ranges and the nuclear radius resolve from
-`_specs/open-questions.md` §3 ("miles/grid conversion -- RESOLVED") and are
-locked game rules; projectile altitude and damage multipliers are explicitly
+module. CR001 (#150, `_specs/open-questions.md` §8 resolution) superseded
+the mile-derived weapon ranges (20/28/20 cells, +6 electronics) with the
+Spectrum code values defined directly in cells: cannon 10, missile 14,
+phaser 10, electronics +2. Projectile altitude and damage multipliers are explicitly
 locked Spectrum defaults per the milestone spec. Together these form the
 authoritative rule set for all later combat tasks.
 
@@ -193,15 +192,16 @@ __all__ = ["CELLS_PER_MILE", "DEFAULT_RULES", "EngineRules", "miles_to_cells"]
 #: How many grid cells one in-game *mile* spans.
 #:
 #: `_specs/open-questions.md` §3 locks this as a resolved rule: "1 mile = 2
-#: cells". Every spec-facing distance in this game is stated in miles
-#: (``Advance 0-50 miles``, weapon ranges, the former nuclear blast radius) while
-#: every engine-facing distance is stated in cells, so the conversion is
-#: needed by more than one subsystem. §3 requires it to exist exactly once
+#: cells". Spec-facing order distances are stated in miles (``Advance 0-50
+#: miles``) while every engine-facing distance is stated in cells, so the
+#: conversion is needed by more than one subsystem. Weapon ranges are the
+#: exception: since CR001 (§8) they are defined directly in cells from the
+#: Spectrum code and do not go through this helper. §3 requires it to exist exactly once
 #: in shared game-rule/helper code -- this module -- rather than being
 #: re-spelled as a literal ``* 2`` at each call site. `orders.py`
 #: re-exports :func:`miles_to_cells` for convenience, but this is its only
-#: definition, so a later combat milestone can convert weapon ranges
-#: without taking a dependency on the orders subsystem.
+#: definition, so other subsystems can convert mile distances without
+#: taking a dependency on the orders subsystem.
 #:
 #: It is a module constant rather than an :class:`EngineRules` field
 #: because it is a *unit definition*, not a tunable: an ``EngineRules``
@@ -323,19 +323,20 @@ class EngineRules:
       acquisition (`_specs/functional-spec.md` §9) is instantaneous for the
       first qualifying robot and does not consume this field at all.
     - ``cannon_range_cells``: the maximum firing range of a cannon-equipped
-      robot, in grid cells (issue #70, M6.1,
-      `_specs/milestones/06-combat-damage-victory.md` "Locked combat rules").
-      Locked Spectrum default: 10 miles = 20 cells.
+      robot, in grid cells (issue #70, M6.1; value from CR001, #150).
+      Spectrum code value: 10 cells (`_specs/open-questions.md` §8:
+      ``Lb6d6_weapon_fire`` range counter 5 x 2 cells per bullet update).
+      Defined directly in cells, not via :func:`miles_to_cells`.
     - ``missile_range_cells``: the maximum firing range of a
-      missile-equipped robot, in grid cells (issue #70, M6.1). Locked
-      Spectrum default: 14 miles = 28 cells.
+      missile-equipped robot, in grid cells. Spectrum code value: 14 cells
+      (range counter 7 x 2 cells per update).
     - ``phaser_range_cells``: the maximum firing range of a
-      phaser-equipped robot, in grid cells (issue #70, M6.1). Locked
-      Spectrum default: 10 miles = 20 cells.
-    - ``electronics_range_bonus_cells``: the maximum additional range granted
-      by an electronics module when fitted, in grid cells (issue #70, M6.1).
-      Locked Spectrum default: 3 miles = 6 cells. This is a nominal bonus;
-      exact electronics accuracy and resistance mechanics remain research-owned.
+      phaser-equipped robot, in grid cells. Spectrum code value: 10 cells
+      (range counter 5 x 2 cells per update).
+    - ``electronics_range_bonus_cells``: the additional range granted by an
+      electronics module when fitted, in grid cells. Spectrum code value:
+      2 cells (range counter +1 x 2 cells per update). Exact electronics
+      accuracy and resistance mechanics remain research-owned.
     - Nuclear blast shape (CR001.2, issue #149, `_specs/open-questions.md`
       §20, from `Lb99f_fire_nuclear_bomb`), replacing the former uniform
       ``nuclear_radius_cells``:
@@ -378,6 +379,10 @@ class EngineRules:
       throttle and advances on every single game cycle. Reusing that same
       "1 cycle = 4 ticks" conversion factor here is therefore an
       evidence-backed default (``4``), not an independent placeholder.
+    - ``projectile_cells_per_advance``: how many cells a projectile moves
+      along its firing axis on each advance (CR001, #150, per
+      `_specs/open-questions.md` §8 resolution: ``Lb724_bullet_update_internal``
+      moves a bullet 2 map cells per update on either axis). Default ``2``.
     """
 
     commander_min_altitude: int = 0
@@ -417,10 +422,10 @@ class EngineRules:
     robot_move_ticks_anti_grav_mountain: int = 16
     robot_move_ticks_anti_grav_ditch: int = 12
     capture_duration_ticks: int = 1440
-    cannon_range_cells: int = miles_to_cells(10)
-    missile_range_cells: int = miles_to_cells(14)
-    phaser_range_cells: int = miles_to_cells(10)
-    electronics_range_bonus_cells: int = miles_to_cells(3)
+    cannon_range_cells: int = 10
+    missile_range_cells: int = 14
+    phaser_range_cells: int = 10
+    electronics_range_bonus_cells: int = 2
     nuclear_robot_window_row_widths: tuple[int, ...] = (5, 7, 9, 9, 9, 9, 9, 7, 5)
     nuclear_building_dy_offset: int = 1
     nuclear_war_base_extra_dy_offset: int = 4
@@ -433,6 +438,7 @@ class EngineRules:
     missile_damage_multiplier: int = 3
     phaser_damage_multiplier: int = 4
     projectile_advance_ticks: int = 4
+    projectile_cells_per_advance: int = 2
 
     def __post_init__(self) -> None:
         if self.commander_min_altitude < 0:
@@ -521,6 +527,8 @@ class EngineRules:
             )
         if self.nuclear_building_dy_offset < 0 or self.nuclear_war_base_extra_dy_offset < 0:
             raise ValueError("nuclear building dy offsets must be non-negative")
+        if self.projectile_cells_per_advance <= 0:
+            raise ValueError("projectile_cells_per_advance must be a positive integer")
 
 
 #: Canonical, Spectrum-compatible default rule set. Calling code should

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from nether_earth.combat import (
     FireRejectionReason,
     FireRequest,
     Projectile,
+    ProjectileTerminatedEvent,
     ProjectileTerminationReason,
     advance_projectiles,
     apply_fire,
@@ -345,9 +348,9 @@ def test_advance_projectiles_moves_projectile_on_cadence_tick() -> None:
     assert events == ()
     assert len(new_state.projectiles) == 1
     updated = new_state.projectiles[0]
-    assert updated.x == 6
+    assert updated.x == 7
     assert updated.y == 5
-    assert updated.travelled_cells == 1
+    assert updated.travelled_cells == 2
 
 
 def test_advance_projectiles_terminates_on_range_exhaustion() -> None:
@@ -518,7 +521,7 @@ def test_advance_projectiles_static_passthrough_below_blocking_height() -> None:
 
     assert events == ()
     assert len(new_state.projectiles) == 1
-    assert new_state.projectiles[0].x == 6
+    assert new_state.projectiles[0].x == 7
 
 
 def test_advance_projectiles_robot_hit_at_blocking_height() -> None:
@@ -577,7 +580,7 @@ def test_advance_projectiles_robot_passthrough_below_blocking_height() -> None:
 
     assert events == ()
     assert len(new_state.projectiles) == 1
-    assert new_state.projectiles[0].x == 6
+    assert new_state.projectiles[0].x == 7
 
 
 def test_advance_projectiles_source_robot_destroyed_mid_flight_does_not_crash() -> None:
@@ -635,3 +638,149 @@ def test_advance_projectiles_deterministic_regardless_of_input_order() -> None:
     assert sorted(reasons_1, key=lambda item: item[0].value) == sorted(
         reasons_2, key=lambda item: item[0].value
     )
+
+
+# --- CR001.3 (#150): 2 cells per advance, code-derived ranges ------------------
+
+
+def _fly_until_terminated(
+    robot: Robot, world: WorldMap, rules: EngineRules = DEFAULT_RULES
+) -> tuple[Projectile, ProjectileTerminatedEvent, int]:
+    """Fire east from ``robot`` and advance until the projectile terminates.
+
+    Returns the projectile as last seen in flight, the termination event,
+    and the number of advance ticks that moved it.
+    """
+    request = _request(robot_id=robot.entity_id.value, weapon=robot.build.weapons[0], target_x=robot.x + 1)
+    state, result, _ = apply_fire(request, _state((robot,)), world, tick=0, rules=rules)
+    assert result.accepted
+    last = state.projectiles[0]
+    for moves, tick in enumerate(range(4, 4 * 100, 4)):
+        state, events = advance_projectiles(state, world, tick=tick, rules=rules)
+        if events:
+            event = events[0]
+            assert isinstance(event, ProjectileTerminatedEvent)
+            return last, event, moves
+        assert state.projectiles[0].travelled_cells == last.travelled_cells + 2
+        last = state.projectiles[0]
+    raise AssertionError("projectile never terminated")
+
+
+@pytest.mark.parametrize(
+    ("weapon", "electronics", "expected_cells"),
+    [
+        (ModuleIdentity.CANNON, None, 10),
+        (ModuleIdentity.CANNON, ModuleIdentity.ELECTRONICS, 12),
+        (ModuleIdentity.PHASER, None, 10),
+        (ModuleIdentity.PHASER, ModuleIdentity.ELECTRONICS, 12),
+        (ModuleIdentity.MISSILE, None, 14),
+        (ModuleIdentity.MISSILE, ModuleIdentity.ELECTRONICS, 16),
+    ],
+)
+def test_projectile_travels_exactly_its_code_derived_range(
+    weapon: ModuleIdentity, electronics: ModuleIdentity | None, expected_cells: int
+) -> None:
+    robot = _robot(x=2, y=5, weapons=(weapon,), electronics=electronics)
+    world = _world(width=40)
+
+    last, event, moves = _fly_until_terminated(robot, world)
+
+    assert last.max_range_cells == expected_cells
+    assert last.travelled_cells == expected_cells
+    assert moves == expected_cells // 2
+    assert event.reason is ProjectileTerminationReason.RANGE_EXHAUSTED
+    assert (event.x, event.y) == (2 + expected_cells, 5)
+
+
+def _tall(robot: Robot) -> Robot:
+    return Robot(
+        entity_id=robot.entity_id,
+        owner=robot.owner,
+        x=robot.x,
+        y=robot.y,
+        build=robot.build,
+        stack=robot.stack,
+        height=DEFAULT_RULES.normal_projectile_altitude,
+    )
+
+
+@pytest.mark.parametrize(("dx", "dy"), [(1, 0), (-1, 0), (0, 1), (0, -1)])
+def test_advance_projectiles_hits_robot_in_the_skipped_intermediate_cell(dx: int, dy: int) -> None:
+    firer = _robot(entity_id="robot-firer", active_projectile_id=EntityId("projectile-1"), x=10, y=10)
+    target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=10 + dx, y=10 + dy))
+    projectile = _projectile(
+        entity_id="projectile-1", source_robot_id="robot-firer", x=10, y=10, dx=dx, dy=dy
+    )
+    state = _state((firer, target), (projectile,))
+
+    new_state, events = advance_projectiles(state, _world(), tick=4)
+
+    assert new_state.projectiles == ()
+    assert len(events) == 1
+    event = events[0]
+    assert event.reason is ProjectileTerminationReason.ROBOT_HIT
+    assert event.hit_robot_id == target.entity_id
+    assert (event.x, event.y) == (10 + dx, 10 + dy)
+
+
+def test_advance_projectiles_intermediate_hit_wins_over_second_cell() -> None:
+    """Cells are checked in travel order: the nearer robot is hit, not the farther one."""
+    firer = _robot(entity_id="robot-firer", active_projectile_id=EntityId("projectile-1"))
+    near = _tall(_robot(entity_id="robot-z-near", owner=PLAYER_TWO, x=6, y=5))
+    far = _tall(_robot(entity_id="robot-a-far", owner=PLAYER_TWO, x=7, y=5))
+    projectile = _projectile(entity_id="projectile-1", source_robot_id="robot-firer", x=5, y=5)
+    state = _state((firer, near, far), (projectile,))
+
+    _, events = advance_projectiles(state, _world(), tick=4)
+
+    assert events[0].hit_robot_id == near.entity_id
+
+
+def test_advance_projectiles_static_collision_in_intermediate_cell() -> None:
+    blocker = Blocker(
+        id=EntityId("blocker-1"),
+        components=(Component(x=6, y=5, height=DEFAULT_RULES.normal_projectile_altitude),),
+    )
+    target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=7, y=5))
+    firer = _robot(entity_id="robot-firer", active_projectile_id=EntityId("projectile-1"))
+    projectile = _projectile(entity_id="projectile-1", source_robot_id="robot-firer", x=5, y=5)
+    state = _state((firer, target), (projectile,))
+
+    _, events = advance_projectiles(state, _world(blockers=(blocker,)), tick=4)
+
+    assert events[0].reason is ProjectileTerminationReason.STATIC_COLLISION
+    assert (events[0].x, events[0].y) == (6, 5)
+
+
+def test_advance_projectiles_out_of_bounds_after_one_cell_reports_first_outside_cell() -> None:
+    firer = _robot(active_projectile_id=EntityId("projectile-1"), x=18, y=5)
+    projectile = _projectile(entity_id="projectile-1", x=18, y=5)
+    state = _state((firer,), (projectile,))
+
+    _, events = advance_projectiles(state, _world(width=20), tick=4)
+
+    assert events[0].reason is ProjectileTerminationReason.OUT_OF_BOUNDS
+    assert (events[0].x, events[0].y) == (20, 5)
+
+
+def test_advance_projectiles_never_moves_past_max_range() -> None:
+    """With one cell of range left, a projectile moves one cell, not two."""
+    projectile = _projectile(entity_id="projectile-1", travelled_cells=2, max_range_cells=3)
+    state = _state((_robot(active_projectile_id=EntityId("projectile-1")),), (projectile,))
+
+    new_state, events = advance_projectiles(state, _world(), tick=4)
+
+    assert events == ()
+    assert new_state.projectiles[0].x == 6
+    assert new_state.projectiles[0].travelled_cells == 3
+
+
+def test_advance_projectiles_cells_per_advance_is_configurable() -> None:
+    rules = EngineRules(projectile_cells_per_advance=1)
+    projectile = _projectile(entity_id="projectile-1")
+    state = _state((_robot(active_projectile_id=EntityId("projectile-1")),), (projectile,))
+
+    new_state, _ = advance_projectiles(state, _world(), tick=4, rules=rules)
+
+    assert new_state.projectiles[0].x == 6
+    assert new_state.projectiles[0].travelled_cells == 1

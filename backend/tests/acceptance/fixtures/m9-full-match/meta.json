@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "rules_version": "m7",
-  "match_id": "9543587b7f8c4de8a953087473b3e345",
+  "match_id": "ca0c0b7e1d684a54a6c4a5707b9c3dd8",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -12,10 +12,10 @@
     "p1": "alice",
     "p2": "bob"
   },
-  "created_at_epoch_ms": 1789983978961,
+  "created_at_epoch_ms": 1789984392327,
   "status": "finished",
-  "finished_at_epoch_ms": 1789984021536,
-  "final_tick": 21993,
+  "finished_at_epoch_ms": 1789984434082,
+  "final_tick": 21989,
   "result": {
     "outcome": "victory",
     "reason": "zero_war_bases",
@@ -23,7 +23,7 @@
     "forfeiting_player_id": null
   },
   "final_snapshot": {
-    "tick": 21993,
+    "tick": 21989,
     "players": [
       "p1",
       "p2"

@@ -216,8 +216,8 @@ export const FIXTURES: Fixture[] = [
             { ...enemyRobot, x: 44, y: 10, strength: 20, active_projectile_id: 'proj-2' },
           ],
           projectiles: [
-            { id: 'proj-1', owner: 'p1', source_robot_id: 'robot-1', weapon: 'cannon', x: 36, y: 10, z: 10, dx: 1, dy: 0, travelled_cells: 6, max_range_cells: 20, created_tick: 1976 },
-            { id: 'proj-2', owner: 'p2', source_robot_id: 'robot-9', weapon: 'phaser', x: 40, y: 10, z: 10, dx: -1, dy: 0, travelled_cells: 4, max_range_cells: 20, created_tick: 1984 },
+            { id: 'proj-1', owner: 'p1', source_robot_id: 'robot-1', weapon: 'cannon', x: 36, y: 10, z: 10, dx: 1, dy: 0, travelled_cells: 6, max_range_cells: 10, created_tick: 1990 },
+            { id: 'proj-2', owner: 'p2', source_robot_id: 'robot-9', weapon: 'phaser', x: 40, y: 10, z: 10, dx: -1, dy: 0, travelled_cells: 4, max_range_cells: 10, created_tick: 1994 },
           ],
         }),
       ),

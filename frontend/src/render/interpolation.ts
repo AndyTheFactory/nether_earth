@@ -55,6 +55,38 @@ export function interpolateAltitude(altitude: number, t: VerticalTransition | nu
   return t.from_altitude + (t.to_altitude - t.from_altitude) * a;
 }
 
+// Projectile motion (CR001 #150, open-questions §8): the engine advances every
+// projectile by PROJECTILE_CELLS_PER_ADVANCE cells on each cadence tick (a
+// positive multiple of PROJECTILE_ADVANCE_TICKS), never past its range.
+// Mirrors EngineRules.projectile_cells_per_advance / projectile_advance_ticks;
+// visual only -- the snapshot position stays authoritative.
+export const PROJECTILE_ADVANCE_TICKS = 4;
+export const PROJECTILE_CELLS_PER_ADVANCE = 2;
+
+export interface ProjectileMotion {
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
+  travelled_cells: number;
+  max_range_cells: number;
+  created_tick: number;
+}
+
+/**
+ * Slide a projectile from its authoritative cell toward where the next
+ * cadence tick will put it, so the display reaches that cell exactly when the
+ * next snapshot does (no jump at the boundary). A projectile with no range
+ * left stays put until the engine expires it.
+ */
+export function interpolateProjectile(p: ProjectileMotion, snapTick: number, tick: number): { x: number; y: number } {
+  const next = (Math.floor(snapTick / PROJECTILE_ADVANCE_TICKS) + 1) * PROJECTILE_ADVANCE_TICKS;
+  const last = Math.max(next - PROJECTILE_ADVANCE_TICKS, p.created_tick);
+  const cells = Math.min(PROJECTILE_CELLS_PER_ADVANCE, Math.max(0, p.max_range_cells - p.travelled_cells));
+  const a = alpha(last, next - last, tick);
+  return { x: p.x + p.dx * cells * a, y: p.y + p.dy * cells * a };
+}
+
 export function isGridTransition(v: unknown): v is GridTransition {
   return !!v && typeof v === 'object' && 'from_x' in v && 'to_x' in v && 'started_tick' in v;
 }

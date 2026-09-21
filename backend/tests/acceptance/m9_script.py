@@ -48,6 +48,7 @@ from nether_earth.orders import (
     StopAndDefend,
 )
 from nether_earth.robot_build import ModuleIdentity
+from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState
 
 SCRIPT_SEED = 20260920
@@ -336,7 +337,7 @@ def player_two(api: Api) -> Actor:
         (r := s.robot_for(P1_STRIKER)) is not None
         and (g := s.robot_for(P2_GUARD)) is not None
         and r.y == g.y
-        and 0 < g.x - r.x <= 16
+        and 0 < g.x - r.x <= DEFAULT_RULES.cannon_range_cells
     )
     guard = api.state.robot_for(P2_GUARD)
     striker = api.state.robot_for(P1_STRIKER)
