@@ -131,7 +131,11 @@ async function main() {
   check('landing on the roof heli-pad opens a construction session', me().altitude === 15, `tick ${a.latest.tick}, alt ${me().altitude}`);
   a.command({ kind: 'select_module', module: 'bipod' });
   a.command({ kind: 'select_module', module: 'cannon' });
-  await a.wait((m) => m.type === 'snapshot' && a.latest.construction_sessions[0]?.build.weapons.includes('cannon'), 5000, 'modules selected');
+  // Electronics: the 2×2 robot starts in the base's doorway, whose walls block
+  // the east step a non-electronic Advance would take (CR002.3); electronic
+  // routing steps south out of it first.
+  a.command({ kind: 'select_module', module: 'electronics' });
+  await a.wait((m) => m.type === 'snapshot' && a.latest.construction_sessions[0]?.build.electronics === 'electronics', 5000, 'modules selected');
   a.command({ kind: 'launch_robot' });
   await a.wait((m) => m.type === 'snapshot' && a.latest.robots.length === 1, 5000, 'robot launched');
   const robot = a.latest.robots[0];
@@ -142,14 +146,14 @@ async function main() {
   a.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon: 'cannon', targetX: robot.x + 5, targetY: robot.y });
   await a.wait((m) => m.type === 'snapshot' && a.latest.projectiles.length === 1, 5000, 'projectile fired');
   check('direct fire produces an authoritative projectile', a.latest.projectiles[0].source_robot_id === robot.entity_id);
-  // CR001 §8: a projectile moves 2 cells per advance; a cannon without electronics ranges 10 cells.
+  // CR001 §8: a projectile moves 2 cells per advance; a cannon ranges 10 cells, +2 with electronics.
   const shot = a.latest.projectiles[0];
   const shotNow = () => a.latest.projectiles.find((p) => p.id === shot.id);
   await a.wait((m) => m.type === 'snapshot' && (!shotNow() || shotNow().travelled_cells > shot.travelled_cells), 5000, 'projectile advanced');
   const moved = shotNow();
   check(
-    'projectile advances 2 cells per advance with cannon range 10',
-    moved !== undefined && shot.max_range_cells === 10 && moved.travelled_cells - shot.travelled_cells === 2 && Math.abs(moved.x - shot.x) + Math.abs(moved.y - shot.y) === 2,
+    'projectile advances 2 cells per advance with cannon range 10 + 2 (electronics)',
+    moved !== undefined && shot.max_range_cells === 12 && moved.travelled_cells - shot.travelled_cells === 2 && Math.abs(moved.x - shot.x) + Math.abs(moved.y - shot.y) === 2,
     moved ? `range ${shot.max_range_cells}, (${shot.x}, ${shot.y}) → (${moved.x}, ${moved.y}) at tick ${a.latest.tick}` : 'projectile terminated before its next advance',
   );
   await sleep(200);
