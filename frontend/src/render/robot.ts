@@ -5,6 +5,8 @@
 import { Graphics } from 'pixi.js';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { colorFor, ownerColor, type SemanticAsset } from './assets.ts';
+import { interpolateAltitude, type GridTransition } from './interpolation.ts';
+import type { SurfaceMap } from './surface.ts';
 
 /**
  * Robots and commanders are 2×2 bodies (CR002.3/4). A snapshot's (x, y) is
@@ -33,10 +35,36 @@ export const MODULE_VISUAL_HEIGHT: Record<ModuleId, number> = {
   electronics: 2,
 };
 
-export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonly ModuleId[], owner: string | null, opts: { alpha?: number; totalHeight?: number } = {}): number {
+/**
+ * Elevation a robot stands at (CR002.25): the highest map piece under its
+ * 2×2 body, the Spectrum's ROBOT_STRUCT_ALTITUDE (`Lb5d6_map_altitude_2x2`,
+ * stored by `Lb495`), which `Lcee8_draw_robot_to_buffer` draws the robot at.
+ * At rest it is the engine's own value (`collision.unit_surface_height` at the
+ * authoritative anchor), read from the same map heights, so the robot's top
+ * is exactly where the engine docks and lands the commander. Mid-move it is
+ * blended from the origin body's surface to the destination's over the move,
+ * like the position; presentation only.
+ */
+export function robotGround(
+  surface: Pick<SurfaceMap, 'underUnit'>,
+  x: number,
+  y: number,
+  move: GridTransition | null,
+  tick: number,
+  destroyed: ReadonlySet<string> = new Set(),
+): number {
+  if (!move) return surface.underUnit(x, y, destroyed);
+  const from = surface.underUnit(move.from_x, move.from_y, destroyed);
+  const to = surface.underUnit(move.to_x, move.to_y, destroyed);
+  return interpolateAltitude(from, { from_altitude: from, to_altitude: to, started_tick: move.started_tick, duration_ticks: move.duration_ticks }, tick);
+}
+
+/** Draws the stack standing at elevation `opts.ground` (default 0); returns its top. */
+export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonly ModuleId[], owner: string | null, opts: { alpha?: number; totalHeight?: number; ground?: number } = {}): number {
   const alpha = opts.alpha ?? 1;
-  drawDiamond(g, x, y, ownerColor(owner), 0.35 * alpha, undefined, 0, UNIT_SIZE);
-  let z = 0;
+  const ground = opts.ground ?? 0;
+  drawDiamond(g, x, y, ownerColor(owner), 0.35 * alpha, undefined, ground, UNIT_SIZE);
+  let z = ground;
   const n = stack.length;
   // If the authoritative height differs from our visual sum, scale to match it
   // so the docked commander lands exactly on the authoritative top.
