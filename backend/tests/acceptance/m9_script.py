@@ -283,11 +283,11 @@ def player_one(api: Api) -> Actor:
     enemy = api.war_base("warbase-4")
     yield from api.advance_to_column(PLAYER_ONE, P1_STRIKER, enemy[0])
     api.mark("p1 striker in position")
-    # On arrival the completed Advance becomes Stop & Defend, whose autonomous
-    # engagement may already have detonated against the guard; otherwise
-    # fire the nuclear module directly.
-    if api.state.robot_for(P1_STRIKER) is not None:
-        api.cmd(FireCommand, PLAYER_ONE, entity_id=P1_STRIKER, weapon=ModuleIdentity.NUCLEAR, target_x=enemy[0], target_y=enemy[1])
+    # On arrival the completed Advance becomes Stop & Defend, which never
+    # detonates (OQ §19): the striker must still be alive, and the nuclear
+    # module is fired directly.
+    assert api.state.robot_for(P1_STRIKER) is not None, "striker detonated autonomously (OQ §19)"
+    api.cmd(FireCommand, PLAYER_ONE, entity_id=P1_STRIKER, weapon=ModuleIdentity.NUCLEAR, target_x=enemy[0], target_y=enemy[1])
     yield lambda s: EntityId("warbase-4") in s.structure_destruction
     api.mark("p1 destroyed warbase-4")
 

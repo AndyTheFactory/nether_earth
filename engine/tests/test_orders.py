@@ -759,7 +759,8 @@ def test_search_destroy_structure_requires_a_nuclear_module() -> None:
     assert evaluation.intent is None
 
 
-def test_search_destroy_structure_with_a_nuke_produces_intent() -> None:
+def test_search_destroy_structure_navigates_to_the_capture_cell_without_intent() -> None:
+    """OQ §19: no structure intent exists before the carrier reaches its target cell."""
     world = _world()
     robot = _robot(
         x=0,
@@ -767,14 +768,100 @@ def test_search_destroy_structure_with_a_nuke_produces_intent() -> None:
         weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR),
         order=SearchDestroy(SearchDestroyTarget.WAR_BASE),
     )
+    selected = select_destroy_target(robot, SearchDestroyTarget.WAR_BASE, _state((robot,)), world)
+    assert selected == (ENEMY_WAR_BASE, ENEMY_WAR_BASE_CAPTURE_CELL)
+    # The same target cell a Search & Capture navigates to.
+    capture = select_capture_target(
+        robot, SearchCaptureTarget.ENEMY_WAR_BASE, _state((robot,)), world
+    )
+    assert capture == selected
+
     evaluation = evaluate_order(robot, _state((robot,)), world)
     assert evaluation is not None
     assert evaluation.status is OrderStatus.ACTIVE
+    assert evaluation.request is not None
+    assert evaluation.intent is None
+
+
+def test_search_destroy_structure_one_cell_short_has_no_intent() -> None:
+    world = _world()
+    x, y = ENEMY_FACTORY_CAPTURE_CELL
+    robot = _robot(
+        x=x - 1,
+        y=y,
+        weapons=(ModuleIdentity.NUCLEAR,),
+        order=SearchDestroy(SearchDestroyTarget.FACTORY),
+    )
+    evaluation = evaluate_order(robot, _state((robot,)), world)
+    assert evaluation is not None
+    assert evaluation.status is OrderStatus.ACTIVE
+    assert evaluation.intent is None
+
+
+@pytest.mark.parametrize(
+    ("target", "kind", "structure_id", "cell"),
+    [
+        (
+            SearchDestroyTarget.WAR_BASE,
+            EngagementTargetKind.WAR_BASE,
+            ENEMY_WAR_BASE,
+            ENEMY_WAR_BASE_CAPTURE_CELL,
+        ),
+        (
+            SearchDestroyTarget.FACTORY,
+            EngagementTargetKind.FACTORY,
+            ENEMY_FACTORY,
+            ENEMY_FACTORY_CAPTURE_CELL,
+        ),
+    ],
+)
+def test_search_destroy_structure_completes_with_nuclear_intent_on_arrival(
+    target: SearchDestroyTarget,
+    kind: EngagementTargetKind,
+    structure_id: EntityId,
+    cell: tuple[int, int],
+) -> None:
+    world = _world()
+    robot = _robot(
+        x=cell[0],
+        y=cell[1],
+        weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR),
+        order=SearchDestroy(target),
+    )
+    evaluation = evaluate_order(robot, _state((robot,)), world)
+    assert evaluation is not None
+    assert evaluation.status is OrderStatus.COMPLETED
+    assert evaluation.order == StopAndDefend()
+    assert evaluation.request is None
     assert evaluation.intent is not None
-    assert evaluation.intent.target_id == ENEMY_WAR_BASE
-    assert evaluation.intent.target_kind is EngagementTargetKind.WAR_BASE
+    assert evaluation.intent.target_id == structure_id
+    assert evaluation.intent.target_kind is kind
+    assert evaluation.intent.distance_cells == 0
     # Only the nuke is capable against a structure; the cannon is filtered out.
     assert evaluation.intent.weapons == (ModuleIdentity.NUCLEAR,)
+
+
+def test_search_destroy_structure_skips_structures_without_a_capture_cell() -> None:
+    world = _world()
+    world = WorldMap(
+        map_id=world.map_id,
+        version=world.version,
+        width=world.width,
+        height=world.height,
+        terrain=world.terrain,
+        war_bases=world.war_bases,
+        factories=world.factories,
+        blockers=world.blockers,
+        interaction_points=tuple(
+            point for point in world.interaction_points if point.structure_id != ENEMY_WAR_BASE
+        ),
+        spawn_positions={},
+    )
+    robot = _robot(x=0, y=0, weapons=(ModuleIdentity.NUCLEAR,))
+    assert (
+        select_destroy_target(robot, SearchDestroyTarget.WAR_BASE, _state((robot,)), world)
+        is None
+    )
 
 
 def test_engagement_intent_lists_every_capable_weapon_in_canonical_order() -> None:

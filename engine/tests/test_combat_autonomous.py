@@ -191,11 +191,12 @@ def test_search_and_destroy_style_intent_against_structure_with_nuclear_detonate
     factory = _factory("factory-1", x=12, y=10, owner=PLAYER_TWO)
     state = _state((robot,))
     world = _world(factories=(factory,))
+    # The carrier stands on its target cell: distance 0 (OQ §19).
     intent = _intent(
         robot,
         target_kind=EngagementTargetKind.FACTORY,
         target_id=factory.id,
-        target_x=12,
+        target_x=10,
         target_y=10,
         weapons=(ModuleIdentity.NUCLEAR,),
     )
@@ -211,6 +212,93 @@ def test_search_and_destroy_style_intent_against_structure_with_nuclear_detonate
 # --------------------------------------------------------------------------
 # No-fire cases
 # --------------------------------------------------------------------------
+
+
+# --------------------------------------------------------------------------
+# Autonomous nuclear use (OQ §19, CR001.1)
+# --------------------------------------------------------------------------
+
+
+def test_structure_intent_before_arrival_never_detonates() -> None:
+    """A structure intent one cell short of the target cell does nothing."""
+    robot = _robot(entity_id="carrier", x=10, y=10, weapons=(ModuleIdentity.NUCLEAR,))
+    factory = _factory("factory-1", x=12, y=10, owner=PLAYER_TWO)
+    state = _state((robot,))
+    world = _world(factories=(factory,))
+    intent = _intent(
+        robot,
+        target_kind=EngagementTargetKind.FACTORY,
+        target_id=factory.id,
+        target_x=11,
+        target_y=10,
+        weapons=(ModuleIdentity.NUCLEAR,),
+    )
+    assert intent.distance_cells == 1
+
+    new_state, events = consume_engagement_intent(intent, state, world, tick=4)
+
+    assert new_state is state
+    assert events == ()
+
+
+def test_robot_intent_never_selects_nuclear_even_adjacent() -> None:
+    """A nuclear-only carrier with a hostile robot next to it never detonates."""
+    robot = _robot(entity_id="carrier", x=10, y=10, weapons=(ModuleIdentity.NUCLEAR,))
+    target = _robot(entity_id="target-1", owner=PLAYER_TWO, x=11, y=10)
+    state = _state((robot, target))
+    intent = _intent(
+        robot, target_id=target.entity_id, target_x=11, target_y=10, weapons=(ModuleIdentity.NUCLEAR,)
+    )
+
+    new_state, events = consume_engagement_intent(intent, state, _world(), tick=4)
+
+    assert new_state is state
+    assert events == ()
+
+
+def test_robot_intent_out_of_normal_range_does_not_fall_through_to_nuclear() -> None:
+    far = DEFAULT_RULES.cannon_range_cells + 1
+    robot = _robot(
+        entity_id="carrier", x=0, y=0, weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR)
+    )
+    target = _robot(entity_id="target-1", owner=PLAYER_TWO, x=far, y=0)
+    state = _state((robot, target))
+    intent = _intent(
+        robot,
+        target_id=target.entity_id,
+        target_x=far,
+        target_y=0,
+        weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR),
+    )
+
+    new_state, events = consume_engagement_intent(intent, state, _world(), tick=4)
+
+    assert new_state is state
+    assert events == ()
+
+
+def test_robot_intent_with_busy_channel_does_not_fall_through_to_nuclear() -> None:
+    robot = _robot(
+        entity_id="carrier",
+        x=0,
+        y=0,
+        weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR),
+        active_projectile_id=EntityId("projectile-1"),
+    )
+    target = _robot(entity_id="target-1", owner=PLAYER_TWO, x=5, y=0)
+    state = _state((robot, target))
+    intent = _intent(
+        robot,
+        target_id=target.entity_id,
+        target_x=5,
+        target_y=0,
+        weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR),
+    )
+
+    new_state, events = consume_engagement_intent(intent, state, _world(), tick=4)
+
+    assert new_state is state
+    assert events == ()
 
 
 def test_target_robot_destroyed_mid_tick_produces_no_fire_identity() -> None:
@@ -457,7 +545,7 @@ def test_consume_engagement_intents_is_deterministic_across_repeated_calls() -> 
             robot,
             target_kind=EngagementTargetKind.FACTORY,
             target_id=factory.id,
-            target_x=12,
+            target_x=10,
             target_y=10,
             weapons=(ModuleIdentity.NUCLEAR,),
         )
