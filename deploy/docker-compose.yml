@@ -59,6 +59,8 @@ services:
       NETHER_EARTH_ENV: production
       NETHER_EARTH_PUBLIC_BASE_URL: ${NETHER_EARTH_PUBLIC_BASE_URL:?set NETHER_EARTH_PUBLIC_BASE_URL in deploy/.env}
       NETHER_EARTH_REPLAY_DIR: /var/lib/nether-earth/replays
+      NETHER_EARTH_LOG_LEVEL: ${NETHER_EARTH_LOG_LEVEL:-INFO}
+      NETHER_EARTH_MAX_MATCHES: ${NETHER_EARTH_MAX_MATCHES:-200}
     volumes:
       # Host directory must be writable by uid 10001 (the image's runtime user).
       - ${NETHER_EARTH_REPLAY_HOST_DIR:?set NETHER_EARTH_REPLAY_HOST_DIR in deploy/.env}:/var/lib/nether-earth/replays

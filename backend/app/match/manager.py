@@ -16,6 +16,7 @@ state) that has nothing to do with gameplay legality.
 
 from __future__ import annotations
 
+import logging
 import secrets
 import string
 import threading
@@ -48,6 +49,8 @@ from app.match.runtime import MatchRuntimeRegistry, TickCommandObserver, TickObs
 #: so the resulting player set matches exactly what `engine.new_game` would
 #: derive on its own.
 _SEAT_ORDER: tuple[PlayerId, ...] = (PLAYER_ONE, PLAYER_TWO)
+
+logger = logging.getLogger(__name__)
 
 _JOIN_CODE_ALPHABET = string.ascii_uppercase + string.digits
 _JOIN_CODE_LENGTH = 6
@@ -221,6 +224,10 @@ class MatchManager:
             self._match_id_by_join_code[join_code] = match_id
             self._match_id_by_session_token[session_token] = match_id
 
+        logger.info(
+            "match created",
+            extra={"event": "match_created", "match_id": match_id, "player_id": PLAYER_ONE.value},
+        )
         return CreateMatchResult(
             match_id=match_id,
             join_code=join_code,
@@ -250,6 +257,10 @@ class MatchManager:
             )
             self._match_id_by_session_token[session_token] = match_id
 
+        logger.info(
+            "player joined match",
+            extra={"event": "match_joined", "match_id": match_id, "player_id": PLAYER_TWO.value},
+        )
         return JoinMatchResult(
             match_id=match_id, session_token=session_token, player_id=PLAYER_TWO
         )
@@ -292,6 +303,10 @@ class MatchManager:
                 self._map_data, self._scenario, players=players, seed=match.seed
             )
         match.state = MatchRuntimeState.ACTIVE
+        logger.info(
+            "match started",
+            extra={"event": "match_started", "match_id": match.match_id, "seed": match.seed},
+        )
         if self._on_match_start is not None:
             # Before the runtime starts (see below) -- a replay writer must
             # see the match's identity/seed/scenario before any tick it
@@ -330,6 +345,23 @@ class MatchManager:
         """
         with self._lock:
             match = self._get_match_locked(match_id)
+            if match.state is not MatchRuntimeState.FINISHED:
+                result = match.result
+                logger.info(
+                    "match finished",
+                    extra={
+                        "event": "match_finished",
+                        "match_id": match_id,
+                        "outcome": result.outcome.value if result else None,
+                        "reason": result.reason if result else None,
+                        "winner_player_id": (
+                            result.winner_player_id.value
+                            if result and result.winner_player_id
+                            else None
+                        ),
+                        "tick": match.game_state.tick if match.game_state else None,
+                    },
+                )
             match.state = MatchRuntimeState.FINISHED
             if self._runtime is not None:
                 self._runtime.cancel(match_id)
@@ -365,6 +397,10 @@ class MatchManager:
                 self._runtime.dispose(match_id)
             if self._reconnect is not None:
                 self._reconnect.dispose(match_id)
+        logger.info(
+            "match disposed",
+            extra={"event": "match_disposed", "match_id": match_id, "state": match.state.value},
+        )
 
     # -- lookup ---------------------------------------------------------------
 

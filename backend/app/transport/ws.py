@@ -76,6 +76,7 @@ import logging
 from dataclasses import dataclass
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 from app.match.manager import MatchManager
 from app.match.models import (
@@ -168,7 +169,10 @@ def create_websocket_router(
     async def websocket_endpoint(websocket: WebSocket) -> None:
         origin = websocket.headers.get("origin")
         if allowed_origins and origin is not None and origin.lower() not in allowed_origins:
-            logger.warning("websocket handshake refused: origin %r not allowed", origin)
+            logger.warning(
+                "websocket handshake refused: origin not allowed",
+                extra={"event": "ws_origin_refused", "origin": origin},
+            )
             await websocket.close(code=_POLICY_VIOLATION_CLOSE_CODE)
             return
         await websocket.accept()
@@ -212,7 +216,7 @@ def create_websocket_router(
             close_code: int = _POLICY_VIOLATION_CLOSE_CODE,
         ) -> None:
             await _send_error(ws, match_id, code, detail)
-            await ws.close(code=close_code)
+            await _close(ws, close_code)
 
         try:
             while True:
@@ -223,7 +227,10 @@ def create_websocket_router(
 
                 current_match_id = bound.match_id if bound else None
                 if not bucket.allow():
-                    logger.warning("closing websocket: inbound message rate limit exceeded")
+                    logger.warning(
+                        "closing websocket: inbound message rate limit exceeded",
+                        extra={"event": "ws_rate_limited", "match_id": current_match_id},
+                    )
                     await _reject_and_close(
                         websocket, current_match_id, "rate_limited", "too many messages; closing"
                     )
@@ -290,7 +297,10 @@ def create_websocket_router(
                     except (MatchNotFoundError, MatchFullError) as exc:
                         failed_joins += 1
                         if failed_joins >= MAX_FAILED_JOINS:
-                            logger.warning("closing websocket: too many failed join attempts")
+                            logger.warning(
+                                "closing websocket: too many failed join attempts",
+                                extra={"event": "ws_join_attempts_exceeded"},
+                            )
                             await _reject_and_close(
                                 websocket, None, "too_many_join_attempts", "too many failed joins"
                             )
@@ -407,7 +417,7 @@ def create_websocket_router(
 
                 if isinstance(message, ClientLeaveMatch):
                     await teardown_connection()
-                    await websocket.close(code=_NORMAL_CLOSE_CODE)
+                    await _close(websocket, _NORMAL_CLOSE_CODE)
                     return
 
                 if isinstance(message, ClientGameplayCommand):
@@ -525,16 +535,29 @@ def create_websocket_router(
             # Fail safe: log with the match id for correlation (never the
             # session token), tell the client nothing internal, close 1011.
             logger.exception(
-                "websocket handler failed (match %s)", bound.match_id if bound else None
+                "websocket handler failed",
+                extra={"event": "ws_handler_failed", "match_id": bound.match_id if bound else None},
             )
-            try:
-                await websocket.close(code=_INTERNAL_ERROR_CLOSE_CODE)
-            except Exception:
-                logger.debug("close after handler failure failed", exc_info=True)
+            await _close(websocket, _INTERNAL_ERROR_CLOSE_CODE)
         finally:
             await teardown_connection()
 
     return router
+
+
+async def _close(websocket: WebSocket, code: int) -> None:
+    """Close ``websocket`` unless it is already closed/closing; never raises.
+
+    A concurrent broadcast (e.g. the opponent's ``paused`` notification)
+    can hit a peer that just went away, which marks the socket disconnected
+    before this handler gets to close it.
+    """
+    if websocket.application_state is not WebSocketState.CONNECTED:
+        return
+    try:
+        await websocket.close(code=code)
+    except Exception:
+        logger.debug("websocket close failed (already closing)", exc_info=True)
 
 
 async def _send_error(websocket: WebSocket, match_id: str | None, code: str, detail: str) -> None:

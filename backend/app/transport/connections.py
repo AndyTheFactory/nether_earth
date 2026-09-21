@@ -89,6 +89,10 @@ class ConnectionRegistry:
         """Return every socket currently registered for ``match_id``."""
         return tuple(self._by_match.get(match_id, {}).values())
 
+    def connection_count(self) -> int:
+        """Total registered sockets across all matches (readiness/soak diagnostics)."""
+        return sum(len(players) for players in self._by_match.values())
+
     def connection_for_player(self, match_id: str, player_id: str) -> WebSocket | None:
         """Return ``player_id``'s current socket in ``match_id``, if connected."""
         return self._by_match.get(match_id, {}).get(player_id)
@@ -141,7 +145,11 @@ async def _send_text(websocket: WebSocket, text: str) -> None:
         await asyncio.wait_for(websocket.send_text(text), SEND_TIMEOUT_S)
     except TimeoutError:
         _stalled.add(websocket)
-        logger.warning("closing stalled websocket: a send blocked for over %ss", SEND_TIMEOUT_S)
+        logger.warning(
+            "closing stalled websocket: a send blocked for over %ss",
+            SEND_TIMEOUT_S,
+            extra={"event": "ws_send_stalled"},
+        )
         task = asyncio.get_running_loop().create_task(_close_quietly(websocket))
         _background.add(task)
         task.add_done_callback(_background.discard)

@@ -22,6 +22,8 @@ class ConfigError(ValueError):
 
 
 DEFAULT_MAX_MATCHES = 200
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+_LOG_FORMATS = ("json", "text")
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +35,9 @@ class Settings:
     replay_dir: Path | None = None
     #: Upper bound on matches held in memory at once (any state).
     max_matches: int = DEFAULT_MAX_MATCHES
+    log_level: str = "INFO"
+    #: ``json`` (one object per line; production default) or ``text``.
+    log_format: str = "text"
 
     @property
     def allowed_origins(self) -> frozenset[str]:
@@ -80,9 +85,18 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         raise ConfigError("NETHER_EARTH_REPLAY_DIR is required when NETHER_EARTH_ENV=production")
     replay_dir = Path(replay_raw) if replay_raw else default_replay_dir()
 
+    log_level = env.get("NETHER_EARTH_LOG_LEVEL", "INFO").upper()
+    if log_level not in _LOG_LEVELS:
+        raise ConfigError(f"NETHER_EARTH_LOG_LEVEL must be one of {', '.join(_LOG_LEVELS)}")
+    log_format = env.get("NETHER_EARTH_LOG_FORMAT", "json" if production else "text").lower()
+    if log_format not in _LOG_FORMATS:
+        raise ConfigError(f"NETHER_EARTH_LOG_FORMAT must be one of {', '.join(_LOG_FORMATS)}")
+
     return Settings(
         production=production,
         public_base_url=public_base_url,
         replay_dir=replay_dir,
         max_matches=_positive_int(env, "NETHER_EARTH_MAX_MATCHES", DEFAULT_MAX_MATCHES),
+        log_level=log_level,
+        log_format=log_format,
     )

@@ -15,16 +15,20 @@ onto the developer's filesystem outside of a ``tmp_path`` -- see
 ``tmp_path``-scoped directory for exactly this reason.
 """
 
+import logging
+import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from nether_earth.events import Event
 from nether_earth.map import WorldMap
 from nether_earth.state import GameState
 
 from app.config import Settings, load_settings
+from app.logging_setup import configure_logging
 from app.match.manager import MatchManager
 from app.match.models import Match
 from app.match.reconnect import (
@@ -40,6 +44,19 @@ from app.transport import ConnectionRegistry, create_websocket_router
 from app.transport.disconnects import make_disconnect_notifier
 from app.transport.snapshots import make_tick_broadcaster
 from app.transport.victory import make_victory_finalizer
+
+logger = logging.getLogger(__name__)
+
+
+def _replay_dir_status(base_dir: Path) -> str:
+    """``"ok"`` iff a file can be created (and removed) in ``base_dir`` right now."""
+    try:
+        base_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=base_dir, prefix=".ready-"):
+            pass
+    except OSError:
+        return "unwritable"
+    return "ok"
 
 
 def _combine_disconnect_notifiers(*notifiers: DisconnectNotifier) -> DisconnectNotifier:
@@ -114,12 +131,35 @@ def create_app(
     if replay_dir is None:
         replay_dir = settings.replay_dir
     docs_enabled = not settings.production
+    shutting_down = False
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        nonlocal shutting_down
+        logger.info(
+            "backend started",
+            extra={
+                "event": "process_started",
+                "environment": "production" if settings.production else "development",
+                "replay_dir": str(replay_writer.base_dir),
+                "public_base_url": settings.public_base_url,
+                "max_matches": settings.max_matches,
+            },
+        )
+        yield
+        shutting_down = True
+        logger.info(
+            "backend stopping; in-memory matches end with the process",
+            extra={"event": "process_stopping", "matches": len(match_manager)},
+        )
+
     fastapi_app = FastAPI(
         title="Nether Earth",
         version="0.0.0",
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
+        lifespan=lifespan,
     )
 
     # The scenario-overlaid real map every match on this app plays on (M9.1
@@ -195,10 +235,35 @@ def create_app(
 
     @fastapi_app.get("/health", tags=["operations"])
     def health() -> dict[str, str]:
-        """Lightweight process health endpoint; contains no gameplay logic."""
+        """Liveness: the process is up and serving HTTP. No gameplay logic."""
         return {"status": "ok"}
+
+    @fastapi_app.get("/ready", tags=["operations"])
+    def ready(response: Response) -> dict[str, object]:
+        """Readiness: can this process accept and persist new matches right now?
+
+        503 while shutting down or when the replay directory is not writable
+        (matches would run but their replay artifacts would be lost). The
+        counts are operational totals only, no match or player data.
+        """
+        checks = {
+            "replay_dir": _replay_dir_status(replay_writer.base_dir),
+            "accepting": "no" if shutting_down else "ok",
+        }
+        is_ready = all(value == "ok" for value in checks.values())
+        if not is_ready:
+            response.status_code = 503
+        return {
+            "status": "ready" if is_ready else "not_ready",
+            "checks": checks,
+            "matches": len(match_manager),
+            "runtimes": len(runtime_registry),
+            "connections": connection_registry.connection_count(),
+        }
 
     return fastapi_app
 
 
-app = create_app(settings=load_settings())
+_settings = load_settings()
+configure_logging(_settings.log_level, _settings.log_format)
+app = create_app(settings=_settings)

@@ -219,6 +219,16 @@ class ReconnectCoordinator:
         is_first_disconnect = match.state is MatchRuntimeState.ACTIVE
         if is_first_disconnect:
             match.state = MatchRuntimeState.PAUSED_DISCONNECTED
+        logger.info(
+            "player disconnected; grace timer started",
+            extra={
+                "event": "player_disconnected",
+                "match_id": match.match_id,
+                "player_id": player_id.value,
+                "grace_seconds": self._grace_seconds,
+                "paused": is_first_disconnect,
+            },
+        )
 
         watchers = self._watchers.setdefault(match.match_id, {})
         watchers[player_id] = self._spawn(self._watch(match, player_id, deadline))
@@ -250,6 +260,15 @@ class ReconnectCoordinator:
         if deadlines is None or player_id not in deadlines:
             return
         deadlines.pop(player_id, None)
+        logger.info(
+            "player reconnected within grace",
+            extra={
+                "event": "player_reconnected",
+                "match_id": match.match_id,
+                "player_id": player_id.value,
+                "resumed": not deadlines,
+            },
+        )
 
         watchers = self._watchers.get(match.match_id)
         task = watchers.pop(player_id, None) if watchers is not None else None

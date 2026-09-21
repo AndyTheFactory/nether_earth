@@ -58,6 +58,7 @@ cooperative asyncio scheduling here.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -174,6 +175,8 @@ def default_replay_dir() -> Path:
     override = os.environ.get(_ENV_VAR)
     return Path(override) if override else _package_relative_default_replay_dir()
 
+
+logger = logging.getLogger(__name__)
 
 #: Production match ids are server-generated ``uuid4().hex`` strings. Only
 #: allowing a separator- and dot-free charset here means no value can ever
@@ -337,6 +340,24 @@ class ReplayWriter:
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self._base_dir = base_dir if base_dir is not None else default_replay_dir()
+        self._failed_match_ids: set[str] = set()
+
+    def _report_failure(self, match_id: str, action: str) -> None:
+        """Log a replay I/O failure without interrupting the match (M10.5).
+
+        Replay persistence is a debug/audit artifact: a full disk must not
+        freeze or crash a live match. The first failure per match is an
+        ERROR with traceback (``/ready`` also turns 503 while the directory
+        is unwritable); repeats for the same match (every tick) are DEBUG.
+        """
+        first = match_id not in self._failed_match_ids
+        self._failed_match_ids.add(match_id)
+        logger.log(
+            logging.ERROR if first else logging.DEBUG,
+            "replay artifact write failed; the match continues without it",
+            exc_info=first,
+            extra={"event": "replay_write_failed", "match_id": match_id, "action": action},
+        )
 
     @property
     def base_dir(self) -> Path:
@@ -353,6 +374,17 @@ class ReplayWriter:
         so this never clobbers a live in-progress stream that already has
         ticks appended to it.
         """
+        try:
+            self._start_match(match, scenario, map_data)
+        except (OSError, ValueError):
+            self._report_failure(match.match_id, "start")
+            return
+        logger.info(
+            "replay artifact started",
+            extra={"event": "replay_started", "match_id": match.match_id},
+        )
+
+    def _start_match(self, match: Match, scenario: Scenario, map_data: BootstrapMap) -> None:
         directory = match_dir(self._base_dir, match.match_id)
         directory.mkdir(parents=True, exist_ok=True)
         meta: dict[str, Any] = {
@@ -394,7 +426,10 @@ class ReplayWriter:
             "commands": [_command_to_json(command) for command in commands],
             "events": [_event_summary(event) for event in events],
         }
-        self._append_jsonl(match_id, _COMMANDS_FILENAME, line)
+        try:
+            self._append_jsonl(match_id, _COMMANDS_FILENAME, line)
+        except (OSError, ValueError):
+            self._report_failure(match_id, "record_tick")
 
     def record_lifecycle_event(self, match_id: str, payload: dict[str, Any]) -> None:
         """Append one disconnect/reconnect/pause/forfeit/no-contest event to the lifecycle stream.
@@ -407,7 +442,10 @@ class ReplayWriter:
         entry is comparably timestamped regardless of caller.
         """
         line = {"wall_clock_epoch_ms": _epoch_ms(), **payload}
-        self._append_jsonl(match_id, _LIFECYCLE_FILENAME, line)
+        try:
+            self._append_jsonl(match_id, _LIFECYCLE_FILENAME, line)
+        except (OSError, ValueError):
+            self._report_failure(match_id, "record_lifecycle_event")
 
     def finish_match(self, match: Match) -> None:
         """Atomically flip ``match``'s artifact to ``status: "finished"`` with its final result.
@@ -419,9 +457,23 @@ class ReplayWriter:
         idempotent/callable more than once for the same match (issue #97's
         finalize-exactly-once acceptance criterion).
         """
+        try:
+            finalized = self._finish_match(match)
+        except (OSError, ValueError):
+            self._report_failure(match.match_id, "finish")
+            return
+        finally:
+            self._failed_match_ids.discard(match.match_id)
+        if finalized:
+            logger.info(
+                "replay artifact finalized",
+                extra={"event": "replay_finalized", "match_id": match.match_id},
+            )
+
+    def _finish_match(self, match: Match) -> bool:
         meta = self._read_meta(match.match_id)
         if meta is None or meta.get("status") == "finished":
-            return
+            return False
         meta["status"] = "finished"
         meta["finished_at_epoch_ms"] = _epoch_ms()
         state = match.game_state
@@ -429,6 +481,7 @@ class ReplayWriter:
         meta["result"] = _result_to_json(match)
         meta["final_snapshot"] = to_snapshot(state) if state is not None else None
         self._write_meta_atomic(match.match_id, meta)
+        return True
 
     # -- internal helpers -------------------------------------------------------
 
