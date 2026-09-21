@@ -12,7 +12,9 @@ replay-verification contract.
 """
 
 from app.replay.verify import (
+    ReplayRulesMismatchError,
     ReplayVerificationResult,
+    check_rules_identity,
     load_commands_by_tick,
     load_meta,
     verify_replay,
@@ -26,8 +28,10 @@ from app.replay.writer import (
 )
 
 __all__ = [
+    "ReplayRulesMismatchError",
     "ReplayVerificationResult",
     "ReplayWriter",
+    "check_rules_identity",
     "default_replay_dir",
     "load_commands_by_tick",
     "load_meta",

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
-from nether_earth.rules import DEFAULT_RULES, EngineRules
+from nether_earth.rules import DEFAULT_RULES, RULES_VERSION, EngineRules, rules_content_hash
 
 
 def test_default_rules_match_locked_spectrum_values() -> None:
@@ -227,3 +229,24 @@ def test_engine_rules_rejects_malformed_nuclear_robot_window(widths: tuple[int, 
 def test_engine_rules_rejects_negative_nuclear_dy_offsets(field_name: str) -> None:
     with pytest.raises(ValueError):
         EngineRules(**{field_name: -1})
+
+
+def test_rules_content_hash_is_a_deterministic_sha256_of_the_rules() -> None:
+    digest = rules_content_hash()
+    assert digest == rules_content_hash(DEFAULT_RULES) == rules_content_hash(EngineRules())
+    assert len(digest) == 64
+    int(digest, 16)
+
+
+@pytest.mark.parametrize("field", dataclasses.fields(EngineRules), ids=lambda f: f.name)
+def test_changing_any_engine_rules_default_changes_the_hash(field: dataclasses.Field[object]) -> None:
+    value = getattr(DEFAULT_RULES, field.name)
+    # Tuples gain two odd entries so an odd-length odd-width list stays valid.
+    changed = (*value, 1, 1) if isinstance(value, tuple) else value + 1
+    other = dataclasses.replace(DEFAULT_RULES, **{field.name: changed})
+    assert rules_content_hash(other) != rules_content_hash()
+
+
+def test_rules_version_is_a_non_empty_string() -> None:
+    assert isinstance(RULES_VERSION, str)
+    assert RULES_VERSION

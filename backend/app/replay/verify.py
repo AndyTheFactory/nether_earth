@@ -42,6 +42,7 @@ from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.orders import SetRobotOrderCommand
 from nether_earth.replay import ReplayFixture, run_fixture, run_from_state
 from nether_earth.robot_build import ModuleIdentity
+from nether_earth.rules import RULES_VERSION, rules_content_hash
 from nether_earth.scenario import Scenario, create_initial_state
 from nether_earth.snapshot import to_snapshot
 
@@ -49,7 +50,9 @@ from app.replay.orders_json import order_from_json
 from app.replay.writer import match_dir
 
 __all__ = [
+    "ReplayRulesMismatchError",
     "ReplayVerificationResult",
+    "check_rules_identity",
     "load_commands_by_tick",
     "load_meta",
     "verify_replay",
@@ -61,6 +64,32 @@ def load_meta(base_dir: Path, match_id: str) -> dict[str, Any]:
     path = match_dir(base_dir, match_id) / "meta.json"
     loaded: Any = json.loads(path.read_text(encoding="utf-8"))
     return loaded  # type: ignore[no-any-return]
+
+
+class ReplayRulesMismatchError(ValueError):
+    """The artifact was recorded under different engine rules than the running engine's.
+
+    Raised before any replay runs: a replay recorded under other rules cannot
+    be expected to reproduce, so a mismatch is reported as such rather than as
+    a snapshot divergence.
+    """
+
+
+def check_rules_identity(meta: dict[str, Any]) -> None:
+    """Raise :class:`ReplayRulesMismatchError` unless ``meta``'s rules match the running engine's."""
+    recorded_version = meta.get("rules_version")
+    recorded_hash = meta.get("rules_hash")
+    if recorded_version != RULES_VERSION:
+        raise ReplayRulesMismatchError(
+            f"replay rules version {recorded_version!r} does not match "
+            f"engine rules version {RULES_VERSION!r}"
+        )
+    engine_hash = rules_content_hash()
+    if recorded_hash != engine_hash:
+        raise ReplayRulesMismatchError(
+            f"replay rules hash {recorded_hash!r} does not match engine rules hash "
+            f"{engine_hash!r} (rules version {RULES_VERSION!r})"
+        )
 
 
 #: The nine persisted ``kind`` tokens this function knows how to reconstruct,
@@ -209,8 +238,12 @@ def verify_replay(
     exercised by this call path; only ``commands.jsonl``/``meta.json`` (the
     filesystem artifact) and the engine package itself are involved, proving
     the persisted command stream alone is sufficient to reproduce the match.
+
+    Raises :class:`ReplayRulesMismatchError` if the artifact's recorded rules
+    version or content hash differs from the running engine's.
     """
     meta = load_meta(base_dir, match_id)
+    check_rules_identity(meta)
     commands_by_tick = load_commands_by_tick(base_dir, match_id)
     tick_count = meta["final_tick"]
     if tick_count is None:

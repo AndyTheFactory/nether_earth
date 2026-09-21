@@ -22,6 +22,7 @@ sleeps, so this stays fast and fully deterministic.
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,7 @@ from nether_earth import engine as engine_module
 from nether_earth.commands import Command
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
 from nether_earth.map import BootstrapMap
+from nether_earth.rules import RULES_VERSION, rules_content_hash
 from nether_earth.scenario import Scenario, default_pvp_scenario
 from nether_earth.snapshot import to_snapshot
 
@@ -36,6 +38,7 @@ from app.match.models import Match, MatchOutcome, MatchResult, MatchRuntimeState
 from app.match.reconnect import ForfeitEvent, NoContestEvent, PausedEvent, ResumedEvent
 from app.match.runtime import MatchRuntime
 from app.replay import (
+    ReplayRulesMismatchError,
     ReplayWriter,
     load_commands_by_tick,
     load_meta,
@@ -107,6 +110,37 @@ async def test_replay_reproduces_final_engine_snapshot(tmp_path: Path) -> None:
 
     assert result.matches, (result.reproduced_snapshot, result.persisted_snapshot)
     assert result.reproduced_snapshot == to_snapshot(match.game_state)  # type: ignore[arg-type]
+
+
+async def test_meta_records_engine_rules_version_and_hash(tmp_path: Path) -> None:
+    match, scenario, map_data = _build_match("match-rules-identity")
+    ReplayWriter(base_dir=tmp_path).start_match(match, scenario, map_data)
+
+    meta = load_meta(tmp_path, match.match_id)
+    assert meta["rules_version"] == RULES_VERSION
+    assert meta["rules_hash"] == rules_content_hash()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("rules_version", "m7"), ("rules_hash", "0" * 64), ("rules_hash", None)],
+)
+async def test_replay_with_other_rules_is_rejected_before_replaying(
+    tmp_path: Path, key: str, value: str | None
+) -> None:
+    match, scenario, map_data = _build_match("match-rules-mismatch")
+    writer = ReplayWriter(base_dir=tmp_path)
+    writer.start_match(match, scenario, map_data)
+    await _play_three_ticks(match, writer)
+    writer.finish_match(match)
+
+    meta_path = match_dir(tmp_path, match.match_id) / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta[key] = value
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    with pytest.raises(ReplayRulesMismatchError, match=key.replace("_", " ")):
+        verify_replay(tmp_path, match.match_id, scenario=scenario, map_data=map_data)
 
 
 async def test_replay_verification_reconstructs_command_stream_faithfully(tmp_path: Path) -> None:
@@ -385,3 +419,19 @@ def test_engine_package_imports_nothing_from_app() -> None:
                     offenders.append(f"{path}: from {node.module} import ...")
 
     assert offenders == [], f"engine package must never import the backend: {offenders}"
+
+
+def test_backend_does_not_define_its_own_rules_version() -> None:
+    """The rules version is engine-owned; the backend only records it."""
+    app_root = Path(__file__).resolve().parents[2] / "app"
+    for path in sorted(app_root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            else:
+                continue
+            names = {t.id for t in targets if isinstance(t, ast.Name)}
+            assert "RULES_VERSION" not in names, path

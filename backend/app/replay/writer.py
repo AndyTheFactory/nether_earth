@@ -79,6 +79,7 @@ from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.events import Event
 from nether_earth.map import BootstrapMap
 from nether_earth.orders import SetRobotOrderCommand
+from nether_earth.rules import RULES_VERSION, rules_content_hash
 from nether_earth.scenario import Scenario
 from nether_earth.snapshot import to_snapshot
 from nether_earth.state import GameState
@@ -97,7 +98,6 @@ from app.replay.orders_json import order_to_json
 
 __all__ = [
     "ARTIFACT_SCHEMA_VERSION",
-    "RULES_VERSION",
     "ReplayWriter",
     "default_replay_dir",
     "make_replay_lifecycle_notifier",
@@ -106,18 +106,11 @@ __all__ = [
 ]
 
 #: Bumped whenever the on-disk artifact *shape* changes incompatibly.
-#: Independent of gameplay-rules content (see ``RULES_VERSION``) and of
+#: Independent of gameplay-rules content (see ``nether_earth.rules.RULES_VERSION``) and of
 #: either package's own ``pyproject.toml`` version (both are still ``0.0.0``
 #: placeholders repo-wide, not meaningful semantic versions).
 ARTIFACT_SCHEMA_VERSION = 1
 
-#: Recorded verbatim into every artifact's ``meta.json``. Bumped by hand
-#: alongside a gameplay-rules change that would make an older persisted
-#: artifact's replay non-reproducible against a newer engine build. No
-#: existing engine-side constant fits this purpose today (see
-#: ``nether_earth.__init__``/``engine/pyproject.toml``), so it is defined
-#: here, backend-side, in the "rules version" sense issue #97 asks for.
-RULES_VERSION = "m7"
 
 _ENV_VAR = "NETHER_EARTH_REPLAY_DIR"
 
@@ -349,6 +342,7 @@ class ReplayWriter:
         meta: dict[str, Any] = {
             "schema_version": ARTIFACT_SCHEMA_VERSION,
             "rules_version": RULES_VERSION,
+            "rules_hash": rules_content_hash(),
             "match_id": match.match_id,
             "scenario_id": scenario.id,
             "map_id": scenario.map_id,
