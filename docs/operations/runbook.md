@@ -222,7 +222,8 @@ Replay files need no migration; each `meta.json` records its `schema_version`/`r
 | Symptom | Check | Likely cause / fix |
 | --- | --- | --- |
 | Page does not load | `curl -sI localhost/`, `dc ps` | gateway/frontend down → `dc up -d --wait`; firewall/DNS |
-| Lobby shows "connection: closed" immediately | browser devtools → `/ws` status | **403**: `NETHER_EARTH_PUBLIC_BASE_URL` origin does not match the URL in the address bar (scheme/host/port). **429**: per-IP limit (many tabs/players behind one NAT or reconnect loop). **502**: backend down |
+| Lobby shows "connection: closed" immediately | browser devtools → `/ws` status | **403**: `NETHER_EARTH_PUBLIC_BASE_URL` origin does not match the URL in the address bar (scheme/host/port). **429**: per-IP limit (many tabs/players behind one NAT or reconnect loop). **502/504**: backend down (`dc ps`, `dc logs backend`) |
+| Frontend shows a blank page, console mentions `unsafe-eval` | browser console | a custom build dropped the `pixi.js/unsafe-eval` import in `frontend/src/main.ts`; the gateway CSP forbids eval |
 | Players disconnected every ~2 min | gateway logs, proxies in front | an extra proxy with a short idle timeout; Nginx here allows 120 s idle and uvicorn pings every 20 s |
 | `server_busy` on create | `/api/ready` matches | capacity reached; raise `NETHER_EARTH_MAX_MATCHES` only if CPU allows (performance report) |
 | Stutter / `tick_overrun` warnings | `docker stats nether-earth-backend-1` | CPU saturated: fewer concurrent matches or a faster CPU |
