@@ -33,6 +33,7 @@ from nether_earth.engine import new_game, step
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import BootstrapMap, WorldMap
+from nether_earth.movement import robot_move_duration_ticks
 from nether_earth.orders import SearchDestroy, SearchDestroyTarget
 from nether_earth.replay import ReplayFixture, run_fixture
 from nether_earth.resource_production import DailyProductionApplied
@@ -44,7 +45,7 @@ from nether_earth.scenario import Scenario
 from nether_earth.snapshot import snapshot_to_json_string
 from nether_earth.state import GameState
 from nether_earth.structures import Component, Factory, FactoryType, Footprint, WarBase
-from nether_earth.terrain import TerrainGrid
+from nether_earth.terrain import TerrainGrid, TerrainType
 from nether_earth.victory import VictoryEvent
 
 MAP_ID = "test-combat-integration"
@@ -748,7 +749,8 @@ def test_combat_state_round_trips_into_the_snapshot() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_autonomous_robot_next_to_its_target_fires_once_per_game_cycle() -> None:
+def test_autonomous_robot_next_to_its_target_fires_once_per_robot_update() -> None:
+    """CR002.19 (#197) supersedes the once-per-cycle cadence for autonomous fire."""
     world = _world()
     hunter = _gunner(
         "robot-a", PLAYER_ONE, QUIET_X, QUIET_Y, order=SearchDestroy(target=SearchDestroyTarget.ROBOT)
@@ -763,9 +765,9 @@ def test_autonomous_robot_next_to_its_target_fires_once_per_game_cycle() -> None
             e.tick for e in _of(events, ProjectileFiredEvent) if e.source_robot_id == hunter.entity_id  # type: ignore[attr-defined]
         ]
 
-    cycle = DEFAULT_RULES.robot_fire_cycle_ticks
-    assert len(fire_ticks) == 40 // cycle + 1  # cycles 0..10 over ticks 1..40
-    assert len({tick // cycle for tick in fire_ticks}) == len(fire_ticks)
+    period = robot_move_duration_ticks(hunter, TerrainType.NORMAL, DEFAULT_RULES)
+    assert fire_ticks == list(range(1, 41, period))
+    assert period > DEFAULT_RULES.robot_fire_cycle_ticks
 
 
 def test_direct_fire_every_tick_at_an_adjacent_target_fires_once_per_game_cycle() -> None:

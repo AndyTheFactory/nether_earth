@@ -292,7 +292,9 @@ def test_stop_and_defend_emits_engagement_intent_and_fires_through_step() -> Non
 def test_search_destroy_closes_on_its_target_every_tick_it_has_one() -> None:
     world = _world()
     hunter = _robot("robot-a", x=0, y=5, order=SearchDestroy(SearchDestroyTarget.ROBOT))
-    enemy = _robot("robot-z", PLAYER_TWO, x=9, y=5)
+    # Out of cannon range throughout: a robot with a shot on its update fires
+    # instead of moving (CR002.19, #197; see test_autonomous_fire_update.py).
+    enemy = _robot("robot-z", PLAYER_TWO, x=20, y=5)
     state = _state((hunter, enemy))
 
     state, events = _run(state, world, TRACKS_TICKS * 3 + 1)
