@@ -231,6 +231,27 @@ export const FIXTURES: Fixture[] = [
     ],
   },
   {
+    id: 'occlusion',
+    title: 'Occlusion behind a war base (CR002.14)',
+    description: 'One robot walks behind war base 1 (hidden), one stands at its far side (partly hidden), one in front (visible).',
+    playerId: 'p1',
+    messages: [
+      ...intro(),
+      snapshot(
+        base(300, {
+          commanders: [commander('p1', 23, 6, 20), commander('p2', 494, 10, 0)],
+          robots: [
+            robot('robot-6', 'p1', 21, 0, ['bipod', 'cannon'], {
+              movement: { entity_id: 'robot-6', from_x: 20, from_y: 0, to_x: 21, to_y: 0, started_tick: 290, duration_ticks: 16 },
+            }),
+            robot('robot-7', 'p2', 28, 3, ['bipod', 'phaser']),
+            robot('robot-8', 'p1', 21, 10, ['bipod', 'cannon']),
+          ],
+        }),
+      ),
+    ],
+  },
+  {
     id: 'lifecycle-waiting',
     title: 'Lobby: waiting for opponent (M7)',
     description: 'Match created, join code shown, one player ready.',

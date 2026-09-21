@@ -2,6 +2,7 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { project, unproject, depthKey, groundDepth, viewZoom, VIEW_SPAN_PX } from './projection.ts';
 import { KEY_TO_AXIS } from '../input/keyboard.ts';
+import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
 
 test('project/unproject round-trip', () => {
   for (const [x, y] of [[10, 3], [0, 0], [511, 15], [2.5, 7.25]]) {
@@ -35,6 +36,21 @@ test('depth: nearer the lower-left viewer (lower x, higher y) draws later; highe
   assert.ok(depthKey(5, 5, 3) > depthKey(5, 5, 0));
   // the key follows ground screen y, so anything lower on screen is nearer
   assert.equal(groundDepth(3, 4), project(3, 4).y);
+});
+
+test('occlusion: a robot behind war base 1 sorts before, and is covered by, the block in front of it', () => {
+  // occlusion fixture: robot-6 (bipod+cannon, height 6) at (21, 0) behind the
+  // 15-high war-base block at (21, 1)
+  const map = loadMap(DEFAULT_MAP_ID);
+  const block = map.war_bases.find((w) => w.id === 'warbase-1')!.components.find((c) => c.x === 21 && c.y === 1)!;
+  assert.equal(block.height, 15);
+  assert.ok(depthKey(21, 0, 0) < depthKey(block.x, block.y), 'block draws after the robot');
+  // the robot's whole screen extent (top face included) lies inside the block's
+  const robotTop = Math.min(project(20.5, -0.5, 6).y, project(21.5, -0.5, 6).y);
+  const blockTop = Math.min(project(20.5, 0.5, 15).y, project(21.5, 0.5, 15).y);
+  assert.ok(robotTop > blockTop, 'robot top is below the block top on screen');
+  // a robot in front (higher y) of the same block draws after it
+  assert.ok(depthKey(21, 10) > depthKey(block.x, block.y));
 });
 
 test('keyboard directions match on-screen directions', () => {
