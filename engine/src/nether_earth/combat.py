@@ -63,9 +63,12 @@ position, as ``Lb724_bullet_update_internal`` does:
 
 1. the anchor must be on the map (the Spectrum only tests the narrow axis,
    ``cp MAP_WIDTH``; fences close the long axis);
-2. the highest static component under the four body cells
-   (``Lb5d6_map_altitude_2x2``) stops it when ``>=`` its altitude, so a
-   projectile passing right beside a high box or fence stops;
+2. the highest static surface under the four body cells
+   (``Lb5d6_map_altitude_2x2``, :func:`~nether_earth.collision.unit_surface_height`:
+   structures, scenery, and terrain pieces, CR002.21) stops it when ``>=``
+   its altitude, so a projectile passing right beside a high box or fence
+   stops. Terrain pieces are at most 6 high (mountains) and debris 3, all
+   below the bullet altitude 10, so terrain never stops a bullet;
 3. a robot whose 2×2 body overlaps the projectile's body is hit (the 3×3
    scan of robot anchors around the bullet); when several do, the first in
    the Spectrum's scan order -- by anchor row, then column -- is hit.
@@ -125,25 +128,16 @@ directly *underneath* the robot's current map position, refreshed every
 time the robot moves (`Lb5d6_map_altitude_2x2`, "update the altitude of the
 robot based on the terrain underneath").
 
-This engine's :class:`~nether_earth.robot.Robot` has no equivalent field to
-read instead: robots move on a flat integer X/Y grid with no per-robot
-elevation state, and `terrain.py`'s :class:`~nether_earth.terrain.TerrainType`
-itself carries no height value (only static `structures.py`
-:class:`~nether_earth.structures.Component` entries have a per-cell
-``height``). So in this engine, "ground height" at a robot's position is
-defined as: the height of whatever static ``Component`` currently occupies
-the robot's ``(x, y)`` cell (a war base/factory/blocker piece the robot is
-standing on top of, per `collision.py`'s ground-rooted geometry
-convention), or ``0`` when the robot stands on bare terrain with no
-structure component there. :func:`ground_height_at` implements exactly
-this, via `collision.py`'s already-public :func:`~nether_earth.collision.components_at`
-cell lookup (the same one :func:`_components_at_inclusive_blocking` above
-already reuses) -- never re-walking ``world.war_bases``/``factories``/
-``blockers`` a second time. ``max(..., default=0)`` is used rather than
-assuming exactly zero-or-one component per cell: M2's occupancy invariants
-should already guarantee at most one component per cell, but ``max`` is
-the safe, deterministic choice if that invariant is ever violated, rather
-than this function silently picking an arbitrary one via iteration order.
+This engine's :class:`~nether_earth.robot.Robot` has no equivalent field;
+the value is derived from the robot's position instead. Since CR002.21
+(#203) terrain pieces carry their ``Ld7bc_map_piece_heights`` height, so
+:func:`ground_height_at` is :func:`~nether_earth.collision.unit_surface_height`
+at the robot's anchor -- the same ``Lb5d6`` 2×2 reading the robot's
+altitude comes from: 0 on normal ground, 2 or 3 on rough, 6 on mountains,
+3 on nuclear debris. A robot on high ground takes less damage, as in the
+original ("Stand on a mountain to make a robot more resistant!"). The
+original refreshes the altitude only when the robot moves; a robot's
+position changes only by moving, so reading it from the position agrees.
 """
 
 from __future__ import annotations
@@ -152,12 +146,12 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from nether_earth.collision import components_at
+from nether_earth.collision import unit_surface_height
 from nether_earth.commands import Command
 from nether_earth.destruction import destroy_robot
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
-from nether_earth.occupancy import unit_footprint_cells, unit_footprints_overlap
+from nether_earth.occupancy import unit_footprints_overlap
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
@@ -717,29 +711,18 @@ def is_projectile_advance_tick(tick: int, rules: EngineRules = DEFAULT_RULES) ->
 def _components_at_inclusive_blocking(
     world: WorldMap, x: int, y: int, rules: EngineRules
 ) -> bool:
-    """Return whether any static ``Component`` under the 2×2 body at ``(x, y)`` blocks a projectile.
+    """Return whether the static surface under the 2×2 body at ``(x, y)`` blocks a projectile.
 
     ``(x, y)`` is the projectile's anchor; the four body cells are read as
-    ``Lb5d6_map_altitude_2x2`` reads them (CR002.3). Off-map cells hold no
-    component.
-
-    Reuses `collision.py`'s public :func:`~nether_earth.collision.components_at`
-    for the cell lookup itself (issue #73, M6.4), rather than re-walking
-    ``world.war_bases``/``world.factories``/``world.blockers`` a second
-    time -- so this module's notion of "what static geometry occupies this
-    cell" can never silently diverge from `collision.py`'s. A component
-    blocks the projectile when ``component.height >= rules.
-    normal_projectile_altitude`` -- see the module docstring's "Height-
+    ``Lb5d6_map_altitude_2x2`` reads them (CR002.3), through `collision.py`'s
+    :func:`~nether_earth.collision.unit_surface_height` (structures, scenery
+    and terrain pieces, CR002.21) so this module's static geometry can never
+    diverge from the commander's. It blocks when ``>=
+    rules.normal_projectile_altitude`` -- see the module docstring's "Height-
     collision semantics" section for why this is a direct ``>=`` comparison
-    and not `collision.py`'s ``VerticalRange.overlaps()`` (that inclusive
-    ``>=`` comparison, unlike the cell lookup, is this module's own logic
-    and is not delegated).
+    and not `collision.py`'s ``VerticalRange.overlaps()``.
     """
-    return any(
-        component.height >= rules.normal_projectile_altitude
-        for cell_x, cell_y in unit_footprint_cells(x, y)
-        for component in components_at(world, cell_x, cell_y)
-    )
+    return unit_surface_height(world, x, y) >= rules.normal_projectile_altitude
 
 
 def _robot_hit_at(
@@ -1011,34 +994,14 @@ def advance_projectiles(
 
 
 def ground_height_at(world: WorldMap, x: int, y: int) -> int:
-    """Return the "ground height" the damage formula reads at ``(x, y)``.
+    """Return the "ground height" the damage formula reads for a robot anchored at ``(x, y)``.
 
-    See the module docstring's "``ground_height_at`` -- what 'ground
-    height' means in THIS engine" section for the full disassembly-vs-this-
-    engine reasoning. In short: the original's ``ROBOT_STRUCT_ALTITUDE`` is
-    terrain elevation under the robot, not a robot-owned field, and this
-    engine has nothing equivalent to read for a robot's own position --
-    only static ``structures.Component`` entries carry a height. This
-    returns the tallest component's height at ``(x, y)`` (``max(...,
-    default=0)``, defensive against the -- normally impossible, per M2's
-    occupancy invariants -- case of more than one component sharing a
-    cell), or ``0`` when no component occupies ``(x, y)`` at all (bare
-    terrain).
-
-    Structurally always ``0`` for any robot reached through normal gameplay:
-    :class:`~nether_earth.map.WorldMap`'s ``occupancy()`` marks every
-    structure cell occupied, and
-    :func:`~nether_earth.movement.validate_robot_move` rejects any move into
-    an occupied cell (per M2's occupancy invariants), so a live robot can
-    never legally come to stand on a structure cell -- only a hand-placed
-    test fixture robot can put a robot on such a cell to exercise this
-    function's non-zero branch. This function itself remains correctly
-    implemented and is not being removed: it is exactly right for the case
-    where it is ever needed (e.g. a future terrain-height model that does
-    not block movement the way static-structure occupancy currently does) --
-    it is simply never exercised by live play as this engine is wired today.
+    See the module docstring's "``ground_height_at``" section: the highest
+    static surface under the robot's 2×2 body
+    (:func:`~nether_earth.collision.unit_surface_height`, ``Lb5d6``),
+    including terrain piece heights (CR002.21).
     """
-    return max((component.height for component in components_at(world, x, y)), default=0)
+    return unit_surface_height(world, x, y)
 
 
 def calculate_base_damage(robot_height: int, ground_height: int) -> int:

@@ -107,7 +107,7 @@ from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
 from nether_earth.structures import Blocker, Factory, WarBase
-from nether_earth.terrain import TerrainGrid, TerrainType
+from nether_earth.terrain import TerrainType
 from nether_earth.victory import VictoryEvent
 from nether_earth.victory import evaluate_victory as _evaluate_victory
 
@@ -454,26 +454,26 @@ def _apply_debris(world: WorldMap, scenery_debris: tuple[EntityId, ...]) -> Worl
     Each debris blocker leaves ``world.blockers`` and its cells become
     :attr:`~nether_earth.terrain.TerrainType.ROUGH` terrain -- the same class
     the map already gives the Spectrum's native rough pieces of types 6/7,
-    which is exactly what `Lba44_robots_handled` writes (height 3, type < 8
-    so no chassis is blocked). Ids no longer naming a blocker are ignored.
+    which is exactly what `Lba44_robots_handled` writes (type < 8 so no
+    chassis is blocked) -- with the map's ``terrain.debris_height`` (3, the
+    ``Ld7bc_map_piece_heights`` entry of types 6/7, CR002.21), so debris is as
+    high as the native rough pieces of those types. Ids no longer naming a
+    blocker are ignored.
     """
     if not scenery_debris:
         return world
     debris = set(scenery_debris)
     cells = dict(world.terrain.cells)
+    heights = dict(world.terrain.heights)
     remaining: list[Blocker] = []
     for blocker in world.blockers:
         if blocker.id in debris:
             for component in blocker.components:
                 cells[(component.x, component.y)] = TerrainType.ROUGH
+                heights[(component.x, component.y)] = world.terrain.debris_height
         else:
             remaining.append(blocker)
-    terrain = TerrainGrid(
-        width=world.terrain.width,
-        height=world.terrain.height,
-        cells=cells,
-        default=world.terrain.default,
-    )
+    terrain = replace(world.terrain, cells=cells, heights=heights)
     return replace(world, blockers=tuple(remaining), terrain=terrain)
 
 

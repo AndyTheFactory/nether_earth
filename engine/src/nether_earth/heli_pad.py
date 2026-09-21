@@ -56,7 +56,7 @@ CR001): the original game places the "H" decoration at (anchor.x,
 anchor.y − 4) and enters construction only when the ship is over it at
 altitude exactly 15 (`cp 15`), the roof of the 15-high war-base block. The
 surface height of a pad cell is therefore the height of the static
-component occupying that cell (resolved via `collision.components_at`, the
+component occupying that cell (resolved via `collision.unit_surface_height`, the
 same per-cell lookup height-aware collision uses, so the landing altitude
 is precisely where commander collision lets the commander settle). A pad
 cell with no component is at ground level, ``rules.commander_min_altitude``.
@@ -100,7 +100,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nether_earth.collision import components_at
+from nether_earth.collision import unit_surface_height
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
@@ -147,18 +147,13 @@ def heli_pad_surface_altitude(
 ) -> int:
     """Return the altitude a commander anchored at ``(x, y)`` rests at on the pad.
 
-    That is the height of the highest static component under the
-    commander's 2×2 body (15 on the original war-base roof,
-    `_specs/open-questions.md` §18), or ``rules.commander_min_altitude``
-    (ground) when no component is there -- the top of the surface 2×2
-    height-aware collision rests the commander on (CR002.4).
+    That is the highest static surface under the commander's 2×2 body
+    (:func:`~nether_earth.collision.unit_surface_height`; 15 on the original
+    war-base roof, `_specs/open-questions.md` §18), and never below
+    ``rules.commander_min_altitude`` -- the top of the surface 2×2
+    height-aware collision rests the commander on (CR002.4, CR002.21).
     """
-    heights = [
-        component.height
-        for cell_x, cell_y in unit_footprint_cells(x, y)
-        for component in components_at(world, cell_x, cell_y)
-    ]
-    return max(heights, default=rules.commander_min_altitude)
+    return max(unit_surface_height(world, x, y), rules.commander_min_altitude)
 
 
 def detect_heli_pad_landing(
