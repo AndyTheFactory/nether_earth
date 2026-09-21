@@ -76,6 +76,7 @@ import logging
 from dataclasses import dataclass
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 from app.match.manager import MatchManager
 from app.match.models import (
@@ -86,6 +87,7 @@ from app.match.models import (
     MatchNotFoundError,
     MatchOutcome,
     MatchRuntimeState,
+    ServerBusyError,
 )
 from app.match.runtime import MatchRuntimeRegistry
 from app.protocol import ValidationError, parse_client_message, serialize_server_message
@@ -110,6 +112,7 @@ from app.protocol.server_messages import (
 from app.protocol.snapshot import SnapshotMessage
 from app.transport.commands import CommandPayloadError, payload_to_command
 from app.transport.connections import ConnectionRegistry, broadcast
+from app.transport.limits import MAX_FAILED_JOINS, MAX_MESSAGE_BYTES, TokenBucket
 from app.transport.snapshots import build_snapshot_message, empty_snapshot_message
 from app.transport.victory import finished_message
 
@@ -125,6 +128,10 @@ _POLICY_VIOLATION_CLOSE_CODE = 1008
 #: Close code sent after a client-initiated, well-formed `leave` message.
 _NORMAL_CLOSE_CODE = 1000
 
+#: RFC 6455 "Message Too Big" / "Internal Error" close codes.
+_TOO_BIG_CLOSE_CODE = 1009
+_INTERNAL_ERROR_CLOSE_CODE = 1011
+
 
 @dataclass(slots=True)
 class _BoundSession:
@@ -139,8 +146,16 @@ def create_websocket_router(
     match_manager: MatchManager,
     runtime_registry: MatchRuntimeRegistry,
     connection_registry: ConnectionRegistry,
+    *,
+    allowed_origins: frozenset[str] = frozenset(),
 ) -> APIRouter:
     """Build the ``/ws`` router bound to one set of match/runtime/connection stores.
+
+    ``allowed_origins`` (M10.4): when non-empty, a handshake whose ``Origin``
+    header is present and not in this set is refused before ``accept`` (the
+    client sees HTTP 403), which blocks cross-site WebSocket hijacking from
+    other web pages. Browsers always send ``Origin``; non-browser clients
+    (smoke/soak tools) may omit it and are not cross-site attack vectors.
 
     A factory (rather than a module-level route) so ``app.main.create_app``
     can give every app instance its own isolated ``MatchManager`` /
@@ -152,8 +167,18 @@ def create_websocket_router(
 
     @router.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
+        origin = websocket.headers.get("origin")
+        if allowed_origins and origin is not None and origin.lower() not in allowed_origins:
+            logger.warning(
+                "websocket handshake refused: origin not allowed",
+                extra={"event": "ws_origin_refused", "origin": origin},
+            )
+            await websocket.close(code=_POLICY_VIOLATION_CLOSE_CODE)
+            return
         await websocket.accept()
         bound: _BoundSession | None = None
+        bucket = TokenBucket()
+        failed_joins = 0
         disconnect_notified = False
 
         async def notify_disconnect_once() -> None:
@@ -183,15 +208,41 @@ def create_websocket_router(
             if removed:
                 await notify_disconnect_once()
 
-        async def _reject_and_close(ws: WebSocket, match_id: str | None, code: str) -> None:
-            await _send_error(ws, match_id, code, "session rejected; closing connection")
-            await ws.close(code=_POLICY_VIOLATION_CLOSE_CODE)
+        async def _reject_and_close(
+            ws: WebSocket,
+            match_id: str | None,
+            code: str,
+            detail: str = "session rejected; closing connection",
+            close_code: int = _POLICY_VIOLATION_CLOSE_CODE,
+        ) -> None:
+            await _send_error(ws, match_id, code, detail)
+            await _close(ws, close_code)
 
         try:
             while True:
                 try:
                     raw = await websocket.receive_text()
                 except WebSocketDisconnect:
+                    return
+
+                current_match_id = bound.match_id if bound else None
+                if not bucket.allow():
+                    logger.warning(
+                        "closing websocket: inbound message rate limit exceeded",
+                        extra={"event": "ws_rate_limited", "match_id": current_match_id},
+                    )
+                    await _reject_and_close(
+                        websocket, current_match_id, "rate_limited", "too many messages; closing"
+                    )
+                    return
+                if len(raw.encode("utf-8")) > MAX_MESSAGE_BYTES:
+                    await _reject_and_close(
+                        websocket,
+                        current_match_id,
+                        "message_too_large",
+                        f"messages are limited to {MAX_MESSAGE_BYTES} bytes; closing",
+                        _TOO_BIG_CLOSE_CODE,
+                    )
                     return
 
                 try:
@@ -213,6 +264,9 @@ def create_websocket_router(
                         result = match_manager.create_match(message.nickname)
                     except InvalidNicknameError as exc:
                         await _send_error(websocket, None, "invalid_nickname", str(exc))
+                        continue
+                    except ServerBusyError as exc:
+                        await _send_error(websocket, None, "server_busy", str(exc))
                         continue
                     bound = _BoundSession(
                         match_id=result.match_id,
@@ -240,11 +294,19 @@ def create_websocket_router(
                         return
                     try:
                         join_result = match_manager.join_match(message.join_code, message.nickname)
-                    except MatchNotFoundError as exc:
-                        await _send_error(websocket, None, "match_not_found", str(exc))
-                        continue
-                    except MatchFullError as exc:
-                        await _send_error(websocket, None, "match_full", str(exc))
+                    except (MatchNotFoundError, MatchFullError) as exc:
+                        failed_joins += 1
+                        if failed_joins >= MAX_FAILED_JOINS:
+                            logger.warning(
+                                "closing websocket: too many failed join attempts",
+                                extra={"event": "ws_join_attempts_exceeded"},
+                            )
+                            await _reject_and_close(
+                                websocket, None, "too_many_join_attempts", "too many failed joins"
+                            )
+                            return
+                        code = "match_full" if isinstance(exc, MatchFullError) else "match_not_found"
+                        await _send_error(websocket, None, code, str(exc))
                         continue
                     except InvalidNicknameError as exc:
                         await _send_error(websocket, None, "invalid_nickname", str(exc))
@@ -355,7 +417,7 @@ def create_websocket_router(
 
                 if isinstance(message, ClientLeaveMatch):
                     await teardown_connection()
-                    await websocket.close(code=_NORMAL_CLOSE_CODE)
+                    await _close(websocket, _NORMAL_CLOSE_CODE)
                     return
 
                 if isinstance(message, ClientGameplayCommand):
@@ -469,10 +531,33 @@ def create_websocket_router(
                     continue
         except WebSocketDisconnect:
             pass
+        except Exception:
+            # Fail safe: log with the match id for correlation (never the
+            # session token), tell the client nothing internal, close 1011.
+            logger.exception(
+                "websocket handler failed",
+                extra={"event": "ws_handler_failed", "match_id": bound.match_id if bound else None},
+            )
+            await _close(websocket, _INTERNAL_ERROR_CLOSE_CODE)
         finally:
             await teardown_connection()
 
     return router
+
+
+async def _close(websocket: WebSocket, code: int) -> None:
+    """Close ``websocket`` unless it is already closed/closing; never raises.
+
+    A concurrent broadcast (e.g. the opponent's ``paused`` notification)
+    can hit a peer that just went away, which marks the socket disconnected
+    before this handler gets to close it.
+    """
+    if websocket.application_state is not WebSocketState.CONNECTED:
+        return
+    try:
+        await websocket.close(code=code)
+    except Exception:
+        logger.debug("websocket close failed (already closing)", exc_info=True)
 
 
 async def _send_error(websocket: WebSocket, match_id: str | None, code: str, detail: str) -> None:

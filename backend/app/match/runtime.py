@@ -374,6 +374,7 @@ class MatchRuntime:
                             self._match.match_id,
                             self._interval_s,
                             consecutive_overruns,
+                            extra={"event": "tick_overrun", "match_id": self._match.match_id},
                         )
                     await asyncio.sleep(0)
                     next_tick_at = loop.time()
@@ -398,6 +399,7 @@ class MatchRuntime:
                 "remains %s",
                 self._match.match_id,
                 self._match.state,
+                extra={"event": "tick_loop_crashed", "match_id": self._match.match_id},
             )
             raise
 

@@ -1,60 +1,90 @@
-# name: CI
-#
-# on:
-#   pull_request:
-#   push:
-#     branches: [main]
-#
-# jobs:
-#   python:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: actions/setup-python@v5
-#         with:
-#           python-version: '3.12'
-#           cache: pip
-#       - name: Install Python packages
-#         run: |
-#           python -m pip install --upgrade pip
-#           python -m pip install -e './engine[dev]' -e './backend[dev]'
-#       - name: Ruff
-#         run: ruff check engine backend
-#       - name: Engine typing
-#         run: cd engine && mypy src
-#       - name: Backend typing
-#         run: cd backend && mypy app
-#       - name: Tests
-#         run: pytest engine/tests backend/tests
-#
-#   frontend-protocol:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: actions/setup-node@v4
-#         with:
-#           node-version: '22'
-#           cache: npm
-#           cache-dependency-path: frontend/package.json
-#       - name: Install frontend dependencies
-#         working-directory: frontend
-#         run: npm install
-#       - name: Validate protocol schemas
-#         working-directory: frontend
-#         run: npm run protocol:validate
-#       - name: Generate protocol types
-#         working-directory: frontend
-#         run: npm run protocol:generate
-#       - name: Typecheck
-#         working-directory: frontend
-#         run: npm run typecheck
-#       - name: Build
-#         working-directory: frontend
-#         run: npm run build
-#
-#   deployment-config:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v4
-#       - name: Validate Docker Compose
-#         run: docker compose -f deploy/docker-compose.yml config >/dev/null
+# v1 release gates. Linux runners only; three jobs, no duplicated test runs.
+# Policy: every PR and every push to main runs all jobs; a failing job blocks merge/release.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Engine + backend (lint, types, tests, deterministic replay)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            engine/pyproject.toml
+            backend/pyproject.toml
+            backend/requirements.lock
+      - name: Install (runtime deps pinned to the production lock)
+        run: python -m pip install -c backend/requirements.lock -e './engine[dev]' -e './backend[dev]'
+      - name: Ruff
+        run: ruff check engine backend
+      - name: Mypy
+        run: |
+          (cd engine && mypy src)
+          (cd backend && mypy app)
+      # Includes the M9 scripted full-match regression (identical replay
+      # hashes across runs), replay verification and runtime integration.
+      - name: Pytest
+        run: pytest -q
+
+  frontend-protocol:
+    name: Protocol + frontend (schemas, generated drift, typecheck, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - name: Validate protocol schemas and fixtures
+        run: npm run protocol:validate
+        working-directory: frontend
+      - name: Generated artifacts are current
+        working-directory: frontend
+        run: |
+          npm run protocol:generate
+          npm run map:generate
+          git diff --exit-code -- ../protocol/generated src/generated
+      - run: npm run typecheck
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - name: Release version is consistent
+        run: scripts/check-version.sh
+
+  deployment:
+    name: Images, Compose/Nginx config, deployment smoke
+    needs: [python, frontend-protocol]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Compose and Nginx configuration
+        run: make compose-check
+      - name: Production images + deployment smoke (health, headers, origin, match, replay, restart)
+        run: deploy/smoke.sh

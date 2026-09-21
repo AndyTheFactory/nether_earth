@@ -4,7 +4,7 @@ Browser-based multiplayer clone of the ZX Spectrum version of **Nether Earth**.
 
 The repository is specification-driven. Read `AGENTS.md` and `_specs/` before implementation work.
 
-## M0 development setup
+## Development setup
 
 ### Python
 
@@ -40,28 +40,27 @@ npm run build
 npm run dev
 ```
 
-### Docker topology
+### Production deployment
 
-Validate the Compose topology:
-
-```bash
-docker compose -f deploy/docker-compose.yml config
-```
-
-Run it locally:
+Single-VPS Docker Compose stack (gateway Nginx, static frontend, FastAPI backend, host replay
+directory). Configure `deploy/.env` from `deploy/.env.example`, then:
 
 ```bash
-docker compose -f deploy/docker-compose.yml up --build
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build --wait
 ```
 
-The public M0 gateway is exposed on `http://localhost:8080`.
+- Operations (TLS, update, rollback, logs, backups): `docs/operations/runbook.md`
+- Release procedure and gate: `docs/release/v1-release-checklist.md`
+- Hardening evidence: `docs/milestone-10/`
 
 ## Quality commands
 
 ```bash
 make python-check
 make frontend-check
-make compose-check
+make compose-check   # compose config (incl. TLS override) + nginx -t
+deploy/smoke.sh      # production images + gateway smoke (Docker, Node 22)
+scripts/check-version.sh
 ```
 
-M0 intentionally provides only foundation behavior. Gameplay systems begin in later milestones.
+CI (`.github/workflows/ci.yml`) runs all of these on every PR and push to `main`.

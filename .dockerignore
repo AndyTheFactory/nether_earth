@@ -1,0 +1,17 @@
+# Build context is the repository root for both images (the frontend build
+# reads ../data/maps and ../protocol). Keep the context to what the images need.
+**
+!engine/pyproject.toml
+!engine/src/
+!backend/pyproject.toml
+!backend/requirements.lock
+!backend/app/
+!data/maps/
+!protocol/schemas/
+!protocol/generated/
+!protocol/fixtures/
+!frontend/
+frontend/node_modules/
+frontend/dist/
+**/__pycache__/
+**/*.pyc

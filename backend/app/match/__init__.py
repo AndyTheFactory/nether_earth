@@ -18,6 +18,7 @@ from app.match.models import (
     MatchNotFoundError,
     MatchRuntimeState,
     PlayerSlot,
+    ServerBusyError,
 )
 from app.match.runtime import (
     TICK_INTERVAL_S,
@@ -42,4 +43,5 @@ __all__ = [
     "MatchRuntimeRegistry",
     "MatchRuntimeState",
     "PlayerSlot",
+    "ServerBusyError",
 ]

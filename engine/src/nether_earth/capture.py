@@ -263,6 +263,24 @@ def effective_owner(
     return structure.owner
 
 
+#: Memo for :func:`effective_world` (M10.6 performance). ``engine.step``
+#: resolves the effective world several times per tick, almost always with
+#: the same base world and unchanged ownership, and rebuilding the overlaid
+#: ``WorldMap`` dominated tick cost. The function is pure, so returning the
+#: cached (immutable) result cannot change any outcome. Entries hold the base
+#: world itself, so its ``id`` cannot be recycled while cached; bounded by
+#: clearing when full.
+_EFFECTIVE_WORLD_MEMO: dict[
+    tuple[int, tuple[StructureOwnership, ...]], tuple[WorldMap, WorldMap]
+] = {}
+_MEMO_MAX_ENTRIES = 256
+#: Same memo discipline for :func:`capture_footprint`, which ``advance_capture``
+#: evaluates for every capturable structure every tick.
+_FOOTPRINT_MEMO: dict[
+    tuple[int, EntityId, InteractionKind], tuple[WorldMap, frozenset[tuple[int, int]]]
+] = {}
+
+
 def effective_world(world: WorldMap, state: GameState) -> WorldMap:
     """Return ``world`` with every ``state.structure_ownership`` override layered on top.
 
@@ -282,12 +300,20 @@ def effective_world(world: WorldMap, state: GameState) -> WorldMap:
     """
     if not state.structure_ownership:
         return world
+    key = (id(world), state.structure_ownership)
+    cached = _EFFECTIVE_WORLD_MEMO.get(key)
+    if cached is not None and cached[0] is world:
+        return cached[1]
     overlay = ScenarioOverlay(
         id="capture-runtime-ownership",
         ownership={record.structure_id: record.owner for record in state.structure_ownership},
         spawn_positions={},
     )
-    return apply_overlay(world, overlay)
+    result = apply_overlay(world, overlay)
+    if len(_EFFECTIVE_WORLD_MEMO) >= _MEMO_MAX_ENTRIES:
+        _EFFECTIVE_WORLD_MEMO.clear()
+    _EFFECTIVE_WORLD_MEMO[key] = (world, result)
+    return result
 
 
 def capture_footprint(
@@ -308,10 +334,18 @@ def capture_footprint(
     could drift apart and produce an order that walks a robot to a cell
     that never starts a capture, so both read this one function.
     """
+    key = (id(world), structure_id, kind)
+    cached = _FOOTPRINT_MEMO.get(key)
+    if cached is not None and cached[0] is world:
+        return cached[1]
     cells: set[tuple[int, int]] = set()
     for point in world.interaction_points_for(structure_id, kind=kind):
         cells |= point.footprint.cells
-    return frozenset(cells)
+    result = frozenset(cells)
+    if len(_FOOTPRINT_MEMO) >= _MEMO_MAX_ENTRIES * 16:
+        _FOOTPRINT_MEMO.clear()
+    _FOOTPRINT_MEMO[key] = (world, result)
+    return result
 
 
 def _qualifying_robot(

@@ -119,6 +119,10 @@ class Match:
     players: dict[PlayerId, PlayerSlot] = field(default_factory=dict)
     game_state: GameState | None = None
     result: MatchResult | None = None
+    #: ``MatchManager``'s monotonic clock at creation / first ``FINISHED``
+    #: transition; drive disposal of abandoned and finished matches (M10.6).
+    created_at: float = 0.0
+    finished_at: float | None = None
 
     @property
     def is_full(self) -> bool:
@@ -152,4 +156,8 @@ class InvalidSessionTokenError(MatchError):
 
 
 class InvalidNicknameError(MatchError):
-    """Raised when a supplied nickname is empty/whitespace-only."""
+    """Raised when a supplied nickname is empty/whitespace-only or has control characters."""
+
+
+class ServerBusyError(MatchError):
+    """Raised when creating a match would exceed the configured match capacity."""

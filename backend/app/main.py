@@ -15,17 +15,25 @@ onto the developer's filesystem outside of a ``tmp_path`` -- see
 ``tmp_path``-scoped directory for exactly this reason.
 """
 
+import asyncio
+import logging
+import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from nether_earth.events import Event
 from nether_earth.map import WorldMap
 from nether_earth.state import GameState
 
+from app.config import Settings, load_settings
+from app.logging_setup import configure_logging
 from app.match.manager import MatchManager
-from app.match.models import Match
+from app.match.models import Match, MatchRuntimeState
 from app.match.reconnect import (
     DEFAULT_GRACE_SECONDS,
     DisconnectEvent,
@@ -34,11 +42,38 @@ from app.match.reconnect import (
 )
 from app.match.runtime import TICK_RATE_HZ, MatchRuntimeRegistry, TickCommandObserver, TickObserver
 from app.match.world import load_standard_world
+from app.protocol import serialize_server_message
+from app.protocol.common import PROTOCOL_VERSION, ErrorInfo
+from app.protocol.server_messages import ServerError
 from app.replay import ReplayWriter, make_replay_lifecycle_notifier, make_replay_tick_recorder
 from app.transport import ConnectionRegistry, create_websocket_router
 from app.transport.disconnects import make_disconnect_notifier
 from app.transport.snapshots import make_tick_broadcaster
 from app.transport.victory import make_victory_finalizer
+
+logger = logging.getLogger(__name__)
+
+def _release_version() -> str:
+    """The installed backend package version: the single v1 release version."""
+    try:
+        return package_version("nether-earth-backend")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+#: How often expired matches are looked for (M10.6).
+SWEEP_INTERVAL_S = 15.0
+
+
+def _replay_dir_status(base_dir: Path) -> str:
+    """``"ok"`` iff a file can be created (and removed) in ``base_dir`` right now."""
+    try:
+        base_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=base_dir, prefix=".ready-"):
+            pass
+    except OSError:
+        return "unwritable"
+    return "ok"
 
 
 def _combine_disconnect_notifiers(*notifiers: DisconnectNotifier) -> DisconnectNotifier:
@@ -77,6 +112,7 @@ def create_app(
     tick_rate_hz: float = TICK_RATE_HZ,
     _reconnect_monotonic_clock: Callable[[], float] = time.monotonic,
     world: WorldMap | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
     """Build a fresh, fully-wired app instance.
 
@@ -103,8 +139,76 @@ def create_app(
     docstring for why only an exact tie resolves to no-contest) without
     hand-assembling a second copy of this function's wiring (M7 Task 10
     review, Important I3).
+
+    ``settings`` carries deployment-only configuration (``app.config``);
+    ``None`` means development defaults. An explicit ``replay_dir`` wins over
+    ``settings.replay_dir``. Production disables the interactive API docs.
     """
-    fastapi_app = FastAPI(title="Nether Earth", version="0.0.0")
+    settings = settings if settings is not None else Settings()
+    if replay_dir is None:
+        replay_dir = settings.replay_dir
+    docs_enabled = not settings.production
+    shutting_down = False
+
+    async def sweep_expired_matches() -> None:
+        """Dispose finished/abandoned matches; tell lobby owners theirs expired."""
+        for match in match_manager.sweep():
+            if match.state is not MatchRuntimeState.WAITING:
+                continue
+            expired = serialize_server_message(
+                ServerError(
+                    protocol_version=PROTOCOL_VERSION,
+                    type="error",
+                    match_id=match.match_id,
+                    error=ErrorInfo(code="match_expired", message="no opponent joined in time"),
+                )
+            )
+            for websocket in connection_registry.connections_for(match.match_id):
+                try:
+                    await asyncio.wait_for(websocket.send_text(expired), 5)
+                    await asyncio.wait_for(websocket.close(code=1000), 5)
+                except Exception:
+                    logger.debug("could not notify expired lobby socket", exc_info=True)
+
+    async def sweep_forever() -> None:
+        while True:
+            await asyncio.sleep(SWEEP_INTERVAL_S)
+            try:
+                await sweep_expired_matches()
+            except Exception:
+                logger.exception("match sweep failed", extra={"event": "match_sweep_failed"})
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        nonlocal shutting_down
+        logger.info(
+            "backend started",
+            extra={
+                "event": "process_started",
+                "version": _release_version(),
+                "environment": "production" if settings.production else "development",
+                "replay_dir": str(replay_writer.base_dir),
+                "public_base_url": settings.public_base_url,
+                "max_matches": settings.max_matches,
+            },
+        )
+        sweeper = asyncio.create_task(sweep_forever())
+        yield
+        sweeper.cancel()
+        shutting_down = True
+        logger.info(
+            "backend stopping; in-memory matches end with the process",
+            extra={"event": "process_stopping", "matches": len(match_manager)},
+        )
+
+    fastapi_app = FastAPI(
+        title="Nether Earth",
+        version=_release_version(),
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
+        lifespan=lifespan,
+    )
 
     # The scenario-overlaid real map every match on this app plays on (M9.1
     # audit gap G1). ``world`` lets a test inject a fixture world; a real
@@ -151,6 +255,9 @@ def create_app(
         on_tick_commands_factory=_on_tick_commands_factory,
         on_match_start=replay_writer.start_match,
         on_match_finish=replay_writer.finish_match,
+        max_matches=settings.max_matches,
+        finished_retention_s=settings.finished_retention_s,
+        waiting_timeout_s=settings.waiting_timeout_s,
     )
     # Breaks the construction-order cycle (this coordinator must exist
     # before `MatchManager` can be constructed with it, but the natural
@@ -162,20 +269,52 @@ def create_app(
     # replay persistence) as every other `FINISHED` transition.
     reconnect_coordinator.bind_finish_hook(match_manager.finish_match)
 
+    fastapi_app.state.settings = settings
     fastapi_app.state.match_manager = match_manager
+    fastapi_app.state.sweep_expired_matches = sweep_expired_matches
     fastapi_app.state.runtime_registry = runtime_registry
     fastapi_app.state.connection_registry = connection_registry
 
     fastapi_app.include_router(
-        create_websocket_router(match_manager, runtime_registry, connection_registry)
+        create_websocket_router(
+            match_manager,
+            runtime_registry,
+            connection_registry,
+            allowed_origins=settings.allowed_origins,
+        )
     )
 
     @fastapi_app.get("/health", tags=["operations"])
     def health() -> dict[str, str]:
-        """Lightweight process health endpoint; contains no gameplay logic."""
+        """Liveness: the process is up and serving HTTP. No gameplay logic."""
         return {"status": "ok"}
+
+    @fastapi_app.get("/ready", tags=["operations"])
+    def ready(response: Response) -> dict[str, object]:
+        """Readiness: can this process accept and persist new matches right now?
+
+        503 while shutting down or when the replay directory is not writable
+        (matches would run but their replay artifacts would be lost). The
+        counts are operational totals only, no match or player data.
+        """
+        checks = {
+            "replay_dir": _replay_dir_status(replay_writer.base_dir),
+            "accepting": "no" if shutting_down else "ok",
+        }
+        is_ready = all(value == "ok" for value in checks.values())
+        if not is_ready:
+            response.status_code = 503
+        return {
+            "status": "ready" if is_ready else "not_ready",
+            "checks": checks,
+            "matches": len(match_manager),
+            "runtimes": len(runtime_registry),
+            "connections": connection_registry.connection_count(),
+        }
 
     return fastapi_app
 
 
-app = create_app()
+_settings = load_settings()
+configure_logging(_settings.log_level, _settings.log_format)
+app = create_app(settings=_settings)

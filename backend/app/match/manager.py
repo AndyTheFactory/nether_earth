@@ -16,9 +16,12 @@ state) that has nothing to do with gameplay legality.
 
 from __future__ import annotations
 
+import logging
 import secrets
 import string
 import threading
+import time
+import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,6 +39,7 @@ from app.match.models import (
     MatchNotFoundError,
     MatchRuntimeState,
     PlayerSlot,
+    ServerBusyError,
 )
 from app.match.reconnect import ReconnectCoordinator
 from app.match.runtime import MatchRuntimeRegistry, TickCommandObserver, TickObserver
@@ -46,6 +50,8 @@ from app.match.runtime import MatchRuntimeRegistry, TickCommandObserver, TickObs
 #: so the resulting player set matches exactly what `engine.new_game` would
 #: derive on its own.
 _SEAT_ORDER: tuple[PlayerId, ...] = (PLAYER_ONE, PLAYER_TWO)
+
+logger = logging.getLogger(__name__)
 
 _JOIN_CODE_ALPHABET = string.ascii_uppercase + string.digits
 _JOIN_CODE_LENGTH = 6
@@ -165,6 +171,10 @@ class MatchManager:
         on_tick_commands_factory: Callable[[Match], TickCommandObserver | None] | None = None,
         on_match_start: Callable[[Match, Scenario, BootstrapMap], None] | None = None,
         on_match_finish: Callable[[Match], None] | None = None,
+        max_matches: int | None = None,
+        finished_retention_s: float | None = None,
+        waiting_timeout_s: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
         # ``world`` (M9.1 audit gap G1): the scenario-overlaid real map. When
@@ -188,6 +198,13 @@ class MatchManager:
         self._on_tick_commands_factory = on_tick_commands_factory
         self._on_match_start = on_match_start
         self._on_match_finish = on_match_finish
+        # Capacity bound (M10.4): matches in any state count, so abandoned
+        # lobbies cannot grow memory without limit. ``None`` = unbounded.
+        self._max_matches = max_matches
+        # Disposal policy for `sweep` (M10.6); ``None`` = keep forever.
+        self._finished_retention_s = finished_retention_s
+        self._waiting_timeout_s = waiting_timeout_s
+        self._clock = clock
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
         self._match_id_by_join_code: dict[str, str] = {}
@@ -199,12 +216,16 @@ class MatchManager:
         """Create a new ``WAITING`` match with ``nickname`` as its first (PLAYER_ONE) slot."""
         nickname = _validate_nickname(nickname)
         with self._lock:
+            if self._max_matches is not None and len(self._matches) >= self._max_matches:
+                raise ServerBusyError("server is at match capacity; try again later")
             match_id = uuid.uuid4().hex
             join_code = self._generate_unique_join_code()
             match_seed = seed if seed is not None else secrets.randbits(63)
             session_token = _generate_session_token()
 
-            match = Match(match_id=match_id, join_code=join_code, seed=match_seed)
+            match = Match(
+                match_id=match_id, join_code=join_code, seed=match_seed, created_at=self._clock()
+            )
             match.players[PLAYER_ONE] = PlayerSlot(
                 player_id=PLAYER_ONE, nickname=nickname, session_token=session_token
             )
@@ -213,6 +234,10 @@ class MatchManager:
             self._match_id_by_join_code[join_code] = match_id
             self._match_id_by_session_token[session_token] = match_id
 
+        logger.info(
+            "match created",
+            extra={"event": "match_created", "match_id": match_id, "player_id": PLAYER_ONE.value},
+        )
         return CreateMatchResult(
             match_id=match_id,
             join_code=join_code,
@@ -242,6 +267,10 @@ class MatchManager:
             )
             self._match_id_by_session_token[session_token] = match_id
 
+        logger.info(
+            "player joined match",
+            extra={"event": "match_joined", "match_id": match_id, "player_id": PLAYER_TWO.value},
+        )
         return JoinMatchResult(
             match_id=match_id, session_token=session_token, player_id=PLAYER_TWO
         )
@@ -284,6 +313,10 @@ class MatchManager:
                 self._map_data, self._scenario, players=players, seed=match.seed
             )
         match.state = MatchRuntimeState.ACTIVE
+        logger.info(
+            "match started",
+            extra={"event": "match_started", "match_id": match.match_id, "seed": match.seed},
+        )
         if self._on_match_start is not None:
             # Before the runtime starts (see below) -- a replay writer must
             # see the match's identity/seed/scenario before any tick it
@@ -322,6 +355,24 @@ class MatchManager:
         """
         with self._lock:
             match = self._get_match_locked(match_id)
+            if match.state is not MatchRuntimeState.FINISHED:
+                match.finished_at = self._clock()
+                result = match.result
+                logger.info(
+                    "match finished",
+                    extra={
+                        "event": "match_finished",
+                        "match_id": match_id,
+                        "outcome": result.outcome.value if result else None,
+                        "reason": result.reason if result else None,
+                        "winner_player_id": (
+                            result.winner_player_id.value
+                            if result and result.winner_player_id
+                            else None
+                        ),
+                        "tick": match.game_state.tick if match.game_state else None,
+                    },
+                )
             match.state = MatchRuntimeState.FINISHED
             if self._runtime is not None:
                 self._runtime.cancel(match_id)
@@ -357,6 +408,44 @@ class MatchManager:
                 self._runtime.dispose(match_id)
             if self._reconnect is not None:
                 self._reconnect.dispose(match_id)
+        logger.info(
+            "match disposed",
+            extra={"event": "match_disposed", "match_id": match_id, "state": match.state.value},
+        )
+
+    def sweep(self) -> list[Match]:
+        """Dispose finished matches past retention and lobbies past the waiting timeout.
+
+        Returns the disposed matches (their final state intact) so the caller
+        can tell any still-connected sockets. ``ACTIVE``/``PAUSED`` matches
+        are never touched: they end through victory or the reconnect-grace
+        policy and are then swept as ``FINISHED``. Without this, every match
+        ever played stayed in memory for the life of the process.
+        """
+        now = self._clock()
+        with self._lock:
+            expired = [
+                match.match_id
+                for match in self._matches.values()
+                if (
+                    match.state is MatchRuntimeState.FINISHED
+                    and self._finished_retention_s is not None
+                    and match.finished_at is not None
+                    and now - match.finished_at >= self._finished_retention_s
+                )
+                or (
+                    match.state is MatchRuntimeState.WAITING
+                    and self._waiting_timeout_s is not None
+                    and now - match.created_at >= self._waiting_timeout_s
+                )
+            ]
+            disposed = [self._matches[match_id] for match_id in expired]
+        for match_id in expired:
+            try:
+                self.dispose_match(match_id)
+            except MatchNotFoundError:
+                pass  # disposed concurrently; nothing left to do.
+        return disposed
 
     # -- lookup ---------------------------------------------------------------
 
@@ -488,8 +577,18 @@ def _generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+#: Bidirectional-text override/isolate controls: they can visually disguise
+#: a nickname in other players' UIs and in replay artifacts.
+_BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
+
 def _validate_nickname(nickname: str) -> str:
     nickname = nickname.strip()
     if not nickname:
         raise InvalidNicknameError("nickname must be a non-empty string")
+    if any(
+        unicodedata.category(ch) in ("Cc", "Cs", "Co", "Cn") or ch in _BIDI_CONTROLS
+        for ch in nickname
+    ):
+        raise InvalidNicknameError("nickname must not contain control characters")
     return nickname

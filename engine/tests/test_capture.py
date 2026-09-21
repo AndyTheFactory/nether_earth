@@ -469,6 +469,21 @@ def test_effective_world_layers_overrides_over_base_map() -> None:
     assert world.structure_by_id(FACTORY_ID).owner is None  # type: ignore[union-attr]
 
 
+def test_effective_world_memo_is_keyed_by_world_and_ownership() -> None:
+    # M10.6 memo: same inputs reuse the result; any different ownership or a
+    # different base world recomputes rather than returning a stale world.
+    world = _world(factory_owner=None)
+    to_p2 = _state(structure_ownership=[StructureOwnership(structure_id=FACTORY_ID, owner=PLAYER_TWO)])
+    to_p1 = _state(structure_ownership=[StructureOwnership(structure_id=FACTORY_ID, owner=PLAYER_ONE)])
+
+    first = effective_world(world, to_p2)
+    assert effective_world(world, to_p2) is first
+    assert effective_world(world, to_p1).structure_by_id(FACTORY_ID).owner == PLAYER_ONE  # type: ignore[union-attr]
+    other_world = _world(factory_owner=None)
+    assert effective_world(other_world, to_p2) is not first
+    assert effective_world(other_world, to_p2) == first
+
+
 # --- Determinism / replay -----------------------------------------------------
 
 

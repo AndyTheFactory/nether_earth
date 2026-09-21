@@ -1,4 +1,4 @@
-.PHONY: python-check engine-test backend-test frontend-check protocol-check compose-check
+.PHONY: python-check engine-test backend-test frontend-check protocol-check compose-check images lock
 
 python-check:
 	ruff check engine backend
@@ -22,4 +22,21 @@ frontend-live-check:
 	cd frontend && npm run live:check
 
 compose-check:
-	docker compose -f deploy/docker-compose.yml config >/dev/null
+	docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config -q
+	NETHER_EARTH_TLS_CERT_DIR=/tmp NETHER_EARTH_ACME_WEBROOT=/tmp docker compose -f deploy/docker-compose.yml \
+	  -f deploy/docker-compose.tls.yml --env-file deploy/.env.example config -q
+	docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example run --rm --no-deps -T gateway nginx -t
+
+VERSION ?= dev
+
+images:
+	docker build -f backend/Dockerfile -t nether-earth-backend:$(VERSION) .
+	docker build -f frontend/Dockerfile -t nether-earth-frontend:$(VERSION) .
+
+lock:
+	docker run --rm -v "$(CURDIR)":/src:ro python:3.12-slim-bookworm sh -c '\
+	  cp -r /src/engine /src/backend /tmp/ && \
+	  pip install -q --root-user-action=ignore --disable-pip-version-check /tmp/engine /tmp/backend && \
+	  pip freeze --exclude nether-earth-engine --exclude nether-earth-backend' > backend/requirements.lock.new
+	{ head -3 backend/requirements.lock; cat backend/requirements.lock.new; } > backend/requirements.lock.tmp
+	mv backend/requirements.lock.tmp backend/requirements.lock && rm backend/requirements.lock.new
