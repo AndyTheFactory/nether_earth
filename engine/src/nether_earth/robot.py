@@ -249,6 +249,7 @@ class Robot:
             order=self.order,
             active_projectile_id=self.active_projectile_id,
             strength=self.strength,
+            last_fire_tick=self.last_fire_tick,
         )
 
     def with_position(self, x: int, y: int) -> Robot:
@@ -276,6 +277,7 @@ class Robot:
             order=self.order,
             active_projectile_id=self.active_projectile_id,
             strength=self.strength,
+            last_fire_tick=self.last_fire_tick,
         )
 
     def with_order(self, order: Order | None) -> Robot:
@@ -300,6 +302,7 @@ class Robot:
             order=order,
             active_projectile_id=self.active_projectile_id,
             strength=self.strength,
+            last_fire_tick=self.last_fire_tick,
         )
 
     def with_active_projectile(self, active_projectile_id: EntityId | None) -> Robot:
@@ -322,6 +325,7 @@ class Robot:
             order=self.order,
             active_projectile_id=active_projectile_id,
             strength=self.strength,
+            last_fire_tick=self.last_fire_tick,
         )
 
     def with_strength(self, strength: int) -> Robot:
@@ -350,4 +354,5 @@ class Robot:
             order=self.order,
             active_projectile_id=self.active_projectile_id,
             strength=strength,
+            last_fire_tick=self.last_fire_tick,
         )
