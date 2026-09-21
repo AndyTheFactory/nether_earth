@@ -15,6 +15,15 @@ Never by robot id, submission order, or priority: the winner of a contested
 cell is drawn from the seeded RNG, so it is unpredictable to players yet
 reproducible for an identical seed + state + command stream.
 
+2×2 destinations (CR002.3 #170)
+--------------------------------
+A robot is a 2×2 body (`occupancy.py`, `_specs/open-questions.md` §21), so
+the "destination" a move reserves is the whole destination body: all four of
+its cells. Two same-tick claims contend when their destination bodies
+overlap, not only when they name the same anchor. Contention is resolved
+per group of overlapping claims (see :func:`apply_robot_move_batch`); when
+every contender names the same anchor this is exactly §11's draw.
+
 Reservations are *derived*, not stored
 ---------------------------------------
 There is no reservation registry on :class:`~nether_earth.state.GameState`.
@@ -104,6 +113,7 @@ from nether_earth.movement import (
     apply_robot_move,
     validate_robot_move,
 )
+from nether_earth.occupancy import unit_footprint_cells, unit_footprints_overlap
 from nether_earth.rng import MatchRandom
 from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
@@ -171,9 +181,8 @@ class ReservationTable:
 def reservations_from_state(state: GameState) -> ReservationTable:
     """Return the :class:`ReservationTable` implied by ``state``'s in-flight moves.
 
-    Exactly one entry per robot with a non-``None``
-    :attr:`~nether_earth.robot.Robot.movement`, keyed by that transition's
-    destination. Robots are walked in ``state.robots``' canonical order
+    One entry per cell of the destination 2×2 body of every robot with a
+    non-``None`` :attr:`~nether_earth.robot.Robot.movement` (CR002.3). Robots are walked in ``state.robots``' canonical order
     (sorted by ``entity_id.value``, per `state.py`), so the projection never
     depends on incidental ordering.
 
@@ -186,12 +195,14 @@ def reservations_from_state(state: GameState) -> ReservationTable:
     for robot in state.robots:
         transition = robot.movement
         if transition is not None:
-            holders[(transition.to_x, transition.to_y)] = robot.entity_id
+            for cell in unit_footprint_cells(transition.to_x, transition.to_y):
+                holders[cell] = robot.entity_id
     return ReservationTable(holders=MappingProxyType(holders))
 
 
 def destination_available(state: GameState, robot: Robot, dest_x: int, dest_y: int) -> bool:
-    """Return whether ``dest_x``/``dest_y`` is free of *another* robot's reservation.
+    """Return whether the 2×2 body anchored at ``dest_x``/``dest_y`` is free of
+    *another* robot's reservation (no cell of it is reserved by someone else).
 
     This is `movement.py`'s
     :data:`~nether_earth.movement.DestinationAvailabilityCheck` shape
@@ -202,8 +213,10 @@ def destination_available(state: GameState, robot: Robot, dest_x: int, dest_y: i
     commander blocking stay `movement.py`'s, checked before this gate ever
     runs.
     """
-    return not reservations_from_state(state).is_reserved_by_other(
-        robot.entity_id, dest_x, dest_y
+    table = reservations_from_state(state)
+    return not any(
+        table.is_reserved_by_other(robot.entity_id, cell_x, cell_y)
+        for cell_x, cell_y in unit_footprint_cells(dest_x, dest_y)
     )
 
 
@@ -258,10 +271,12 @@ def contention_rng(match_seed: int, tick: int) -> MatchRandom:
 
 @dataclass(frozen=True, slots=True)
 class DestinationContentionResolvedEvent(Event):
-    """Two or more robots claimed ``(x, y)`` on one tick; ``winner`` took it.
+    """Two or more robots claimed overlapping destinations on one tick; ``winner`` took its own.
 
-    Emitted once per *contested* destination (never for an uncontested
-    claim), so replay logs record the seeded outcome itself rather than
+    ``(x, y)`` is the destination anchor of the claim that opened the
+    contention group (see :func:`apply_robot_move_batch`); every contender's
+    destination 2×2 body overlaps it. Emitted once per *contested* group
+    (never for an uncontested claim), so replay logs record the seeded outcome itself rather than
     forcing a reader to re-derive it. ``contenders`` is in canonical
     ``entity_id.value`` order and always contains ``winner``; every other
     entry received a
@@ -339,12 +354,18 @@ def apply_robot_move_batch(
        (:attr:`~nether_earth.movement.MovementRejectionReason.MOVE_IN_PROGRESS`),
        mirroring the one-move-at-a-time rule `movement.py` enforces across
        ticks.
-    2. **Group** the surviving claims by destination cell. Visiting
-       contested cells in canonical ``(x, y)`` order, each one draws its
-       winner from this tick's seeded stream (:func:`contention_rng`); the
-       losers get a
+    2. **Resolve** overlapping claims (CR002.3). Visiting open claims in
+       canonical ``(destination anchor, entity id)`` order, the first open
+       claim and every open claim whose destination 2×2 body overlaps its
+       destination body form a group. A group of one wins outright;
+       otherwise it draws its winner from this tick's seeded stream
+       (:func:`contention_rng`), and every group member whose destination
+       overlaps the winner's loses: it gets a
        :attr:`~nether_earth.movement.MovementRejectionReason.DESTINATION_UNAVAILABLE`
-       result, stay exactly where they are, and mutate nothing.
+       result, stays exactly where it is, and mutates nothing. Members that
+       do not overlap the winner stay open for a later group. Winners
+       therefore never overlap one another, and when all contenders name
+       the same anchor this is exactly §11's coin flip / uniform draw.
     3. **Start** the winners' moves through
        :func:`~nether_earth.movement.apply_robot_move` -- the one move-start
        point -- in canonical entity order. Winners hold distinct
@@ -367,7 +388,7 @@ def apply_robot_move_batch(
     # Claims carry their batch index so a result can always be placed back
     # against the exact request that produced it, without relying on request
     # object identity or value equality (two requests can be equal).
-    claims: dict[tuple[int, int], list[tuple[int, RobotMoveRequest]]] = {}
+    claims: list[tuple[tuple[int, int], int, RobotMoveRequest]] = []
     claimed_entities: set[EntityId] = set()
 
     # --- Phase 1: validate every claim against the common entry state ------
@@ -384,37 +405,49 @@ def apply_robot_move_batch(
         robot = state.robot_for(request.entity_id)
         assert robot is not None  # guaranteed by validate_robot_move's NO_SUCH_ROBOT check
         destination = (robot.x + request.dx, robot.y + request.dy)
-        claims.setdefault(destination, []).append((index, request))
+        claims.append((destination, index, request))
         claimed_entities.add(request.entity_id)
 
     # --- Phase 2: resolve contested cells with the tick's seeded stream ----
     rng = contention_rng(state.seed, tick)
     winners: list[tuple[int, RobotMoveRequest]] = []
     contentions: list[DestinationContentionResolvedEvent] = []
-    for destination in sorted(claims):
-        contenders = claims[destination]
-        if len(contenders) == 1:
-            winners.append(contenders[0])
+    open_claims = sorted(claims, key=lambda claim: (claim[0], claim[2].entity_id.value))
+    while open_claims:
+        first_destination = open_claims[0][0]
+        group = [
+            claim
+            for claim in open_claims
+            if unit_footprints_overlap(*claim[0], *first_destination)
+        ]
+        if len(group) == 1:
+            winners.append((group[0][1], group[0][2]))
+            open_claims.remove(group[0])
             continue
-        contender_ids = tuple(request.entity_id for _index, request in contenders)
+        # Canonical entity order, so the draw never depends on grouping order.
+        group.sort(key=lambda claim: claim[2].entity_id.value)
+        contender_ids = tuple(request.entity_id for _dest, _index, request in group)
         winner_id = _pick_winner(contender_ids, rng)
+        winner = next(claim for claim in group if claim[2].entity_id == winner_id)
         contentions.append(
             DestinationContentionResolvedEvent(
                 sequence=sequencer.next_sequence() if sequencer is not None else 0,
-                x=destination[0],
-                y=destination[1],
+                x=first_destination[0],
+                y=first_destination[1],
                 contenders=contender_ids,
                 winner=winner_id,
                 tick=tick,
             )
         )
-        for index, request in contenders:
-            if request.entity_id == winner_id:
-                winners.append((index, request))
-            else:
-                results_by_request[index] = RobotMoveResult.reject(
-                    request, MovementRejectionReason.DESTINATION_UNAVAILABLE
-                )
+        winners.append((winner[1], winner[2]))
+        open_claims.remove(winner)
+        for claim in group:
+            if claim is winner or not unit_footprints_overlap(*claim[0], *winner[0]):
+                continue
+            results_by_request[claim[1]] = RobotMoveResult.reject(
+                claim[2], MovementRejectionReason.DESTINATION_UNAVAILABLE
+            )
+            open_claims.remove(claim)
 
     # --- Phase 3: start the winners' moves, canonical entity order ---------
     started: list[RobotMoveStartedEvent] = []

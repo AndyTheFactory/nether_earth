@@ -53,29 +53,25 @@ a surface but wrong for a projectile's collision rule. Do not "fix" this by
 routing through ``VerticalRange`` -- that would silently reintroduce the
 wrong (exclusive) semantics.
 
-Collision footprint -- single-cell point collision vs. §8's evidenced 3x3 scan
--------------------------------------------------------------------------------
-`_specs/open-questions.md` §8 records the original disassembly's collision
-check (``Lb7a7_potentially_hit_a_robot``'s preceding scan) as an ordered,
-first-hit-wins 3x3 neighborhood around the projectile's new cell -- resolved
-evidence, not an open question, and the §8 "Recommended engine policy
-surface" note explicitly says this footprint "is not marked non-canonical
-since the 3x3 first-hit scan is directly evidenced." This engine's actual
-implementation (:func:`_projectile_terminal_reason`, via
-:func:`_components_at_inclusive_blocking`/:func:`_robot_hit_at`) deliberately
-narrows this to single-cell point collision: only the cells the projectile
-enters are checked -- since CR001 (#150) each of the up to
-``projectile_cells_per_advance`` (2) cells of one advance, in travel order,
-so the intermediate cell is never skipped -- not a 3x3 neighborhood. This is
-an undisclosed-until-now simplification of resolved evidence, recorded here
-plainly: it is simpler to implement and reason about, it is sufficient for
-this engine's cardinal-only (non-diagonal) projectile model, and in a
-straight-line trajectory the 3x3 neighborhood's practical effect is
-dominated by the single leading cell anyway (the other eight cells rarely
-change the outcome of a projectile travelling in one of four fixed
-directions). This is a documented policy choice, not an oversight, and it
-mirrors :func:`resolve_fire_direction`'s "documented simplification, not a
-fidelity claim" framing.
+Collision footprint -- the Spectrum's 2×2 bullet (CR002.3 #170)
+---------------------------------------------------------------
+Owner decision (2026-09-21): projectiles follow the original's 2×2 map-area
+checks. A projectile's ``x``/``y`` is the anchor of a 2×2 body, like a
+robot's (`occupancy.py`, `_specs/open-questions.md` §21). Each advance moves
+it ``projectile_cells_per_advance`` (2) cells and then tests only the landing
+position, as ``Lb724_bullet_update_internal`` does:
+
+1. the anchor must be on the map (the Spectrum only tests the narrow axis,
+   ``cp MAP_WIDTH``; fences close the long axis);
+2. the highest static component under the four body cells
+   (``Lb5d6_map_altitude_2x2``) stops it when ``>=`` its altitude, so a
+   projectile passing right beside a high box or fence stops;
+3. a robot whose 2×2 body overlaps the projectile's body is hit (the 3×3
+   scan of robot anchors around the bullet); when several do, the first in
+   the Spectrum's scan order -- by anchor row, then column -- is hit.
+
+A 2-cell step with a 2-cell-wide body leaves no gap between two landing
+positions, so no intermediate position is tested (the Spectrum tests none).
 
 Grid symmetry -- why X and Y advance uniformly (§8's Y-axis-doubling question)
 -------------------------------------------------------------------------------
@@ -161,6 +157,7 @@ from nether_earth.commands import Command
 from nether_earth.destruction import destroy_robot
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
+from nether_earth.occupancy import unit_footprint_cells, unit_footprints_overlap
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
@@ -720,7 +717,11 @@ def is_projectile_advance_tick(tick: int, rules: EngineRules = DEFAULT_RULES) ->
 def _components_at_inclusive_blocking(
     world: WorldMap, x: int, y: int, rules: EngineRules
 ) -> bool:
-    """Return whether any static ``Component`` at ``(x, y)`` blocks a projectile.
+    """Return whether any static ``Component`` under the 2×2 body at ``(x, y)`` blocks a projectile.
+
+    ``(x, y)`` is the projectile's anchor; the four body cells are read as
+    ``Lb5d6_map_altitude_2x2`` reads them (CR002.3). Off-map cells hold no
+    component.
 
     Reuses `collision.py`'s public :func:`~nether_earth.collision.components_at`
     for the cell lookup itself (issue #73, M6.4), rather than re-walking
@@ -736,7 +737,8 @@ def _components_at_inclusive_blocking(
     """
     return any(
         component.height >= rules.normal_projectile_altitude
-        for component in components_at(world, x, y)
+        for cell_x, cell_y in unit_footprint_cells(x, y)
+        for component in components_at(world, cell_x, cell_y)
     )
 
 
@@ -747,25 +749,29 @@ def _robot_hit_at(
     source_robot_id: EntityId,
     rules: EngineRules,
 ) -> EntityId | None:
-    """Return the ``entity_id`` of the first robot at ``(x, y)`` that blocks a projectile.
+    """Return the ``entity_id`` of the first robot hit by a projectile body anchored at ``(x, y)``.
 
-    Walks ``state.robots`` in its canonical ``entity_id.value`` order (per
-    `state.py`), so the result is deterministic regardless of input
-    ordering. A robot blocks the projectile when it occupies ``(x, y)``,
-    ``robot.height >= rules.normal_projectile_altitude`` (see the module
-    docstring's "Height-collision semantics" section), and it is not the
-    projectile's own firer (defensive: a projectile cannot hit its own
-    firer at its origin cell). Returns ``None`` if no robot at ``(x, y)``
-    qualifies.
+    A robot is a candidate when its 2×2 body overlaps the projectile's 2×2
+    body (CR002.3; the Spectrum's 3×3 scan of robot anchors around the
+    bullet), ``robot.height >= rules.normal_projectile_altitude`` (see the
+    module docstring's "Height-collision semantics" section), and it is not
+    the projectile's own firer (defensive: a landing position never
+    overlaps the firer's body). Candidates are taken in the Spectrum's scan
+    order -- anchor row, then anchor column -- so the result is
+    deterministic; two robots never share an anchor. Returns ``None`` if no
+    robot qualifies.
     """
-    for robot in state.robots:
-        if robot.x != x or robot.y != y:
-            continue
-        if robot.entity_id == source_robot_id:
-            continue
-        if robot.height >= rules.normal_projectile_altitude:
-            return robot.entity_id
-    return None
+    candidates = sorted(
+        (
+            robot
+            for robot in state.robots
+            if unit_footprints_overlap(robot.x, robot.y, x, y)
+            and robot.entity_id != source_robot_id
+            and robot.height >= rules.normal_projectile_altitude
+        ),
+        key=lambda robot: (robot.y, robot.x),
+    )
+    return candidates[0].entity_id if candidates else None
 
 
 def _range_exhausted(projectile: Projectile) -> bool:
@@ -899,14 +905,11 @@ def _advance_one(
     2. Otherwise, it moves along its firing axis by
        ``rules.projectile_cells_per_advance`` cells (default 2, CR001 /
        `_specs/open-questions.md` §8), capped so ``travelled_cells`` never
-       exceeds ``max_range_cells``. The cells are entered one at a time, in
-       travel order, and each is checked via
-       :func:`_projectile_terminal_reason` (bounds, static collision, robot
-       collision, in that fixed order); the first terminal cell ends the
-       projectile there, so an intermediate cell is never skipped. (This
-       per-cell walk is used instead of the Spectrum's 3x3 first-hit scan
-       around the new position, which would widen the collision footprint to
-       the neighbouring lanes.)
+       exceeds ``max_range_cells``, and its 2×2 body is checked at the
+       landing position only via :func:`_projectile_terminal_reason`
+       (bounds, static collision, robot collision, in that fixed order), as
+       ``Lb724_bullet_update_internal`` does (see the module docstring's
+       "Collision footprint" section).
     """
     if _range_exhausted(projectile):
         return None, (
@@ -920,14 +923,12 @@ def _advance_one(
         rules.projectile_cells_per_advance,
         projectile.max_range_cells - projectile.travelled_cells,
     )
-    new_x, new_y = projectile.x, projectile.y
-    for _ in range(steps):
-        new_x += projectile.dx
-        new_y += projectile.dy
-        outcome = _projectile_terminal_reason(projectile, new_x, new_y, state, world, rules)
-        if outcome is not None:
-            reason, hit_robot_id = outcome
-            return None, (reason, hit_robot_id, new_x, new_y)
+    new_x = projectile.x + projectile.dx * steps
+    new_y = projectile.y + projectile.dy * steps
+    outcome = _projectile_terminal_reason(projectile, new_x, new_y, state, world, rules)
+    if outcome is not None:
+        reason, hit_robot_id = outcome
+        return None, (reason, hit_robot_id, new_x, new_y)
     moved = replace(
         projectile, x=new_x, y=new_y, travelled_cells=projectile.travelled_cells + steps
     )
@@ -949,8 +950,9 @@ def advance_projectiles(
 
     Otherwise, every projectile in ``state.projectiles`` (already in
     canonical ``id.value`` order, per `state.py`) gets one advance via
-    :func:`_advance_one` (range exhaustion first, then a per-cell walk of
-    up to ``rules.projectile_cells_per_advance`` cells). A projectile's
+    :func:`_advance_one` (range exhaustion first, then a move of up to
+    ``rules.projectile_cells_per_advance`` cells checked at its landing
+    position). A projectile's
     FIRST advance is not made here but by :func:`apply_fire` on its fire
     tick (CR002.2 #169); ``engine.step()`` runs this function before firing,
     so a projectile never advances twice on its fire tick. A projectile is

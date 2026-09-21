@@ -3121,7 +3121,7 @@ interaction_points:
   - id: warbase-1-helipad
     kind: heli_pad
     structure_id: warbase-1
-    footprint: {x: 22, y: 5}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
+    footprint: [{x: 22, y: 5}, {x: 23, y: 5}, {x: 22, y: 4}, {x: 23, y: 4}]  # 2x2 roof pad anchored at (anchor.x, anchor.y - 4), open-questions.md §18, §21
   - id: warbase-1-exit
     kind: exit
     structure_id: warbase-1
@@ -3133,7 +3133,7 @@ interaction_points:
   - id: warbase-2-helipad
     kind: heli_pad
     structure_id: warbase-2
-    footprint: {x: 261, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
+    footprint: [{x: 261, y: 4}, {x: 262, y: 4}, {x: 261, y: 3}, {x: 262, y: 3}]  # 2x2 roof pad anchored at (anchor.x, anchor.y - 4), open-questions.md §18, §21
   - id: warbase-2-exit
     kind: exit
     structure_id: warbase-2
@@ -3145,7 +3145,7 @@ interaction_points:
   - id: warbase-3-helipad
     kind: heli_pad
     structure_id: warbase-3
-    footprint: {x: 369, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
+    footprint: [{x: 369, y: 4}, {x: 370, y: 4}, {x: 369, y: 3}, {x: 370, y: 3}]  # 2x2 roof pad anchored at (anchor.x, anchor.y - 4), open-questions.md §18, §21
   - id: warbase-3-exit
     kind: exit
     structure_id: warbase-3
@@ -3157,7 +3157,7 @@ interaction_points:
   - id: warbase-4-helipad
     kind: heli_pad
     structure_id: warbase-4
-    footprint: {x: 494, y: 4}  # roof pad (anchor.x, anchor.y - 4), open-questions.md §18
+    footprint: [{x: 494, y: 4}, {x: 495, y: 4}, {x: 494, y: 3}, {x: 495, y: 3}]  # 2x2 roof pad anchored at (anchor.x, anchor.y - 4), open-questions.md §18, §21
   - id: warbase-4-exit
     kind: exit
     structure_id: warbase-4

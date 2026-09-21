@@ -17,6 +17,7 @@ import pytest
 from nether_earth.collision import (
     commander_horizontal_move_allowed,
     commander_vertical_move_allowed,
+    components_at,
 )
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.heli_pad import heli_pad_surface_altitude
@@ -24,6 +25,7 @@ from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap, load_world_map
 from nether_earth.map_overlay import apply_overlay, default_pvp_overlay
+from nether_earth.occupancy import unit_footprint, unit_footprint_in_bounds
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.scenario import commander_spawn_key, create_initial_state, default_pvp_scenario
 from nether_earth.structures import Factory, WarBase
@@ -130,16 +132,21 @@ def test_each_war_base_declares_one_capture_one_exit_on_free_ground_and_a_roof_h
         assert all(len(points) == 1 for points in by_kind.values()), base.id.value
         for kind in (InteractionKind.WARBASE_CAPTURE, InteractionKind.EXIT):
             for x, y in by_kind[kind][0].footprint.cells:
-                assert 0 <= x < world.width and 0 <= y < world.height
-                # A robot must be able to stand on the capture/exit cell.
-                assert not occupancy.is_occupied(x, y), f"{by_kind[kind][0].id.value} on solid geometry"
+                # A robot's 2×2 body must be able to stand anchored on the
+                # capture/exit cell (CR002.3, open-questions.md §21).
+                assert unit_footprint_in_bounds(x, y, world.width, world.height)
+                assert not occupancy.blocks_unit(x, y), f"{by_kind[kind][0].id.value} on solid geometry"
         # Evidence: the robot leaves construction at the anchor cell
         # (pad.y + 4 = anchor.y), i.e. exit == capture anchor.
         assert by_kind[InteractionKind.EXIT][0].footprint.cells == by_kind[InteractionKind.WARBASE_CAPTURE][0].footprint.cells
         # Evidence (open-questions §18): the "H" pad is at (anchor.x,
         # anchor.y - 4), on the roof of the 15-high block.
         anchor_x, anchor_y = WAR_BASE_ANCHORS[base.id.value]
-        assert by_kind[InteractionKind.HELI_PAD][0].footprint.cells == frozenset({(anchor_x, anchor_y - 4)})
+        # CR002.4: the pad is the 2×2 area anchored there, all on the roof.
+        pad = by_kind[InteractionKind.HELI_PAD][0].footprint
+        assert pad == unit_footprint(anchor_x, anchor_y - 4)
+        for x, y in pad.cells:
+            assert [c.height for c in components_at(world, x, y)] == [ROOF_PAD_ALTITUDE]
         assert heli_pad_surface_altitude(world, anchor_x, anchor_y - 4) == ROOF_PAD_ALTITUDE
 
 
@@ -147,7 +154,9 @@ def test_each_factory_declares_exactly_one_capture_point_on_free_ground(world: W
     occupancy = world.occupancy()
     for factory in world.factories:
         x, y = _anchor(world, factory)
-        assert not occupancy.is_occupied(x, y)
+        # A capturing robot's 2×2 body stands anchored on the point (CR002.3).
+        assert unit_footprint_in_bounds(x, y, world.width, world.height)
+        assert not occupancy.blocks_unit(x, y)
         assert not world.interaction_points_for(factory.id, kind=InteractionKind.HELI_PAD)
         assert not world.interaction_points_for(factory.id, kind=InteractionKind.EXIT)
 

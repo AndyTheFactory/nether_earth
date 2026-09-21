@@ -22,6 +22,17 @@ one-solid-per-cell invariant deterministically (issue #23):
 - ``cells()`` returns occupied cells in sorted order so results are
   byte-for-byte reproducible across independently-built, canonically-equal
   grids, not just set-equal.
+
+2×2 unit bodies (CR002.3 #170, CR002.4 #171)
+--------------------------------------------
+Robots, the commander and projectiles are 2×2 bodies, as in the Spectrum
+(`_specs/open-questions.md` §21). A unit's ``(x, y)`` is its **anchor**: the
+body covers ``(x, y)``, ``(x + 1, y)``, ``(x, y - 1)`` and ``(x + 1, y - 1)``
+(``Lb5d6_map_altitude_2x2``, ``Lb052_check_player_collision``). The Spectrum
+marks each unit only at its anchor cell and tests a 3×3 window of anchors,
+which is exactly "the two 2×2 bodies overlap" (:func:`unit_footprints_overlap`).
+The helpers below are the one place this convention is spelled out; every
+movement, collision, capture and combat rule reads it from here.
 """
 
 from collections.abc import Iterable
@@ -29,10 +40,45 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from nether_earth.ids import EntityId
-from nether_earth.structures import occupied_cells
+from nether_earth.structures import Footprint, occupied_cells
 
 if TYPE_CHECKING:
-    from nether_earth.structures import Blocker, Factory, Footprint, WarBase
+    from nether_earth.structures import Blocker, Factory, WarBase
+
+
+#: Offsets of a unit's 2×2 body from its anchor, anchor first (see the
+#: module docstring and `_specs/open-questions.md` §21).
+UNIT_FOOTPRINT_OFFSETS: tuple[tuple[int, int], ...] = ((0, 0), (1, 0), (0, -1), (1, -1))
+
+
+def unit_footprint_cells(x: int, y: int) -> tuple[tuple[int, int], ...]:
+    """Return the four cells of the 2×2 unit body anchored at ``(x, y)``, anchor first."""
+    return tuple((x + dx, y + dy) for dx, dy in UNIT_FOOTPRINT_OFFSETS)
+
+
+def unit_footprint(x: int, y: int) -> Footprint:
+    """Return the 2×2 unit body anchored at ``(x, y)`` as a :class:`Footprint`."""
+    return Footprint(cells=frozenset(unit_footprint_cells(x, y)))
+
+
+def unit_footprints_overlap(ax: int, ay: int, bx: int, by: int) -> bool:
+    """Return whether the 2×2 bodies anchored at ``(ax, ay)`` and ``(bx, by)`` overlap.
+
+    Equivalent to the Spectrum's 3×3 anchor-window scans (``Lb052``, the
+    bullet hit scan in ``Lb724``): the anchors are at most one cell apart on
+    both axes.
+    """
+    return abs(ax - bx) <= 1 and abs(ay - by) <= 1
+
+
+def unit_footprint_in_bounds(x: int, y: int, width: int, height: int) -> bool:
+    """Return whether all four cells of the body anchored at ``(x, y)`` are on the map.
+
+    So a unit anchor lies in ``0 <= x <= width - 2`` and ``1 <= y <=
+    height - 1``; the Spectrum bounds robots and the ship the same way on
+    the narrow axis (``Lb58f``/``Lb5b1``, ``Laf90``).
+    """
+    return 0 <= x and x + 1 < width and 1 <= y < height
 
 
 class OccupancyConflictError(ValueError):
@@ -90,6 +136,18 @@ class OccupancyGrid:
     def occupant_at(self, x: int, y: int) -> EntityId | None:
         """Return the occupying entity id at ``(x, y)``, or ``None`` if empty."""
         return self._occupants.get((x, y))
+
+    def blocks_unit(self, x: int, y: int, *, ignore: EntityId | None = None) -> bool:
+        """Return whether any cell of the 2×2 body anchored at ``(x, y)`` is occupied.
+
+        Occupants equal to ``ignore`` do not count, so a moving unit never
+        blocks itself (its current body overlaps its next one).
+        """
+        for cell in unit_footprint_cells(x, y):
+            occupant = self._occupants.get(cell)
+            if occupant is not None and occupant != ignore:
+                return True
+        return False
 
     def cells(self) -> tuple[tuple[int, int], ...]:
         """Return the currently occupied cells in a stable, sorted order.

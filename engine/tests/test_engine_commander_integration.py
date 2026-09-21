@@ -11,7 +11,7 @@ tests that need real collision/heli-pad geometry: a ``box-1`` blocker of
 height 1 at ``(0, 0)`` (a "tall obstacle" relative to a grounded commander,
 since ``commander_height`` defaults to 4 and any overlap blocks), and two
 war bases (``warbase-p1``/``warbase-p2``) each with a single-cell
-``HELI_PAD`` interaction point at ``(4, 0)``/``(4, 3)`` respectively.
+2×2 ``HELI_PAD`` interaction point anchored at ``(4, 1)``/``(4, 3)`` respectively.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from nether_earth.state import GameState
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "world_map_basic.yaml"
 
-P1_HELI_PAD_CELL = (4, 0)
+P1_HELI_PAD_CELL = (4, 1)  # 2×2 pad anchor (CR002.4)
 # The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
 # commander lands at that component height (open-questions.md §18).
 PAD_ROOF_ALTITUDE = 3

@@ -205,7 +205,7 @@ def test_an_advance_moves_exactly_one_cell_per_move_duration() -> None:
 
 def test_an_impossible_advance_falls_back_on_the_first_evaluated_tick() -> None:
     world = _world(width=10)
-    robot = _robot(x=9, y=5, order=Advance(5))
+    robot = _robot(x=8, y=5, order=Advance(5))  # the easternmost 2×2 anchor column
     state = _state((robot,))
     state, events = step(state, (), world)
     assert state.robots[0].order == StopAndDefend()
@@ -461,13 +461,14 @@ def test_search_destroy_robots_nuclear_carrier_uses_normal_weapons_only() -> Non
 def test_autonomous_and_direct_control_moves_share_one_contention_batch() -> None:
     """Both sources contend for one cell in the same seeded draw (§11)."""
     world = _world()
-    # robot-a advances east into (5, 5); robot-b is driven north into (5, 5).
-    autonomous = _robot("robot-a", x=4, y=5, order=Advance(1))
-    driven = _robot("robot-b", x=5, y=6)
+    # 2×2 bodies (CR002.3): robot-a advances east into the body (4..5, 2..3);
+    # robot-b is driven north into (5..6, 3..4). The bodies overlap at (5, 3).
+    autonomous = _robot("robot-a", x=3, y=3, order=Advance(1))
+    driven = _robot("robot-b", x=5, y=5)
     commander = Commander(
         player_id=PLAYER_ONE,
         x=5,
-        y=6,
+        y=5,
         altitude=0,
         mode=CommanderMode.DOCKED,
         docked_robot_id=driven.entity_id,
@@ -478,7 +479,7 @@ def test_autonomous_and_direct_control_moves_share_one_contention_batch() -> Non
 
     contentions = _of(events, DestinationContentionResolvedEvent)
     assert len(contentions) == 1
-    assert (contentions[0].x, contentions[0].y) == (5, 5)  # type: ignore[attr-defined]
+    assert (contentions[0].x, contentions[0].y) == (4, 3)  # type: ignore[attr-defined]
     assert len(_of(events, RobotMoveStartedEvent)) == 1
 
 
@@ -509,11 +510,11 @@ def test_an_ordered_fleet_replays_identically_from_the_same_seed() -> None:
     def _fleet() -> GameState:
         return _state(
             (
-                _robot("robot-a", x=0, y=4, order=Advance(2)),
+                _robot("robot-a", x=0, y=2, order=Advance(2)),
                 _robot(
                     "robot-b", x=0, y=5, order=SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY)
                 ),
-                _robot("robot-c", x=0, y=6, order=SearchDestroy(SearchDestroyTarget.ROBOT)),
+                _robot("robot-c", x=0, y=8, order=SearchDestroy(SearchDestroyTarget.ROBOT)),
                 _robot("robot-z", PLAYER_TWO, x=12, y=6, order=StopAndDefend()),
             ),
             seed=1234,
@@ -529,9 +530,9 @@ def test_an_ordered_fleet_replays_identically_from_the_same_seed() -> None:
 def test_order_evaluation_is_independent_of_robot_declaration_order() -> None:
     world = _world()
     robots = (
-        _robot("robot-a", x=0, y=4, order=Advance(2)),
+        _robot("robot-a", x=0, y=2, order=Advance(2)),
         _robot("robot-b", x=0, y=5, order=Advance(2)),
-        _robot("robot-c", x=0, y=6, order=Advance(2)),
+        _robot("robot-c", x=0, y=8, order=Advance(2)),
     )
     forward, forward_events = _run(_state(robots), world, TRACKS_TICKS * 2)
     backward, backward_events = _run(_state(tuple(reversed(robots))), world, TRACKS_TICKS * 2)

@@ -755,7 +755,7 @@ def test_autonomous_robot_next_to_its_target_fires_once_per_robot_update() -> No
     hunter = _gunner(
         "robot-a", PLAYER_ONE, QUIET_X, QUIET_Y, order=SearchDestroy(target=SearchDestroyTarget.ROBOT)
     )
-    prey = _gunner("robot-z", PLAYER_TWO, QUIET_X + 1, QUIET_Y, strength=10_000)
+    prey = _gunner("robot-z", PLAYER_TWO, QUIET_X + 2, QUIET_Y, strength=10_000)  # 2×2 bodies side by side
     state = _state((hunter, prey))
 
     fire_ticks = []
@@ -773,7 +773,7 @@ def test_autonomous_robot_next_to_its_target_fires_once_per_robot_update() -> No
 def test_direct_fire_every_tick_at_an_adjacent_target_fires_once_per_game_cycle() -> None:
     world = _world()
     shooter = _gunner("robot-a", PLAYER_ONE, QUIET_X, QUIET_Y)
-    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 1, QUIET_Y, strength=10_000)
+    target = _gunner("robot-z", PLAYER_TWO, QUIET_X + 2, QUIET_Y, strength=10_000)  # 2×2 bodies side by side
     state = _state((shooter, target))
 
     fire_ticks = []
@@ -783,7 +783,7 @@ def test_direct_fire_every_tick_at_an_adjacent_target_fires_once_per_game_cycle(
             sequence=0,
             entity_id=shooter.entity_id,
             weapon=ModuleIdentity.CANNON,
-            target_x=QUIET_X + 1,
+            target_x=QUIET_X + 2,
             target_y=QUIET_Y,
         )
         state, events = step(state, [command], world=world)

@@ -36,8 +36,10 @@ step it proposes is validated by, and must be executed through,
 `movement.py`/`reservations.py`:
 
 - **terrain legality**: `movement.py`'s
+  :func:`~nether_earth.movement.unit_terrain_enterable` over
   :func:`~nether_earth.movement.chassis_can_enter` -- the single
-  chassis/terrain table. Because both policies (and the route planner) ask
+  chassis/terrain table, applied to all four cells of the robot's 2×2 body
+  (CR002.3). Routes are searched over body anchors. Because both policies (and the route planner) ask
   exactly that function about the robot's *own* chassis, an electronic robot
   provably cannot be routed somewhere its chassis forbids: an electronic
   bipod still cannot enter a ditch.
@@ -98,13 +100,14 @@ from typing import Protocol
 from nether_earth.map import WorldMap
 from nether_earth.movement import (
     RobotMoveRequest,
-    chassis_can_enter,
     commander_blocks_robot_cell,
     folded_robot_occupancy,
     move_duration_ticks,
+    unit_move_terrain,
+    unit_terrain_enterable,
     validate_robot_move,
 )
-from nether_earth.occupancy import OccupancyGrid
+from nether_earth.occupancy import OccupancyGrid, unit_footprint_cells, unit_footprint_in_bounds
 from nether_earth.reservations import (
     ReservationTable,
     destination_available,
@@ -237,7 +240,7 @@ def _traversal_view(state: GameState, world: WorldMap) -> _TraversalView:
 
 
 def _in_bounds(world: WorldMap, x: int, y: int) -> bool:
-    return 0 <= x < world.width and 0 <= y < world.height
+    return unit_footprint_in_bounds(x, y, world.width, world.height)
 
 
 def _enterable(
@@ -249,7 +252,12 @@ def _enterable(
     rules: EngineRules,
     view: _TraversalView,
 ) -> bool:
-    """Return whether ``robot`` could stand in ``(x, y)`` given ``view``.
+    """Return whether ``robot``'s 2×2 body could stand anchored at ``(x, y)`` given ``view``.
+
+    Whole-body checks (CR002.3, `_specs/open-questions.md` §21): the body is
+    on the map, its four cells are terrain the chassis may enter, and no
+    structure, other robot, commander, or other robot's reserved destination
+    body overlaps it. The robot itself never blocks its own next body.
 
     The checks, and their order, mirror
     :func:`~nether_earth.movement.validate_robot_move`'s cell-level gates
@@ -262,13 +270,16 @@ def _enterable(
     """
     if not _in_bounds(world, x, y):
         return False
-    if not chassis_can_enter(robot.build.chassis, world.terrain.terrain_at(x, y)):
+    if not unit_terrain_enterable(robot.build.chassis, world, x, y):
         return False
-    if view.occupancy.is_occupied(x, y):
+    if view.occupancy.blocks_unit(x, y, ignore=robot.entity_id):
         return False
     if commander_blocks_robot_cell(state, robot, x, y, rules):
         return False
-    return not view.reservations.is_reserved_by_other(robot.entity_id, x, y)
+    return not any(
+        view.reservations.is_reserved_by_other(robot.entity_id, cell_x, cell_y)
+        for cell_x, cell_y in unit_footprint_cells(x, y)
+    )
 
 
 def cell_is_enterable(
@@ -279,13 +290,12 @@ def cell_is_enterable(
     world: WorldMap,
     rules: EngineRules = DEFAULT_RULES,
 ) -> bool:
-    """Return whether ``robot`` could currently stand in ``(x, y)``.
+    """Return whether ``robot`` could currently stand with its body anchored at ``(x, y)``.
 
     The single composed traversability query both navigation policies and
     :func:`plan_route` search over (see the module docstring for the
-    contracts it delegates to). Note that a robot's *own* authoritative cell
-    reports ``False``, because the robot itself is folded into occupancy;
-    callers never test the cell they are standing in.
+    contracts it delegates to). ``(x, y)`` is a 2×2 body anchor (CR002.3);
+    the robot's own current body never blocks it.
     """
     return _enterable(robot, x, y, state, world, rules, _traversal_view(state, world))
 
@@ -384,7 +394,7 @@ def plan_route(
             if not _enterable(robot, neighbour[0], neighbour[1], state, world, rules, view):
                 continue
             step_cost = move_duration_ticks(
-                robot.build.chassis, world.terrain.terrain_at(*neighbour), rules
+                robot.build.chassis, unit_move_terrain(world, *neighbour), rules
             )
             neighbour_cost = cost + step_cost
             known = best.get(neighbour)

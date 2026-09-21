@@ -962,7 +962,8 @@ def _linear_goal(
     sign = 1 if isinstance(order, Advance) else -1
     if order.target_x is None:
         raw = robot.x + sign * miles_to_cells(order.distance_miles)
-        target_x = max(0, min(world.width - 1, raw))
+        # The last on-map anchor column of a 2×2 body is width - 2 (CR002.3).
+        target_x = max(0, min(world.width - 2, raw))
         if target_x != robot.x:
             return replace(order, target_x=target_x), target_x
         # Clamped to a standstill: impossible unless nothing was asked for.

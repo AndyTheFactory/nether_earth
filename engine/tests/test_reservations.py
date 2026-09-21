@@ -19,6 +19,7 @@ from nether_earth.movement import (
     folded_robot_occupancy,
     validate_robot_move,
 )
+from nether_earth.occupancy import unit_footprint_cells, unit_footprints_overlap
 from nether_earth.reservations import (
     DestinationContentionResolvedEvent,
     apply_robot_move_batch,
@@ -86,10 +87,17 @@ def _move(entity_id: str, dx: int, dy: int) -> RobotMoveRequest:
 
 
 def _converging_state(seed: int = 0, tick: int = 0) -> GameState:
-    """Two robots on opposite sides of ``(5, 5)``, each one step away from it."""
+    """Two robots facing each other across a two-cell gap (CR002.3, 2×2 bodies).
+
+    robot-a's body is (3..4, 4..5) and robot-b's (6..7, 4..5). Stepping in,
+    robot-a's destination body (4..5, 4..5) and robot-b's (5..6, 4..5)
+    overlap in column 5, so the two claims contend; both cover ``(5, 5)``.
+    (With 2×2 bodies two robots can never claim the *same* anchor: a robot
+    one step from it would already overlap the other's body.)
+    """
     return _state(
         (
-            _robot("robot-a", 4, 5),
+            _robot("robot-a", 3, 5),
             _robot("robot-b", 6, 5, owner=PLAYER_TWO),
         ),
         tick=tick,
@@ -97,14 +105,19 @@ def _converging_state(seed: int = 0, tick: int = 0) -> GameState:
     )
 
 
-def _four_way_state(seed: int = 0) -> GameState:
-    """Four robots surrounding ``(5, 5)``, each one step away from it."""
+def _three_way_state(seed: int = 0) -> GameState:
+    """Three claims forming one contention group (CR002.3).
+
+    Destination bodies: robot-a (2..3, 2..3) overlaps both robot-b's
+    (3..4, 3..4) and robot-c's (3..4, 1..2); robot-b's and robot-c's do not
+    overlap each other. Three pairwise-overlapping 2×2 destinations are
+    impossible without an origin overlapping another claim's destination.
+    """
     return _state(
         (
-            _robot("robot-a", 4, 5),
-            _robot("robot-b", 6, 5, owner=PLAYER_TWO),
-            _robot("robot-c", 5, 4),
-            _robot("robot-d", 5, 6, owner=PLAYER_TWO),
+            _robot("robot-a", 1, 3),
+            _robot("robot-b", 3, 5, owner=PLAYER_TWO),
+            _robot("robot-c", 4, 2),
         ),
         seed=seed,
     )
@@ -115,12 +128,24 @@ _CONVERGING_CLAIMS = (
     _move("robot-b", -1, 0),
 )
 
-_FOUR_WAY_CLAIMS = (
+_THREE_WAY_CLAIMS = (
     _move("robot-a", 1, 0),
-    _move("robot-b", -1, 0),
-    _move("robot-c", 0, 1),
-    _move("robot-d", 0, -1),
+    _move("robot-b", 0, -1),
+    _move("robot-c", -1, 0),
 )
+
+
+def _started_ids(result: object) -> set[EntityId]:
+    assert hasattr(result, "started")
+    return {event.entity_id for event in result.started}  # type: ignore[attr-defined]
+
+
+def _pairwise_disjoint(anchors: list[tuple[int, int]]) -> bool:
+    return all(
+        not unit_footprints_overlap(*first, *second)
+        for index, first in enumerate(anchors)
+        for second in anchors[index + 1:]
+    )
 
 
 def _winner(result: object) -> EntityId | None:
@@ -148,7 +173,9 @@ def test_a_started_move_reserves_its_destination() -> None:
 
     table = reservations_from_state(state)
 
-    assert table.holder(5, 5) == EntityId("robot-a")
+    # The whole destination 2×2 body (5..6, 4..5) is reserved (CR002.3).
+    for cell in ((5, 5), (6, 5), (5, 4), (6, 4)):
+        assert table.holder(*cell) == EntityId("robot-a")
     assert table.is_reserved(5, 5)
     assert not table.is_reserved(4, 5)  # the origin is occupancy, not a reservation
 
@@ -188,7 +215,9 @@ def test_reservation_table_lists_cells_in_canonical_order() -> None:
         )
     )
 
-    assert reservations_from_state(state).cells() == ((5, 5), (8, 2))
+    assert reservations_from_state(state).cells() == (
+        (5, 4), (5, 5), (6, 4), (6, 5), (8, 1), (8, 2), (9, 1), (9, 2)
+    )
 
 
 # --- destination_available (the movement.py hook) ----------------------------
@@ -267,7 +296,7 @@ def test_reservation_is_released_on_cancellation() -> None:
     assert reservations_from_state(state).holders == {}
     robot_a = state.robot_for(EntityId("robot-a"))
     assert robot_a is not None
-    assert (robot_a.x, robot_a.y) == (4, 5)
+    assert (robot_a.x, robot_a.y) == (3, 5)
 
 
 def test_a_cancelled_reservation_can_be_taken_by_the_other_contender() -> None:
@@ -298,8 +327,8 @@ def test_cancelling_twice_releases_once_and_leaks_nothing() -> None:
 
 def test_a_failed_move_leaks_no_reservation() -> None:
     world = _world()
-    # robot-b sits on (6, 5); robot-a at (5, 5) moving east is OCCUPIED.
-    state = _state((_robot("robot-a", 5, 5), _robot("robot-b", 6, 5, owner=PLAYER_TWO)))
+    # robot-b's body is (7..8, 4..5); robot-a at (5, 5) moving east is OCCUPIED.
+    state = _state((_robot("robot-a", 5, 5), _robot("robot-b", 7, 5, owner=PLAYER_TWO)))
 
     new_state, result, event = apply_robot_move(
         _move("robot-a", 1, 0), state, world, tick=0, destination_check=destination_available
@@ -339,7 +368,9 @@ def test_uncontested_claims_all_start() -> None:
     assert all(result.accepted for result in batch.results)
     assert len(batch.started) == 2
     assert batch.contentions == ()
-    assert reservations_from_state(batch.state).cells() == ((2, 1), (7, 8))
+    assert reservations_from_state(batch.state).cells() == (
+        (2, 0), (2, 1), (3, 0), (3, 1), (7, 7), (7, 8), (8, 7), (8, 8)
+    )
 
 
 def test_only_one_contender_takes_a_contested_cell() -> None:
@@ -353,7 +384,11 @@ def test_only_one_contender_takes_a_contested_cell() -> None:
     assert len(accepted) == 1
     assert len(rejected) == 1
     assert rejected[0].reason is MovementRejectionReason.DESTINATION_UNAVAILABLE
-    assert reservations_from_state(batch.state).cells() == ((5, 5),)
+    winner = batch.state.robot_for(accepted[0].request.entity_id)
+    assert winner is not None and winner.movement is not None
+    assert reservations_from_state(batch.state).cells() == tuple(
+        sorted(unit_footprint_cells(winner.movement.to_x, winner.movement.to_y))
+    )
 
 
 def test_the_loser_stays_put_with_no_partial_mutation() -> None:
@@ -373,7 +408,7 @@ def test_the_loser_stays_put_with_no_partial_mutation() -> None:
 
 
 def test_an_all_rejected_batch_returns_the_callers_state_object() -> None:
-    state = _state((_robot("robot-a", 0, 0),))
+    state = _state((_robot("robot-a", 0, 1),))
 
     batch = apply_robot_move_batch((_move("robot-a", -1, 0),), state, _world(), tick=0)
 
@@ -394,25 +429,47 @@ def test_a_robot_cannot_claim_twice_in_one_batch() -> None:
 
 
 def test_every_request_gets_exactly_one_result() -> None:
-    batch = apply_robot_move_batch(_FOUR_WAY_CLAIMS, _four_way_state(seed=5), _world(), tick=0)
+    batch = apply_robot_move_batch(_THREE_WAY_CLAIMS, _three_way_state(seed=5), _world(), tick=0)
 
-    assert len(batch.results) == len(_FOUR_WAY_CLAIMS)
-    assert {result.request for result in batch.results} == set(_FOUR_WAY_CLAIMS)
+    assert len(batch.results) == len(_THREE_WAY_CLAIMS)
+    assert {result.request for result in batch.results} == set(_THREE_WAY_CLAIMS)
 
 
-def test_a_contested_cell_emits_one_contention_event_naming_every_contender() -> None:
+def test_a_contention_group_emits_one_event_naming_every_contender() -> None:
     batch = apply_robot_move_batch(
-        _FOUR_WAY_CLAIMS, _four_way_state(seed=5), _world(), tick=0, sequencer=EventSequencer()
+        _THREE_WAY_CLAIMS, _three_way_state(seed=5), _world(), tick=0, sequencer=EventSequencer()
     )
 
     assert len(batch.contentions) == 1
     event = batch.contentions[0]
-    assert (event.x, event.y) == (5, 5)
-    assert event.contenders == tuple(
-        EntityId(name) for name in ("robot-a", "robot-b", "robot-c", "robot-d")
-    )
+    # The group opens at the first destination anchor in canonical order.
+    assert (event.x, event.y) == (2, 3)
+    assert event.contenders == tuple(EntityId(name) for name in ("robot-a", "robot-b", "robot-c"))
     assert event.winner in event.contenders
-    assert _winner(batch) == event.winner
+    assert event.winner in _started_ids(batch)
+
+
+def test_a_group_member_clear_of_the_winner_still_moves() -> None:
+    """Only claims overlapping the winner lose (CR002.3).
+
+    robot-b's and robot-c's destinations both overlap robot-a's but not
+    each other: if robot-a wins both lose; if either of them wins, robot-a
+    loses and the other one still starts.
+    """
+    outcomes = set()
+    for seed in range(200):
+        batch = apply_robot_move_batch(
+            _THREE_WAY_CLAIMS, _three_way_state(seed=seed), _world(), tick=0
+        )
+        outcomes.add(frozenset(entity.value for entity in _started_ids(batch)))
+        destinations = [
+            (robot.movement.to_x, robot.movement.to_y)
+            for robot in batch.state.robots
+            if robot.movement is not None
+        ]
+        assert _pairwise_disjoint(destinations)
+
+    assert outcomes == {frozenset({"robot-a"}), frozenset({"robot-b", "robot-c"})}
 
 
 def test_losers_can_retry_on_a_later_tick() -> None:
@@ -510,18 +567,16 @@ def test_the_same_contention_flips_over_successive_ticks() -> None:
 def test_n_way_contention_is_a_uniform_seeded_choice() -> None:
     trials = 2000
     winners = Counter(
-        _winner(
-            apply_robot_move_batch(_FOUR_WAY_CLAIMS, _four_way_state(seed=seed), _world(), tick=0)
-        )
+        apply_robot_move_batch(
+            _THREE_WAY_CLAIMS, _three_way_state(seed=seed), _world(), tick=0
+        ).contentions[0].winner
         for seed in range(trials)
     )
 
-    assert set(winners) == {
-        EntityId(name) for name in ("robot-a", "robot-b", "robot-c", "robot-d")
-    }
-    # Binomial(2000, 0.25) has sigma ~19.4; +/-5% of the trials is > 5 sigma.
+    assert set(winners) == {EntityId(name) for name in ("robot-a", "robot-b", "robot-c")}
+    # Binomial(2000, 1/3) has sigma ~21.1; +/-5% of the trials is > 4 sigma.
     for count in winners.values():
-        assert abs(count - trials / 4) < trials * 0.05
+        assert abs(count - trials / 3) < trials * 0.05
 
 
 def test_independent_contested_cells_draw_independently_within_one_tick() -> None:
@@ -537,10 +592,10 @@ def test_independent_contested_cells_draw_independently_within_one_tick() -> Non
     for seed in range(60):
         state = _state(
             (
-                _robot("robot-a", 1, 1),
-                _robot("robot-b", 3, 1, owner=PLAYER_TWO),
+                _robot("robot-a", 1, 2),
+                _robot("robot-b", 4, 2, owner=PLAYER_TWO),
                 _robot("robot-c", 1, 8),
-                _robot("robot-d", 3, 8, owner=PLAYER_TWO),
+                _robot("robot-d", 4, 8, owner=PLAYER_TWO),
             ),
             seed=seed,
         )
@@ -613,15 +668,16 @@ def test_engine_step_replays_identical_reservation_and_winner_outcomes() -> None
 
 def test_no_two_robots_ever_hold_the_same_reservation_across_a_match() -> None:
     world = _world()
-    state = _four_way_state(seed=11)
+    state = _three_way_state(seed=11)
 
     for _ in range(BIPOD_TICKS * 3):
-        state, _events = engine.step(state, (), world, robot_moves=_FOUR_WAY_CLAIMS)
+        state, _events = engine.step(state, (), world, robot_moves=_THREE_WAY_CLAIMS)
+        # No two reserved destination bodies and no two robot bodies ever
+        # overlap (CR002.3).
         destinations = [
             (robot.movement.to_x, robot.movement.to_y)
             for robot in state.robots
             if robot.movement is not None
         ]
-        assert len(destinations) == len(set(destinations))
-        positions = [(robot.x, robot.y) for robot in state.robots]
-        assert len(positions) == len(set(positions))
+        assert _pairwise_disjoint(destinations)
+        assert _pairwise_disjoint([(robot.x, robot.y) for robot in state.robots])

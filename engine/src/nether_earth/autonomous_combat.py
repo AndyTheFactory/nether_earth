@@ -119,7 +119,7 @@ from nether_earth.combat import FireRequest, apply_fire, validate_fire, weapon_r
 from nether_earth.destruction import effective_world, execute_nuclear_detonation
 from nether_earth.events import Event, EventSequencer
 from nether_earth.map import WorldMap
-from nether_earth.movement import RobotMoveRequest, robot_move_duration_ticks
+from nether_earth.movement import RobotMoveRequest, robot_move_duration_ticks, unit_move_terrain
 from nether_earth.orders import EngagementIntent, EngagementTargetKind, OrderEvaluation
 from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity
@@ -261,11 +261,13 @@ def autonomous_update_period_ticks(
 
     ``Lb5f3_determine_speed_based_on_terrain`` reloads the counter from the
     terrain the robot stands on after the update; a firing update does not
-    move, so that is the robot's own cell. The value is the same
+    move, so that is the highest piece under the robot's own 2×2 body
+    (``Lb5d6_map_altitude_2x2``, CR002.3; see
+    :func:`~nether_earth.movement.unit_move_terrain`). The value is the same
     per-(chassis, terrain) table the move duration uses
     (`_specs/open-questions.md` §4).
     """
-    return robot_move_duration_ticks(robot, world.terrain.terrain_at(robot.x, robot.y), rules)
+    return robot_move_duration_ticks(robot, unit_move_terrain(world, robot.x, robot.y), rules)
 
 
 def autonomous_update_due(

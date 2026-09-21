@@ -27,6 +27,7 @@ from nether_earth.events import Event
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.map import WorldMap
 from nether_earth.movement import RobotMoveRequest
+from nether_earth.occupancy import unit_footprint_cells
 from nether_earth.orders import (
     EngagementIntent,
     EngagementTargetKind,
@@ -166,7 +167,8 @@ def _fired_by(events: tuple[Event, ...], robot_id: str) -> list[ProjectileFiredE
 
 def test_adjacent_search_destroy_bipod_on_flat_fires_once_per_update_and_never_moves() -> None:
     world = _world()
-    state = _state((_hunter(), _prey(HUNTER_X + 1)))
+    # Adjacent 2×2 bodies (CR002.3): anchors two columns apart.
+    state = _state((_hunter(), _prey(HUNTER_X + 2)))
 
     _state_after, fire_ticks, cells = _run(state, world, 80)
 
@@ -181,8 +183,8 @@ def test_adjacent_search_destroy_bipod_on_flat_fires_once_per_update_and_never_m
 def test_fire_period_follows_the_speed_table_for_the_hunters_own_cell(
     chassis: ModuleIdentity, terrain: TerrainType
 ) -> None:
-    world = _world({(HUNTER_X, ROW): terrain})
-    state = _state((_hunter(chassis), _prey(HUNTER_X + 1)))
+    world = _world({cell: terrain for cell in unit_footprint_cells(HUNTER_X, ROW)})
+    state = _state((_hunter(chassis), _prey(HUNTER_X + 2)))
 
     _state_after, fire_ticks, cells = _run(state, world, 3 * 9 * CYCLE)
 
@@ -193,6 +195,14 @@ def test_fire_period_follows_the_speed_table_for_the_hunters_own_cell(
     hunter = state.robot_for(EntityId("robot-a"))
     assert hunter is not None
     assert autonomous_update_period_ticks(hunter, world) == period
+
+
+@pytest.mark.parametrize("cell", unit_footprint_cells(HUNTER_X, ROW))
+def test_fire_period_reads_the_highest_piece_under_the_2x2_body(cell: tuple[int, int]) -> None:
+    """``Lb5f3`` reads the robot altitude from ``Lb5d6_map_altitude_2x2`` (CR002.3)."""
+    world = _world({cell: TerrainType.ROUGH})
+    hunter = _hunter(ModuleIdentity.BIPOD)
+    assert autonomous_update_period_ticks(hunter, world) == 8 * CYCLE
 
 
 def test_a_robot_with_a_shot_on_its_update_fires_instead_of_moving() -> None:
@@ -221,7 +231,7 @@ def test_direct_fire_is_not_tied_to_the_robot_update() -> None:
     """Combat-mode fire keeps CR002.2's once-per-cycle rule (owner decision, #197)."""
     world = _world()
     shooter = _robot("robot-a", PLAYER_ONE, HUNTER_X)  # no order: not autonomous
-    state = _state((shooter, _prey(HUNTER_X + 1)))
+    state = _state((shooter, _prey(HUNTER_X + 2)))
 
     fire_ticks: list[int] = []
     for _ in range(16):
@@ -230,7 +240,7 @@ def test_direct_fire_is_not_tied_to_the_robot_update() -> None:
             sequence=0,
             entity_id=shooter.entity_id,
             weapon=ModuleIdentity.CANNON,
-            target_x=HUNTER_X + 1,
+            target_x=HUNTER_X + 2,
             target_y=ROW,
         )
         state, events = step(state, (command,), world)

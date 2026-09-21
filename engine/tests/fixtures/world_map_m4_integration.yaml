@@ -58,21 +58,24 @@ factories:
     factory_type: missile
     owner: p1
 
+# CR002.3/CR002.4 (open-questions.md §21): units are 2×2 bodies anchored at
+# their (x, y) (x..x+1, y-1..y). Each heli-pad lists the four cells of a 2×2
+# pad over its war base; exits and spawns are body anchors on free ground.
 interaction_points:
   - id: warbase-p1-helipad
     kind: heli_pad
     structure_id: warbase-p1
-    footprint: {x: 4, y: 0}
+    footprint: [{x: 4, y: 1}, {x: 5, y: 1}, {x: 4, y: 0}, {x: 5, y: 0}]
 
   - id: warbase-p1-exit
     kind: exit
     structure_id: warbase-p1
-    footprint: {x: 7, y: 0}
+    footprint: {x: 7, y: 1}
 
   - id: warbase-p2-helipad
     kind: heli_pad
     structure_id: warbase-p2
-    footprint: {x: 4, y: 5}
+    footprint: [{x: 4, y: 5}, {x: 5, y: 5}, {x: 4, y: 4}, {x: 5, y: 4}]
 
   - id: warbase-p2-exit
     kind: exit
@@ -80,5 +83,5 @@ interaction_points:
     footprint: {x: 7, y: 5}
 
 spawn_positions:
-  p1_commander: {x: 4, y: 1}
-  p2_commander: {x: 4, y: 4}
+  p1_commander: {x: 4, y: 3}
+  p2_commander: {x: 8, y: 3}

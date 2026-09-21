@@ -369,8 +369,13 @@ def test_commander_blocks_cell_direct_query() -> None:
     assert commander_blocks_cell(state, resident, 5, 5, overlapping) is True
     assert commander_blocks_cell(state, resident, 5, 5, touching) is False
     assert commander_blocks_cell(state, resident, 5, 5, disjoint) is False
-    # Wrong cell never blocks, regardless of vertical range.
-    assert commander_blocks_cell(state, resident, 6, 5, overlapping) is False
+    # (x, y) is the anchor of another 2×2 body (CR002.3/CR002.4): any body
+    # overlapping the commander's blocks; a body one cell further does not,
+    # regardless of vertical range.
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1)):
+        assert commander_blocks_cell(state, resident, 5 + dx, 5 + dy, overlapping) is True
+    for dx, dy in ((2, 0), (-2, 0), (0, 2), (0, -2), (2, 1)):
+        assert commander_blocks_cell(state, resident, 5 + dx, 5 + dy, overlapping) is False
 
 
 # --- determinism / order-independence ---------------------------------------

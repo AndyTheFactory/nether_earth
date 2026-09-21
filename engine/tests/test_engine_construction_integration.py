@@ -31,6 +31,7 @@ from nether_earth.engine import new_game, step
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import BootstrapMap, WorldMap
+from nether_earth.occupancy import unit_footprint
 from nether_earth.resource_pool import starting_player_resource_pool
 from nether_earth.resource_production import DailyProductionApplied
 from nether_earth.robot_build import ModuleIdentity
@@ -47,8 +48,11 @@ WAR_BASE_ONE = EntityId("warbase-p1")
 WAR_BASE_TWO = EntityId("warbase-p2")
 FACTORY_ONE = EntityId("factory-p1")
 
-HELI_PAD_CELL = (4, 0)
-EXIT_CELL = (5, 0)
+# 2×2 bodies (CR002.3/CR002.4, open-questions.md §21): the pad is the 2×2
+# area anchored at HELI_PAD_CELL (over warbase-p1's roof at (4, 0)), and the
+# robot exits with its body anchored four rows below it, as on the Spectrum.
+HELI_PAD_CELL = (4, 1)
+EXIT_CELL = (4, 5)
 
 
 def _world(*, with_factory: bool = False) -> WorldMap:
@@ -71,7 +75,7 @@ def _world(*, with_factory: bool = False) -> WorldMap:
             id="warbase-p1-helipad",
             kind=InteractionKind.HELI_PAD,
             structure_id=WAR_BASE_ONE,
-            footprint=_footprint(HELI_PAD_CELL),
+            footprint=unit_footprint(*HELI_PAD_CELL),
         ),
         InteractionPoint(
             id="warbase-p1-exit",
@@ -369,7 +373,7 @@ def test_launch_robot_cap_reached_replays_without_hidden_side_effects() -> None:
         Robot(
             entity_id=EntityId(f"robot-p1-{i}"),
             owner=PLAYER_ONE,
-            x=50 + i,
+            x=50 + 2 * i,
             y=50,
             build=dummy_build,
             stack=stack,

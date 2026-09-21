@@ -355,8 +355,13 @@ def _qualifying_robot(
 ) -> Robot | None:
     """Return the deterministic qualifying robot occupying ``footprint``, or ``None``.
 
-    A robot qualifies when its authoritative ``(x, y)`` is a member of
-    ``footprint`` and its ``owner`` differs from ``current_owner`` (a
+    A robot qualifies when its authoritative ``(x, y)`` -- the anchor of
+    its 2×2 body (CR002.3) -- is a member of ``footprint``. The Spectrum
+    counts a building's capture timer only while a robot's map mark (its
+    anchor) is on the building's own cell (``Ladb7_building_loop``: ``bit
+    6`` on the building's map pointer), and the capture points are those
+    cells, so a body merely overlapping the point does not qualify. It also
+    requires that its ``owner`` differs from ``current_owner`` (a
     neutral structure's ``current_owner is None`` makes every robot
     qualify, matching "first qualifying robot" for neutral acquisition; an
     owned structure only admits an *enemy* robot). See the module docstring

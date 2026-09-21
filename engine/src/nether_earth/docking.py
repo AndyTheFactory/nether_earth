@@ -159,6 +159,15 @@ def attempt_auto_dock(
     onto the top of a friendly robot") and §8.3's height-aware collision
     model describe.
 
+    2×2 bodies (CR002.4, `_specs/open-questions.md` §21): ``(x, y)`` is the
+    anchor of both bodies, and docking needs the *same* anchor -- the bodies
+    coincide exactly. The Spectrum's game loop docks only when the robot's
+    map mark is on the ship's own anchor cell and ``altitude == robot
+    height + robot altitude`` (``La69a``: ``bit 6`` on
+    ``Lcca0_compute_player_map_ptr``, then ``La720_land_on_robot``). A
+    commander resting on a robot whose body only partly overlaps its own is
+    held up by it (`collision.py`) but does not dock.
+
     Only the *first* matching friendly fixture (in ``robots`` order) is
     docked to -- at most one robot can legally occupy a given cell (enforced
     upstream by the eventual robot subsystem/occupancy rules), so this is
