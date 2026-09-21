@@ -62,34 +62,28 @@ of each :class:`~nether_earth.robot_build.ModuleIdentity` module, consumed
 by `robot_stack.py` to derive a robot build's total physical height as the
 sum of its stacked components' heights. `_specs/functional-spec.md` §11-13
 and `_specs/technical-spec.md` §12.1 lock the bottom-to-top *order* of the
-stack (chassis, cannon, missile, phaser, nuke, electronics) but -- like
-``commander_height`` above -- neither they nor `_specs/open-questions.md`
-give any module an explicit numeric vertical extent; no Spectrum sprite
-geometry for individual module heights is available anywhere in the locked
-specs or evidence. Height-summing cannot be implemented against zero-height
-components, so each field supplies a documented, overridable default
-following the exact same "documented default, not independently verified"
-precedent as ``commander_height``: chassis modules (``module_height_bipod``,
-``module_height_tracks``, ``module_height_anti_grav``) default to ``4``
-(matching ``commander_height``'s magnitude, since a chassis is a robot's
-main structural body), and weapon/electronics modules
-(``module_height_cannon``, ``module_height_missile``, ``module_height_phaser``,
-``module_height_nuclear``, ``module_height_electronics``) default to ``2``
-(smaller mounted add-ons stacked above the chassis). These are placeholder
-magnitudes only, chosen for internal proportion, not derived from any
-Spectrum evidence; later sprite-geometry research may correct any of them
-in this one place without an architecture change. Each module identity gets
-its own named field (rather than one dict-valued field) to match this
-module's existing flat-scalar-field convention and keep ``EngineRules``
-trivially hashable/equatable.
+stack (chassis, cannon, missile, phaser, nuke, electronics). CR003.3 (#218,
+`_specs/milestones/cr003-playtest-fixes.md`) locks each module's extent to
+the Spectrum's ``Ld7b4_piece_heights`` table: bipod ``11``, tracks ``7``, anti-grav ``8``,
+cannon ``6``, missile ``6``, phaser ``7``, nuclear ``7``, electronics
+``7``. The disassembly's header notes confirm the consequences: the
+shortest robot is tracks + cannon = 13 and the tallest bipod + missile +
+phaser + nuclear + electronics = 38, and weapon damage is
+``(60 - (robot height + ground height)) // 4`` times the weapon multiplier
+(so a phaser hit on a tracks + cannon robot at ground 0 deals 44). The
+tallest robot on the highest walkable ground (38 + 6 = 44) stays below
+``commander_max_altitude`` (48), so the ship can always rest on any robot.
+These replace the earlier placeholder magnitudes (chassis 4, others 2).
+Each module identity gets its own named field (rather than one dict-valued
+field) to match this module's existing flat-scalar-field convention and
+keep ``EngineRules`` trivially hashable/equatable.
 
 Issue #34 (M4.3, `_specs/milestones/04-robots-construction-economy.md`,
 `_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED") adds
 ``starting_general_resources`` and the eight ``module_cost_*`` fields: the
 canonical original-Spectrum construction economy. Unlike the "documented
 placeholder, not independently verified" fields above
-(``commander_vertical_update_ticks``, ``commander_height``,
-``module_height_*``), these nine values are RESOLVED and locked exactly by
+(``commander_vertical_update_ticks``, ``commander_height``), these nine values are RESOLVED and locked exactly by
 `_specs/open-questions.md` §10's disassembly-derived table -- starting
 general resources 20; bipod 3; tracks 5; anti-grav 10; cannon 2; missile 4;
 phaser 4; nuclear 20; electronics 3 -- and are still represented as named,
@@ -298,9 +292,10 @@ class EngineRules:
       physical vertical extent (altitude units) of each
       :class:`~nether_earth.robot_build.ModuleIdentity` module, used by
       `robot_stack.py` (issue #53) to derive a robot build's total physical
-      height. Documented placeholder defaults (chassis modules ``4``,
-      weapon/electronics modules ``2``), not independently verified against
-      Spectrum sprite geometry -- see the module docstring.
+      height. Spectrum ``Ld7b4_piece_heights`` values (CR003.3): bipod
+      ``11``, tracks ``7``, anti-grav ``8``, cannon ``6``, missile ``6``,
+      phaser ``7``, nuclear ``7``, electronics ``7`` -- see the module
+      docstring.
     - ``starting_general_resources``: each player's general resource pool at
       the start of a match (locked Spectrum default ``20``, per
       `_specs/open-questions.md` §10).
@@ -432,14 +427,14 @@ class EngineRules:
     commander_height: int = 4
     commander_horizontal_move_ticks: int = 4
     commander_exit_elevate_updates: int = 5
-    module_height_bipod: int = 4
-    module_height_tracks: int = 4
-    module_height_anti_grav: int = 4
-    module_height_cannon: int = 2
-    module_height_missile: int = 2
-    module_height_phaser: int = 2
-    module_height_nuclear: int = 2
-    module_height_electronics: int = 2
+    module_height_bipod: int = 11
+    module_height_tracks: int = 7
+    module_height_anti_grav: int = 8
+    module_height_cannon: int = 6
+    module_height_missile: int = 6
+    module_height_phaser: int = 7
+    module_height_nuclear: int = 7
+    module_height_electronics: int = 7
     starting_general_resources: int = 20
     module_cost_bipod: int = 3
     module_cost_tracks: int = 5

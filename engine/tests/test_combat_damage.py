@@ -20,6 +20,7 @@ from nether_earth.map import WorldMap
 from nether_earth.movement import folded_robot_occupancy
 from nether_earth.robot import Robot, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
+from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState, create_game_state
 from nether_earth.structures import Blocker, Component
@@ -108,6 +109,27 @@ def test_calculate_weapon_damage_worked_example_phaser_weakest_robot() -> None:
         )
         == 44
     )
+
+
+def test_spectrum_worked_example_phaser_on_derived_tracks_cannon_robot_deals_44() -> None:
+    """CR003.3 (#218): the disassembly header's example, from the real build.
+
+    Tracks (7) + cannon (6) = 13 from ``Ld7b4_piece_heights``; a phaser hit
+    at ground level deals ``(60 - (13 + 0)) // 4 * 4 == 44``.
+    """
+    build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.CANNON,))
+    stack, height = derive_stack_and_height(build, DEFAULT_RULES)
+    assert height == 13
+    robot = replace(_robot(height=height), build=build, stack=stack)
+
+    new_state, events = apply_damage(
+        _state((robot,)), _world(), robot.entity_id, ModuleIdentity.PHASER, DEFAULT_RULES, tick=4
+    )
+
+    assert [(e.damage, e.remaining_strength) for e in events if isinstance(e, RobotDamagedEvent)] == [
+        (44, 56)
+    ]
+    assert new_state.robot_for(robot.entity_id).strength == 56  # type: ignore[union-attr]
 
 
 def test_calculate_weapon_damage_multipliers() -> None:

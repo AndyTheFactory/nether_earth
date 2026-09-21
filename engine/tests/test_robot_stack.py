@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
@@ -155,6 +157,49 @@ def test_height_is_sum_of_default_rules_module_heights_for_maximal_build() -> No
         + DEFAULT_RULES.module_height_electronics
     )
     assert derive_height(build) == expected
+
+
+def _every_legal_build() -> list[RobotBuild]:
+    weapons = (
+        ModuleIdentity.CANNON,
+        ModuleIdentity.MISSILE,
+        ModuleIdentity.PHASER,
+        ModuleIdentity.NUCLEAR,
+    )
+    return [
+        RobotBuild(chassis=chassis, weapons=combo, electronics=electronics)
+        for chassis in (ModuleIdentity.BIPOD, ModuleIdentity.TRACKS, ModuleIdentity.ANTI_GRAV)
+        for count in (1, 2, 3)
+        for combo in itertools.combinations(weapons, count)
+        for electronics in (None, ModuleIdentity.ELECTRONICS)
+    ]
+
+
+def test_spectrum_piece_heights_bound_robot_height_13_to_38() -> None:
+    """CR003.3 (#218): the disassembly header's shortest/tallest robots.
+
+    Shortest: tracks + cannon = 7 + 6 = 13. Tallest: bipod + missile +
+    phaser + nuclear + electronics = 11 + 6 + 7 + 7 + 7 = 38.
+    """
+    heights = {build: derive_height(build) for build in _every_legal_build()}
+
+    assert min(heights.values()) == 13
+    assert max(heights.values()) == 38
+    assert derive_height(RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.CANNON,))) == 13
+    tallest = RobotBuild(
+        chassis=ModuleIdentity.BIPOD,
+        weapons=(ModuleIdentity.MISSILE, ModuleIdentity.PHASER, ModuleIdentity.NUCLEAR),
+        electronics=ModuleIdentity.ELECTRONICS,
+    )
+    assert derive_height(tallest) == 38
+
+
+def test_tallest_robot_on_a_mountain_stays_within_the_commander_ceiling() -> None:
+    # Mountains are the highest walkable ground (6, ``Ld7bc_map_piece_heights``);
+    # the ship must still be able to rest on the tallest robot there.
+    mountain = 6
+    tallest = max(derive_height(build) for build in _every_legal_build())
+    assert tallest + mountain == 44 <= DEFAULT_RULES.commander_max_altitude
 
 
 def test_height_respects_custom_rules_override() -> None:

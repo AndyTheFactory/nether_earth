@@ -7,7 +7,10 @@ blocking, destination reservations/contention, direct control, autonomous
 orders (Advance/Retreat/Search & Capture/Search & Destroy/Stop & Defend),
 navigation (non-electronic vs electronic), capture (neutral acquisition,
 continuous capture, interruption/reset), war-base capture triggering
-same-step victory, and engagement intent without any M6 firing/damage.
+same-step victory, and engagement intent. M6 firing/damage is not asserted
+here, but since CR003.3 (Spectrum piece heights, every robot taller than the
+bullet altitude) the engine's combat step does hit and destroy some lane
+robots, so lanes are checked when their behaviour completes.
 
 Everything here runs through the real ``engine.new_game``/``engine.step``
 pipeline (via ``replay.run_fixture`` and a local recording variant of the
@@ -444,10 +447,17 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     still_blocked = before_unblock.robot_for(ROBOT_BLOCKED)
     assert still_blocked is not None
     assert (still_blocked.x, still_blocked.y) == (1, 22)  # never advanced past the commander
-    after_unblock = final.robot_for(ROBOT_BLOCKED)
+    # Checked when the Advance completes: with the Spectrum piece heights
+    # (CR003.3) every robot is tall enough to be hit, so later in the run
+    # the enemy war-base captor's cannon destroys this robot.
+    unblocked_tick = _first_tick(
+        states,
+        lambda s: (r := s.robot_for(ROBOT_BLOCKED)) is not None and r.order == StopAndDefend(),
+    )
+    assert unblocked_tick is not None and unblocked_tick > TICK_UNBLOCK
+    after_unblock = states[unblocked_tick].robot_for(ROBOT_BLOCKED)
     assert after_unblock is not None
     assert (after_unblock.x, after_unblock.y) == (1 + miles_to_cells(1), 22)
-    assert after_unblock.order == StopAndDefend()
 
     # ---------------------------------------------------------------
     # 4. Same-tick destination contention: exactly one contest, one winner.
@@ -462,12 +472,19 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert len(contend_started) == 1  # only the seeded winner actually started a move
     winner_id = contend_started[0].entity_id
     loser_id = ROBOT_CONTEND_EAST if winner_id == ROBOT_CONTEND_WEST else ROBOT_CONTEND_WEST
-    winner = final.robot_for(winner_id)
-    loser = final.robot_for(loser_id)
-    assert winner is not None and loser is not None
+    # With the Spectrum piece heights (CR003.3) every robot is tall enough to
+    # be hit, so the two contenders later shoot each other; check the
+    # outcome once the winner's move completes.
+    contend_done_tick = contend_started[0].started_tick + contend_started[0].duration_ticks
+    winner = states[contend_done_tick].robot_for(winner_id)
+    assert winner is not None and states[contend_done_tick].robot_for(loser_id) is not None
     assert (winner.x, winner.y) in FACTORY_NEUTRAL_CELLS
     # The loser never reaches the capture point: the winner's body blocks it.
-    assert (loser.x, loser.y) not in FACTORY_NEUTRAL_CELLS
+    assert all(
+        (loser.x, loser.y) not in FACTORY_NEUTRAL_CELLS
+        for state in states
+        if (loser := state.robot_for(loser_id)) is not None
+    )
 
     # ---------------------------------------------------------------
     # 5. Neutral factory instant acquisition.
@@ -537,13 +554,17 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     direct_moves = move_started_by_robot[ROBOT_DIRECT]
     assert len(direct_moves) == 1
     assert direct_moves[0].to_x == 3 and direct_moves[0].to_y == 28
-    direct_robot = final.robot_for(ROBOT_DIRECT)
+    # Checked when the move completes (the war-base captor's cannon later
+    # destroys this robot, CR003.3 heights).
+    direct_done_tick = direct_moves[0].started_tick + direct_moves[0].duration_ticks
+    direct_robot = states[direct_done_tick].robot_for(ROBOT_DIRECT)
     assert direct_robot is not None
     assert (direct_robot.x, direct_robot.y) == (3, 28)
 
     # ---------------------------------------------------------------
-    # 9. Search & Destroy target selection + engagement intent, no
-    #    firing/damage (M6 is out of scope and not imported here).
+    # 9. Search & Destroy target selection + engagement intent (M6
+    #    firing/damage is not asserted here; since CR003.3's Spectrum
+    #    piece heights the engine's combat step does hit these robots).
     # ---------------------------------------------------------------
     intents = _events_of(events, RobotEngagementIntentEvent)
     defender_intents = [e for e in intents if e.intent.robot_id == ROBOT_DEFENDER]
@@ -552,13 +573,18 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert attacker_intents, "Search & Destroy must produce engagement intent vs. its target"
     assert defender_intents[0].intent.target_id == ROBOT_ATTACKER
     assert attacker_intents[0].intent.target_id == ROBOT_DEFENDER
-    # Neither combatant is destroyed or moved onto the other's cell -- no
-    # damage/removal system exists in M5, and both robots remain adjacent.
-    defender_final = final.robot_for(ROBOT_DEFENDER)
-    attacker_final = final.robot_for(ROBOT_ATTACKER)
-    assert defender_final is not None and attacker_final is not None
-    assert (defender_final.x, defender_final.y) == (5, 26)
-    assert (attacker_final.x, attacker_final.y) == (7, 26)
+    # While both combatants exist neither moves onto the other's cell: they
+    # stay adjacent (the engine's combat step eventually destroys one).
+    both_alive = [
+        (defender, attacker)
+        for state in states
+        if (defender := state.robot_for(ROBOT_DEFENDER)) is not None
+        and (attacker := state.robot_for(ROBOT_ATTACKER)) is not None
+    ]
+    assert len(both_alive) > 1
+    for defender, attacker in both_alive:
+        assert (defender.x, defender.y) == (5, 26)
+        assert (attacker.x, attacker.y) == (7, 26)
 
     # ---------------------------------------------------------------
     # 10. Navigation: non-electronic stuck vs electronic replanning.

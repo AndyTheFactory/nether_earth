@@ -265,7 +265,9 @@ def test_search_capture_with_no_candidate_falls_back_immediately() -> None:
 def test_stop_and_defend_emits_engagement_intent_and_fires_through_step() -> None:
     world = _world()
     defender = _robot("robot-a", x=2, y=5, order=StopAndDefend())
-    enemy = _robot("robot-z", PLAYER_TWO, x=5, y=5)
+    # Six cells away: the fire-tick move (2 cells) cannot reach the enemy's
+    # body yet, so the projectile is still in flight after this step.
+    enemy = _robot("robot-z", PLAYER_TWO, x=8, y=5)
     state = _state((defender, enemy))
 
     state, events = step(state, (), world)
@@ -275,7 +277,7 @@ def test_stop_and_defend_emits_engagement_intent_and_fires_through_step() -> Non
     intent = intents[0].intent  # type: ignore[attr-defined]
     assert intent.robot_id == defender.entity_id
     assert intent.target_id == enemy.entity_id
-    assert intent.distance_cells == 3
+    assert intent.distance_cells == 6
 
     # M5 produced intent only; M6.10's Step 2c2 now consumes that same
     # intent in the same authoritative step, so the defender fires. Nothing

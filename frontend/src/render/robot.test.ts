@@ -50,8 +50,8 @@ function recorder(): { g: Graphics; polys: Poly[] } {
 
 test('the stack is drawn raised by the ground and its top is ground + height', () => {
   const { g, polys } = recorder();
-  const top = drawRobotStack(g, 167, 9, ['tracks', 'cannon'], 'p1', { totalHeight: 6, ground: 6 });
-  assert.equal(top, 12);
+  const top = drawRobotStack(g, 167, 9, ['tracks', 'cannon'], 'p1', { totalHeight: 13, ground: 6 });
+  assert.equal(top, 19);
   // The owner tile under the robot lies on the mountain, not on the map floor:
   // its front-left corner is (x - 0.5, y + 0.5) projected at z = 6.
   const corner = project(166.5, 9.5, 6);
@@ -61,5 +61,15 @@ test('the stack is drawn raised by the ground and its top is ground + height', (
 
 test('without a ground the stack stands on the map floor', () => {
   const { g } = recorder();
-  assert.equal(drawRobotStack(g, 30, 12, ['bipod', 'cannon'], 'p1', { totalHeight: 6 }), 6);
+  assert.equal(drawRobotStack(g, 30, 12, ['bipod', 'cannon'], 'p1', { totalHeight: 17 }), 17);
+});
+
+test('visual piece heights are the Spectrum Ld7b4 values, so the snapshot height needs no rescale', () => {
+  // Tracks 7 + cannon 6 = 13 (CR003.3), the engine's derived height.
+  const { g } = recorder();
+  assert.equal(drawRobotStack(g, 30, 12, ['tracks', 'cannon'], 'p1'), 13);
+  assert.equal(
+    drawRobotStack(g, 30, 12, ['bipod', 'missile', 'phaser', 'nuclear', 'electronics'], 'p1'),
+    38,
+  );
 });

@@ -16,8 +16,9 @@ Evidence (`santiontanon/netherearth-disassembly`, `netherearth-annotated.asm`):
   robot when it is lower than height + altitude.
 - Bullets (owner decision 2026-09-22, not evidence-derived): the engine's
   §8 altitude gate compares the robot's top with the bullet altitude, so a
-  short robot on a mountain is hit and the same robot on flat ground is
-  flown over.
+  robot whose top is below the bullet is flown over. With the Spectrum
+  piece heights (CR003.3, ``Ld7b4_piece_heights``) the shortest robot is 13
+  tall, above the bullet altitude 10, so every robot is hit on flat ground.
 - `Lcee8_draw_robot_to_buffer` draws the robot at elevation
   ``ROBOT_STRUCT_ALTITUDE`` (frontend, `frontend/src/render/robot.test.ts`).
 
@@ -28,6 +29,7 @@ completes (`movement.py`).
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -55,7 +57,7 @@ from nether_earth.robot import Robot, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_launch import _resolve_exit_cell
 from nether_earth.robot_stack import derive_stack_and_height
-from nether_earth.rules import DEFAULT_RULES
+from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState, create_game_state
 
 MAP_PATH = Path(__file__).resolve().parents[2] / "data" / "maps" / "zx-spectrum-original.yaml"
@@ -76,7 +78,7 @@ def world() -> WorldMap:
 
 
 def _robot(x: int, y: int, owner: PlayerId = PLAYER_ONE) -> Robot:
-    # Tracks may stand on rough and mountains; height 6 (tracks 4 + cannon 2).
+    # Tracks may stand on rough and mountains; height 13 (tracks 7 + cannon 6).
     build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.CANNON,))
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
     return Robot(
@@ -311,7 +313,7 @@ def test_commander_is_ejected_at_the_raised_top_when_its_robot_is_destroyed(
 # -- bullet altitude gate (owner decision 2026-09-22) ---------------------------------
 
 
-def _east_bullet(x: int, y: int) -> Projectile:
+def _east_bullet(x: int, y: int, z: int = DEFAULT_RULES.normal_projectile_altitude) -> Projectile:
     return Projectile(
         id=EntityId("projectile-1"),
         owner=PLAYER_ONE,
@@ -319,7 +321,7 @@ def _east_bullet(x: int, y: int) -> Projectile:
         weapon=ModuleIdentity.CANNON,
         x=x,
         y=y,
-        z=DEFAULT_RULES.normal_projectile_altitude,
+        z=z,
         dx=1,
         dy=0,
         travelled_cells=0,
@@ -328,27 +330,52 @@ def _east_bullet(x: int, y: int) -> Projectile:
     )
 
 
+def _advance_bullet_at(
+    world: WorldMap, anchor: tuple[int, int], rules: EngineRules
+) -> tuple[list[object], GameState]:
+    robot = _robot(*anchor, owner=PLAYER_TWO)
+    x, y = anchor
+    # The bullet lands at anchor x - 1, whose 2×2 body overlaps the robot's.
+    state = create_game_state(0, (PLAYER_ONE, PLAYER_TWO), robots=[robot]).with_projectiles(
+        (_east_bullet(x - 3, y, rules.normal_projectile_altitude),)
+    )
+    assert unit_surface_height(world, x - 1, y) < rules.normal_projectile_altitude
+    state, events = advance_projectiles(state, world, tick=4, rules=rules)
+    return list(events), state
+
+
+def _assert_hit(events: list[object], state: GameState) -> None:
+    assert state.projectiles == ()
+    assert [(e.reason, e.hit_robot_id) for e in events if isinstance(e, ProjectileTerminatedEvent)] == [
+        (ProjectileTerminationReason.ROBOT_HIT, ROBOT_ID)
+    ]
+
+
+@pytest.mark.parametrize("anchor", [FLAT_ANCHOR, MOUNTAIN_ANCHOR])
+def test_bullet_hits_the_shortest_spectrum_robot_even_on_flat_ground(
+    world: WorldMap, anchor: tuple[int, int]
+) -> None:
+    # CR003.3: tracks + cannon is 7 + 6 = 13, the Spectrum's shortest robot;
+    # its top clears the bullet altitude (10) even at ground 0.
+    robot = _robot(*anchor, owner=PLAYER_TWO)
+    assert robot.height == 13
+    assert robot_top(world, robot) >= DEFAULT_RULES.normal_projectile_altitude
+    _assert_hit(*_advance_bullet_at(world, anchor, DEFAULT_RULES))
+
+
 @pytest.mark.parametrize(("anchor", "hit"), [(MOUNTAIN_ANCHOR, True), (FLAT_ANCHOR, False)])
 def test_bullet_gate_uses_the_robot_top(
     world: WorldMap, anchor: tuple[int, int], hit: bool
 ) -> None:
-    # Height-6 robot: below the bullet altitude (10) on flat ground, top 12 on a mountain.
-    robot = _robot(*anchor, owner=PLAYER_TWO)
-    assert robot.height < DEFAULT_RULES.normal_projectile_altitude
+    # The §8 gate still compares the robot's top (ground + height), not its
+    # height alone: with the bullet raised to 17, the height-13 robot is
+    # flown over on flat ground (top 13) and hit on a mountain (top 19).
+    rules = replace(DEFAULT_RULES, normal_projectile_altitude=17)
     x, y = anchor
-    # The bullet lands at anchor x - 1, whose 2×2 body overlaps the robot's.
-    state = create_game_state(0, (PLAYER_ONE, PLAYER_TWO), robots=[robot]).with_projectiles(
-        (_east_bullet(x - 3, y),)
-    )
-    assert unit_surface_height(world, x - 1, y) < DEFAULT_RULES.normal_projectile_altitude
-
-    state, events = advance_projectiles(state, world, tick=4)
+    events, state = _advance_bullet_at(world, anchor, rules)
 
     if hit:
-        assert state.projectiles == ()
-        assert [(e.reason, e.hit_robot_id) for e in events if isinstance(e, ProjectileTerminatedEvent)] == [
-            (ProjectileTerminationReason.ROBOT_HIT, ROBOT_ID)
-        ]
+        _assert_hit(events, state)
     else:
-        assert events == ()
+        assert events == []
         assert [(p.x, p.y) for p in state.projectiles] == [(x - 1, y)]

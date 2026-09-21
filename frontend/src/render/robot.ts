@@ -23,16 +23,20 @@ export function unitCentre(x: number, y: number): { x: number; y: number } {
 
 export type ModuleId = 'bipod' | 'tracks' | 'anti_grav' | 'cannon' | 'missile' | 'phaser' | 'nuclear' | 'electronics';
 
-/** Visual module heights mirror the engine defaults (chassis 4, others 2); used only for drawing. */
+/**
+ * Visual module heights: the Spectrum's `Ld7b4_piece_heights`, the same values
+ * as the engine's `EngineRules.module_height_*` (CR003.3). Drawing only: the
+ * stack is still scaled to the snapshot's authoritative `height`.
+ */
 export const MODULE_VISUAL_HEIGHT: Record<ModuleId, number> = {
-  bipod: 4,
-  tracks: 4,
-  anti_grav: 4,
-  cannon: 2,
-  missile: 2,
-  phaser: 2,
-  nuclear: 2,
-  electronics: 2,
+  bipod: 11,
+  tracks: 7,
+  anti_grav: 8,
+  cannon: 6,
+  missile: 6,
+  phaser: 7,
+  nuclear: 7,
+  electronics: 7,
 };
 
 /**
