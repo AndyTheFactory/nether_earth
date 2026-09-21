@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "rules_version": "cr002",
-  "rules_hash": "29becd1e4622a622938b484e134d101abd5ff9b5e9aa652680f23fbe2dac4e42",
-  "match_id": "de7cdaed487941aa9a68a5efc157cdd4",
+  "rules_hash": "dc9111001ed81854cb34e73c2dcbc386cd792a8d5e58ea822932e838f32e1261",
+  "match_id": "9170fcf97c674f8c920ff773ca964234",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -13,10 +13,10 @@
     "p1": "alice",
     "p2": "bob"
   },
-  "created_at_epoch_ms": 1790026246168,
+  "created_at_epoch_ms": 1790030348120,
   "status": "finished",
-  "finished_at_epoch_ms": 1790026323751,
-  "final_tick": 23072,
+  "finished_at_epoch_ms": 1790030425068,
+  "final_tick": 23028,
   "result": {
     "outcome": "victory",
     "reason": "zero_war_bases",
@@ -24,7 +24,7 @@
     "forfeiting_player_id": null
   },
   "final_snapshot": {
-    "tick": 23072,
+    "tick": 23028,
     "players": [
       "p1",
       "p2"
@@ -36,7 +36,7 @@
         "mode": "free",
         "x": 494,
         "y": 9,
-        "altitude": 10,
+        "altitude": 27,
         "docked_robot_id": null,
         "rising": false,
         "horizontal_transition": null,
@@ -55,7 +55,7 @@
         "vertical_transition": {
           "from_altitude": 1,
           "to_altitude": 0,
-          "started_tick": 728,
+          "started_tick": 764,
           "duration_ticks": 4
         },
         "elevate_updates_remaining": 0
@@ -64,17 +64,17 @@
     "resource_pools": [
       {
         "player_id": "p1",
-        "general": 47,
+        "general": 37,
         "chassis": 0,
         "electronics": 0,
         "nuclear": 0,
-        "missile": 16,
+        "missile": 14,
         "phaser": 0,
         "cannon": 0
       },
       {
         "player_id": "p2",
-        "general": 55,
+        "general": 50,
         "chassis": 0,
         "electronics": 0,
         "nuclear": 0,
@@ -102,7 +102,7 @@
           "cannon",
           "electronics"
         ],
-        "height": 8,
+        "height": 24,
         "movement": null,
         "order": {
           "kind": "stop_and_defend"
