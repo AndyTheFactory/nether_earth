@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { project, unproject, depthKey, groundDepth } from './projection.ts';
+import { project, unproject, depthKey, groundDepth, viewZoom, VIEW_SPAN_PX } from './projection.ts';
 import { KEY_TO_AXIS } from '../input/keyboard.ts';
 
 test('project/unproject round-trip', () => {
@@ -52,4 +52,13 @@ test('keyboard directions match on-screen directions', () => {
   assert.ok(-left.x > Math.abs(left.y), 'left');
   assert.ok(-up.y > Math.abs(up.x), 'up');
   assert.ok(down.y > Math.abs(down.x), 'down');
+});
+
+test('zoom: the shorter view side shows VIEW_SPAN_PX world pixels', () => {
+  assert.equal(viewZoom(1280, 720) * VIEW_SPAN_PX, 720);
+  assert.equal(viewZoom(600, 900) * VIEW_SPAN_PX, 600);
+  // never shrinks the world below 1:1 on tiny views
+  assert.equal(viewZoom(100, 100), 1);
+  // more zoomed in than the pre-CR002 view (2 screen px per world px)
+  assert.ok(viewZoom(1280, 720) > 2);
 });

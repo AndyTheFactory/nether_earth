@@ -4,14 +4,11 @@ import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
 import { surfaceHeightAt, terrainAt } from '../world/map.ts';
-import { TILE_H, TILE_W, depthKey, project, unproject, type ScreenPoint } from './projection.ts';
+import { TILE_H, TILE_W, depthKey, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
 import { colorFor, ownerColor, PALETTE, shade, type SemanticAsset } from './assets.ts';
-
-/** Screen pixels per world (Spectrum) pixel. */
-const ZOOM = 2;
 
 interface Effect {
   x: number;
@@ -35,7 +32,7 @@ export class WorldRenderer {
   // world's offset, positioned via labelAt().
   private readonly labels = new Container();
   private overlayLabels = new Container();
-  private zoom = ZOOM;
+  private zoom = 1;
   private cam = { x: 24, y: 8 };
   private lastStructureKey = '';
   private lastResync = -1;
@@ -68,7 +65,7 @@ export class WorldRenderer {
   }
 
   private drawStructures(state: SnapshotState | null): void {
-    const key = state ? JSON.stringify([state.structure_ownership, state.structure_destruction]) : 'none';
+    const key = JSON.stringify([this.zoom, state?.structure_ownership, state?.structure_destruction]);
     if (key === this.lastStructureKey) return;
     this.lastStructureKey = key;
     const g = this.structures;
@@ -125,6 +122,7 @@ export class WorldRenderer {
       this.fx = [];
       this.prevSnapshot = null;
     }
+    this.zoom = viewZoom(this.app.screen.width, this.app.screen.height);
     this.drawStructures(snap);
     this.entities.removeChildren();
     this.projectiles.clear();

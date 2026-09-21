@@ -8,7 +8,7 @@
 // face (left) and its +y face (front).
 //
 // Units are Spectrum pixels (world space); the renderer scales the world to
-// screen pixels (see ZOOM in renderer.ts). They encode presentation, never gameplay.
+// screen pixels by viewZoom(). They encode presentation, never gameplay.
 
 export interface ScreenPoint {
   x: number;
@@ -19,8 +19,8 @@ export interface ScreenPoint {
 export const AXIS_X: ScreenPoint = { x: 8, y: -4 };
 /** Screen offset of one cell step along +y (down-right). */
 export const AXIS_Y: ScreenPoint = { x: 4, y: 8 };
-/** Pixels per authoritative height unit (a 15-unit block is ~1.7 cells tall). */
-export const Z_PX = 2;
+/** Pixels per authoritative height unit: the reference shows 15-unit blocks ~15 px tall. */
+export const Z_PX = 1;
 /** Screen bounding box of one ground cell. */
 export const TILE_W = Math.abs(AXIS_X.x) + Math.abs(AXIS_Y.x);
 export const TILE_H = Math.abs(AXIS_X.y) + Math.abs(AXIS_Y.y);
@@ -56,4 +56,16 @@ export function groundDepth(x: number, y: number): number {
  */
 export function depthKey(x: number, y: number, z = 0): number {
   return groundDepth(x, y) * 1000 + z - x * 0.001;
+}
+
+/**
+ * Zoom (CR002.8): Spectrum pixels of world shown across the shorter side of
+ * the play view. The original's play window is ~168 px square (main-screen.png),
+ * about 19 cells along the map and its full 16-cell width. The one tunable.
+ */
+export const VIEW_SPAN_PX = 168;
+
+/** Screen pixels per world pixel for a play view of the given size. */
+export function viewZoom(width: number, height: number): number {
+  return Math.max(1, Math.min(width, height) / VIEW_SPAN_PX);
 }
