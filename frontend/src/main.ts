@@ -73,6 +73,7 @@ async function main(): Promise<void> {
 
   app.ticker.add(() => {
     const now = performance.now();
+    controller.pollCommanderMove(keyboard.heldIntent());
     const s = store.get();
     app.canvas.style.visibility = s.ui.screen === 'match' ? 'visible' : 'hidden';
     renderer.render(s, now);
