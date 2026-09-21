@@ -2,6 +2,8 @@
 
 This file tracks gameplay/implementation details that are still unresolved after the current design and ZX Spectrum disassembly review. Resolved items remain listed so their locked outcome is easy to find.
 
+After CR002, only the two research items under "Remaining research" are open. The deviations from the original that the owner chose to keep are listed under "Documented deviations".
+
 ## 1. Exact normal-weapon stack order — RESOLVED
 
 Locked bottom-to-top order:
@@ -28,7 +30,6 @@ Missing components are simply omitted; relative order is preserved.
 ## 3. Miles-to-grid-cell conversion — RESOLVED (weapon/nuke lines superseded by CR001)
 
 **CR001 (2026-09-21):** the Spectrum code confirms 1 mile = 2 coordinate units (`Laab8_miles_selected`: `rlca ; multiply by 2: 1 mile == 2 coordinate units`), and one coordinate unit is one map cell on both axes (the map buffer is `MAP_LENGTH * MAP_WIDTH` = 512 × 16 bytes, one byte per cell). This still holds for Advance/Retreat. The weapon-range and nuke-radius lines below are superseded: weapon ranges come from the code in cells (§8), and the nuclear blast has per-kind shapes (§20).
-
 
 - 1 mile = 2 map tiles/cells.
 - 1 tile = 0.5 miles.
@@ -73,12 +74,11 @@ So the original has four terrain classes:
 - *Commander.* `Lb052_check_player_collision` takes the highest piece height under the ship and reports a collision when `player_altitude < height` (`cp c`, carry). A horizontal move (`Laf4c_move_player_if_no_collision`, and the y move after it) is refused on collision, and gravity (`Lafc3_gravity`) does not descend below that height. So the ship crosses a box only at altitude ≥ its height and lands on top of it (rests at altitude = height). A fence (99) is above `MAX_PLAYER_ALTITUDE` (48), so the ship can never cross it. This is exactly the engine's existing static-component rule in `collision.py` (touching is allowed, overlapping is blocked); no engine change was needed.
 - *Projectiles.* `Lb724_bullet_update_internal` destroys a bullet when `Lb5d6_map_altitude_2x2 >= BULLET_STRUCT_ALTITUDE` (`cp` / `jp nc`), and `Lb6d6_weapon_fire` sets that altitude to 10. So bullets fly over `box_low` (7) and are stopped by `box_high` (15) and `fence` (99). This is the engine's existing `height >= normal_projectile_altitude` rule in `combat.py`; no engine change was needed.
 
-Tests: `engine/tests/test_scenery_blockers.py`. Two related details from the same reading are not implemented here. The nuclear blast destroys scenery: resolved by CR002.18, see "Nuclear blast vs. scenery" below. The original checks collisions over 2×2 areas: listed under "Remaining research" below.
+Tests: `engine/tests/test_scenery_blockers.py`. Two related details from the same reading are not implemented here. The nuclear blast destroys scenery: resolved by CR002.18, see "Nuclear blast vs. scenery" below. The original checks collisions over 2×2 areas: resolved by §21.
 
 Original note — scenery blockers: the same decode places 660 cells of element types 17, 18 and 21 (boxes and walls, heights 7/15/99). `Lb513` blocks types ≥ 15 for every chassis, so in the original no robot can enter these cells. They are not terrain classes, and the map has no `blockers` section, so this clone currently lets robots walk through them. CR001 did not scope this, although the CR001.5 issue text assumed "15+ are … scenery already modeled". The decision needed is whether to encode these cells as map `blockers` and in which change request. Two things need settling first: how they interact with the commander's flight and landing (heights 7/15/99), and how they interact with projectiles.
 
 The research history below is kept for provenance.
-
 
 Locked:
 
@@ -229,7 +229,7 @@ Previous note, kept for provenance: the engine used to create the projectile at 
 
   Engine rules: an order-driven robot is at an update when it has no move in flight and at least one period has passed since its `last_fire_tick`; the period is `movement.move_duration_ticks(chassis, terrain of its own cell)`, the same §4 per-(chassis, terrain) table the move duration uses (bipod on flat: 24 ticks = 6 cycles). A move's update is the tick it completes. Autonomous fire is consumed only on an update (`autonomous_combat.autonomous_update_due`). An order's move request is dropped when the robot is not at an update, or when its intent will fire on this update (`autonomous_combat.gate_order_requests`; the check is a dry run through the same `apply_fire`/`validate_fire` path, so the robot moves when the shot would be refused, e.g. with its channel busy). Direct (`FireCommand`, combat-mode) fire is unchanged and keeps the once-per-cycle rule. No new rule constant and no `RULES_VERSION` change (CR002.16 bumps it). Tests: `engine/tests/test_autonomous_fire_update.py`.
 
-  Residual deviation: the engine tracks no update phase for a stationary robot that has not fired since it last moved, so it is treated as being at an update on every tick and fires as soon as it has a shot; in the Spectrum it would wait up to one period for its counter. Once it has fired, its updates follow the period exactly. The period uses the robot's own cell; the Spectrum uses the highest piece under its 2×2 footprint (`Lb5d6_map_altitude_2x2`), which follows the footprint work (#170/#171).
+  Residual deviation: the engine tracks no update phase for a stationary robot that has not fired since it last moved, so it is treated as being at an update on every tick and fires as soon as it has a shot; in the Spectrum it would wait up to one period for its counter. Once it has fired, its updates follow the period exactly. Since CR002.3 (#170) the period uses the highest piece under the robot's 2×2 body, as the Spectrum does (`Lb5d6_map_altitude_2x2`, §21).
 
   Also fixed here: `Robot.with_movement`/`with_position`/`with_order`/`with_active_projectile`/`with_strength` dropped `last_fire_tick`, so a shot that stayed in flight cleared it at once (`apply_fire` calls `with_active_projectile`). The M9 fixture's final snapshot now shows the surviving robot's `last_fire_tick` (666) instead of `null`; its command stream and final tick are unchanged.
 - *Bullet slots are shared per side — documented deviation (owner decision 2026-09-21).* `Lb6b8_find_new_bullet_ptr` gives all of the player's AI robots bullets 1–2 and all enemy AI robots bullets 3–4, and bullet 0 is reserved for combat mode. So at most two AI bullets per side are in flight at once. The engine deliberately keeps one combat channel per robot instead.
@@ -237,7 +237,6 @@ Previous note, kept for provenance: the engine used to create the projectile at 
 **Still open (research only; not blocking):** the autonomous fire-decision scan (`Lb626_check_directions_with_enemy_robots`) looks 8 cells in each direction, 10 in the facing direction, and 12 facing with electronics, along the robot's lane and the lanes on either side. The engine uses weapon range for engagement. Whether to adopt the scan distances is not decided.
 
 The research history below is kept for provenance.
-
 
 Locked:
 
@@ -585,7 +584,7 @@ future terrain-elevation model decoupled from movement-blocking structure
 occupancy), or should the damage formula itself be revisited to drop the
 now-always-zero term? Not resolved here -- do not silently pick an answer.
 
-**Resolved (CR002.21, #203, owner decision 2026-09-21: model terrain piece heights map-wide).** ``ground_height_at`` is now the 2×2 surface height under the robot (`collision.unit_surface_height`, `Lb5d6_map_altitude_2x2`), terrain pieces included, so it is 2–3 on rough, 6 on mountains and 3 on debris. The formula keeps its ground term. See "Remaining research" item 4.
+**Resolved (CR002.21, #203, owner decision 2026-09-21: model terrain piece heights map-wide).** ``ground_height_at`` is now the 2×2 surface height under the robot (`collision.unit_surface_height`, `Lb5d6_map_altitude_2x2`), terrain pieces included, so it is 2–3 on rough, 6 on mountains and 3 on debris. The formula keeps its ground term. See "Terrain piece heights" below.
 
 Still open (not resolved by this research pass):
 
@@ -668,14 +667,14 @@ Configuration keys/defaults:
 - `commander_ascent_step = 2`
 - `commander_descent_step = 1`
 
-Horizontal and vertical movement may occur simultaneously. Automatic elevation after exiting a robot/war base uses the same +2 elevation semantics.
+Horizontal and vertical movement may occur simultaneously.
 
 **Exit lift (CR002.12/CR002.13 #179/#180, CR002.24 #207; owner decisions 2026-09-21).** Leaving the construction screen (EXIT MENU or START ROBOT) and leaving a docked robot give the same lift: the commander ascends `commander_ascent_step` (+2) on each of the next `commander_exit_elevate_updates` (5) vertical updates, whatever its rise intent, then normal rise/gravity resumes, for a peak of 10 above the exit altitude. Evidence (`santiontanon/netherearth-disassembly`): `Lcb8e_construction_screen_exit` and the robot HUD's EXIT option (`#a7fd`–`#a80f`, falling through to `La812_exit_robot`) both set `Lfd30_player_elevate_timer` to 5; `Lafa2_player_ship_keyboard_control_altitude` climbs +2 per update while it runs. The original's `Laf11` also decrements the timer while up/down is pressed; by owner decision that shortening is not modelled. The engine triggers the robot exit with held rise intent (`docking.apply_undock`), which sets `Commander.elevate_updates_remaining` without moving the commander; the ascent runs on the following cadence ticks (`commander_movement.apply_vertical_physics`). While the lift runs, auto-dock and heli-pad landing are not checked (`docking.attempt_auto_dock`, `engine.step` Step 7): in `La69a` the ship's altitude update precedes the dock/landing tests, so the ship is already above the robot top or pad when they run. After the lift, a commander that falls back onto the same friendly robot's anchor docks again, as in `La69a`. The rule was `commander_construction_exit_elevate_updates` before CR002.24 (the rename changes `rules_content_hash`; `RULES_VERSION` is bumped by CR002.16). Tests: `engine/tests/test_docking.py`, `test_engine_commander_integration.py`, `test_engine_construction_integration.py`.
 
 ## 14. Landing on an enemy robot — RESOLVED
 
 - Enemy robots are physical collision surfaces for the commander.
-- Descending stops at the top of the enemy robot stack. A robot's top is the terrain altitude under it plus its stack height (CR002.25; see "Remaining research" item 6).
+- Descending stops at the top of the enemy robot stack. A robot's top is the terrain altitude under it plus its stack height (CR002.25; see "Robots on terrain height").
 - The commander may rest there while collision geometry permits it.
 - No docking, control transfer, or contact damage occurs.
 - Docking/control remains restricted to friendly robots.
@@ -707,7 +706,6 @@ Horizontal and vertical movement may occur simultaneously. Automatic elevation a
 
 **Resolution:** Player 1 = extreme-left war-base anchor + (−5, +1) → (17, 10), from the Spectrum code. Player 2 = extreme-right war-base anchor + (+5, +1) → (499, 9): the owner confirmed this mirror as a locked PvP adaptation. Both are overlay data.
 
-
 Neither spec nor map data declared where the two commanders begin. Evidence
 (tier 2, `netherearth-annotated.asm` `La600_start`):
 
@@ -734,7 +732,6 @@ rules, and live in one place.
 ## 18. War-base heli-pad location and landing height — RESOLVED (CR001, owner decision 2026-09-21)
 
 **Resolution:** option 2. The pad is on the roof, at (anchor.x, anchor.y − 4). The M3 landing rule becomes "altitude equals the pad cell's component height" (15 on the original war base). The robot exits at the anchor cell (unchanged).
-
 
 Evidence (tier 2): `Lbb86_assign_warbase_to_player` places the war-base "H"
 decoration at (anchor.x, anchor.y − 4), and the game loop enters construction
@@ -765,7 +762,6 @@ it; the M9 acceptance script and the live two-client check land on the roof pad.
 Stop & Defend, Destroy robots, Advance, Retreat, and Capture never detonate. `Labc8_capture_or_destroy_order_selected` also turns a Destroy factory/war-base order into Stop & Defend when the robot has no nuclear weapon.
 
 Engine consequence: nuclear must be removed from the generic autonomous weapon walk (`autonomous_combat.py`). Detonation becomes an order-completion effect of Search & Destroy against a structure.
-
 
 Research history. Found by the M9.4 scripted match. The spec defined what a
 detonation does (`functional-spec.md` §17.3) but not when an autonomous order
@@ -808,14 +804,14 @@ Found while researching §19. The earlier locked "8 miles = 16 cells, destroys e
 
 Conventions, verified by a direct reading of `netherearth-annotated.asm` (`santiontanon/netherearth-disassembly`). The map buffer is 512-byte rows, so `inc hl` is x + 1 and `inc h; inc h` is y + 1.
 
-- **Anchor.** A unit's `(x, y)` is the anchor of a 2×2 body covering `x..x+1` and `y−1..y`: the min-x/max-y cell, the same corner scenery elements use (`Lbd91_add_element_to_map`, CR002.1). `Lb5d6_map_altitude_2x2` reads `(x, y)`, `(x+1, y)`, `(x+1, y−1)`, `(x, y−1)`. The radar flips the same four cells (`Ld65a_flip_2x2_radar_area`, CR002.22). Snapshots keep the anchor; the frontend derives the body (no schema change).
+- **Anchor.** A unit's `(x, y)` is the anchor of a 2×2 body covering `x..x+1` and `y−1..y`: the min-x/max-y cell, the same corner scenery elements use (`Lbd91_add_element_to_map`, CR002.1). `Lb5d6_map_altitude_2x2` reads `(x, y)`, `(x+1, y)`, `(x+1, y−1)`, `(x, y−1)`. The radar flips the same four cells (`Ld65a_flip_2x2_radar_area`, CR002.22). Snapshots keep the anchor; the frontend derives the body (the only schema addition is `exit_steps_remaining` for the launch walk-out below).
 - **Map marks and overlap.** Robots are marked on the map only at their anchor (`bit 6`). Every robot/ship test scans the 3×3 window of anchors around a unit (`Lb052_check_player_collision`, the bullet scan in `Lb724_bullet_update_internal`, the robot checks in `Lb557`–`Lb5b1`). That is exactly "the two 2×2 bodies overlap". Engine: `occupancy.unit_footprint_cells`, `unit_footprints_overlap`.
 - **Bounds.** The whole body stays on the map: anchor `0 ≤ x ≤ width−2`, `1 ≤ y ≤ height−1`. Robots: `Lb58f`/`Lb5b1` refuse a step whose rows leave the map. Ship: `Laf90` refuses y = 0 (`and #0f`). The ship's x limits `MIN_PLAYER_X`/`MAX_PLAYER_X` (14/501) are scrolling limits and are not modelled (fences close the long axis).
 - **Robot movement.** `Lb513_get_robot_movement_possibilities` tests, per direction, the two cells a step newly enters against the chassis limit (`Lb5cd`: map piece < 8/12/15) and the three anchors whose body would newly overlap (`and e`). The robot already stands legally on the rest of its body, so the engine checks the whole destination body: on the map, every cell enterable by the chassis, no structure/blocker cell, no other robot, commander or reserved destination overlapping it. A robot never blocks its own next body; a commander docked on it never blocks it (`Lb471` keeps the ship on the robot's top).
 - **Robot speed.** `Lb495` sets the robot altitude from `Lb5d6_map_altitude_2x2` after each step, and `Lb5f3` picks the speed row from it: the highest piece under the body. Engine: `movement.unit_move_terrain` (mountain > rough > ditch > normal; ditch and normal have the same default speed, §4). The same terrain sets the autonomous update period (CR002.19, `autonomous_combat.autonomous_update_period_ticks`).
 - **Reservations.** A move reserves its whole destination body. Same-tick claims contend when their destination bodies overlap; contention groups are resolved in canonical (destination anchor, entity id) order with §11's seeded draw, and losers stay put.
 - **Capture.** `Ladb7_building_loop` counts only while a robot mark (an anchor) is on the building's own cell, so a robot qualifies when its anchor is the capture cell; a body merely covering the cell does not.
-- **Projectiles.** A bullet is a 2×2 body anchored at its `(x, y)`. `Lb724` moves it 2 cells and tests only the landing position: y on the map (`cp MAP_WIDTH`), then the highest map piece under the body (`Lb5d6`) ≥ bullet altitude stops it, then the 3×3 anchor scan (row y−1, then y, then y+1, each west to east) hits the first robot found. A 2-cell step with a 2-cell body leaves no untested gap. The engine keeps its §8 height gate (a robot shorter than the bullet altitude is flown over) and ignores ship and bullet marks: a documented deviation the owner kept (2026-09-21), see "Remaining research" item 3.
+- **Projectiles.** A bullet is a 2×2 body anchored at its `(x, y)`. `Lb724` moves it 2 cells and tests only the landing position: y on the map (`cp MAP_WIDTH`), then the highest map piece under the body (`Lb5d6`) ≥ bullet altitude stops it, then the 3×3 anchor scan (row y−1, then y, then y+1, each west to east) hits the first robot found. A 2-cell step with a 2-cell body leaves no untested gap. The engine keeps its §8 height gate (a robot whose top, terrain altitude plus stack height since CR002.25, is below the bullet altitude is flown over) and ignores ship and bullet marks: a documented deviation the owner kept (2026-09-21), see "Documented deviations" item 1.
 - **Nuclear window.** `Lba02` scans map marks, so a robot is in the §20 window when its anchor is.
 - **War-base exit.** The new robot's anchor is the exit cell (anchor.x, anchor.y), i.e. (pad.x, pad.y + 4) (`Lcb52_construction_screen_start_robot`, §18); its body stands in the base's doorway. `La6c8` enters construction only when no robot anchor that would overlap that body is marked; the engine refuses the launch (`EXIT_BLOCKED`) when the body is off the map or overlapped by a robot or a reserved destination.
 - **Launch walk-out (owner decision 2026-09-21: match the original).** Right after `Lc849_robot_construction_if_possible`, `La6c8` sets the new robot's desired direction to 4 (down), `ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING` to 5 ("walk 5 steps after exiting the base, and stop"), orders to Stop & Defend and its next update to the next cycle; the construction screen already faces it down (`ROBOT_STRUCT_DIRECTION` 4), so no turn step is spent. "Down" is `inc b` (`Lb4d5`): y + 1, south, out of the doorway. `Lb154_robot_ai_update` → `Lb1e9_no_enemy_robots_in_sight` decrements the steps and moves one step in the desired direction per robot update while that step is possible; five steps are taken. A blocked step drops to `Lb1f5_move_in_a_new_direction`, and `Lb222` gives Stop & Defend no direction, so the robot stays and defends. An enemy in sight takes `Lb154`'s combat branch, which overwrites the steps. The player can land on the robot at any time (`La69a`); a landed robot is not updated, and leaving its menu (after giving orders or direct control) zeroes its steps, so orders are neither ignored nor queued: they take over at once. Engine (`robot_launch.py`, `orders.walk_out_request`, `autonomous_combat.settle_walk_outs`): a launched robot holds `StopAndDefend` with `Robot.exit_steps_remaining = rules.robot_launch_exit_steps` (5, in the snapshot). On each of its own updates (CR002.19 cadence; the first is the tick after launch) it requests one step south through the normal move batch, with normal legality and terrain timing, and the counter drops by one when the step starts. The walk-out ends (counter 0) when the step south is illegal or loses a same-tick contention, when the update fires instead, when a commander docks on the robot, or when any order is assigned to it. The engine's own Stop & Defend does not turn toward enemies as `Lb1d7` does; that stays part of the §5/§8 autonomous-behaviour simplification.
@@ -825,26 +821,40 @@ Conventions, verified by a direct reading of `netherearth-annotated.asm` (`santi
 
 Tests: `engine/tests/test_unit_footprint_2x2.py`, `test_launch_walk_out.py`, `test_combat_projectile.py` (2×2 hits, bullet beside a high box), `test_heli_pad.py`, `test_robot_launch.py`, `test_reservations.py`, `test_autonomous_fire_update.py`.
 
+## 22. Construction screen exit and modality — RESOLVED (CR002.12 #179, CR002.13 #180, owner decisions 2026-09-21)
+
+Evidence (`netherearth-annotated.asm`): `Lc85d_robot_construction` / `Lca0f_waiting_for_key_press_loop` is a modal loop that reads only menu input. Fire on column 0 is EXIT MENU (`Lcb8e_construction_screen_exit`, the buffer is never copied, so the build is discarded). Fire on column 1 is START ROBOT (`Lcb52_construction_screen_start_robot`): with no chassis or no weapon it returns to the loop; otherwise it copies the resource buffer to the player, places the robot and falls through to the exit. The exit starts the automatic lift (§13).
+
+Engine: `CancelConstructionCommand` (EXIT MENU) and a successful `launch_robot` (START ROBOT) call `construction_session.exit_construction`, which drops the session and starts the lift; a rejected launch changes nothing and the screen stays open. Picking another chassis swaps it (CR002.20 #198, `Lca48`/`Lcac1`): the fitted chassis is refunded and removed first; if the new one is then unaffordable it is rejected and the robot has no chassis, as in the Spectrum.
+
+**Modality (owner decision 2026-09-21):** the Spectrum pauses the whole game during construction (it is single-player). In PvP only the building player's commander is frozen (its moves and vertical physics are no-ops while its session is open); the match, the opponent and all robots keep running. This is a locked PvP adaptation.
+
 ## Remaining research
 
-1. **Combat detail**: exact accuracy, rounding, strength, and electronics modifiers (#9).
+1. **Combat detail**: exact accuracy, rounding, strength, and electronics modifiers (§9).
 2. **Autonomous fire-decision scan**: the 8/10/12-cell scan distances (§8), not yet decided.
-3. **2×2 collision areas (found in CR002.1)** — **resolved** by §21 (owner decision 2026-09-21: projectiles and the commander use the original's 2×2 map-area checks). **Documented deviation (owner decision 2026-09-21: keep the engine behaviour):** the original's bullet hits the first `bit 6` mark in its 3×3 scan with no robot-height test, and a ship or bullet mark there ends the bullet with no damage. The engine keeps its §8 altitude gate (a robot whose top is below the bullet altitude is flown over; since CR002.25 the top includes the terrain altitude, owner decision 2026-09-22) and only robots are hit; commanders and other projectiles never stop a bullet.
-4. **Terrain heights for the ship and damage (found in CR002.18)** — **resolved** (owner decision 2026-09-21: model terrain piece heights map-wide; implemented by CR002.21, #203). `Ld7bc_map_piece_heights` gives rough types 2–5 height 2, rough types 6/7 height 3, mountains (8–11) height 6 and ditches 0. The map decoder writes each terrain cell's piece height (`terrain.cells[].height`) and the debris height (`terrain.debris_height: 3`, types 6/7) into `zx-spectrum-original.yaml` (still `version: 1`; provenance in `zx-spectrum-original.md`, "Terrain heights"). The engine has one surface height: `collision.surface_height_at` (the highest structure/scenery component or terrain piece on a cell) and `collision.unit_surface_height` (the 2×2 maximum, `Lb5d6_map_altitude_2x2`). It is used by:
-   - commander collision, landing and gravity (`Lb052_check_player_collision`, `Laf4c`, `Lafc3_gravity`): the ship cannot fly into a piece below its height and rests on top of it, at 2 or 3 on rough, 6 on mountains, 3 on debris;
-   - projectile termination (`Lb724_bullet_update_internal`, height ≥ altitude). Terrain is at most 6 high, below the bullet altitude 10, so terrain never stops a bullet, as in the original;
-   - the damage `ground_height` (`Lb495` stores `Lb5d6` as `ROBOT_STRUCT_ALTITUDE`; `Lb7a7`): a robot on rough or a mountain takes less damage. This also closes the §9 follow-up note on `ground_height_at` always being 0;
-   - the heli-pad rest altitude (unchanged: the pad is all roof).
 
-   Nuclear debris gets the debris height (`destruction.scenery_world`/`effective_world`). Frontend shadows (`surface.ts`) read the same map heights. The Spectrum draws terrain pieces as sprites at elevation 0 (`Lcd18_draw_map_cell`); their height is not a drawing parameter, so terrain drawing is unchanged. Tests: `engine/tests/test_terrain_heights.py`, `test_nuclear_debris.py`, `frontend/src/render/surface.test.ts`.
+Items resolved during CR002, kept for their history:
 
-5. **Launched robots stuck in the doorway (found in CR002.3)** — **resolved** (owner decision 2026-09-21: match the original). New robots walk 5 steps south out of the war base on Stop & Defend (`La6c8` after `Lc849`); see §21 "Launch walk-out". An order given while the robot is still in the doorway ends the walk-out, as in the original; a non-electronic robot then ordered to Advance/Retreat from the doorway still cannot step sideways under the §5 greedy policy, where the original's `Lb326` would fall back to a random possible direction. That fallback belongs to the §5 "historical quirks of the dumb algorithm" research.
+- **2×2 collision areas (found in CR002.1)**: resolved by §21 (owner decision 2026-09-21: projectiles and the commander use the original's 2×2 map-area checks).
+- **Terrain heights for the ship and damage (found in CR002.18)**: resolved by CR002.21 (#203); see "Terrain piece heights" below. This also closes the §9 follow-up note on `ground_height_at` always being 0.
+- **Launched robots stuck in the doorway (found in CR002.3)**: resolved (owner decision 2026-09-21: match the original). New robots walk 5 steps south out of the war base on Stop & Defend; see §21 "Launch walk-out".
+- **Nuclear blast vs. scenery (found in CR002.1)**: resolved by CR002.18; see "Nuclear blast vs. scenery" below.
+- **Robot altitude on terrain (found in CR002.21)**: resolved by CR002.25 (#214, owner decision 2026-09-21: match the original); see "Robots on terrain height" below.
+- The two owner decisions found during CR001 (scenery blockers §4, first projectile move §8) were decided on 2026-09-21 and implemented by CR002 (`_specs/milestones/cr002-spectrum-fidelity-ui.md`).
 
-6. **Robot altitude on terrain (found in CR002.21)** — **resolved** (owner decision 2026-09-21: match the original; implemented by CR002.25, #214). A robot stands on the terrain under it. `Lb495` (in `Lb471_move_robot_one_step_in_desired_direction`) stores `Lb5d6_map_altitude_2x2`, the highest map piece under the 2×2 body, in `ROBOT_STRUCT_ALTITUDE` right after `Lb4b9_robot_advance` moves the robot one cell, so the altitude changes only together with the robot's cell; a new robot starts at 0 (`La6c8`/`Lc849`). A robot's top is `height + altitude`: the ship rests and lands on it (`Lb099_get_robot_or_decoration_altitude` via `Lb052_check_player_collision`), docks there (`La69a`, `La720_land_on_robot`), rides it under direct control (`Lb495` sets the ship's altitude to it after each step), and is an obstacle to the robot while lower than it (`Lb513_get_robot_movement_possibilities`); the robot is drawn raised by the altitude (`Lcee8_draw_robot_to_buffer`).
-   Engine: the altitude is `collision.unit_surface_height` at the robot's authoritative anchor in the physical world (`destruction.scenery_world`), and `collision.robot_top` = altitude + stack height. The engine moves the authoritative anchor when a move completes (the robot stands on its origin cell during the move, `movement.py`), and the altitude follows the anchor, as in `Lb495` where cell and altitude change together. `RobotFixture.altitude`/`top` carry it into commander collision, landing, auto-dock and following (`engine._robot_fixtures`, `docking.py`); `movement.commander_blocks_robot_cell` uses the top at the robot's current anchor (`Lb513`); the undock lift starts from the top the docked commander rides; a commander ejected from a destroyed robot is left at its top (`destruction.destroy_robot`). Damage already used the altitude (item 4). On the original map every war-base exit is flat, so a launched robot is at 0, as in the original. No snapshot change: the frontend derives the altitude from the map heights and the robot's anchor (`frontend/src/render/robot.ts` `robotGround`, over `surface.ts`), draws the robot raised by it (blended from origin to destination during a move, presentation only), and draws a docked commander on the drawn top. Tests: `engine/tests/test_robot_terrain_height.py` (docking on rough 2/3 and mountain 6, resting on an enemy, the ship blocked below a raised robot and blocking it, ejection, lift start, altitude timing), `frontend/src/render/robot.test.ts` (drawing offset).
-   **Bullet altitude gate (owner decision 2026-09-22, not evidence-derived).** The engine's §8 bullet gate compares the robot's top (terrain altitude under its 2×2 body + stack height, `collision.robot_top`) with the bullet altitude (10): `combat._robot_hit_at` hits a robot when `robot_top >= normal_projectile_altitude`. A height-6 robot is flown over on flat ground (6 < 10) and hit on a mountain (12 ≥ 10). The original has no robot-height test for bullets at all (item 3), so this is an owner decision on the engine's own gate, not a reading of the disassembly. Test: `engine/tests/test_robot_terrain_height.py::test_bullet_gate_uses_the_robot_top`.
+## Documented deviations
 
-Items 1–2 are research items, items 3 and 5 are resolved by §21, item 4 is resolved by CR002.21 (#203), and item 6 is resolved by CR002.25 (#214), including the owner decision on the bullet altitude gate. The nuclear-blast-vs-scenery item found in CR002.1 is resolved; see "Nuclear blast vs. scenery" below. The two owner decisions found during CR001 (scenery blockers §4, first projectile move §8) were decided on 2026-09-21 and are implemented by CR002 (`_specs/milestones/cr002-spectrum-fidelity-ui.md`).
+Deliberate differences from the original that the owner decided to keep. They are not open questions.
+
+1. **Bullet scan (owner decision 2026-09-21: keep the engine behaviour).** The original's bullet hits the first `bit 6` mark in its 3×3 scan with no robot-height test, and a ship or bullet mark there ends the bullet with no damage. The engine keeps its §8 altitude gate (a robot whose top, terrain altitude plus stack height, is below the bullet altitude is flown over; owner decision 2026-09-22, see "Robots on terrain height") and only robots are hit; commanders and other projectiles never stop a bullet.
+2. **Bullet slots per robot (owner decision 2026-09-21).** The Spectrum shares two bullet slots among each side's AI robots plus slot 0 for combat mode (`Lb6b8_find_new_bullet_ptr`); the engine keeps one channel per robot (§8).
+3. **Construction modality (owner decision 2026-09-21).** Only the building player's commander is frozen; the match keeps running (§22).
+4. **Lift shortened by up/down (owner decision 2026-09-21).** Ignored; moves never shorten the automatic exit lift (§13).
+5. **Robot update phase.** A stationary robot that has not fired since it last moved counts as being at an update on every tick, so its first shot can come up to one period earlier than in the Spectrum (§8, CR002.19).
+6. **Doorway fallback and Stop & Defend turning.** A non-electronic robot ordered to Advance/Retreat from the war-base doorway cannot step sideways under the §5 greedy policy, where the original's `Lb326` falls back to a random possible direction; the engine's Stop & Defend does not turn toward enemies as `Lb1d7` does. Both are part of the §5 "historical quirks of the dumb algorithm", not product decisions.
+7. **Radar shows only the viewer's own commander (owner decision 2026-09-21),** as in the single-player original; enemy robots are shown. Marks are white only (the original flickers cyan/yellow on blue).
+8. **Debris variant.** The Spectrum picks debris type 6 or 7 at random; both behave the same, so the engine consumes no RNG for it and the renderer always uses one sprite.
 
 ## Nuclear blast vs. scenery — RESOLVED (CR002.18 #196, owner decision 2026-09-21)
 
@@ -856,7 +866,26 @@ Owner decision: model it in CR002. Verified by a direct reading of `netherearth-
 
 Engine: map blockers carry `destructible: true` (the 149 boxes; the decoder emits it). `GameState.scenery_debris` holds the debris blocker ids, in canonical order, and is included in snapshots and the protocol `SnapshotState`. `destruction.effective_world` and `destruction.scenery_world` drop those blockers and make their cells `rough` terrain. Both are memoized; the base `WorldMap` stays immutable. `engine.step` uses `scenery_world` for robot move validation and commander collision, where it previously used the base map. The random 6/7 variant is not modelled: it has no gameplay effect, and the engine consumes no RNG for it. Tests: `engine/tests/test_nuclear_debris.py`.
 
-Height 3 for the ship and bullets (CR002.21, #203): debris cells get the map's `terrain.debris_height` (3, the height of types 6/7), so debris behaves exactly like the native rough pieces of those types. The ship rests on it at altitude 3, and a robot on it takes damage with `ground_height` 3. Bullets fly over it, since 3 < bullet altitude 10. See "Remaining research" item 4.
+Height 3 for the ship and bullets (CR002.21, #203): debris cells get the map's `terrain.debris_height` (3, the height of types 6/7), so debris behaves exactly like the native rough pieces of those types. The ship rests on it at altitude 3, and a robot on it takes damage with `ground_height` 3. Bullets fly over it, since 3 < bullet altitude 10. See "Terrain piece heights" below.
+
+## Terrain piece heights — RESOLVED (CR002.21 #203, owner decision 2026-09-21)
+
+Owner decision: model terrain piece heights map-wide in CR002 (found in CR002.18). `Ld7bc_map_piece_heights` gives rough types 2–5 height 2, rough types 6/7 height 3, mountains (8–11) height 6 and ditches 0. The map decoder writes each terrain cell's piece height (`terrain.cells[].height`) and the debris height (`terrain.debris_height: 3`, types 6/7) into `zx-spectrum-original.yaml` (still `version: 1`; provenance in `zx-spectrum-original.md`, "Terrain heights"). The engine has one surface height: `collision.surface_height_at` (the highest structure/scenery component or terrain piece on a cell) and `collision.unit_surface_height` (the 2×2 maximum, `Lb5d6_map_altitude_2x2`). It is used by:
+
+- commander collision, landing and gravity (`Lb052_check_player_collision`, `Laf4c`, `Lafc3_gravity`): the ship cannot fly into a piece below its height and rests on top of it, at 2 or 3 on rough, 6 on mountains, 3 on debris;
+- projectile termination (`Lb724_bullet_update_internal`, height ≥ altitude). Terrain is at most 6 high, below the bullet altitude 10, so terrain never stops a bullet, as in the original;
+- the damage `ground_height` (`Lb495` stores `Lb5d6` as `ROBOT_STRUCT_ALTITUDE`; `Lb7a7`): a robot on rough or a mountain takes less damage. This also closes the §9 follow-up note on `ground_height_at` always being 0;
+- the heli-pad rest altitude (unchanged: the pad is all roof).
+
+Nuclear debris gets the debris height (`destruction.scenery_world`/`effective_world`). Frontend shadows (`surface.ts`) read the same map heights. The Spectrum draws terrain pieces as sprites at elevation 0 (`Lcd18_draw_map_cell`); their height is not a drawing parameter, so terrain drawing is unchanged. Tests: `engine/tests/test_terrain_heights.py`, `test_nuclear_debris.py`, `frontend/src/render/surface.test.ts`.
+
+## Robots on terrain height — RESOLVED (CR002.25 #214, owner decisions 2026-09-21 and 2026-09-22)
+
+Owner decision (2026-09-21): match the original (found in CR002.21). A robot stands on the terrain under it. `Lb495` (in `Lb471_move_robot_one_step_in_desired_direction`) stores `Lb5d6_map_altitude_2x2`, the highest map piece under the 2×2 body, in `ROBOT_STRUCT_ALTITUDE` right after `Lb4b9_robot_advance` moves the robot one cell, so the altitude changes only together with the robot's cell; a new robot starts at 0 (`La6c8`/`Lc849`). A robot's top is `height + altitude`: the ship rests and lands on it (`Lb099_get_robot_or_decoration_altitude` via `Lb052_check_player_collision`), docks there (`La69a`, `La720_land_on_robot`), rides it under direct control (`Lb495` sets the ship's altitude to it after each step), and is an obstacle to the robot while lower than it (`Lb513_get_robot_movement_possibilities`); the robot is drawn raised by the altitude (`Lcee8_draw_robot_to_buffer`).
+
+Engine: the altitude is `collision.unit_surface_height` at the robot's authoritative anchor in the physical world (`destruction.scenery_world`), and `collision.robot_top` = altitude + stack height. The engine moves the authoritative anchor when a move completes (the robot stands on its origin cell during the move, `movement.py`), and the altitude follows the anchor, as in `Lb495` where cell and altitude change together. `RobotFixture.altitude`/`top` carry it into commander collision, landing, auto-dock and following (`engine._robot_fixtures`, `docking.py`); `movement.commander_blocks_robot_cell` uses the top at the robot's current anchor (`Lb513`); the undock lift starts from the top the docked commander rides; a commander ejected from a destroyed robot is left at its top (`destruction.destroy_robot`). Damage already used the altitude (CR002.21, "Terrain piece heights"). On the original map every war-base exit is flat, so a launched robot is at 0, as in the original. No snapshot change: the frontend derives the altitude from the map heights and the robot's anchor (`frontend/src/render/robot.ts` `robotGround`, over `surface.ts`), draws the robot raised by it (blended from origin to destination during a move, presentation only), and draws a docked commander on the drawn top. Tests: `engine/tests/test_robot_terrain_height.py` (docking on rough 2/3 and mountain 6, resting on an enemy, the ship blocked below a raised robot and blocking it, ejection, lift start, altitude timing), `frontend/src/render/robot.test.ts` (drawing offset).
+
+**Bullet altitude gate (owner decision 2026-09-22, not evidence-derived).** The engine's §8 bullet gate compares the robot's top (terrain altitude under its 2×2 body + stack height, `collision.robot_top`) with the bullet altitude (10): `combat._robot_hit_at` hits a robot when `robot_top >= normal_projectile_altitude`. A height-6 robot is flown over on flat ground (6 < 10) and hit on a mountain (12 ≥ 10). The original has no robot-height test for bullets at all ("Documented deviations" item 1), so this is an owner decision on the engine's own gate, not a reading of the disassembly. Test: `engine/tests/test_robot_terrain_height.py::test_bullet_gate_uses_the_robot_top`.
 
 ## Resolution process
 

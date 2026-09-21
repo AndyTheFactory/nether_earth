@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "rules_version": "cr001",
+  "rules_version": "cr002",
   "rules_hash": "29becd1e4622a622938b484e134d101abd5ff9b5e9aa652680f23fbe2dac4e42",
-  "match_id": "1d08e817b3dd4344895775b7abba71e3",
+  "match_id": "de7cdaed487941aa9a68a5efc157cdd4",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -13,9 +13,9 @@
     "p1": "alice",
     "p2": "bob"
   },
-  "created_at_epoch_ms": 1790016737013,
+  "created_at_epoch_ms": 1790026246168,
   "status": "finished",
-  "finished_at_epoch_ms": 1790016797500,
+  "finished_at_epoch_ms": 1790026323751,
   "final_tick": 23072,
   "result": {
     "outcome": "victory",

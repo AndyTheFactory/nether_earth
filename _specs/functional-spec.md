@@ -101,6 +101,7 @@ Gameplay time is derived from simulation ticks, never wall-clock timers.
 
 - authoritative X/Y coordinates are integers;
 - robots move cell-to-cell;
+- robots, the commander and normal projectiles are **2×2 bodies**: a unit's `(x, y)` is the anchor of a body covering columns `x..x+1` and rows `y−1..y` (the min-x/max-y cell, the same corner scenery elements use). Every collision, landing and blocking test uses the whole body; see `open-questions.md` §21;
 - client interpolation is visual only;
 - 1 mile = **2 map cells**; 1 cell = 0.5 miles.
 
@@ -129,6 +130,8 @@ These correspond to the Spectrum map element types: normal = types 0–1 (height
 
 Terrain is a cell property rather than a generic solid entity.
 
+Terrain pieces have these Spectrum heights (CR002.21 #203; nuclear debris counts as rough, height 3). The commander cannot fly into a piece below its height and rests on top of it. The damage formula's `ground_height` is the highest piece under the robot (§17.2). Normal projectiles (altitude 10) always fly over terrain. Terrain is drawn flat, as in the original. Robots stand on the terrain under them (CR002.25 #214, owner decision 2026-09-21: match the original). A robot's altitude is the highest surface under its 2×2 body, and its top is that altitude plus its stack height. The altitude changes when the robot arrives on a new cell. The commander lands, docks, rides and is ejected at the robot's top, it collides with the robot up to its top, and a commander below a robot's top blocks that robot's moves. The robot is drawn raised by its altitude. A new robot leaves its war base at altitude 0, because every war-base exit on the original map is flat.
+
 ### 7.3 Static geometry
 
 Factories, war bases, and scenery are not modeled as one generic rectangular footprint.
@@ -136,6 +139,7 @@ Factories, war bases, and scenery are not modeled as one generic rectangular foo
 - a war base has a canonical composition of explicit physical cells/components plus semantic metadata such as heli-pad, exit, capture zone, ownership, and resource behavior;
 - a factory has its own canonical composition, production type, and capture zone;
 - generic blockers/scenery use explicit evidence-backed occupied cells/components;
+- the original map's scenery is 165 decoded 2×2 elements (CR002.1): low boxes (height 7), high boxes (height 15) and the fences that close both ends of the map (height 99). No robot of any chassis can enter a scenery cell. The commander crosses a box only at or above its height and can rest on top of it; it can never cross a fence. Normal projectiles (altitude 10) fly over low boxes and are stopped by high boxes and fences. A nuclear blast can turn boxes into rough debris (§17.3). See `open-questions.md` §4;
 - component heights may differ inside one structure;
 - exact original layouts come from Spectrum evidence and must not be guessed when uncertain.
 
@@ -152,9 +156,10 @@ The commander:
 - can fly over objects when vertically clear;
 - can block robots and the opposing commander;
 - docks automatically onto friendly robots;
-- is used to enter construction by landing on the player's war-base heli-pad.
+- is used to enter construction by landing on the player's war-base heli-pad;
+- is a 2×2 body, like a robot (§7.1).
 
-The heli-pad is on the war-base roof, at (anchor.x, anchor.y − 4). Landing means the commander is over a pad cell at an altitude equal to that cell's component height (15 on the original war base). The launched robot exits at the anchor cell. See `open-questions.md` §18.
+The heli-pad is a 2×2 area on the war-base roof, anchored at (anchor.x, anchor.y − 4). Landing means the commander's whole body is over the pad at an altitude equal to the pad's component height (15 on the original war base). The launched robot exits with its anchor on the war-base anchor cell. See `open-questions.md` §18 and §21.
 
 Starting positions: Player 1 starts at the extreme-left war-base anchor + (−5, +1), altitude 0 (from the Spectrum code). Player 2 starts at the extreme-right war-base anchor + (+5, +1), altitude 0. This mirror is a locked PvP adaptation (`open-questions.md` §17).
 
@@ -173,7 +178,7 @@ Spectrum-compatible default vertical rules:
 - descent/gravity step: -1;
 - holding Space ascends; releasing Space descends;
 - horizontal and vertical movement may occur simultaneously;
-- automatic elevation after exiting a robot/war base uses the same +2 semantics.
+- automatic lift after leaving the construction screen or a robot: the commander climbs +2 on each of the next **5** vertical updates, whatever the rise key does, and then normal rise/gravity applies (Spectrum `Lfd30_player_elevate_timer`, set to 5 by `Lcb8e_construction_screen_exit` and by `La7fd` when leaving a robot). Moving along the map's y axis during the lift does not shorten it (owner decision 2026-09-21: the Spectrum quirk where held up/down keys shorten it is ignored). Neither construction nor auto-docking is checked while the lift runs. Afterwards, a commander that falls back onto the pad re-opens construction, and one that falls back onto the same friendly robot's anchor docks again. See `open-questions.md` §13.
 
 All numeric values are centralized gameplay configuration, with the Spectrum values above as defaults.
 
@@ -181,6 +186,8 @@ All numeric values are centralized gameplay configuration, with the Spectrum val
 
 Commander collision is height-aware.
 
+- collision uses the commander's 2×2 body: the highest structure, scenery or terrain piece under any of its four cells, and every robot or commander whose body overlaps it (`open-questions.md` §21);
+- the commander cannot descend below the terrain piece height under its body and rests on it (rough 2–3, mountain 6; `open-questions.md` §4, CR002.21 #203);
 - commander may share X/Y with a physical object only when vertical ranges do not overlap;
 - opposing commanders may share X/Y only when vertically separated;
 - overlapping commanders block one another horizontally and vertically, including descent;
@@ -188,14 +195,14 @@ Commander collision is height-aware.
 
 ### 8.4 Docking and enemy robots
 
-Friendly docking is automatic when descending onto the top of a friendly robot.
+Friendly docking is automatic when descending onto the top of a friendly robot with the commander's anchor on the robot's anchor. A commander held up by a robot whose body only partly overlaps its own rests on it but does not dock.
 
 When docked:
 
 - commander follows the robot;
 - independent commander movement is disabled;
 - robot command/order/combat controls become available;
-- rising away undocks.
+- rising away undocks, with the same 5-update lift as leaving the construction screen (§8.2).
 
 Enemy robots are physical collision surfaces only. The commander may rest on top of one if geometry permits, but there is no docking, control transfer, or contact damage.
 
@@ -211,6 +218,8 @@ There are six factory production categories:
 - cannon.
 
 Neutral factories become owned by the first qualifying robot under the verified original behavior.
+
+A robot occupies a structure's capture cell when its **anchor** is on that cell; a body that merely covers the cell does not count.
 
 Enemy factory and war-base capture use continuous occupation by default:
 
@@ -255,7 +264,7 @@ Default starting general resources: **20**.
 | Nuclear | 20 |
 | Electronics | 3 |
 
-All values are centralized gameplay configuration.
+All values are centralized gameplay configuration. The construction screen shows these costs from a build-time copy of the engine defaults, which CI checks for drift; the costs are not sent in the protocol (owner decision 2026-09-21).
 
 ### 10.3 Spending semantics
 
@@ -272,7 +281,16 @@ Construction preserves original Spectrum behavior:
 
 ## 11. Robot construction
 
-Construction is entered from the player's war-base heli-pad.
+Construction is entered by landing on the player's war-base heli-pad (§8).
+
+The construction screen is **modal** for the building player: while it is open, that player's commander cannot move, rise or fall. Besides fitting and removing modules, it offers two actions:
+
+- **EXIT MENU** closes the screen and discards the build; no resources are spent;
+- **START ROBOT** launches the build when it is valid (see below), commits the resources and closes the screen. When the build cannot launch, the screen stays open and nothing changes.
+
+Closing the screen either way starts the commander's exit lift (§8.2).
+
+In the Spectrum the whole game pauses while the construction screen is open. In PvP only the building player's commander is frozen; the match, the opponent and every robot keep running (locked PvP adaptation, owner decision 2026-09-21).
 
 A robot requires:
 
@@ -286,9 +304,11 @@ The nuke may be the only weapon.
 Construction cannot launch when:
 
 - player already has 24 robots;
-- war-base exit is blocked;
+- war-base exit is blocked (the new robot's 2×2 body in the doorway would be off the map or overlap a robot or a reserved destination);
 - build is invalid;
 - resources are insufficient.
+
+A launched robot starts on Stop & Defend and **walks out** of the war base: on each of its own robot updates (§16) it takes one step south (+y), up to 5 steps, with normal movement legality and terrain timing (Spectrum `La6c8`, owner decision 2026-09-21). The walk-out ends early when a step is blocked or lost to a contending robot, when the robot fires instead, when a commander docks on it, or when any order is given to it.
 
 ## 12. Canonical component stack
 
@@ -315,7 +335,7 @@ The same stack definition drives:
 
 ## 13. Chassis and terrain behavior
 
-Ticks per cell at 20 Hz (1 Spectrum game cycle = 4 ticks), from the Spectrum speed table (`open-questions.md` §4):
+Ticks per cell at 20 Hz (1 Spectrum game cycle = 4 ticks), from the Spectrum speed table (`open-questions.md` §4). The terrain that sets a robot's speed is the highest piece under its 2×2 body (mountain > rough > ditch > normal):
 
 | Chassis | Normal | Rough | Mountain | Ditch/ravine |
 |---|---|---|---|---|
@@ -333,11 +353,11 @@ These values are centralized game-rule data.
 
 Robots move cell-to-cell over an integer tick duration.
 
-A move is invalid if terrain is forbidden, physical occupancy blocks it, or commander collision blocks it.
+A move is invalid if any cell of the destination 2×2 body is off the map, is terrain the chassis cannot enter, or is a structure or scenery cell, or if another robot, a commander or a reserved destination overlaps that body.
 
-When a move starts, its destination cell is reserved. Other robots cannot claim that destination until the reservation completes or is canceled.
+When a move starts, its whole destination body is reserved. Other robots cannot claim a destination that overlaps it until the reservation completes or is canceled.
 
-If multiple valid robots claim the same destination on the same authoritative tick:
+If multiple valid robots claim overlapping destinations on the same authoritative tick:
 
 - winner is selected using the match-local seeded deterministic RNG;
 - two contenders are a 50/50 coin flip;
@@ -363,13 +383,15 @@ Combat control lets the player choose fitted weapons and move using the same mov
 
 Supported orders:
 
-- **Stop & Defend** — hold position and engage valid enemies;
+- **Stop & Defend** — hold position and engage valid enemies (a newly launched robot first walks out of its war base, §11);
 - **Advance N** — move East 0–50 miles, then Stop & Defend;
 - **Retreat N** — move West 0–50 miles, then Stop & Defend;
 - **Search & Capture** — target neutral factories, enemy factories, or war bases;
 - **Search & Destroy** — target robots, factories, or war bases.
 
 Invalid/impossible orders fall back to Stop & Defend.
+
+An order-driven robot acts only on its own **robot update**, as in the Spectrum (`Lb154_robot_ai_update`, CR002.19 #197). Its update period is its move duration for the terrain under its body (§13). On an update it fires when it has a shot, and otherwise moves; a firing update does not move. Direct fire (§17.1) is not tied to the robot update.
 
 Search & Destroy against factories or war bases requires a nuclear weapon. A robot without one cannot take that order and falls back to Stop & Defend.
 
@@ -397,11 +419,13 @@ Electronics never grants forbidden terrain traversal.
 
 Cannon, missile, and phaser use normal projectile rules.
 
-A robot can have only one active normal projectile channel; it cannot fire another normal weapon until that projectile ends.
+A robot can have only one active normal projectile channel; it cannot fire another normal weapon until that projectile ends. This per-robot channel is a documented deviation: the Spectrum shares two bullet slots among all of a side's autonomous robots, plus one slot for the player's combat-mode robot (owner decision 2026-09-21, `open-questions.md` §8).
 
 All normal projectiles use Spectrum default flight altitude **10**, independent of robot height and weapon type.
 
 Projectile speed, cadence, and range are resolved from the Spectrum code (`open-questions.md` §8): a projectile advances 2 cells every 4 ticks (one Spectrum game cycle) and travels 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Buildings use the generic altitude collision; there is no separate building rule. As in the Spectrum, the first move happens on the fire tick, so a target 1–2 cells away is hit at once. A robot fires at most once per game cycle (4 ticks). A robot's autonomous shot moves 4 cells in the cycle it is fired; a player's direct shot moves 2 (`open-questions.md` §8, CR002.2 #169). Projectile behavior is an authoritative world/game rule, not a browser viewport rule.
+
+A projectile is a 2×2 body. After each 2-cell move, it stops when the highest piece under its body (structure, scenery or terrain) is at or above its altitude, so a bullet passing right beside a high box or fence stops. Otherwise it hits the first robot whose body overlaps its own (scan order: rows y−1, y, y+1, each west to east) and whose top (terrain altitude plus stack height, §7.2) is at least the projectile altitude (owner decision 2026-09-22; the original has no robot-height test for bullets). Commanders and other projectiles never stop a projectile (documented deviation 1 in `open-questions.md`).
 
 ### 17.2 Damage
 
@@ -416,6 +440,8 @@ Default multipliers:
 - phaser: 4.
 
 The formula is isolated behind one engine function; multipliers are centralized config.
+
+`ground_height` is the highest surface (terrain piece, structure or scenery) under the robot's 2×2 body, as in the Spectrum (`ROBOT_STRUCT_ALTITUDE`): 2–3 on rough, 6 on mountains, 3 on debris, 0 on normal and ditch cells (CR002.21 #203).
 
 Exact integer rounding, hit probability, strength semantics, and electronics resistance/accuracy effects remain fidelity research items.
 
@@ -450,15 +476,31 @@ Runtime behavior in v1:
 
 Reconnect policy is runtime/session state and must not mutate deterministic engine state while paused.
 
-## 19. Remaining fidelity research
+## 19. Presentation (Spectrum look and feel)
+
+The browser client reproduces the look of the ZX Spectrum original (CR002; reference screenshots in `_specs/milestones/cr002/`). None of this is a gameplay rule; the engine decides every outcome.
+
+- **Orientation:** the Spectrum's isometric grid. One step along +x is 8 px right and 4 px up, one step along +y is 4 px right and 8 px down, and height lifts straight up at 1 px per unit. The map's long axis runs from lower-left to upper-right. Each arrow key moves along the world axis closest to its on-screen direction.
+- **Zoom:** the view shows about as much of the map as the original's play window (about 19 cells along the map and its full 16-cell width). The camera follows the local commander.
+- **Fonts:** Spectrum-style 8×8 lettering for all HUD, menu and overlay text, and a double-height form for titles. The fonts were drawn for this project and render pixel-crisp.
+- **Radar:** a 128 × 16 px strip, one pixel per cell, white on black. It shows a 128-column window of the map that scrolls in 64-column steps to keep the local commander inside it. It lights structure and scenery cells (not debris or destroyed structures) and marks every robot of both players with a 2×2 mark. It shows only the viewer's **own commander**, blinking (when docked, the robot's mark blinks instead). The opponent's commander is never shown (owner decision 2026-09-21, as in the original).
+- **Construction screen:** a full-screen ROBOT CONSTRUCTION screen laid out after the original. It shows the resources available, the module list with costs, a preview of the robot stack, EXIT MENU and START ROBOT, and uses the Spectrum cursor and highlight colours: the option under the cursor in yellow, fitted module icons white, unfitted ones yellow.
+- **Ownership flags:** an owned factory or war base carries a flag on its roof, on the −x side for Player 1 and on the +x side for Player 2. Neutral and destroyed structures have no flag.
+- **Scenery:** boxes, fences and nuclear debris are drawn with 2×2 Spectrum sprites. The sprite for each blocker kind is chosen through a configurable asset mapping; v1 ships only the Spectrum assets.
+- **Units:** robots, the commander and projectiles are drawn as 2×2 bodies.
+- **Occlusion:** structures, scenery, robots, commanders and projectiles are depth-sorted, so a unit behind a structure is hidden.
+- **Shadows:** the commander's and projectiles' shadows fall on the highest surface under them: building roofs, the heli-pad, scenery and terrain tops.
+- **Labels:** structure names and robot strength numbers are optional and **off by default**. The player can toggle them.
+
+The flag and scenery sprites are original artwork decoded from the game. They may be used only while the repository and deployments are private, and must be licensed or replaced before any public release or deployment (#201, release checklist).
+
+## 20. Remaining fidelity research
 
 Only these substantive areas remain unresolved:
 
 1. exact combat accuracy/rounding/strength/electronics modifiers;
 2. the autonomous fire-decision scan distance (the Spectrum scans 8 cells, 10 in the facing direction, 12 with electronics; see `open-questions.md` §8).
 
-Movement timing (§4) and projectile speed/range/lifetime (§8) are resolved.
-
-The two owner decisions from CR001 are decided: the decoded scenery boxes and walls are blockers (`open-questions.md` §4, CR002.1 #168), and a projectile makes its first move on the fire tick (`open-questions.md` §8, CR002.2 #169).
+Movement timing and scenery blockers (`open-questions.md` §4), projectile speed, range, lifetime and fire-cycle timing (§8), and the 2×2 bodies (§21) are resolved. `open-questions.md` also records the deviations from the original that the owner chose to keep.
 
 Until verified, these values/algorithms must remain isolated and configurable rather than silently guessed.

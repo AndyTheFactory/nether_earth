@@ -123,7 +123,12 @@ async def test_meta_records_engine_rules_version_and_hash(tmp_path: Path) -> Non
 
 @pytest.mark.parametrize(
     ("key", "value"),
-    [("rules_version", "m7"), ("rules_hash", "0" * 64), ("rules_hash", None)],
+    [
+        ("rules_version", "m7"),
+        ("rules_version", "cr001"),
+        ("rules_hash", "0" * 64),
+        ("rules_hash", None),
+    ],
 )
 async def test_replay_with_other_rules_is_rejected_before_replaying(
     tmp_path: Path, key: str, value: str | None

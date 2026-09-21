@@ -45,6 +45,7 @@ unresolved critical correctness, security or operational defect.
 | 13 | Release version selected consistently | `scripts/check-version.sh` |
 | 14 | Tag/release procedure followed (below) | tag + release links |
 | 15 | Rollback target known: previous version and its images present on the host | `docker image ls 'nether-earth-*'` output in the release issue |
+| 16 | **Original artwork licensing resolved before any public release or public deployment** (#201): either rights to the ZX Spectrum artwork are obtained/permissible use is confirmed, or the decoded sprites are replaced with redrawn equivalents. Covers the ownership flag sprites (`frontend/src/render/flags.ts`) and the wall/box/fence/debris sprites (`frontend/src/render/scenery-sprites.ts`, `frontend/scripts/decode-scenery-sprites.py`); confirm the hand-drawn fonts and construction icons need no action (`frontend/public/assets/README.md`). Private repository and private deployments may use the original artwork until then (owner decision 2026-09-21). | #201 closed with the decision linked |
 
 ## Release sequence
 
