@@ -54,13 +54,16 @@ the first weapon that is still eligible under this tick's re-validation,
 so the outcome never depends on iteration order and is always the same for
 the same inputs.
 
-Nuclear has no range gate: `_specs/functional-spec.md`'s nuclear weapon
-detonates around the carrier's own position, not a travelling/aimed shot at
-the target cell, so "is the target within range" is not a meaningful
-eligibility question for it -- it is always eligible once selected, and
-routes through `destruction.py`'s :func:`~nether_earth.destruction.execute_nuclear_detonation`
-via the identical ``FireRequest``/:func:`~nether_earth.combat.validate_fire`
-acceptance boundary Task 8 already built for direct-control nuclear fire.
+Nuclear is never part of that walk (`_specs/open-questions.md` §19,
+CR001.1): against a robot target only cannon/missile/phaser are considered,
+so Stop & Defend and Search & Destroy (robots) never detonate. The only
+autonomous detonation is a structure intent (factory/war base), which
+`orders.py` emits solely on the tick a Search & Destroy carrier stands on
+its target cell; this module additionally requires ``distance_cells == 0``
+and a fitted nuclear module. It routes through `destruction.py`'s
+:func:`~nether_earth.destruction.execute_nuclear_detonation` via the
+identical ``FireRequest``/:func:`~nether_earth.combat.validate_fire`
+acceptance boundary direct-control nuclear fire uses.
 
 One fire path, verified by construction not inspection
 ------------------------------------------------------------
@@ -170,8 +173,10 @@ def consume_engagement_intent(
     2. **Target re-check**: see :func:`_target_still_valid`.
     3. **Weapon selection**: the first weapon in ``intent.weapons``
        (already canonically ordered -- see the module docstring) that is
-       still eligible under :func:`_weapon_eligible`. No weapon eligible
-       means no fire this tick.
+       still eligible under :func:`_weapon_eligible`, skipping nuclear for
+       robot targets; a structure target selects nuclear only at
+       ``distance_cells == 0`` (see the module docstring). No weapon
+       eligible means no fire this tick.
     4. **Fire**: a :class:`~nether_earth.combat.FireRequest` is built for
        the selected weapon and routed through the identical boundary
        direct control uses -- :func:`~nether_earth.combat.validate_fire`
@@ -197,10 +202,17 @@ def consume_engagement_intent(
 
     electronics_fitted = robot.build.electronics is ModuleIdentity.ELECTRONICS
     selected_weapon: ModuleIdentity | None = None
-    for weapon in intent.weapons:
-        if _weapon_eligible(weapon, intent.distance_cells, electronics_fitted, rules):
-            selected_weapon = weapon
-            break
+    if intent.target_kind is not EngagementTargetKind.ROBOT:
+        # §19: a structure is engaged only by detonating on its target cell.
+        if intent.distance_cells == 0 and ModuleIdentity.NUCLEAR in intent.weapons:
+            selected_weapon = ModuleIdentity.NUCLEAR
+    else:
+        for weapon in intent.weapons:
+            if weapon is ModuleIdentity.NUCLEAR:
+                continue  # §19: never chosen autonomously against a robot
+            if _weapon_eligible(weapon, intent.distance_cells, electronics_fitted, rules):
+                selected_weapon = weapon
+                break
     if selected_weapon is None:
         return state, ()
 

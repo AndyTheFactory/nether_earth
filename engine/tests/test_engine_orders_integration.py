@@ -11,13 +11,14 @@ from __future__ import annotations
 from nether_earth.capture import StructureCapturedEvent
 from nether_earth.combat import ProjectileFiredEvent
 from nether_earth.commander import Commander, CommanderMode
+from nether_earth.destruction import RobotDestroyedEvent, StructureDestroyedEvent
 from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.engine import step
 from nether_earth.events import Event
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import WorldMap
-from nether_earth.movement import RobotMoveStartedEvent
+from nether_earth.movement import RobotMoveCompletedEvent, RobotMoveStartedEvent
 from nether_earth.orders import (
     Advance,
     OrderStatus,
@@ -318,23 +319,136 @@ def test_search_destroy_of_a_structure_without_a_nuke_falls_back() -> None:
     assert _of(events, RobotEngagementIntentEvent) == []
 
 
-def test_search_destroy_of_a_structure_with_a_nuke_produces_intent() -> None:
+def _run_search_destroy_factory() -> tuple[int, GameState, list[tuple[int, Event]]]:
+    """Drive a nuclear carrier on Search & Destroy (factory) until it detonates.
+
+    Returns the detonation tick, the state after it, and every event tagged
+    with the tick it was emitted on.
+    """
+    world = _world()
+    hunter = _robot(
+        "robot-a",
+        x=0,
+        y=5,
+        weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR),
+        order=SearchDestroy(SearchDestroyTarget.FACTORY),
+    )
+    state = _state((hunter,))
+    tagged: list[tuple[int, Event]] = []
+    for _ in range(TRACKS_TICKS * 10):
+        state, events = step(state, (), world)
+        tagged.extend((state.tick, event) for event in events)
+        if state.robot_for(hunter.entity_id) is None:
+            return state.tick, state, tagged
+    raise AssertionError("the carrier never detonated")
+
+
+def test_search_destroy_of_a_structure_detonates_exactly_on_arrival() -> None:
+    """OQ §19: the carrier walks to the capture cell and detonates there, never earlier."""
+    detonation_tick, state, tagged = _run_search_destroy_factory()
+
+    # No structure intent, and nothing destroyed, on any earlier tick.
+    before = [event for tick, event in tagged if tick < detonation_tick]
+    assert _of(before, RobotEngagementIntentEvent) == []
+    assert _of(before, RobotDestroyedEvent) == []
+    assert _of(before, StructureDestroyedEvent) == []
+
+    # The move onto the target cell completes in the detonation tick itself
+    # (Step 2b), before orders are evaluated: detonation is on arrival.
+    arrivals = [
+        tick
+        for tick, event in tagged
+        if isinstance(event, RobotMoveCompletedEvent)
+        and (event.x, event.y) == NEUTRAL_FACTORY_CAPTURE_CELL
+    ]
+    assert arrivals == [detonation_tick]
+
+    at_detonation = [event for tick, event in tagged if tick == detonation_tick]
+    completions = [
+        event
+        for event in _of(at_detonation, RobotOrderChangedEvent)
+        if event.status is OrderStatus.COMPLETED  # type: ignore[attr-defined]
+    ]
+    assert len(completions) == 1
+    intents = _of(at_detonation, RobotEngagementIntentEvent)
+    assert len(intents) == 1
+    assert intents[0].intent.target_id == NEUTRAL_FACTORY  # type: ignore[attr-defined]
+    assert intents[0].intent.distance_cells == 0  # type: ignore[attr-defined]
+    assert intents[0].intent.weapons == (ModuleIdentity.NUCLEAR,)  # type: ignore[attr-defined]
+    assert state.structure_destroyed(NEUTRAL_FACTORY)
+    assert _of(at_detonation, StructureCapturedEvent) == []
+
+
+def test_search_destroy_of_a_structure_detonation_is_replay_identical() -> None:
+    first = _run_search_destroy_factory()
+    second = _run_search_destroy_factory()
+    assert first[0] == second[0]
+    assert first[1] == second[1]
+    assert [repr(event) for _, event in first[2]] == [repr(event) for _, event in second[2]]
+
+
+def test_stop_and_defend_nuclear_carrier_never_detonates() -> None:
+    """OQ §19: an enemy robot far out of normal-weapon range never triggers the nuke."""
+    world = _world()
+    carrier = _robot(
+        "robot-a",
+        x=0,
+        y=11,
+        weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR),
+        order=StopAndDefend(),
+    )
+    enemy = _robot("robot-z", PLAYER_TWO, x=29, y=0)
+    state = _state((carrier, enemy))
+
+    state, events = _run(state, world, TRACKS_TICKS * 5)
+
+    assert _of(events, RobotEngagementIntentEvent) != []  # it does keep an intent
+    assert state.robot_for(carrier.entity_id) is not None
+    assert state.robot_for(enemy.entity_id) is not None
+    assert _of(events, RobotDestroyedEvent) == []
+    assert _of(events, StructureDestroyedEvent) == []
+
+
+def test_stop_and_defend_nuclear_carrier_with_busy_channel_never_detonates() -> None:
+    """In range but with its projectile in flight, the carrier waits instead of nuking."""
+    world = _world()
+    carrier = _robot(
+        "robot-a",
+        x=2,
+        y=5,
+        weapons=(ModuleIdentity.CANNON, ModuleIdentity.NUCLEAR),
+        order=StopAndDefend(),
+    )
+    enemy = _robot("robot-z", PLAYER_TWO, x=5, y=5)
+    state = _state((carrier, enemy))
+
+    state, events = _run(state, world, 3)
+
+    assert len(_of(events, ProjectileFiredEvent)) == 1
+    assert state.robot_for(carrier.entity_id) is not None
+    assert _of(events, RobotDestroyedEvent) == []
+    assert _of(events, StructureDestroyedEvent) == []
+
+
+def test_search_destroy_robots_nuclear_carrier_uses_normal_weapons_only() -> None:
     world = _world()
     hunter = _robot(
         "robot-a",
         x=0,
         y=5,
         weapons=(ModuleIdentity.NUCLEAR,),
-        order=SearchDestroy(SearchDestroyTarget.FACTORY),
+        order=SearchDestroy(SearchDestroyTarget.ROBOT),
     )
-    state = _state((hunter,))
-    _state_after, events = step(state, (), world)
-    intents = _of(events, RobotEngagementIntentEvent)
-    assert len(intents) == 1
-    assert intents[0].intent.target_id == NEUTRAL_FACTORY  # type: ignore[attr-defined]
-    assert intents[0].intent.weapons == (ModuleIdentity.NUCLEAR,)  # type: ignore[attr-defined]
-    # No structure was destroyed or captured: M6 owns detonation.
-    assert _of(events, StructureCapturedEvent) == []
+    enemy = _robot("robot-z", PLAYER_TWO, x=9, y=5)
+    state = _state((hunter, enemy))
+
+    state, events = _run(state, world, TRACKS_TICKS * 10)
+
+    assert _of(events, RobotEngagementIntentEvent) != []
+    assert state.robot_for(hunter.entity_id) is not None
+    assert state.robot_for(enemy.entity_id) is not None
+    assert _of(events, RobotDestroyedEvent) == []
+    assert _of(events, ProjectileFiredEvent) == []
 
 
 # --------------------------------------------------------------------------

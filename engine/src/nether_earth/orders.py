@@ -80,7 +80,11 @@ Every order has the same explicit three-phase lifecycle, reported by
   in the target's capture footprint, at which point `capture.py` -- not this
   module -- runs the actual capture, and the order is likewise replaced by
   :class:`StopAndDefend` so a captured structure does not keep the robot
-  pinned to a goal it has already satisfied.
+  pinned to a goal it has already satisfied. A ``SearchDestroy`` against a
+  factory/war base completes the same way on its target cell, and that
+  completion evaluation carries the only structure engagement intent --
+  the nuclear detonation `autonomous_combat.py` executes
+  (`_specs/open-questions.md` §19).
 - **FALLBACK** -- the order was invalid or became impossible and was
   replaced by :class:`StopAndDefend`.
 
@@ -146,7 +150,7 @@ from nether_earth.robot import Robot
 from nether_earth.robot_build import CANONICAL_WEAPON_ORDER, ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules, miles_to_cells
 from nether_earth.state import GameState
-from nether_earth.structures import Factory, WarBase, occupied_cells
+from nether_earth.structures import Factory, WarBase
 
 __all__ = [
     "MAX_ORDER_DISTANCE_MILES",
@@ -304,17 +308,19 @@ class SearchCapture:
 class SearchDestroy:
     """Seek out a hostile ``target`` and produce engagement intent against it.
 
-    Movement closes on the target; :class:`EngagementIntent` is produced
-    every tick a valid target is selected and the robot carries a weapon
-    capable against that target kind. Milestone 6 decides whether the
-    reported ``distance_cells`` is within the chosen weapon's range and
-    resolves the firing -- see the module docstring for why that line is
-    drawn here.
+    Against robots, movement closes on the target and
+    :class:`EngagementIntent` is produced every tick a valid target is
+    selected and the robot carries a capable weapon; Milestone 6 decides
+    whether the reported ``distance_cells`` is within the chosen weapon's
+    range and resolves the firing. Such an order has no completion state: it
+    re-selects a new target as targets are destroyed until no candidate
+    remains at all (fallback to :class:`StopAndDefend`).
 
-    Unlike :class:`SearchCapture` this order has no completion state: a
-    robot that has closed on its target stays on the order, re-selecting a
-    new target as targets are destroyed, until no candidate remains at all
-    (fallback to :class:`StopAndDefend`).
+    Against a factory/war base (nuclear carriers only), the robot navigates
+    to the structure's target cell -- the cell :func:`select_capture_target`
+    would choose -- and produces no intent until it stands there. On that
+    tick the order completes with a structure intent whose only effect is
+    the nuclear detonation (`_specs/open-questions.md` §19).
     """
 
     target: SearchDestroyTarget
@@ -634,9 +640,8 @@ class _StructureCandidate:
     """One structure a search order could pursue, with its resolved geometry."""
 
     structure_id: EntityId
-    #: Where the robot must get to. For capture this is the capture
-    #: footprint; for destroy it is the structure's own occupied cells,
-    #: which a robot cannot enter but can close on.
+    #: Where the robot must get to: the structure's capture footprint, for
+    #: both capture and structure destroy (`_specs/open-questions.md` §19).
     goal_cells: frozenset[tuple[int, int]]
 
 
@@ -727,7 +732,10 @@ def select_destroy_target(
     owned by ``robot.owner`` (a *neutral* structure is a valid destruction
     target, unlike in :func:`select_capture_target`: nothing about blowing
     something up requires it to belong to an enemy first), and the goal cell
-    is the nearest cell the structure itself occupies.
+    is the nearest cell of the structure's capture footprint -- the same
+    target cell a Search & Capture navigates to, where the Spectrum code
+    detonates (`_specs/open-questions.md` §19). A structure with no declared
+    capture point on this map has no target cell and is not a candidate.
 
     Selection is by ``(distance, id)`` exactly as in
     :func:`select_capture_target`. Returns ``None`` when nothing hostile
@@ -751,9 +759,15 @@ def select_destroy_target(
         if target is SearchDestroyTarget.FACTORY
         else EngagementTargetKind.WAR_BASE
     )
+    interaction_kind = (
+        InteractionKind.FACTORY_CAPTURE
+        if target is SearchDestroyTarget.FACTORY
+        else InteractionKind.WARBASE_CAPTURE
+    )
     candidates = [
         _StructureCandidate(
-            structure_id=structure.id, goal_cells=occupied_cells(structure)
+            structure_id=structure.id,
+            goal_cells=capture_footprint(world, structure.id, interaction_kind),
         )
         for structure in _structures_of_kind(world, structure_kind)
         if effective_owner(world, state, structure) != robot.owner
@@ -1024,8 +1038,20 @@ def evaluate_order(
     if selected is None:
         return _fallback(robot)
     target_id, goal = selected
-    intent = engagement_intent_for(robot, target_kind, target_id, goal[0], goal[1])
-    evaluation = _navigate(robot, goal, order, state, world, rules, intent=intent)
+    if target_kind is EngagementTargetKind.ROBOT:
+        intent = engagement_intent_for(robot, target_kind, target_id, goal[0], goal[1])
+        evaluation = _navigate(robot, goal, order, state, world, rules, intent=intent)
+        return evaluation if evaluation is not None else _fallback(robot)
+    if (robot.x, robot.y) == goal:
+        # Arrived on the structure's target cell: the order completes, and its
+        # completion effect is the nuclear detonation `autonomous_combat.py`
+        # executes from this intent (`_specs/open-questions.md` §19). No
+        # structure intent exists on any earlier tick.
+        return replace(
+            _completed(robot),
+            intent=engagement_intent_for(robot, target_kind, target_id, goal[0], goal[1]),
+        )
+    evaluation = _navigate(robot, goal, order, state, world, rules)
     return evaluation if evaluation is not None else _fallback(robot)
 
 
