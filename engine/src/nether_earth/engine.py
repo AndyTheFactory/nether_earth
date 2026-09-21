@@ -42,7 +42,7 @@ import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from nether_earth.autonomous_combat import consume_engagement_intents
+from nether_earth.autonomous_combat import consume_engagement_intents, gate_order_requests
 from nether_earth.capture import (
     CapturableStructureKind,
     NeutralStructureAcquiredEvent,
@@ -681,13 +681,16 @@ def step(
                 if order_changed is not None:
                     events.append(order_changed)
 
-        evaluations = evaluate_orders(state, destruction_effective_world(world, state), rules)
+        orders_world = destruction_effective_world(world, state)
+        evaluations = evaluate_orders(state, orders_world, rules)
         state, order_lifecycle_events = apply_order_evaluations(
             evaluations, state, tick, sequencer
         )
-        order_requests = [
-            evaluation.request for evaluation in evaluations if evaluation.request is not None
-        ]
+        # CR002.19 (#197): an order moves the robot only on its own update,
+        # and not on an update where it fires (see `autonomous_combat.py`).
+        order_requests = list(
+            gate_order_requests(evaluations, state, orders_world, tick, rules)
+        )
         events.extend(order_lifecycle_events)
 
     # --- Step 2c: start this tick's robot moves as one deconflicted batch ---
