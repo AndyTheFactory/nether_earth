@@ -27,6 +27,7 @@ Later owner decisions (2026-09-21), recorded in the specs by CR002.16:
 | Construction costs in the UI | Build-time copy of the engine rules, checked by CI; not sent in the protocol. |
 | New stories | Nuke debris (CR002.18), AI fire on robot update (CR002.19), chassis swap (CR002.20), terrain heights (CR002.21), radar window (CR002.22), optional labels (CR002.23), undock lift (CR002.24), robots on terrain height (CR002.25). |
 | Robots on terrain (PR #212) | Match the original: the terrain height under a robot raises its top, docking altitude, ship collision and drawing (CR002.25). |
+| Bullet gate on raised robots (PR #215, 2026-09-22) | The projectile hit gate compares the robot top (terrain altitude + stack height) with the bullet altitude. |
 | Radar | Shows only the viewer's own commander, as in the original; enemy robots are shown; white only. |
 | Original artwork | Allowed while the repository and deployments are private; blocking release item before any public release or deployment (#201). |
 
