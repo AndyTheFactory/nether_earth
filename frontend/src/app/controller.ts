@@ -3,6 +3,7 @@
 // controller never mutates gameplay fields and never pre-validates legality.
 import type { Store, Session, MenuMode } from '../state/store.ts';
 import { dockedRobot, myCommander, myConstruction } from '../state/store.ts';
+import { saveLabels } from '../state/labels.ts';
 import { WebSocketClient, defaultWsUrl, type GameClient, type InboundMessage, RecordingClient } from '../net/client.ts';
 import { CommandSender } from '../net/commands.ts';
 import type { InputSink, MoveIntent } from '../input/keyboard.ts';
@@ -242,6 +243,11 @@ export class GameController implements InputSink {
     const s = this.store.get();
     if (code === 'KeyG') {
       this.store.setUi({ debugGrid: !s.ui.debugGrid });
+      return;
+    }
+    if (code === 'KeyL') {
+      this.store.setUi({ labels: !s.ui.labels });
+      saveLabels(!s.ui.labels);
       return;
     }
     if (s.ui.screen !== 'match' || !s.latest) return;

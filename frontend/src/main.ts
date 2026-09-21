@@ -14,7 +14,8 @@ import { renderHud } from './ui/hud.ts';
 import { renderMenus } from './ui/menus.ts';
 import { ConstructionScreen } from './ui/construction.ts';
 import { renderOverlay } from './ui/overlays.ts';
-import { Radar, viewFromCorners } from './ui/radar.ts';
+import { Radar } from './ui/radar.ts';
+import { loadLabels } from './state/labels.ts';
 
 async function main(): Promise<void> {
   const host = document.querySelector<HTMLDivElement>('#app');
@@ -54,6 +55,7 @@ async function main(): Promise<void> {
   app.canvas.addEventListener('click', (ev) => controller.aimAtCell(renderer.screenToCell(ev.offsetX, ev.offsetY)));
 
   const params = new URLSearchParams(location.search);
+  store.setUi({ labels: loadLabels(location.search) });
   const fixture = params.get('fixture');
   if (fixture) controller.startFixture(fixture, params.has('until') ? Number(params.get('until')) : Infinity);
   else if (params.has('resume')) controller.resumeSaved();
@@ -75,9 +77,7 @@ async function main(): Promise<void> {
     app.canvas.style.visibility = s.ui.screen === 'match' ? 'visible' : 'hidden';
     renderer.render(s, now);
     renderHud(hud, s, map);
-    const { width: w, height: h } = app.screen;
-    const view = viewFromCorners([renderer.screenToCell(0, 0), renderer.screenToCell(w, 0), renderer.screenToCell(0, h), renderer.screenToCell(w, h)]);
-    radar.update(s.ui.screen === 'match', s.latest, view);
+    radar.update(s.ui.screen === 'match', s.latest, s.connection.session?.playerId ?? null, now);
     renderMenus(menus, s, controller.aim, controller.weaponIndex);
     const cs = s.ui.screen === 'match' && s.latest ? myConstruction(s.latest, s.connection.session?.playerId ?? '') : null;
     construction.update(cs, controller.buildCursor, window.innerWidth, window.innerHeight);
