@@ -21,6 +21,8 @@ import tempfile
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 
 from fastapi import FastAPI, Response
@@ -50,6 +52,14 @@ from app.transport.snapshots import make_tick_broadcaster
 from app.transport.victory import make_victory_finalizer
 
 logger = logging.getLogger(__name__)
+
+def _release_version() -> str:
+    """The installed backend package version: the single v1 release version."""
+    try:
+        return package_version("nether-earth-backend")
+    except PackageNotFoundError:
+        return "unknown"
+
 
 #: How often expired matches are looked for (M10.6).
 SWEEP_INTERVAL_S = 15.0
@@ -175,6 +185,7 @@ def create_app(
             "backend started",
             extra={
                 "event": "process_started",
+                "version": _release_version(),
                 "environment": "production" if settings.production else "development",
                 "replay_dir": str(replay_writer.base_dir),
                 "public_base_url": settings.public_base_url,
@@ -192,7 +203,7 @@ def create_app(
 
     fastapi_app = FastAPI(
         title="Nether Earth",
-        version="0.0.0",
+        version=_release_version(),
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
