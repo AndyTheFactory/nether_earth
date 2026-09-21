@@ -159,13 +159,22 @@ class Factory:
 
 @dataclass(frozen=True, slots=True)
 class Blocker:
-    """Generic unowned static scenery (cubes/boxes/other blockers)."""
+    """Generic unowned static scenery (cubes/boxes/other blockers).
+
+    ``kind`` is an opaque data label (e.g. ``"box_low"``, ``"fence"`` on the
+    original map, CR002.1 #168) that presentation layers map to an asset.
+    The engine never branches on it: a blocker's gameplay effect comes only
+    from its components' cells and heights.
+    """
 
     id: EntityId
     components: tuple[Component, ...]
+    kind: str | None = None
 
     def __post_init__(self) -> None:
         _validate_components(self.components, context="Blocker")
+        if self.kind is not None and not self.kind.strip():
+            raise ValueError("Blocker kind must be a non-empty string when given")
 
 
 def occupied_cells(structure: "WarBase | Factory | Blocker") -> frozenset[tuple[int, int]]:
@@ -321,9 +330,10 @@ def parse_factories(raw: "list[Any] | None") -> tuple[Factory, ...]:
 def parse_blockers(raw: "list[Any] | None") -> tuple[Blocker, ...]:
     """Parse a YAML ``blockers`` list into a tuple of :class:`Blocker`.
 
-    Each entry has ``id`` and ``components``. Blockers are unowned generic
-    scenery and never carry ``owner``/``factory_type``. Validates the same
-    component shape as :func:`parse_war_bases`.
+    Each entry has ``id``, ``components`` and an optional ``kind`` (a
+    non-empty string label, see :class:`Blocker`). Blockers are unowned
+    generic scenery and never carry ``owner``/``factory_type``. Validates the
+    same component shape as :func:`parse_war_bases`.
     """
     if raw is None:
         raw = []
@@ -344,6 +354,10 @@ def parse_blockers(raw: "list[Any] | None") -> tuple[Blocker, ...]:
 
         components = _parse_components(entry.get("components"), context=context)
 
-        blockers.append(Blocker(id=EntityId(raw_id), components=components))
+        kind = entry.get("kind")
+        if kind is not None and (not isinstance(kind, str) or not kind.strip()):
+            raise StructureValidationError(f"{context}: kind must be a non-empty string")
+
+        blockers.append(Blocker(id=EntityId(raw_id), components=components, kind=kind))
 
     return tuple(blockers)
