@@ -1,5 +1,5 @@
 // PixiJS world renderer (M8.2/M8.3/M8.8). Reads the store; never writes it.
-import { Application, Container, Graphics, Text } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
@@ -10,7 +10,8 @@ import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
 import { drawRobotStack, drawCommander, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
-import { colorFor, ownerColor, PALETTE, shade, type SemanticAsset } from './assets.ts';
+import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
+import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SceneryPlacement, type SpriteSlice } from './scenery.ts';
 
 interface Effect {
   x: number;
@@ -29,7 +30,7 @@ export class WorldRenderer {
   // whatever stands behind it. Structure cells are cached; the rest is
   // rebuilt every frame.
   private scene = new Container({ sortableChildren: true });
-  private structureCells: { g: Graphics; x: number }[] = [];
+  private structureCells: { g: Container; x: number }[] = [];
   private dynamic: Graphics[] = [];
   private structureLabels = new Container();
   private effects = new Graphics();
@@ -41,6 +42,8 @@ export class WorldRenderer {
   private zoom = 1;
   private cam = { x: 24, y: 8 };
   private readonly surface: SurfaceMap;
+  private readonly scenery: { placements: SceneryPlacement[]; unmapped: MapData['blockers'] };
+  private readonly sceneryTextures = new Map<string, { slice: SpriteSlice; texture: Texture }[]>();
   private lastStructureKey = '';
   private lastResync = -1;
   private prevSnapshot: SnapshotState | null = null;
@@ -51,6 +54,7 @@ export class WorldRenderer {
     private readonly map: MapData,
   ) {
     this.surface = new SurfaceMap(map);
+    this.scenery = sceneryPlacements(map, sceneryManifest());
     this.world.addChild(this.terrain, this.scene, this.effects, this.overlay);
     this.labels.addChild(this.structureLabels, this.overlayLabels);
     app.stage.addChild(this.world, this.labels);
@@ -95,7 +99,8 @@ export class WorldRenderer {
       for (const c of f.components) blocks.push({ c, color: col, dead: destroyed(f.id) });
       if (debug) this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
     }
-    for (const b of this.map.blockers) {
+    // CR002.5: mapped blockers are Spectrum sprites (below); the rest keep placeholder prisms.
+    for (const b of this.scenery.unmapped) {
       for (const c of b.components) blocks.push({ c, color: colorFor('structure.blocker'), dead: false });
     }
     // Heli-pads sit on the war-base roof (open-questions §18): mark the pad
@@ -117,6 +122,28 @@ export class WorldRenderer {
       this.structureCells.push({ g, x: c.x });
       this.scene.addChild(g);
     }
+    for (const p of this.scenery.placements) {
+      const origin = spriteOrigin(p.asset, p.anchor);
+      for (const { slice, texture } of this.sceneryTexturesFor(p.assetId, p.asset)) {
+        const s = new Sprite(texture);
+        s.position.set(origin.x, origin.y);
+        s.zIndex = sliceDepth(p.anchor, slice);
+        this.structureCells.push({ g: s, x: p.anchor.x + slice.dx });
+        this.scene.addChild(s);
+      }
+    }
+  }
+
+  /** One texture per footprint-cell slice of a scenery asset, built once. */
+  private sceneryTexturesFor(id: string, asset: SceneryAsset): { slice: SpriteSlice; texture: Texture }[] {
+    let t = this.sceneryTextures.get(id);
+    if (!t) {
+      const ink = parseColor(asset.ink, PALETTE.black);
+      const paper = parseColor(asset.paper, PALETTE.yellow);
+      t = sliceSprite(asset).map((slice) => ({ slice, texture: pixelTexture(slice.rows, ink, paper) }));
+      this.sceneryTextures.set(id, t);
+    }
+    return t;
   }
 
   /** Skip drawing structure cells far outside the view (they stay in the ordering). */
@@ -316,6 +343,28 @@ export class WorldRenderer {
     const w = unproject((sx - this.world.position.x) / this.zoom, (sy - this.world.position.y) / this.zoom);
     return { x: Math.round(w.x), y: Math.round(w.y) };
   }
+}
+
+/** Nearest-filtered texture of a '#'/'.'/' ' pixel sprite (world units are Spectrum pixels). */
+function pixelTexture(rows: readonly string[], ink: number, paper: number): Texture {
+  const w = rows[0]?.length ?? 0;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, w);
+  canvas.height = Math.max(1, rows.length);
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(canvas.width, canvas.height);
+  rows.forEach((row, r) => {
+    for (let c = 0; c < row.length; c++) {
+      if (row[c] === ' ') continue;
+      const col = row[c] === '#' ? ink : paper;
+      const i = (r * canvas.width + c) * 4;
+      img.data.set([(col >> 16) & 0xff, (col >> 8) & 0xff, col & 0xff, 255], i);
+    }
+  });
+  ctx.putImageData(img, 0, 0);
+  const tex = Texture.from(canvas);
+  tex.source.scaleMode = 'nearest';
+  return tex;
 }
 
 /** Spectrum flag sprite at native size (world units are Spectrum pixels), pole foot on the roof centre. */

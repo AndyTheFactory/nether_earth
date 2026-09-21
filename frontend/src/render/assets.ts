@@ -3,6 +3,7 @@
 // (all of them today) an explicit procedural placeholder is used so nothing
 // blocks UI work. No gameplay value (cost, range, collision) lives here.
 import { Assets, Texture } from 'pixi.js';
+import type { SceneryManifest } from './scenery.ts';
 
 export type SemanticAsset =
   | 'terrain.normal'
@@ -82,6 +83,15 @@ const textures = new Map<SemanticAsset, Texture>();
 export interface AssetManifest {
   /** semantic id → image path under public/ (e.g. "assets/module.bipod.png") */
   images: Partial<Record<SemanticAsset, string>>;
+  /** CR002.5: blocker kind -> scenery asset (sprite, footprint, height). */
+  scenery?: SceneryManifest;
+}
+
+let scenery: SceneryManifest | null = null;
+
+/** Scenery mapping from the loaded manifest; null (placeholder prisms) if absent. */
+export function sceneryManifest(): SceneryManifest | null {
+  return scenery;
 }
 
 /**
@@ -98,6 +108,7 @@ export async function loadAssets(manifestUrl = '/assets/manifest.json'): Promise
   } catch {
     /* no manifest: placeholders everywhere */
   }
+  scenery = manifest.scenery ?? null;
   const missing: SemanticAsset[] = [];
   await Promise.all(
     ids.map(async (id) => {
