@@ -34,10 +34,22 @@ test('projectile slides 2 cells per 4-tick cadence and meets the next snapshot w
   assert.deepEqual(interpolateProjectile({ ...p, dx: 0, dy: -1 }, 4, 6), { x: 10, y: 4 });
 });
 
-test('projectile fired between cadence ticks reaches its first cells on the next cadence tick', () => {
-  const p = { x: 3, y: 3, dx: -1, dy: 0, travelled_cells: 0, max_range_cells: 10, created_tick: 5 };
+test('projectile fired between cadence ticks starts at its fire-tick cell and meets the next cadence snapshot', () => {
+  // CR002.2 (#169): fired at x=5 on tick 5, the tick-5 snapshot already has
+  // the first 2-cell move applied (x=3, travelled 2).
+  const p = { x: 3, y: 3, dx: -1, dy: 0, travelled_cells: 2, max_range_cells: 10, created_tick: 5 };
   assert.deepEqual(interpolateProjectile(p, 5, 5), { x: 3, y: 3 });
+  assert.deepEqual(interpolateProjectile(p, 5, 6.5), { x: 2, y: 3 });
   assert.deepEqual(interpolateProjectile(p, 7, 8), { x: 1, y: 3 });
+  // The tick-8 snapshot has it at x=1: continuous with the above.
+  assert.deepEqual(interpolateProjectile({ ...p, x: 1, travelled_cells: 4 }, 8, 8), { x: 1, y: 3 });
+});
+
+test('projectile fired on a cadence tick slides over the full next interval', () => {
+  const p = { x: 12, y: 0, dx: 1, dy: 0, travelled_cells: 2, max_range_cells: 10, created_tick: 8 };
+  assert.deepEqual(interpolateProjectile(p, 8, 8), { x: 12, y: 0 });
+  assert.deepEqual(interpolateProjectile(p, 8, 10), { x: 13, y: 0 });
+  assert.deepEqual(interpolateProjectile(p, 11, 12), { x: 14, y: 0 });
 });
 
 test('projectile never slides past its range', () => {

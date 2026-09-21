@@ -55,8 +55,10 @@ export function interpolateAltitude(altitude: number, t: VerticalTransition | nu
   return t.from_altitude + (t.to_altitude - t.from_altitude) * a;
 }
 
-// Projectile motion (CR001 #150, open-questions §8): the engine advances every
-// projectile by PROJECTILE_CELLS_PER_ADVANCE cells on each cadence tick (a
+// Projectile motion (CR001 #150, CR002.2 #169, open-questions §8): the engine
+// makes a projectile's first PROJECTILE_CELLS_PER_ADVANCE-cell move on its fire
+// tick (so it first appears in a snapshot already that far from the firer, as
+// on the Spectrum), then advances it by the same amount on each cadence tick (a
 // positive multiple of PROJECTILE_ADVANCE_TICKS), never past its range.
 // Mirrors EngineRules.projectile_cells_per_advance / projectile_advance_ticks;
 // visual only -- the snapshot position stays authoritative.
