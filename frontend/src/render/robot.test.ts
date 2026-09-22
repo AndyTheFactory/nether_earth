@@ -23,6 +23,22 @@ const { drawCommander, drawRobotStack, robotGround, UNIT_SIZE } = await import('
 
 const surface = new SurfaceMap(loadMap(DEFAULT_MAP_ID));
 
+// Both draw functions now take pieces from a pool (#256/owner extension,
+// 2026-09-22) instead of returning a fresh array each call. This collects
+// every piece a call requests, mirroring the old array-return shape so the
+// tests below can assert on it the same way.
+function collect(): { objects: (Graphics | Sprite)[]; getPiece: (i: number, textured: boolean) => Graphics | Sprite } {
+  const objects: (Graphics | Sprite)[] = [];
+  return {
+    objects,
+    getPiece: (_i, textured) => {
+      const o = textured ? new Sprite() : new Graphics();
+      objects.push(o);
+      return o;
+    },
+  };
+}
+
 test('a robot at rest stands on the terrain under its 2×2 body', () => {
   assert.equal(robotGround(surface, 30, 12, null, 0), 0); // flat
   assert.equal(robotGround(surface, 32, 12, null, 0), 2); // rough types 2-5
@@ -39,7 +55,8 @@ test('mid-move the ground blends from the origin body to the destination body', 
 });
 
 test('the stack is drawn raised by the ground and its top is ground + height', () => {
-  const { objects, top } = drawRobotStack(167, 9, ['tracks', 'cannon'], 'p1', { totalHeight: 13, ground: 6 });
+  const { objects, getPiece } = collect();
+  const top = drawRobotStack(167, 9, ['tracks', 'cannon'], 'p1', { totalHeight: 13, ground: 6 }, getPiece);
   assert.equal(top, 19);
   // The ground shadow diamond is the first object, drawn at elevation 6.
   const shadow = objects[0] as Graphics;
@@ -47,18 +64,20 @@ test('the stack is drawn raised by the ground and its top is ground + height', (
 });
 
 test('without a ground the stack stands on the map floor', () => {
-  const { top } = drawRobotStack(30, 12, ['bipod', 'cannon'], 'p1', { totalHeight: 17 });
+  const { getPiece } = collect();
+  const top = drawRobotStack(30, 12, ['bipod', 'cannon'], 'p1', { totalHeight: 17 }, getPiece);
   assert.equal(top, 17);
 });
 
 test('visual piece heights are the Spectrum Ld7b4 values, so the snapshot height needs no rescale', () => {
   // Tracks 7 + cannon 6 = 13 (CR003.3), the engine's derived height.
-  assert.equal(drawRobotStack(30, 12, ['tracks', 'cannon'], 'p1').top, 13);
-  assert.equal(drawRobotStack(30, 12, ['bipod', 'missile', 'phaser', 'nuclear', 'electronics'], 'p1').top, 38);
+  assert.equal(drawRobotStack(30, 12, ['tracks', 'cannon'], 'p1', {}, collect().getPiece), 13);
+  assert.equal(drawRobotStack(30, 12, ['bipod', 'missile', 'phaser', 'nuclear', 'electronics'], 'p1', {}, collect().getPiece), 38);
 });
 
 test('the stack is sliced one Sprite per footprint cell per piece, plus one shadow diamond', () => {
-  const { objects } = drawRobotStack(30, 12, ['tracks', 'cannon'], 'p1');
+  const { objects, getPiece } = collect();
+  drawRobotStack(30, 12, ['tracks', 'cannon'], 'p1', {}, getPiece);
   const sprites = objects.filter((o) => o instanceof Sprite);
   const shadows = objects.filter((o) => o instanceof Graphics);
   assert.equal(shadows.length, 1);
@@ -67,14 +86,17 @@ test('the stack is sliced one Sprite per footprint cell per piece, plus one shad
 });
 
 test('every object carries a finite zIndex for the shared scene painter order', () => {
-  const { objects } = drawRobotStack(30, 12, ['bipod', 'electronics'], 'p2', { ground: 3 });
+  const { objects, getPiece } = collect();
+  drawRobotStack(30, 12, ['bipod', 'electronics'], 'p2', { ground: 3 }, getPiece);
   for (const o of objects) assert.ok(Number.isFinite(o.zIndex));
 });
 
 test('the commander is sliced the same way, with a shadow only when airborne', () => {
-  const grounded = drawCommander(30, 12, 0, 'p1', 0);
-  assert.equal(grounded.filter((o) => o instanceof Graphics).length, 0);
-  const airborne = drawCommander(30, 12, 8, 'p1', 0);
-  assert.equal(airborne.filter((o) => o instanceof Graphics).length, 1);
-  assert.equal(airborne.filter((o) => o instanceof Sprite).length, UNIT_SIZE * UNIT_SIZE);
+  const g1 = collect();
+  drawCommander(30, 12, 0, 'p1', 0, 0, g1.getPiece);
+  assert.equal(g1.objects.filter((o) => o instanceof Graphics).length, 0);
+  const g2 = collect();
+  drawCommander(30, 12, 8, 'p1', 0, 0, g2.getPiece);
+  assert.equal(g2.objects.filter((o) => o instanceof Graphics).length, 1);
+  assert.equal(g2.objects.filter((o) => o instanceof Sprite).length, UNIT_SIZE * UNIT_SIZE);
 });

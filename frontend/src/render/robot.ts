@@ -141,15 +141,16 @@ export function drawRobotStack(
   stack: readonly ModuleId[],
   owner: string | null,
   opts: { alpha?: number; totalHeight?: number; ground?: number } = {},
-): { objects: Container[]; top: number } {
+  getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
+): number {
   const alpha = opts.alpha ?? 1;
   const ground = opts.ground ?? 0;
-  const objects: Container[] = [];
+  let idx = 0;
 
-  const shadow = new Graphics();
+  const shadow = getPiece(idx++, false) as Graphics;
+  if ('clear' in shadow) shadow.clear();
   drawDiamond(shadow, x, y, ownerColor(owner), 0.35 * alpha, undefined, ground, UNIT_SIZE);
   shadow.zIndex = depthKey(x, y, ground);
-  objects.push(shadow);
 
   let z = ground;
   // If the authoritative height differs from our visual sum, scale to match it
@@ -163,16 +164,16 @@ export function drawRobotStack(
     const h = MODULE_VISUAL_HEIGHT[m] * scale;
     const origin = spriteOriginFor(ROBOT_SPRITES[m], FOOTPRINT, { x, y }, z);
     for (const { slice, texture } of moduleSlices(m)) {
-      const s = new Sprite(texture);
+      const s = getPiece(idx++, true) as Sprite;
+      s.texture = texture;
       s.position.set(origin.x, origin.y);
       s.tint = tint;
       s.alpha = alpha;
       s.zIndex = depthKey(x + slice.dx, y + slice.dy, z);
-      objects.push(s);
     }
     z += h;
   }
-  return { objects, top: z };
+  return z;
 }
 
 /**
@@ -182,23 +183,30 @@ export function drawRobotStack(
  * the sliced, owner-tinted commander Sprites plus the shadow diamond,
  * positioned and `zIndex`-ed for the scene.
  */
-export function drawCommander(x: number, y: number, altitude: number, owner: string, surfaceZ = 0): Container[] {
-  const objects: Container[] = [];
+export function drawCommander(
+  x: number,
+  y: number,
+  altitude: number,
+  owner: string,
+  surfaceZ = 0,
+  zBias = 0,
+  getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
+): void {
+  let idx = 0;
   if (altitude > surfaceZ) {
-    const shadow = new Graphics();
+    const shadow = getPiece(idx++, false) as Graphics;
+    if ('clear' in shadow) shadow.clear();
     drawDiamond(shadow, x, y, 0x000000, 0.35, undefined, surfaceZ, UNIT_SIZE);
-    shadow.zIndex = depthKey(x, y, surfaceZ);
-    objects.push(shadow);
+    shadow.zIndex = depthKey(x, y, surfaceZ) + zBias;
   }
   const rows = COMMANDER_SPRITES[COMMANDER_SPRITE_ID]!;
   const origin = spriteOriginFor(rows, FOOTPRINT, { x, y }, altitude);
   const tint = ownerColor(owner);
   for (const { slice, texture } of commanderSlices()) {
-    const s = new Sprite(texture);
+    const s = getPiece(idx++, true) as Sprite;
+    s.texture = texture;
     s.position.set(origin.x, origin.y);
     s.tint = tint;
-    s.zIndex = depthKey(x + slice.dx, y + slice.dy, altitude);
-    objects.push(s);
+    s.zIndex = depthKey(x + slice.dx, y + slice.dy, altitude) + zBias;
   }
-  return objects;
 }
