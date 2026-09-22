@@ -9,7 +9,7 @@ import { CommandSender } from '../net/commands.ts';
 import type { InputSink, MoveIntent } from '../input/keyboard.ts';
 import { findFixture } from '../fixtures/index.ts';
 import { playFixture, runFixtureMessage } from '../fixtures/harness.ts';
-import { CAPTURE_TARGETS, DESTROY_TARGETS, CHASSIS, WEAPONS, MAX_ORDER_MILES } from '../ui/menus.ts';
+import { CAPTURE_TARGETS, DESTROY_TARGETS, CHASSIS, WEAPONS, MAX_ORDER_MILES, navItems } from '../ui/menus.ts';
 import { shouldSendCommanderMove } from '../input/move-schedule.ts';
 import { isGridTransition } from '../render/interpolation.ts';
 import { COL_PIECES, cursorFor, cursorTarget, moveCursor, type BuildCursor, type CursorColumn } from '../ui/construction.ts';
@@ -219,6 +219,18 @@ export class GameController implements InputSink {
       case 'order_distance':
         this.adjustDistance(intent.dx !== 0 ? intent.dx : -intent.dy);
         return;
+      case 'robot_menu':
+      case 'orders':
+      case 'order_target': {
+        // CR003.241: Up/Down (arrows or W/S) move the highlighted block; the
+        // commander/robot must not also move while a menu list is open.
+        if (intent.dy === 0) return;
+        const items = navItems(s.ui.menu, s.ui.pendingOrder);
+        if (!items.length) return;
+        const next = ((s.ui.menuCursor + intent.dy) % items.length + items.length) % items.length;
+        this.store.setUi({ menuCursor: next });
+        return;
+      }
       case 'none': {
         const c = myCommander(s.latest, me);
         if (c?.mode !== 'free') return;
@@ -262,8 +274,35 @@ export class GameController implements InputSink {
       if (rising) this.constructionFire();
       return;
     }
+    // CR003.241: while a menu block list is open, Space activates the
+    // highlighted block instead of lifting the commander out of the robot.
+    // The matching key-up must not then send a stray rising:false, unless the
+    // activated block was itself LEAVE ROBOT (which does send rising:true and
+    // needs its release to follow through normally, same as holding rise).
+    if (rising && NAV_MENUS.has(s.ui.menu)) {
+      const sentRise = this.activateMenuCursor();
+      this.pendingMenuRiseSuppressed = !sentRise;
+      return;
+    }
+    if (!rising && this.pendingMenuRiseSuppressed) {
+      this.pendingMenuRiseSuppressed = false;
+      return;
+    }
+    this.pendingMenuRiseSuppressed = false;
     this.sender.command({ kind: 'commander_set_vertical_intent', rising });
     if (rising && s.ui.menu !== 'none') this.store.setUi({ menu: 'none' });
+  }
+
+  /** True while a Space press was consumed by menu navigation, so its release sends nothing. */
+  private pendingMenuRiseSuppressed = false;
+
+  /** Space activation of the currently highlighted menu block (CR003.241). Returns whether it sent the LEAVE ROBOT rise command. */
+  private activateMenuCursor(): boolean {
+    const s = this.store.get();
+    const item = navItems(s.ui.menu, s.ui.pendingOrder)[s.ui.menuCursor];
+    if (!item) return false;
+    this.menuAction(item.action, item.arg);
+    return item.action === 'undock';
   }
 
   action(code: string): void {
@@ -361,11 +400,17 @@ export class GameController implements InputSink {
     const snap = s.latest;
     switch (action) {
       case 'menu':
-        this.store.setUi({ menu: (arg || 'none') as MenuMode });
+        this.store.setUi({ menu: (arg || 'none') as MenuMode, menuCursor: 0 });
         return;
       case 'pick':
-        if (arg === 'advance' || arg === 'retreat') this.store.setUi({ pendingOrder: arg, menu: 'order_distance' });
-        else if (arg === 'search_capture' || arg === 'search_destroy') this.store.setUi({ pendingOrder: arg, menu: 'order_target' });
+        if (arg === 'advance' || arg === 'retreat') this.store.setUi({ pendingOrder: arg, menu: 'order_distance', menuCursor: 0 });
+        else if (arg === 'search_capture' || arg === 'search_destroy') this.store.setUi({ pendingOrder: arg, menu: 'order_target', menuCursor: 0 });
+        return;
+      case 'undock':
+        // The LEAVE ROBOT block is the existing rise-to-undock key (CR003.6);
+        // Space activating it performs the same command as holding rise.
+        this.sender.command({ kind: 'commander_set_vertical_intent', rising: true });
+        this.store.setUi({ menu: 'none', menuCursor: 0 });
         return;
       case 'dist':
         this.adjustDistance(Number(arg));
@@ -384,7 +429,7 @@ export class GameController implements InputSink {
         } else if (action === 'target' && s.ui.pendingOrder === 'search_destroy') {
           this.sender.command({ kind: 'set_robot_order', entityId, order: { kind: 'search_destroy', target: arg as (typeof DESTROY_TARGETS)[number] } });
         }
-        this.store.setUi({ menu: 'none', pendingOrder: null, notice: 'order sent' });
+        this.store.setUi({ menu: 'none', pendingOrder: null, notice: 'order sent', menuCursor: 0 });
         return;
       }
       case 'weapon':
@@ -436,6 +481,9 @@ export class GameController implements InputSink {
     if (dx !== 0 || dy !== 0) this.aim = dx !== 0 ? { dx, dy: 0 } : { dx: 0, dy };
   }
 }
+
+/** Menu modes whose block list is keyboard-navigable (CR003.241: arrows/WASD move, Space activates). */
+const NAV_MENUS = new Set<MenuMode>(['robot_menu', 'orders', 'order_target']);
 
 const BACK: Record<MenuMode, MenuMode> = {
   none: 'none',
