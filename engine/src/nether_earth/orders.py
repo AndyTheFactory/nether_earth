@@ -159,7 +159,11 @@ from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
 from nether_earth.movement import RobotMoveRequest, validate_robot_move
-from nether_earth.navigation import NavigationStatus, next_navigation_step
+from nether_earth.navigation import (
+    NavigationStatus,
+    next_body_approach_step,
+    next_navigation_step,
+)
 from nether_earth.reservations import destination_available
 from nether_earth.robot import Robot
 from nether_earth.robot_build import CANONICAL_WEAPON_ORDER, ModuleIdentity
@@ -817,9 +821,12 @@ def select_destroy_target(
 
     For :attr:`SearchDestroyTarget.ROBOT` the candidates are every robot
     with a different ``owner``, in canonical ``entity_id`` order, and the
-    goal cell is the target robot's own authoritative cell -- the robot
-    closes on it; `movement.py` refuses the final overlapping step, which is
-    correct and needs no special case here.
+    goal cell is the target robot's own authoritative anchor. That anchor is
+    occupied by the target's body, so the caller navigates with
+    :func:`~nether_earth.navigation.next_body_approach_step`, which closes on
+    the body rather than the cell (CR003.4): electronic robots plan to any
+    anchor touching it, and greedy robots stop beside it when `movement.py`
+    refuses the final overlapping step.
 
     For the structure kinds the candidates are every factory/war base not
     owned by ``robot.owner`` (a *neutral* structure is a valid destruction
@@ -989,8 +996,13 @@ def _navigate(
     world: WorldMap,
     rules: EngineRules,
     intent: EngagementIntent | None = None,
+    *,
+    goal_is_unit: bool = False,
 ) -> OrderEvaluation | None:
     """Ask the robot's own navigation policy for one step toward ``goal``.
+
+    With ``goal_is_unit`` the goal is another unit's (occupied) body anchor,
+    and the policy closes on that body instead of the cell (CR003.4).
 
     Returns ``None`` when the policy *proved* the goal unreachable
     (:attr:`~nether_earth.navigation.NavigationStatus.UNREACHABLE`), which
@@ -1002,11 +1014,13 @@ def _navigate(
       next tick (see the module docstring);
     - ``MOVE_IN_PROGRESS`` means a move is already in flight, so there is
       nothing to submit;
-    - ``ARRIVED`` cannot reach here (callers test arrival themselves against
-      their own completion rule, which is not always "standing on the goal
-      cell"), but is handled as a no-op step for total coverage.
+    - ``ARRIVED`` keeps the order active with no step: cell goals never
+      produce it (callers test arrival themselves against their own
+      completion rule), and for a ``goal_is_unit`` goal it means the robot
+      already touches its target, which never completes a robot hunt.
     """
-    decision = next_navigation_step(robot, goal[0], goal[1], state, world, rules)
+    navigate = next_body_approach_step if goal_is_unit else next_navigation_step
+    decision = navigate(robot, goal[0], goal[1], state, world, rules)
     if decision.status is NavigationStatus.UNREACHABLE:
         return None
     return OrderEvaluation(
@@ -1215,7 +1229,9 @@ def evaluate_order(
     target_id, goal = selected
     if target_kind is EngagementTargetKind.ROBOT:
         intent = engagement_intent_for(robot, target_kind, target_id, goal[0], goal[1])
-        evaluation = _navigate(robot, goal, order, state, world, rules, intent=intent)
+        evaluation = _navigate(
+            robot, goal, order, state, world, rules, intent=intent, goal_is_unit=True
+        )
         return evaluation if evaluation is not None else _fallback(robot)
     if (robot.x, robot.y) == goal:
         # Arrived on the structure's target cell: the order completes, and its
