@@ -130,6 +130,35 @@ def test_second_move_command_while_in_progress_is_gameplay_rejected() -> None:
     assert state.commander_for(PLAYER_ONE).horizontal_transition.to_x == 2
 
 
+def test_held_move_chains_cells_without_an_idle_tick() -> None:
+    """CR003.10 (#232, open-questions §23): a commander_move sent on every
+    tick starts a new cell on the tick the previous one completes, so the
+    cells start at ticks 1, 5, 9, ... (4 ticks per cell, no idle tick)."""
+    state = _base_state((_free_commander(PLAYER_ONE, x=0, y=1, altitude=0),))
+    ticks = DEFAULT_RULES.commander_horizontal_move_ticks
+    starts: list[int] = []
+    completions: list[int] = []
+    for sequence in range(3 * ticks + 1):
+        move = CommanderMoveCommand(player=PLAYER_ONE, sequence=sequence, dx=1, dy=0)
+        state, events = step(state, [move])
+        kinds = [type(e) for e in events]
+        if CommanderHorizontalMoveStartedEvent in kinds:
+            starts.append(state.tick)
+        if CommanderHorizontalMoveCompletedEvent in kinds:
+            completions.append(state.tick)
+            # The completion resolves before the tick's command is applied.
+            assert kinds.index(CommanderHorizontalMoveCompletedEvent) < kinds.index(
+                CommanderHorizontalMoveStartedEvent
+            )
+
+    assert starts == [1, 1 + ticks, 1 + 2 * ticks, 1 + 3 * ticks]
+    assert completions == starts[1:]
+    commander = state.commander_for(PLAYER_ONE)
+    assert commander.x == 3
+    assert commander.horizontal_transition is not None
+    assert commander.horizontal_transition.to_x == 4
+
+
 # --- Vertical rise/descend --------------------------------------------------
 
 

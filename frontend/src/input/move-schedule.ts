@@ -15,7 +15,7 @@
 import { TICK_MS, type GridTransition } from '../render/interpolation.ts';
 
 /** Ticks before the in-flight move's end at which re-sending starts (covers ~RTT). */
-export const MOVE_LEAD_TICKS = 2;
+export const MOVE_LEAD_TICKS = 3;
 /** Minimum gap between two commander_move sends while a direction is held. */
 export const MOVE_RESEND_MS = TICK_MS / 2;
 
