@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from nether_earth.ids import EntityId
 from nether_earth.orders import (
     Advance,
     Order,
@@ -51,7 +52,13 @@ def order_to_json(order: Order) -> dict[str, Any]:
             "target_x": order.target_x,
         }
     if isinstance(order, SearchCapture):
-        return {"kind": "search_capture", "target": order.target.value}
+        return {
+            "kind": "search_capture",
+            "target": order.target.value,
+            "structure_id": (
+                order.structure_id.to_json() if order.structure_id is not None else None
+            ),
+        }
     if isinstance(order, SearchDestroy):
         return {"kind": "search_destroy", "target": order.target.value}
     raise AssertionError(  # pragma: no cover - exhaustive over a closed union
@@ -69,7 +76,12 @@ def order_from_json(data: dict[str, Any]) -> Order:
     if kind == "retreat":
         return Retreat(distance_miles=data["distance_miles"], target_x=data["target_x"])
     if kind == "search_capture":
-        return SearchCapture(target=SearchCaptureTarget(data["target"]))
+        # ``structure_id`` (CR003.2) is absent from records written before it.
+        structure_id = data.get("structure_id")
+        return SearchCapture(
+            target=SearchCaptureTarget(data["target"]),
+            structure_id=EntityId.from_json(structure_id) if structure_id is not None else None,
+        )
     if kind == "search_destroy":
         return SearchDestroy(target=SearchDestroyTarget(data["target"]))
     raise ValueError(f"unknown Order kind: {kind!r}")

@@ -351,17 +351,19 @@ def test_order_lifecycle_and_neutral_acquisition_replay_identically() -> None:
         {"structure_id": FACTORY_ONE.to_json(), "owner": ownership.owner.to_json()}
     ]
 
-    # Both robots' final standing orders survive into the snapshot. The
-    # arriving robot's Search & Capture has completed into Stop & Defend;
-    # the loser's has fallen back (no neutral factory is left to hunt).
+    # Both robots' final standing orders survive into the snapshot, stored
+    # target included (CR003.2): Search & Capture never completes, so with
+    # no neutral factory left both robots keep the order and idle.
     assert all(robot.order is not None for robot in state.robots)
     serialized_orders = {
         entry["entity_id"]: entry["order"] for entry in snapshot["robots"]
     }
-    assert serialized_orders == {
-        ROBOT_WEST.to_json(): {"kind": "stop_and_defend"},
-        ROBOT_EAST.to_json(): {"kind": "stop_and_defend"},
+    held = {
+        "kind": "search_capture",
+        "target": "neutral_factory",
+        "structure_id": FACTORY_ONE.to_json(),
     }
+    assert serialized_orders == {ROBOT_WEST.to_json(): held, ROBOT_EAST.to_json(): held}
     assert any(isinstance(e, RobotOrderChangedEvent) for e in events)
 
 

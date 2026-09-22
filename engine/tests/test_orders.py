@@ -607,12 +607,19 @@ def test_search_capture_ignores_structures_with_no_declared_capture_points() -> 
     assert select_capture_target(robot, SearchCaptureTarget.NEUTRAL_FACTORY, _state((robot,)), world) is None
 
 
-def test_search_capture_with_no_candidate_falls_back_to_stop_and_defend() -> None:
-    robot = _robot(order=SearchCapture(SearchCaptureTarget.ENEMY_WAR_BASE))
-    evaluation = evaluate_order(robot, _state((robot,)), _empty_world())
+def test_search_capture_with_no_candidate_keeps_the_order_and_idles_defensively() -> None:
+    """CR003.2: no target keeps the order; the robot holds with the defensive intent."""
+    order = SearchCapture(SearchCaptureTarget.ENEMY_WAR_BASE)
+    robot = _robot(order=order)
+    enemy = _robot("robot-enemy", PLAYER_TWO, x=5, y=5)
+    evaluation = evaluate_order(robot, _state((robot, enemy)), _empty_world())
     assert evaluation is not None
-    assert evaluation.status is OrderStatus.FALLBACK
-    assert evaluation.order == StopAndDefend()
+    assert evaluation.status is OrderStatus.ACTIVE
+    assert evaluation.order == order
+    assert not evaluation.changed
+    assert evaluation.request is None
+    assert evaluation.intent is not None
+    assert evaluation.intent.target_id == enemy.entity_id
 
 
 def test_search_capture_moves_toward_its_target() -> None:
@@ -623,25 +630,47 @@ def test_search_capture_moves_toward_its_target() -> None:
     assert evaluation.status is OrderStatus.ACTIVE
     assert evaluation.request is not None
     assert (evaluation.request.dx, evaluation.request.dy) == (1, 0)
-
-
-def test_search_capture_completes_on_reaching_the_capture_footprint() -> None:
-    """capture.py owns the capture itself; Stop & Defend keeps occupation continuous."""
-    world = _world()
-    robot = _robot(
-        x=NEUTRAL_FACTORY_CAPTURE_CELL[0],
-        y=NEUTRAL_FACTORY_CAPTURE_CELL[1],
-        order=SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY),
+    assert evaluation.order == SearchCapture(
+        SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=NEUTRAL_FACTORY
     )
-    evaluation = evaluate_order(robot, _state((robot,)), world)
+    assert evaluation.changed
+
+
+def test_search_capture_holds_on_the_footprint_of_an_uncaptured_target() -> None:
+    """CR003.2: the order stays ACTIVE and the robot holds so capture.py keeps counting."""
+    world = _world()
+    order = SearchCapture(SearchCaptureTarget.ENEMY_WAR_BASE, structure_id=ENEMY_WAR_BASE)
+    robot = _robot(
+        x=ENEMY_WAR_BASE_CAPTURE_CELL[0], y=ENEMY_WAR_BASE_CAPTURE_CELL[1], order=order
+    )
+    enemy = _robot("robot-enemy", PLAYER_TWO, x=12, y=5)
+    evaluation = evaluate_order(robot, _state((robot, enemy)), world)
     assert evaluation is not None
-    assert evaluation.status is OrderStatus.COMPLETED
-    assert evaluation.order == StopAndDefend()
+    assert evaluation.status is OrderStatus.ACTIVE
+    assert evaluation.order == order
     assert evaluation.request is None
+    assert evaluation.intent is not None
+    assert evaluation.intent.target_id == enemy.entity_id
 
 
-def test_search_capture_reselects_when_its_target_disappears() -> None:
-    """Target selection is stateless, so a vanished target needs no bookkeeping."""
+def test_search_capture_keeps_its_target_while_ownership_still_matches() -> None:
+    """Lb289: a stored target that still matches is kept even if another is nearer."""
+    world = _world()
+    # Both factories are enemy-owned; the robot at (6, 4) is nearer (6, 2), but
+    # it already targets ENEMY_FACTORY at (8, 8) and keeps heading there.
+    order = SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, structure_id=ENEMY_FACTORY)
+    robot = _robot(x=6, y=4, order=order)
+    state = _state(
+        (robot,), ownership=(StructureOwnership(structure_id=NEUTRAL_FACTORY, owner=PLAYER_TWO),)
+    )
+    evaluation = evaluate_order(robot, state, world)
+    assert evaluation is not None and evaluation.request is not None
+    assert evaluation.order == order
+    assert (evaluation.request.dx, evaluation.request.dy) in {(1, 0), (0, 1)}
+
+
+def test_search_capture_retargets_when_its_target_changes_hands() -> None:
+    """Once the stored target no longer matches, the next evaluation retargets."""
     world = _world()
     order = SearchCapture(SearchCaptureTarget.ENEMY_FACTORY)
     robot = _robot(x=6, y=4, order=order)
@@ -651,16 +680,61 @@ def test_search_capture_reselects_when_its_target_disappears() -> None:
     first = evaluate_order(robot, state, world)
     assert first is not None and first.request is not None
     assert (first.request.dx, first.request.dy) == (0, -1)  # heading to (6, 2)
+    assert first.order == SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, NEUTRAL_FACTORY)
 
-    # The nearer factory changes hands to us: the next evaluation silently
-    # retargets the remaining enemy factory at (8, 8), heading south instead.
+    # The nearer factory changes hands to us: the next evaluation retargets
+    # the remaining enemy factory at (8, 8), heading south instead.
+    robot = robot.with_order(first.order)
     retaken = _state(
         (robot,), ownership=(StructureOwnership(structure_id=NEUTRAL_FACTORY, owner=PLAYER_ONE),)
     )
     second = evaluate_order(robot, retaken, world)
     assert second is not None and second.request is not None
     assert (second.request.dx, second.request.dy) == (0, 1)
-    assert second.order == order
+    assert second.status is OrderStatus.ACTIVE
+    assert second.order == SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, ENEMY_FACTORY)
+
+
+def test_search_capture_skips_a_target_another_robot_with_the_same_order_holds() -> None:
+    """Lb36c: targets are exclusive between same-owner robots with the same order."""
+    world = _world()
+    ownership = (StructureOwnership(structure_id=NEUTRAL_FACTORY, owner=PLAYER_TWO),)
+    holder = _robot(
+        "robot-b",
+        x=0,
+        y=0,
+        order=SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, structure_id=NEUTRAL_FACTORY),
+    )
+    robot = _robot(x=6, y=4, order=SearchCapture(SearchCaptureTarget.ENEMY_FACTORY))
+    evaluation = evaluate_order(robot, _state((robot, holder), ownership=ownership), world)
+    assert evaluation is not None
+    assert evaluation.order == SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, ENEMY_FACTORY)
+
+    # A different order type, or another player's robot, claims nothing.
+    for other in (
+        _robot("robot-b", x=0, y=0, order=SearchCapture(
+            SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=NEUTRAL_FACTORY
+        )),
+        _robot("robot-b", PLAYER_TWO, x=0, y=0, order=SearchCapture(
+            SearchCaptureTarget.ENEMY_FACTORY, structure_id=NEUTRAL_FACTORY
+        )),
+    ):
+        evaluation = evaluate_order(robot, _state((robot, other), ownership=ownership), world)
+        assert evaluation is not None
+        assert evaluation.order == SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, NEUTRAL_FACTORY)
+
+
+def test_search_capture_assignment_clears_a_pre_bound_target() -> None:
+    robot = _robot()
+    command = SetRobotOrderCommand(
+        player=PLAYER_ONE,
+        sequence=0,
+        entity_id=robot.entity_id,
+        order=SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=NEUTRAL_FACTORY),
+    )
+    new_state, event = apply_set_robot_order(command, _state((robot,)), tick=0)
+    assert event is not None
+    assert new_state.robots[0].order == SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY)
 
 
 def test_search_capture_produces_no_engagement_intent() -> None:

@@ -8,7 +8,13 @@ that an ordered fleet behaves identically across replays.
 
 from __future__ import annotations
 
-from nether_earth.capture import StructureCapturedEvent
+from dataclasses import replace
+
+from nether_earth.capture import (
+    NeutralStructureAcquiredEvent,
+    StructureCapturedEvent,
+    StructureOwnership,
+)
 from nether_earth.combat import ProjectileFiredEvent
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.destruction import RobotDestroyedEvent, StructureDestroyedEvent
@@ -45,6 +51,8 @@ TRACKS_TICKS = DEFAULT_RULES.robot_move_ticks_tracks_normal
 NEUTRAL_FACTORY = EntityId("factory-neutral")
 NEUTRAL_FACTORY_CAPTURE_CELL = (6, 5)
 OWN_WAR_BASE = EntityId("warbase-p1")
+SECOND_FACTORY = EntityId("factory-second")
+SECOND_FACTORY_CAPTURE_CELL = (16, 5)
 
 
 def _world(width: int = 30, height: int = 12) -> WorldMap:
@@ -219,42 +227,139 @@ def test_an_impossible_advance_falls_back_on_the_first_evaluated_tick() -> None:
 # --------------------------------------------------------------------------
 
 
+def _two_factory_world() -> WorldMap:
+    """``_world`` plus a second neutral factory ten cells further east."""
+    world = _world()
+    return replace(
+        world,
+        factories=(
+            *world.factories,
+            Factory(
+                id=SECOND_FACTORY,
+                components=(Component(x=16, y=6, height=3),),
+                factory_type=FactoryType.CANNON,
+                owner=None,
+            ),
+        ),
+        interaction_points=(
+            *world.interaction_points,
+            InteractionPoint(
+                id="second-capture",
+                kind=InteractionKind.FACTORY_CAPTURE,
+                structure_id=SECOND_FACTORY,
+                footprint=Footprint(cells=frozenset({SECOND_FACTORY_CAPTURE_CELL})),
+            ),
+        ),
+    )
+
+
+def _owner(state: GameState, structure_id: EntityId) -> PlayerId | None:
+    record = state.structure_ownership_for(structure_id)
+    return record.owner if record is not None else None
+
+
 def test_search_capture_walks_to_the_footprint_and_capture_completes_there() -> None:
     world = _world()
     robot = _robot(x=0, y=5, order=SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY))
     state = _state((robot,))
 
-    state, _ = _run(state, world, TRACKS_TICKS * 6 + 2)
+    state, events = _run(state, world, TRACKS_TICKS * 6 + 2)
 
     assert (state.robots[0].x, state.robots[0].y) == NEUTRAL_FACTORY_CAPTURE_CELL
-    assert state.robots[0].order == StopAndDefend()
+    # CR003.2: the order persists; with nothing neutral left the robot idles.
+    assert state.robots[0].order == SearchCapture(
+        SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=NEUTRAL_FACTORY
+    )
     # Reaching the footprint is what hands over to capture.py: a neutral
     # factory is acquired instantly on qualifying occupation.
-    assert state.structure_ownership_for(NEUTRAL_FACTORY) is not None
-    assert state.structure_ownership_for(NEUTRAL_FACTORY).owner == PLAYER_ONE  # type: ignore[union-attr]
+    assert _owner(state, NEUTRAL_FACTORY) == PLAYER_ONE
+    statuses = {event.status for event in _of(events, RobotOrderChangedEvent)}  # type: ignore[attr-defined]
+    assert statuses == {OrderStatus.ACTIVE}
 
 
-def test_search_capture_with_no_candidate_falls_back_immediately() -> None:
-    """The factory is already ours, so there is nothing neutral left to take."""
-    world = _world()
-    robot = _robot(
-        x=NEUTRAL_FACTORY_CAPTURE_CELL[0],
-        y=NEUTRAL_FACTORY_CAPTURE_CELL[1],
-        order=SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY),
-    )
+def test_one_robot_captures_two_neutral_factories_in_sequence() -> None:
+    """CR003.2: after each capture the order retargets and the robot leaves."""
+    world = _two_factory_world()
+    robot = _robot(x=0, y=5, order=SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY))
     state = _state((robot,))
-    state, _events = step(state, (), world)
-    assert state.robots[0].order == StopAndDefend()
 
-    second = _robot("robot-b", x=0, y=5, order=SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY))
-    state = state.with_robots((*state.robots, second))
-    state, events = step(state, (), world)
-    fallbacks = [
-        event
+    state, events = _run(state, world, TRACKS_TICKS * 6 + 2)
+    assert _owner(state, NEUTRAL_FACTORY) == PLAYER_ONE
+    assert _owner(state, SECOND_FACTORY) is None
+
+    state, more = _run(state, world, TRACKS_TICKS * 10 + 2)
+    events += more
+    assert (state.robots[0].x, state.robots[0].y) == SECOND_FACTORY_CAPTURE_CELL
+    assert _owner(state, SECOND_FACTORY) == PLAYER_ONE
+    assert state.robots[0].order == SearchCapture(
+        SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=SECOND_FACTORY
+    )
+    targets = [
+        event.order.structure_id  # type: ignore[attr-defined]
         for event in _of(events, RobotOrderChangedEvent)
-        if event.entity_id == second.entity_id
     ]
-    assert [event.status for event in fallbacks] == [OrderStatus.FALLBACK]
+    assert targets == [NEUTRAL_FACTORY, SECOND_FACTORY]
+    captured = [
+        event.structure_id  # type: ignore[attr-defined]
+        for event in _of(events, NeutralStructureAcquiredEvent)
+    ]
+    assert captured == [NEUTRAL_FACTORY, SECOND_FACTORY]
+
+
+def test_two_robots_with_the_same_capture_order_split_two_factories() -> None:
+    """Lb36c: a structure another same-order robot targets is skipped."""
+    world = _two_factory_world()
+    order = SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY)
+    first = _robot("robot-a", x=0, y=5, order=order)
+    second = _robot("robot-b", x=0, y=8, order=order)
+    state = _state((first, second))
+
+    # Both are nearer NEUTRAL_FACTORY; robot-a (canonical first) takes it on
+    # the very first tick, and robot-b sees that claim in the same tick.
+    state, _events = step(state, (), world)
+    assert [robot.order for robot in state.robots] == [
+        SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=NEUTRAL_FACTORY),
+        SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=SECOND_FACTORY),
+    ]
+
+    state, _events = _run(state, world, TRACKS_TICKS * 30)
+    assert _owner(state, NEUTRAL_FACTORY) == PLAYER_ONE
+    assert _owner(state, SECOND_FACTORY) == PLAYER_ONE
+    assert (state.robots[0].x, state.robots[0].y) == NEUTRAL_FACTORY_CAPTURE_CELL
+    assert (state.robots[1].x, state.robots[1].y) == SECOND_FACTORY_CAPTURE_CELL
+
+
+def test_search_capture_with_no_target_idles_and_resumes_when_a_factory_changes_hands() -> None:
+    """No target keeps the order and holds; a factory lost to the enemy revives it."""
+    world = _world()
+    order = SearchCapture(SearchCaptureTarget.ENEMY_FACTORY)
+    robot = _robot(x=0, y=5, order=order)
+    enemy = _robot("robot-enemy", PLAYER_TWO, x=20, y=10)
+    state = _state((robot, enemy))
+
+    state, events = _run(state, world, TRACKS_TICKS * 3)
+    assert state.robots[0].order == order
+    assert (state.robots[0].x, state.robots[0].y) == (0, 5)
+    assert _of(events, RobotOrderChangedEvent) == []
+    assert _of(events, RobotMoveStartedEvent) == []
+    intents = [
+        event.intent.robot_id  # type: ignore[attr-defined]
+        for event in _of(events, RobotEngagementIntentEvent)
+    ]
+    assert robot.entity_id in intents
+
+    state = state.with_structure_ownership(
+        (StructureOwnership(structure_id=NEUTRAL_FACTORY, owner=PLAYER_TWO),)
+    )
+    state, events = step(state, (), world)
+    assert state.robots[0].order == SearchCapture(
+        SearchCaptureTarget.ENEMY_FACTORY, structure_id=NEUTRAL_FACTORY
+    )
+    started = [
+        event.entity_id  # type: ignore[attr-defined]
+        for event in _of(events, RobotMoveStartedEvent)
+    ]
+    assert robot.entity_id in started
 
 
 # --------------------------------------------------------------------------

@@ -50,20 +50,26 @@ The order itself lives on :attr:`nether_earth.robot.Robot.order`, so
 ``state.robots``' single canonical ordering already orders order evaluation
 and no parallel ``GameState`` collection can drift out of sync. Everything
 *else* is recomputed from the current :class:`~nether_earth.state.GameState`
-every tick -- in particular **target selection is never cached**. That is
-what makes target disappearance free: a robot whose Search & Destroy target
-was destroyed, or whose Search & Capture factory changed hands, simply
+every tick -- in particular **Search & Destroy target selection is never
+cached**. A robot whose Search & Destroy target was destroyed simply
 selects a different target (or falls back to Stop & Defend when none
-remains) on the very next evaluation, with no stale-target bookkeeping that
-could survive the thing it pointed at. It mirrors `navigation.py`'s
+remains) on the very next evaluation. It mirrors `navigation.py`'s
 deliberately plan-free "replanning" for the same reason.
 
-The one piece of order state that *is* retained is
-:attr:`Advance.target_x`/:attr:`Retreat.target_x`: "move 20 miles east" is
-relative to where the robot stood when the order was given, so the absolute
-goal column is bound on first evaluation (the ``PENDING`` -> ``ACTIVE``
-lifecycle transition) and stored back on the order. Recomputing it from the
-robot's current position every tick would make the robot advance forever.
+Two pieces of order state *are* retained on the order itself:
+
+- :attr:`Advance.target_x`/:attr:`Retreat.target_x`: "move 20 miles east" is
+  relative to where the robot stood when the order was given, so the
+  absolute goal column is bound on first evaluation (the ``PENDING`` ->
+  ``ACTIVE`` lifecycle transition) and stored back on the order.
+  Recomputing it from the robot's current position every tick would make
+  the robot advance forever.
+- :attr:`SearchCapture.structure_id` (CR003.2): the Spectrum's
+  ``ROBOT_STRUCT_ORDERS_ARGUMENT``. It is kept while its live ownership
+  still matches the order and re-selected otherwise, and it is what makes
+  capture targets exclusive between same-owner robots with the same order
+  (``Lb36c``). It is re-validated every evaluation, so it can never
+  outlive the ownership that made it a target.
 
 Order lifecycle
 ----------------
@@ -76,11 +82,7 @@ Every order has the same explicit three-phase lifecycle, reported by
 - **ACTIVE** -- the order is producing goals/intent each tick.
 - **COMPLETED** -- the goal was reached. ``Advance``/``Retreat`` complete on
   arrival and are *replaced* by :class:`StopAndDefend` (the locked
-  "then Stop & Defend" transition). ``SearchCapture`` completes on standing
-  in the target's capture footprint, at which point `capture.py` -- not this
-  module -- runs the actual capture, and the order is likewise replaced by
-  :class:`StopAndDefend` so a captured structure does not keep the robot
-  pinned to a goal it has already satisfied. A ``SearchDestroy`` against a
+  "then Stop & Defend" transition). A ``SearchDestroy`` against a
   factory/war base completes the same way on its target cell, and that
   completion evaluation carries the only structure engagement intent --
   the nuclear detonation `autonomous_combat.py` executes
@@ -89,6 +91,17 @@ Every order has the same explicit three-phase lifecycle, reported by
   replaced by :class:`StopAndDefend`.
 
 :class:`StopAndDefend` itself never completes; it is the terminal order.
+
+``SearchCapture`` never completes or falls back either (CR003.2, Spectrum
+``Lb289``): it stays ``ACTIVE`` for as long as the player leaves it. While
+its target is uncaptured it walks to the target's capture footprint and
+then holds there, with the Stop & Defend intent, so `capture.py` -- not
+this module -- keeps counting the occupation and runs the capture. Once the
+structure changes hands the next evaluation selects another target and the
+robot leaves. With no matching target it holds, with the same defensive
+intent, and resumes when a structure matches again (for example a factory
+lost to the enemy). Only its stored ``structure_id`` changes, which emits
+an ``ACTIVE`` :class:`RobotOrderChangedEvent`.
 
 What counts as "impossible"
 ----------------------------
@@ -101,13 +114,14 @@ rather than silently abandoning its order:
   non-integer distance, an unrecognized order object);
 - an ``Advance``/``Retreat`` whose goal column lies outside the map *and*
   whose robot already sits at that map edge, so zero progress is possible;
-- a ``Search`` order for which the world currently offers **no** candidate
-  target at all;
+- a ``SearchDestroy`` order for which the world currently offers **no**
+  candidate target at all;
 - a ``SearchDestroy`` against a structure by a robot carrying no nuclear
   module -- structures require a nuke (issue #64's scope note), so such a
   robot can never complete the order however far it walks;
 - a goal :class:`~nether_earth.navigation.ElectronicNavigation` has
-  *proved* unreachable (:attr:`~nether_earth.navigation.NavigationStatus.UNREACHABLE`).
+  *proved* unreachable (:attr:`~nether_earth.navigation.NavigationStatus.UNREACHABLE`),
+  except under ``SearchCapture``, which holds and retries instead.
 
 :attr:`~nether_earth.navigation.NavigationStatus.BLOCKED` is explicitly NOT
 impossible: it is the locked "may get stuck" outcome for a non-electronic
@@ -133,7 +147,7 @@ stream. Every choice is made by stable ordering instead:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 
@@ -289,21 +303,34 @@ class Retreat:
 
 @dataclass(frozen=True, slots=True)
 class SearchCapture:
-    """Seek out and stand on the capture footprint of a ``target`` structure.
+    """Keep capturing ``target`` structures, one after another (CR003.2).
 
-    Completion is *arrival on the footprint*, not the capture itself:
+    The order never completes (Spectrum ``Lb289``: the order byte is never
+    rewritten for a player robot). ``structure_id`` is the Spectrum's
+    ``ROBOT_STRUCT_ORDERS_ARGUMENT``: the structure the robot last selected,
+    ``None`` until the first evaluation selects one. Each evaluation keeps
+    it while its live ownership still matches ``target``; otherwise it
+    selects the nearest matching structure no other same-owner robot with
+    the same order already holds (``Lb36c``). When nothing matches, the
+    stored id is left as it was (the Spectrum does not clear the argument)
+    and the robot idles with the defensive intent until something matches.
+
     `capture.py` owns capture progress, duration, interruption, and
-    ownership transfer, and it triggers purely on a qualifying robot's
-    authoritative position. This order's whole job is to deliver the robot
-    to a cell :func:`~nether_earth.capture.capture_footprint` reports -- the
-    very same function `capture.py`'s :func:`~nether_earth.capture.advance_capture`
-    reads -- and then to get out of the way by becoming
-    :class:`StopAndDefend`, which holds the robot exactly where it stands
-    and so satisfies the locked "qualifying occupation must be continuous"
-    rule for free.
+    ownership transfer, and triggers purely on a qualifying robot's
+    authoritative position. This order delivers the robot to a cell
+    :func:`~nether_earth.capture.capture_footprint` reports -- the very same
+    function `capture.py`'s :func:`~nether_earth.capture.advance_capture`
+    reads -- and then holds it there (no movement request) while the
+    structure is still uncaptured, which keeps the occupation continuous.
+    Once captured, the structure no longer matches and the next evaluation
+    retargets and leaves.
+
+    Like ``Advance.target_x``, ``structure_id`` is engine-bound state, never
+    player input: :func:`apply_set_robot_order` clears it on assignment.
     """
 
     target: SearchCaptureTarget
+    structure_id: EntityId | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,7 +384,9 @@ def order_is_valid(order: object) -> bool:
             return False
         return 0 <= order.distance_miles <= MAX_ORDER_DISTANCE_MILES
     if isinstance(order, SearchCapture):
-        return isinstance(order.target, SearchCaptureTarget)
+        return isinstance(order.target, SearchCaptureTarget) and (
+            order.structure_id is None or isinstance(order.structure_id, EntityId)
+        )
     if isinstance(order, SearchDestroy):
         return isinstance(order.target, SearchDestroyTarget)
     return False
@@ -486,6 +515,8 @@ def _unbound(order: Order) -> Order:
     """
     if isinstance(order, (Advance, Retreat)):
         return replace(order, target_x=None)
+    if isinstance(order, SearchCapture):
+        return replace(order, structure_id=None)
     return order
 
 
@@ -667,21 +698,60 @@ def _structures_of_kind(
     return tuple(sorted(structures, key=lambda structure: structure.id.value))
 
 
+def _capture_structure_kinds(
+    target: SearchCaptureTarget,
+) -> tuple[EngagementTargetKind, InteractionKind]:
+    """Return the structure kind and capture interaction ``target`` hunts."""
+    if target is SearchCaptureTarget.ENEMY_WAR_BASE:
+        return EngagementTargetKind.WAR_BASE, InteractionKind.WARBASE_CAPTURE
+    return EngagementTargetKind.FACTORY, InteractionKind.FACTORY_CAPTURE
+
+
+def _capture_candidate(
+    robot: Robot,
+    target: SearchCaptureTarget,
+    structure: WarBase | Factory,
+    state: GameState,
+    world: WorldMap,
+) -> _StructureCandidate | None:
+    """Return ``structure`` as a candidate if it matches ``target`` now, else ``None``.
+
+    "Matches" is the Spectrum's ownership-flag test (``Lb289``/``Lb35b``):
+    the structure's *live* owner (`capture.py`'s
+    :func:`~nether_earth.capture.effective_owner`, so this tick's captures
+    are already visible) has the requested relation to ``robot.owner``. A
+    structure with no declared capture point on this map is never a
+    candidate (a valid map state, never an error -- see capture.py).
+    """
+    owner = effective_owner(world, state, structure)
+    if target is SearchCaptureTarget.NEUTRAL_FACTORY:
+        if owner is not None:
+            return None
+    elif owner is None or owner == robot.owner:
+        # ENEMY_FACTORY / ENEMY_WAR_BASE: a neutral structure is not an
+        # enemy one, and a robot never captures its own side's holding.
+        return None
+    _kind, interaction_kind = _capture_structure_kinds(target)
+    footprint = capture_footprint(world, structure.id, interaction_kind)
+    if not footprint:
+        return None
+    return _StructureCandidate(structure_id=structure.id, goal_cells=footprint)
+
+
 def select_capture_target(
     robot: Robot,
     target: SearchCaptureTarget,
     state: GameState,
     world: WorldMap,
+    exclude: frozenset[EntityId] = frozenset(),
 ) -> tuple[EntityId, tuple[int, int]] | None:
     """Return the ``(structure_id, goal_cell)`` a Search & Capture should pursue.
 
-    Candidates are every structure of the requested kind whose *live*
-    ownership (`capture.py`'s :func:`~nether_earth.capture.effective_owner`,
-    so this tick's captures are already visible) matches the requested
-    relation to ``robot.owner``, and that declares at least one capture
-    interaction point on this map. A structure the robot already owns is
-    never a candidate, which is what makes the order self-terminating rather
-    than looping back onto its own prize.
+    Candidates are every structure of the requested kind that currently
+    matches ``target`` (see :func:`_capture_candidate`) and is not in
+    ``exclude`` -- the structures other same-owner robots with the same
+    order already target (Spectrum ``Lb36c``; see :func:`_claimed_structures`).
+    A structure the robot already owns is never a candidate.
 
     Selection is by ``(distance to nearest footprint cell, structure id)``
     and the returned goal cell is that nearest footprint cell -- the exact
@@ -690,36 +760,51 @@ def select_capture_target(
     :func:`~nether_earth.capture.capture_footprint` helper so the order can
     never walk a robot to a cell that does not start a capture.
 
-    Returns ``None`` when no candidate exists, which the caller turns into
-    the locked Stop & Defend fallback.
+    Returns ``None`` when no candidate exists; the order then idles (CR003.2).
     """
-    if target is SearchCaptureTarget.ENEMY_WAR_BASE:
-        structure_kind = EngagementTargetKind.WAR_BASE
-        interaction_kind = InteractionKind.WARBASE_CAPTURE
-    else:
-        structure_kind = EngagementTargetKind.FACTORY
-        interaction_kind = InteractionKind.FACTORY_CAPTURE
-
+    structure_kind, _interaction = _capture_structure_kinds(target)
     candidates: list[_StructureCandidate] = []
     for structure in _structures_of_kind(world, structure_kind):
-        owner = effective_owner(world, state, structure)
-        if target is SearchCaptureTarget.NEUTRAL_FACTORY:
-            if owner is not None:
-                continue
-        elif owner is None or owner == robot.owner:
-            # ENEMY_FACTORY / ENEMY_WAR_BASE: a neutral structure is not an
-            # enemy one, and a robot never captures its own side's holding.
+        if structure.id in exclude:
             continue
-        footprint = capture_footprint(world, structure.id, interaction_kind)
-        if not footprint:
-            # Not capturable on this map (no declared capture points); a
-            # valid map state, never an error -- see capture.py.
-            continue
-        candidates.append(
-            _StructureCandidate(structure_id=structure.id, goal_cells=footprint)
-        )
-
+        candidate = _capture_candidate(robot, target, structure, state, world)
+        if candidate is not None:
+            candidates.append(candidate)
     return _closest_candidate(robot, candidates)
+
+
+def _claimed_structures(
+    robot: Robot,
+    order: SearchCapture,
+    state: GameState,
+    overrides: Mapping[EntityId, Order] | None = None,
+) -> frozenset[EntityId]:
+    """Structures other robots of ``robot``'s owner already target under ``order``'s type.
+
+    The Spectrum's ``Lb36c``: a building is skipped when another friendly
+    robot with the *same* order (same capture target type) holds it as its
+    order argument. The stored argument counts even when it is stale, as
+    on the Spectrum. ``overrides`` carries orders already re-evaluated
+    earlier in the same tick (see :func:`evaluate_orders`), so robots that
+    retarget in the same tick see each other's new choice exactly as the
+    Spectrum's sequential robot update does.
+    """
+    claimed: list[EntityId] = []
+    for other in state.robots:
+        if other.entity_id == robot.entity_id or other.owner != robot.owner:
+            continue
+        other_order = (
+            overrides[other.entity_id]
+            if overrides is not None and other.entity_id in overrides
+            else other.order
+        )
+        if (
+            isinstance(other_order, SearchCapture)
+            and other_order.target is order.target
+            and other_order.structure_id is not None
+        ):
+            claimed.append(other_order.structure_id)
+    return frozenset(claimed)
 
 
 def select_destroy_target(
@@ -981,6 +1066,59 @@ def _linear_goal(
     return order, order.target_x
 
 
+def _hold(robot: Robot, order: Order, state: GameState) -> OrderEvaluation:
+    """Keep ``order`` ``ACTIVE`` without moving, with the Stop & Defend intent."""
+    return OrderEvaluation(
+        robot_id=robot.entity_id,
+        order=order,
+        previous=robot.order,
+        status=OrderStatus.ACTIVE,
+        intent=_defensive_intent(robot, state),
+    )
+
+
+def _evaluate_capture(
+    robot: Robot,
+    order: SearchCapture,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+    claimed: frozenset[EntityId],
+) -> OrderEvaluation:
+    """Evaluate a ``SearchCapture`` order (Spectrum ``Lb289``, CR003.2).
+
+    Keeps the stored target while it still matches the order; otherwise
+    selects a new one, skipping ``claimed``. The order is always kept:
+
+    - no matching target -> hold with the defensive intent, retry next tick
+      (a player robot's ``ld c, 0; ret``);
+    - standing on the target's footprint -> hold with the defensive intent,
+      so `capture.py` keeps counting the occupation;
+    - otherwise navigate toward the nearest footprint cell. A goal that
+      electronic navigation proves unreachable (for example a footprint cell
+      another robot stands on) also holds rather than dropping the order,
+      since the order never changes on the Spectrum.
+    """
+    current: _StructureCandidate | None = None
+    if order.structure_id is not None:
+        structure_kind, _interaction = _capture_structure_kinds(order.target)
+        for structure in _structures_of_kind(world, structure_kind):
+            if structure.id == order.structure_id:
+                current = _capture_candidate(robot, order.target, structure, state, world)
+    if current is not None:
+        goal = _nearest_cell(robot, current.goal_cells)
+    else:
+        selected = select_capture_target(robot, order.target, state, world, exclude=claimed)
+        if selected is None:
+            return _hold(robot, order, state)
+        structure_id, goal = selected
+        order = replace(order, structure_id=structure_id)
+    if goal is None or (robot.x, robot.y) == goal:
+        return _hold(robot, order, state)
+    evaluation = _navigate(robot, goal, order, state, world, rules)
+    return evaluation if evaluation is not None else _hold(robot, order, state)
+
+
 def walk_out_request(
     robot: Robot, state: GameState, world: WorldMap, rules: EngineRules = DEFAULT_RULES
 ) -> RobotMoveRequest | None:
@@ -1014,6 +1152,7 @@ def evaluate_order(
     state: GameState,
     world: WorldMap,
     rules: EngineRules = DEFAULT_RULES,
+    claimed: frozenset[EntityId] | None = None,
 ) -> OrderEvaluation | None:
     """Evaluate ``robot``'s order for one tick.
 
@@ -1023,6 +1162,11 @@ def evaluate_order(
     :func:`walk_out_request`.) Otherwise returns exactly one
     :class:`OrderEvaluation`; see that class and the module docstring for
     how the caller must apply it.
+
+    ``claimed`` is only read by ``SearchCapture``: the structures other
+    same-owner robots with the same order already target. ``None`` derives
+    it from ``state`` (:func:`_claimed_structures`);
+    :func:`evaluate_orders` passes it so same-tick retargets are visible.
 
     Pure: ``state`` is never mutated, no randomness is drawn, and no
     wall-clock time is read.
@@ -1054,17 +1198,9 @@ def evaluate_order(
         return evaluation if evaluation is not None else _fallback(robot)
 
     if isinstance(order, SearchCapture):
-        selected = select_capture_target(robot, order.target, state, world)
-        if selected is None:
-            return _fallback(robot)
-        _structure_id, goal = selected
-        if (robot.x, robot.y) == goal:
-            # Standing on the capture footprint: capture.py takes it from
-            # here, and Stop & Defend holds the robot in place so the
-            # occupation stays continuous.
-            return _completed(robot)
-        evaluation = _navigate(robot, goal, order, state, world, rules)
-        return evaluation if evaluation is not None else _fallback(robot)
+        if claimed is None:
+            claimed = _claimed_structures(robot, order, state)
+        return _evaluate_capture(robot, order, state, world, rules, claimed)
 
     # SearchDestroy
     target_kind = _DESTROY_TARGET_KINDS[order.target]
@@ -1136,18 +1272,28 @@ def evaluate_orders(
     skipped entirely (see :func:`_under_direct_control`).
 
     Every evaluation reads the same entry ``state``: this is a pure
-    read-only pass whose results the caller applies afterwards, so no
-    robot's evaluation can observe another's outcome within the tick. That
-    is what makes autonomous behavior independent of evaluation order and
-    therefore replay-identical.
+    read-only pass whose results the caller applies afterwards. The one
+    exception is a ``SearchCapture`` target claim (CR003.2): a robot that
+    selects a new capture target makes it unavailable to later robots in
+    canonical order within the same tick, as the Spectrum's sequential
+    robot update does (``Lb36c``). Without it two robots with the same
+    order could pick the same structure in the same tick. Canonical order
+    keeps this deterministic and replay-identical.
     """
     evaluations: list[OrderEvaluation] = []
+    evaluated_orders: dict[EntityId, Order] = {}
     for robot in state.robots:
         if robot.order is None or _under_direct_control(robot, state):
             continue
-        evaluation = evaluate_order(robot, state, world, rules)
+        claimed = (
+            _claimed_structures(robot, robot.order, state, evaluated_orders)
+            if isinstance(robot.order, SearchCapture)
+            else None
+        )
+        evaluation = evaluate_order(robot, state, world, rules, claimed=claimed)
         if evaluation is not None:
             evaluations.append(evaluation)
+            evaluated_orders[robot.entity_id] = evaluation.order
     return tuple(evaluations)
 
 
