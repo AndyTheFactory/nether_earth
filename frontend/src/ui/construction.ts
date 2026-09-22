@@ -197,7 +197,8 @@ export function previewBitmap(stack: readonly ModuleName[]): Bitmap {
       if (min < 0) continue;
       for (let x = min; x <= max; x++) out.set(x + dx, y + top, icon.get(x, y));
     }
-    base -= MODULE_VISUAL_HEIGHT[m] * 3;
+    // `Lcee8` raises the next sprite by the piece height in pixels (`Ld7b4`).
+    base -= MODULE_VISUAL_HEIGHT[m];
   }
   return out;
 }

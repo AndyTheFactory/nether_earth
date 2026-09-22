@@ -100,15 +100,16 @@ def test_engine_rules_rejects_non_positive_descent_step() -> None:
         EngineRules(commander_descent_step=0)
 
 
-def test_default_rules_match_documented_module_height_placeholder_defaults() -> None:
-    assert DEFAULT_RULES.module_height_bipod == 4
-    assert DEFAULT_RULES.module_height_tracks == 4
-    assert DEFAULT_RULES.module_height_anti_grav == 4
-    assert DEFAULT_RULES.module_height_cannon == 2
-    assert DEFAULT_RULES.module_height_missile == 2
-    assert DEFAULT_RULES.module_height_phaser == 2
-    assert DEFAULT_RULES.module_height_nuclear == 2
-    assert DEFAULT_RULES.module_height_electronics == 2
+def test_default_rules_match_spectrum_piece_heights() -> None:
+    """CR003.3 (#218): ``Ld7b4_piece_heights`` in the Spectrum disassembly."""
+    assert DEFAULT_RULES.module_height_bipod == 11
+    assert DEFAULT_RULES.module_height_tracks == 7
+    assert DEFAULT_RULES.module_height_anti_grav == 8
+    assert DEFAULT_RULES.module_height_cannon == 6
+    assert DEFAULT_RULES.module_height_missile == 6
+    assert DEFAULT_RULES.module_height_phaser == 7
+    assert DEFAULT_RULES.module_height_nuclear == 7
+    assert DEFAULT_RULES.module_height_electronics == 7
 
 
 def test_engine_rules_accepts_custom_module_height_overrides() -> None:

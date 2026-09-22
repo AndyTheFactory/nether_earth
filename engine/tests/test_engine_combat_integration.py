@@ -12,10 +12,10 @@ about the wiring).
 
 Height arithmetic used throughout (all from ``DEFAULT_RULES``):
 ``normal_projectile_altitude`` is 10, and a projectile is blocked by a robot
-whose ``height >= 10``. A ``TRACKS`` chassis (4) plus cannon+missile+phaser
-(2 each) is exactly 10, so :func:`_gunner` builds a robot that both fires and
-can be hit. Its cannon deals ``((60 - (10 + 0)) // 4) * 2 == 24`` damage per
-hit on bare terrain.
+whose top is ``>= 10``. With the Spectrum piece heights (CR003.3) a
+``TRACKS`` chassis (7) plus cannon (6), missile (6) and phaser (7) is 26, so
+:func:`_gunner` builds a robot that both fires and can be hit. A cannon hit
+on it deals ``((60 - (26 + 0)) // 4) * 2 == 16`` damage on bare terrain.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ FACTORY_CAPTURE_CELL = (26, 25)
 #: and cannot trigger the victory condition.
 NUKE_X, NUKE_Y = 28, 26
 
-CANNON_DAMAGE = 24
+CANNON_DAMAGE = 16
 ADVANCE = DEFAULT_RULES.projectile_advance_ticks
 
 
@@ -182,7 +182,7 @@ def _robot(
 
 
 def _gunner(entity_id: str, owner: PlayerId, x: int, y: int, **kwargs: object) -> Robot:
-    """A height-10 robot: tall enough to block a projectile, armed with a cannon."""
+    """A height-26 robot: tall enough to block a projectile, armed with a cannon."""
     return _robot(
         entity_id,
         owner,

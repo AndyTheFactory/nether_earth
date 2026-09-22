@@ -41,16 +41,11 @@ always derive an identical stack and height here.
 
 Height source: same metadata as the stack, no duplicate table
 -----------------------------------------------------------------
-No per-module physical height value is fixed anywhere in
-`_specs/functional-spec.md`, `_specs/technical-spec.md`, or
-`_specs/open-questions.md` (checked directly for this task -- see
-`rules.py`'s module docstring for the equivalent research note on
-``commander_height``, which this task's addition follows exactly). Total
-height is therefore the sum of each present component's height, sourced
-from the eight ``module_height_*`` fields added to
-:class:`~nether_earth.rules.EngineRules` for this task (documented
-placeholder defaults, not independently verified against Spectrum sprite
-geometry -- see ``rules.py``'s module docstring). :func:`derive_stack` and
+Total height is the sum of each present component's height, sourced from
+the eight ``module_height_*`` fields of
+:class:`~nether_earth.rules.EngineRules` (the Spectrum's
+``Ld7b4_piece_heights`` values since CR003.3 -- see ``rules.py``'s module
+docstring). :func:`derive_stack` and
 :func:`derive_height` both walk the same :func:`_module_heights` mapping
 built from one ``rules`` argument, so stack order and height are always
 read from the identical per-module metadata -- there is no second height

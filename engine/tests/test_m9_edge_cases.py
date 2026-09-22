@@ -84,7 +84,7 @@ def _robot(
 
 
 def _tall(entity_id: str, owner: PlayerId, x: int, y: int, **kwargs: object) -> Robot:
-    """TRACKS + cannon + missile + phaser = height 10 = hittable."""
+    """TRACKS + cannon + missile + phaser = height 7 + 6 + 6 + 7 = 26."""
     return _robot(
         entity_id,
         owner,
@@ -325,20 +325,23 @@ def test_capturing_the_last_enemy_war_base_wins_in_the_same_tick(world: WorldMap
 # -- projectile collision against height-aware world/robot state ---------------------
 
 
-def test_short_robot_is_flown_over_and_tall_robot_is_hit(world: WorldMap) -> None:
+def test_shortest_robot_is_hit_before_a_tall_robot_behind_it(world: WorldMap) -> None:
+    # CR003.3: with the Spectrum piece heights the shortest robot (tracks +
+    # cannon = 13) is taller than the bullet altitude (10), so on flat ground
+    # the first robot on the line takes the hit and shields the one behind.
     shooter = _tall("shooter", PLAYER_TWO, 320, 15)
-    short = _robot("short", PLAYER_ONE, 314, 15)  # height 6 < projectile altitude 10
+    short = _robot("short", PLAYER_ONE, 314, 15)
     tall = _tall("tall", PLAYER_ONE, 310, 15)
     state = _initial(world).with_robots((shooter, short, tall))
-    assert short.height < PROJECTILE_ALTITUDE <= tall.height
+    assert PROJECTILE_ALTITUDE <= short.height == 13 < tall.height
     fire = FireCommand(player=PLAYER_TWO, sequence=0, entity_id=EntityId("shooter"), weapon=ModuleIdentity.CANNON, target_x=300, target_y=15)
     state, events = _step(state, world, (fire,), ticks=60)
     damaged = _events(events, RobotDamagedEvent)
-    assert [d.entity_id.value for d in damaged] == ["tall"]
+    assert [d.entity_id.value for d in damaged] == ["short"]
     terminated = _events(events, ProjectileTerminatedEvent)
-    assert len(terminated) == 1 and terminated[0].hit_robot_id == EntityId("tall")
-    assert state.robot_for(EntityId("short")).strength == 100  # type: ignore[union-attr]
-    assert state.robot_for(EntityId("tall")).strength == 100 - damaged[0].damage  # type: ignore[union-attr]
+    assert len(terminated) == 1 and terminated[0].hit_robot_id == EntityId("short")
+    assert state.robot_for(EntityId("tall")).strength == 100  # type: ignore[union-attr]
+    assert state.robot_for(EntityId("short")).strength == 100 - damaged[0].damage  # type: ignore[union-attr]
 
 
 def test_projectile_stops_at_a_structure_wall_and_never_destroys_it(world: WorldMap) -> None:
