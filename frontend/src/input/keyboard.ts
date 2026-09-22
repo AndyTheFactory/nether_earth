@@ -69,7 +69,16 @@ export class KeyboardIntent {
       return true;
     }
     if (!repeat) this.sink.action(code);
-    return false;
+    // Handled (and its default suppressed) same as the axis/rise keys above.
+    // Without this, a key routed to action() (Enter above all: it opens the
+    // menu and confirms/fires within it) left the browser's own default
+    // key behavior in place, and since clicking any menu <button> gives it
+    // DOM focus, a later Enter press natively re-activated that *stale*
+    // focused button (independent of, and racing with, our own routing) —
+    // e.g. clicking DIRECT CONTROL then later pressing Enter to reopen the
+    // list silently jumped back into DIRECT CONTROL. Verified live against
+    // Chromium (#247): reproducible every time a button has focus.
+    return true;
   }
 
   keyUp(code: string): void {
@@ -126,6 +135,11 @@ export class KeyboardIntent {
 export function bindKeyboard(target: Window, intent: KeyboardIntent, pulseMs = 50): () => void {
   const down = (e: KeyboardEvent) => {
     if (isTypingTarget(e.target)) return;
+    // Leave OS/browser-reserved combos (Ctrl+1 tab-switch, Cmd+C copy, …)
+    // alone; every game key is a bare keypress with no modifier, except the
+    // Alt+Q quit shortcut (#250), which needs altKey routed through.
+    if (e.ctrlKey || e.metaKey) return;
+    if (e.altKey && e.code !== QUIT_KEY) return;
     if (intent.keyDown(e.code, e.repeat, e.altKey)) e.preventDefault();
   };
   const up = (e: KeyboardEvent) => {
