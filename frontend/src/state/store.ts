@@ -72,6 +72,8 @@ export interface UiState {
   menu: MenuMode;
   pendingOrder: 'advance' | 'retreat' | 'search_capture' | 'search_destroy' | null;
   distanceMiles: number;
+  /** Keyboard-highlighted index into the current menu's block list (CR003.241: arrows/WASD + Space). */
+  menuCursor: number;
   debugGrid: boolean;
   /** Structure name labels and robot strength numbers (CR002.23); default off. */
   labels: boolean;
@@ -112,6 +114,7 @@ export function initialState(): AppState {
       menu: 'none',
       pendingOrder: null,
       distanceMiles: 10,
+      menuCursor: 0,
       debugGrid: false,
       labels: false,
       notice: null,

@@ -2,7 +2,7 @@
 // Spectrum's right-hand HUD column while docked (CR003.6, cr003/robot-menu.png).
 // Panels show authoritative state and offer command types the UI may send;
 // they never decide whether a command is legal.
-import type { AppState, MenuMode } from '../state/store.ts';
+import type { AppState, MenuMode, UiState } from '../state/store.ts';
 import { dockedRobot, gameClock, myConstruction } from '../state/store.ts';
 import { Panel, esc } from './dom.ts';
 
@@ -17,7 +17,9 @@ const MAIN_BLOCKS: { lines: [string, string]; action?: string; arg?: string; mod
   { lines: ['DIRECT', 'CONTROL'], action: 'menu', arg: 'direct_control', modes: ['direct_control'] },
   { lines: ['GIVE', 'ORDERS'], action: 'menu', arg: 'orders', modes: ['orders', 'order_distance', 'order_target'] },
   { lines: ['COMBAT', 'MODE'], action: 'menu', arg: 'combat', modes: ['combat'] },
-  // Leaving is the existing rise key (hold space); the block is a label, not a new command path.
+  // Leaving is the existing rise key (hold space); it is not a click target (matching the
+  // pre-CR003.6 menu, which had no Leave Robot entry). navItems() below still exposes it
+  // as a synthetic 'undock' action so Space activates it when the keyboard cursor lands here.
   { lines: ['LEAVE', 'ROBOT'], modes: [] },
 ];
 
@@ -79,10 +81,11 @@ export function dayTimeLines(tick: number): [string, string] {
 
 function options(s: AppState, weapons: string[], aim: { dx: number; dy: number }, weaponIndex: number, busy: boolean): string {
   const menu = s.ui.menu;
+  const cursor = s.ui.menuCursor;
   const back = (to: MenuMode) => small('ESC BACK', 'menu', to);
   switch (menu) {
     case 'orders':
-      return ORDER_BLOCKS.map((o) => block(o.lines, false, o.action, o.arg)).join('') + back('robot_menu');
+      return ORDER_BLOCKS.map((o, i) => block(o.lines, i === cursor, o.action, o.arg)).join('') + back('robot_menu');
     case 'order_distance': {
       const o = ORDER_BLOCKS.find((x) => x.arg === s.ui.pendingOrder);
       return (
@@ -95,7 +98,7 @@ function options(s: AppState, weapons: string[], aim: { dx: number; dy: number }
     case 'order_target': {
       const o = ORDER_BLOCKS.find((x) => x.arg === s.ui.pendingOrder);
       const targets = s.ui.pendingOrder === 'search_capture' ? CAPTURE_TARGETS : DESTROY_TARGETS;
-      return block(o?.lines ?? ['', ''], true) + targets.map((t) => block(TARGET_LABEL[t], false, 'target', t)).join('') + back('orders');
+      return block(o?.lines ?? ['', ''], true) + targets.map((t, i) => block(TARGET_LABEL[t], i === cursor, 'target', t)).join('') + back('orders');
     }
     case 'combat': {
       const arrow = aim.dx > 0 ? '→' : aim.dx < 0 ? '←' : aim.dy > 0 ? '↓' : '↑';
@@ -108,7 +111,36 @@ function options(s: AppState, weapons: string[], aim: { dx: number; dy: number }
       );
     }
     default:
-      return MAIN_BLOCKS.map((m) => block(m.lines, m.modes.includes(menu), m.action, m.arg)).join('');
+      // Cursor highlight only while the top-level list is open (robot_menu); other
+      // modes reached via this same default (none, direct_control) highlight the
+      // active mode instead, as before CR003.241.
+      return MAIN_BLOCKS.map((m, i) => block(m.lines, menu === 'robot_menu' ? i === cursor : m.modes.includes(menu), m.action, m.arg)).join('');
+  }
+}
+
+export interface NavItem {
+  action: string;
+  arg: string;
+}
+
+/**
+ * Keyboard-navigable items for the menu mode currently open, in the same
+ * top-to-bottom order the blocks render (CR003.241). LEAVE ROBOT has no
+ * click action (it is the existing rise-to-undock key, per CR003.6); its
+ * synthetic 'undock' action lets Space activate it like any other block.
+ */
+export function navItems(menu: MenuMode, pendingOrder: UiState['pendingOrder']): NavItem[] {
+  switch (menu) {
+    case 'robot_menu':
+      return MAIN_BLOCKS.map((m) => (m.action ? { action: m.action, arg: m.arg ?? '' } : { action: 'undock', arg: '' }));
+    case 'orders':
+      return ORDER_BLOCKS.map((o) => ({ action: o.action, arg: o.arg }));
+    case 'order_target': {
+      const targets = pendingOrder === 'search_capture' ? CAPTURE_TARGETS : DESTROY_TARGETS;
+      return targets.map((t) => ({ action: 'target', arg: t }));
+    }
+    default:
+      return [];
   }
 }
 

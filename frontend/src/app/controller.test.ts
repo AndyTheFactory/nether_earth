@@ -177,6 +177,71 @@ test('construction: Escape is EXIT MENU (cancel_construction)', () => {
   assert.deepEqual(payloads, [{ kind: 'cancel_construction' }]);
 });
 
+// ---- #241: arrows/WASD move the menu cursor, Space activates it, and neither leaks to the commander ----
+
+test('robot menu: arrows/WASD move the highlighted block and Space activates it, without moving the commander', () => {
+  const { store, controller, sent } = boot('commander-docked');
+  controller.action('Enter');
+  assert.equal(store.get().ui.menu, 'robot_menu');
+  assert.equal(store.get().ui.menuCursor, 0); // DIRECT CONTROL
+
+  controller.move({ dx: 0, dy: 1 }); // Down / S
+  assert.equal(store.get().ui.menuCursor, 1); // GIVE ORDERS
+  controller.move({ dx: 0, dy: 1 });
+  assert.equal(store.get().ui.menuCursor, 2); // COMBAT MODE
+  controller.move({ dx: 0, dy: 1 });
+  assert.equal(store.get().ui.menuCursor, 3); // LEAVE ROBOT
+  controller.move({ dx: 0, dy: 1 }); // wraps back to the top
+  assert.equal(store.get().ui.menuCursor, 0);
+  controller.move({ dx: 0, dy: -1 }); // Up / W wraps the other way
+  assert.equal(store.get().ui.menuCursor, 3);
+
+  controller.move({ dx: 0, dy: -1 }); // Up: back to COMBAT MODE
+  assert.equal(store.get().ui.menuCursor, 2);
+  controller.vertical(true); // Space activates COMBAT MODE
+  controller.vertical(false);
+  assert.equal(store.get().ui.menu, 'combat');
+
+  // No commander_move / direct_robot_move / vertical intent leaked while the menu was open.
+  assert.deepEqual(sent(), []);
+});
+
+test('robot menu: Space on LEAVE ROBOT sends the same rise command as holding the rise key', () => {
+  const { store, controller, sent } = boot('commander-docked');
+  controller.action('Enter');
+  controller.move({ dx: 0, dy: -1 }); // Up wraps to LEAVE ROBOT (index 3)
+  assert.equal(store.get().ui.menuCursor, 3);
+  controller.vertical(true);
+  assert.deepEqual(sent(), [{ kind: 'commander_set_vertical_intent', rising: true }]);
+  assert.equal(store.get().ui.menu, 'none');
+  controller.vertical(false); // key release, menu already closed: normal rise-off path
+  assert.deepEqual(sent(), [
+    { kind: 'commander_set_vertical_intent', rising: true },
+    { kind: 'commander_set_vertical_intent', rising: false },
+  ]);
+});
+
+test('orders sub-menu: arrows move the cursor and Space sends the highlighted order', () => {
+  const { store, controller, sent } = boot('commander-docked');
+  controller.action('Enter');
+  controller.action('Digit2'); // GIVE ORDERS
+  assert.equal(store.get().ui.menu, 'orders');
+  assert.equal(store.get().ui.menuCursor, 0);
+  controller.move({ dx: 0, dy: 1 }); // STOP AND DEFEND → ADVANCE
+  controller.move({ dx: 0, dy: 1 }); // → RETREAT
+  controller.move({ dx: 0, dy: 1 }); // → SEARCH & CAPTURE
+  assert.equal(store.get().ui.menuCursor, 3);
+  controller.vertical(true); // Space picks SEARCH & CAPTURE, opening the target list
+  controller.vertical(false);
+  assert.equal(store.get().ui.menu, 'order_target');
+  assert.equal(store.get().ui.menuCursor, 0);
+  controller.move({ dx: 0, dy: 1 }); // NEUTRAL FACTORY → ENEMY FACTORY
+  controller.vertical(true);
+  controller.vertical(false); // key release: no stray rising:false either, since Space only ever picked blocks
+  assert.deepEqual(sent(), [{ kind: 'set_robot_order', entityId: 'robot-1', order: { kind: 'search_capture', target: 'enemy_factory' } }]);
+  assert.equal(store.get().ui.menu, 'none');
+});
+
 test('no gameplay commands while paused or finished', () => {
   const { controller, sent } = boot('lifecycle-paused');
   controller.move({ dx: 1, dy: 0 });

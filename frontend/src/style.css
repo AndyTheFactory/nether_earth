@@ -73,8 +73,12 @@ b { color: var(--yellow); }
 #menus .morders, #menus .mstrength { text-align: center; }
 #menus .mhead { color: var(--yellow); }
 #menus .mval { color: var(--white); }
-/* The play view's HUD text stays left of the column while it is shown. */
-#ui:has(> #menus:not([style*="none"])) #hud { right: calc(var(--mu) * 96); }
+/* The play view's HUD text stays left of the column while it is shown.
+   Driven by main.ts toggling .menu-open on #ui (CR003.240): a CSS :has()
+   selector keyed off #menus' inline display style was fragile (unsupported
+   pre-2023 browsers; relies on string-matching an internal style attribute)
+   and is avoided here. */
+#ui.menu-open #hud { right: calc(var(--mu) * 96); }
 /* Short or phone-sized screens: one CSS px per Spectrum pixel keeps the column narrow. */
 @media (min-width: 1400px) and (min-height: 860px) { :root { --mu: 3px; } }
 @media (max-width: 720px), (max-height: 520px) { :root { --mu: 1px; } }

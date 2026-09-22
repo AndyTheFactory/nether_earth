@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -5,8 +6,8 @@ import { resolve } from 'node:path';
 import { Store, TICKS_PER_HOUR, HOURS_PER_DAY, type MenuMode } from '../state/store.ts';
 import { findFixture } from '../fixtures/index.ts';
 import { runFixtureMessage } from '../fixtures/harness.ts';
-import type { Panel } from './dom.ts';
-import { renderMenus, orderText, dayTimeLines, menuColumnShown } from './menus.ts';
+import { Panel } from './dom.ts';
+import { renderMenus, orderText, dayTimeLines, menuColumnShown, navItems } from './menus.ts';
 import { radarScale, MENU_COLUMN_UNITS } from './radar.ts';
 
 function docked(menu: MenuMode = 'none') {
@@ -42,7 +43,9 @@ test('docked column follows the Spectrum order: DAY/TIME, four blocks, ORDERS, S
 test('the active mode highlights its block; closed menu highlights none', () => {
   const on = (menu: MenuMode) => blocks(docked(menu).html).filter((b) => b.on).map((b) => b.text);
   assert.deepEqual(on('none'), []);
-  assert.deepEqual(on('robot_menu'), []);
+  // CR003.241: robot_menu highlights the keyboard cursor (defaults to the first block) so
+  // arrows/WASD have a visible starting point; it is not "which mode is active" like the rest.
+  assert.deepEqual(on('robot_menu'), ['DIRECT CONTROL']);
   assert.deepEqual(on('direct_control'), ['DIRECT CONTROL']);
   assert.deepEqual(on('combat'), ['COMBAT MODE']);
 });
@@ -107,4 +110,78 @@ test('menu column is shown exactly while the column renders (camera reserve, CR0
   assert.equal(menuColumnShown(free.get()), false);
   store.setUi({ screen: 'lobby' });
   assert.equal(menuColumnShown(store.get()), false);
+});
+
+// ---- #240 regression: a real click on a rendered menu block must reach the action handler ----
+
+test('clicking a rendered menu block reaches the panel action handler (#240)', () => {
+  const store = new Store();
+  for (const m of findFixture('commander-docked')!.messages) runFixtureMessage(store, m, 0);
+  store.setUi({ screen: 'match', menu: 'robot_menu' });
+
+  const calls: [string, string][] = [];
+  const panel = new Panel('menus', (action, arg) => calls.push([action, arg]));
+  document.body.appendChild(panel.root);
+  renderMenus(panel, store.get(), { dx: 1, dy: 0 }, 0);
+
+  const button = panel.root.querySelector<HTMLElement>('[data-action="menu"][data-arg="direct_control"]');
+  assert.ok(button, 'DIRECT CONTROL block should render as a clickable button');
+  // Click the inner text span, as a real pointer hit would, to exercise closest('[data-action]').
+  const span = button!.querySelector('span')!;
+  span.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(calls, [['menu', 'direct_control']]);
+  document.body.removeChild(panel.root);
+});
+
+test('clicking GIVE ORDERS then a listed order reaches the action handler in sequence (#240)', () => {
+  const store = new Store();
+  for (const m of findFixture('commander-docked')!.messages) runFixtureMessage(store, m, 0);
+  store.setUi({ screen: 'match', menu: 'robot_menu' });
+
+  const calls: [string, string][] = [];
+  const panel = new Panel('menus', (action, arg) => {
+    calls.push([action, arg]);
+    store.setUi({ menu: (arg || 'none') as MenuMode });
+  });
+  document.body.appendChild(panel.root);
+  renderMenus(panel, store.get(), { dx: 1, dy: 0 }, 0);
+  panel.root.querySelector<HTMLElement>('[data-action="menu"][data-arg="orders"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+  renderMenus(panel, store.get(), { dx: 1, dy: 0 }, 0);
+  panel.root.querySelector<HTMLElement>('[data-action="pick"][data-arg="search_destroy"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(calls, [
+    ['menu', 'orders'],
+    ['pick', 'search_destroy'],
+  ]);
+  document.body.removeChild(panel.root);
+});
+
+// ---- #241: keyboard-navigable block list ----
+
+test('navItems lists blocks top-to-bottom for the keyboard cursor, with LEAVE ROBOT as a synthetic undock action', () => {
+  assert.deepEqual(navItems('robot_menu', null), [
+    { action: 'menu', arg: 'direct_control' },
+    { action: 'menu', arg: 'orders' },
+    { action: 'menu', arg: 'combat' },
+    { action: 'undock', arg: '' },
+  ]);
+  assert.deepEqual(navItems('orders', null).map((i) => i.arg), ['stop_and_defend', 'advance', 'retreat', 'search_capture', 'search_destroy']);
+  assert.deepEqual(navItems('order_target', 'search_capture').map((i) => i.arg), ['neutral_factory', 'enemy_factory', 'enemy_war_base']);
+  assert.deepEqual(navItems('order_target', 'search_destroy').map((i) => i.arg), ['robot', 'factory', 'war_base']);
+  assert.deepEqual(navItems('direct_control', null), []);
+  assert.deepEqual(navItems('combat', null), []);
+});
+
+test('the keyboard cursor highlights the block at ui.menuCursor', () => {
+  const store = new Store();
+  for (const m of findFixture('commander-docked')!.messages) runFixtureMessage(store, m, 0);
+  store.setUi({ screen: 'match', menu: 'robot_menu', menuCursor: 2 });
+  const panel = { html: '', set(h: string) { this.html = h; } };
+  renderMenus(panel as unknown as Panel, store.get(), { dx: 1, dy: 0 }, 0);
+  assert.deepEqual(
+    blocks(panel.html).filter((b) => b.on).map((b) => b.text),
+    ['COMBAT MODE'],
+  );
 });

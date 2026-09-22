@@ -11,7 +11,7 @@ import { KeyboardIntent, bindKeyboard } from './input/keyboard.ts';
 import { mountLobby } from './ui/lobby.ts';
 import { Panel } from './ui/dom.ts';
 import { renderHud } from './ui/hud.ts';
-import { renderMenus } from './ui/menus.ts';
+import { renderMenus, menuColumnShown } from './ui/menus.ts';
 import { ConstructionScreen } from './ui/construction.ts';
 import { renderOverlay } from './ui/overlays.ts';
 import { Radar } from './ui/radar.ts';
@@ -79,6 +79,7 @@ async function main(): Promise<void> {
     renderer.render(s, now);
     renderHud(hud, s, map);
     radar.update(s.ui.screen === 'match', s.latest, s.connection.session?.playerId ?? null, now);
+    ui.classList.toggle('menu-open', menuColumnShown(s));
     renderMenus(menus, s, controller.aim, controller.weaponIndex);
     const cs = s.ui.screen === 'match' && s.latest ? myConstruction(s.latest, s.connection.session?.playerId ?? '') : null;
     construction.update(cs, controller.buildCursor, window.innerWidth, window.innerHeight);
