@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
 import { project } from './projection.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
-import { sceneryPlacements, sliceSprite, spriteOrigin, type SceneryManifest } from './scenery.ts';
+import { sceneryPlacements, sliceSprite, spriteOrigin, type SceneryAsset, type SceneryManifest } from './scenery.ts';
 
 const manifestJson = readFileSync(new URL('../../public/assets/manifest.json', import.meta.url), 'utf8');
 const shipped = (): SceneryManifest => JSON.parse(manifestJson).scenery as SceneryManifest;
@@ -107,4 +107,39 @@ test('slices partition the sprite and give each face to the right cell', () => {
   // front face (col 8, row 31) is the anchor (nearest) cell.
   assert.deepEqual([at(16, 0).dx, at(16, 0).dy], [1, -1]);
   assert.deepEqual([at(8, 31).dx, at(8, 31).dy], [0, 0]);
+});
+
+/** Screen centre of a sprite's post base: midpoint of its left and right ground corners (lowest ink pixel of the outermost columns). */
+function baseCentre(asset: SceneryAsset, anchor: { x: number; y: number }): { x: number; y: number } {
+  const rows = SCENERY_SPRITES[asset.sprite]!;
+  const cols = rows.flatMap((row) => [...row].map((ch, c) => (ch === ' ' ? -1 : c))).filter((c) => c >= 0);
+  const lowest = (c: number) => rows.reduce((acc, row, r) => (row[c] !== ' ' ? r : acc), -1);
+  const [l, r] = [Math.min(...cols), Math.max(...cols)];
+  const o = spriteOrigin(asset, anchor);
+  return { x: o.x + (l + r) / 2 + 0.5, y: o.y + (lowest(l) + lowest(r)) / 2 + 0.5 };
+}
+
+test('an asset offset shifts the drawn sprite and its slices, nothing else (CR003.7)', () => {
+  const fence = shipped().assets['scenery.fence']!;
+  const plain = { ...fence, offset: undefined };
+  const a = spriteOrigin(fence, { x: 12, y: 1 });
+  const b = spriteOrigin(plain, { x: 12, y: 1 });
+  assert.deepEqual([a.x - b.x, a.y - b.y], fence.offset);
+  // Slices still partition the sprite (checked above); the offset only moves where it lands.
+  assert.equal(sliceSprite(fence).length, 4);
+});
+
+test('fence post is centred on its 2x2 footprint, so both map-end walls look alike (CR003.7)', () => {
+  const m = shipped();
+  const fence = m.assets['scenery.fence']!;
+  for (const b of map.blockers.filter((q) => q.kind === 'fence')) {
+    const anchor = { x: Math.min(...b.components.map((c) => c.x)), y: Math.max(...b.components.map((c) => c.y)) };
+    const c = baseCentre(fence, anchor);
+    const centre = project(anchor.x + 0.5, anchor.y - 0.5);
+    assert.ok(Math.abs(c.x - centre.x) <= 1 && Math.abs(c.y - centre.y) <= 1, `${b.id}: base ${c.x},${c.y} vs ${centre.x},${centre.y}`);
+  }
+  // Without the offset the post stands on the footprint's -x column (the left-wall gap).
+  const off = baseCentre({ ...fence, offset: undefined }, { x: 12, y: 1 });
+  const centre = project(12.5, 0.5);
+  assert.ok(Math.abs(off.y - centre.y) >= 3);
 });

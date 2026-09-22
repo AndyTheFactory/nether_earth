@@ -18,6 +18,13 @@ export interface SceneryAsset {
   /** Colours as '#rrggbb'; default Spectrum black ink on yellow paper. */
   ink?: string;
   paper?: string;
+  /**
+   * Optional presentation-only shift of the drawn sprite, in world pixels
+   * [right, down]. Default [0, 0] (the Spectrum placement). Collision and
+   * heights are unaffected (CR003.7: the fence post is centred on its
+   * footprint, owner decision 2026-09-22).
+   */
+  offset?: [number, number];
 }
 
 export interface SceneryManifest {
@@ -77,13 +84,15 @@ export function sceneryPlacements(
  * The Spectrum draws every map element with the same routine
  * (Lcf2d_draw_sprite_to_buffer), so one rule fits all sprites: column 0 sits
  * on the footprint's leftmost ground corner and the last row on its lowest
- * ground corner (pixel centres on the corners).
+ * ground corner (pixel centres on the corners). An asset's `offset` shifts
+ * the result.
  */
 export function spriteOrigin(asset: SceneryAsset, anchor: { x: number; y: number }): { x: number; y: number } {
   const rows = SCENERY_SPRITES[asset.sprite]!.length;
   const left = project(anchor.x - 0.5, anchor.y - asset.footprint[1] + 0.5);
   const bottom = project(anchor.x - 0.5, anchor.y + 0.5);
-  return { x: left.x - 0.5, y: bottom.y - rows + 0.5 };
+  const [dx, dy] = asset.offset ?? [0, 0];
+  return { x: left.x - 0.5 + dx, y: bottom.y - rows + 0.5 + dy };
 }
 
 export interface SpriteSlice {

@@ -10,7 +10,7 @@
     "assets": {
       "scenery.box_low": { "sprite": "spectrum.element_17", "footprint": [2, 2], "height": 7 },
       "scenery.box_high": { "sprite": "spectrum.element_18", "footprint": [2, 2], "height": 15 },
-      "scenery.fence": { "sprite": "spectrum.element_21", "footprint": [2, 2], "height": 99 },
+      "scenery.fence": { "sprite": "spectrum.element_21", "footprint": [2, 2], "height": 99, "offset": [2, -3] },
       "scenery.debris_a": { "sprite": "spectrum.element_6", "footprint": [2, 2], "height": 3 },
       "scenery.debris_b": { "sprite": "spectrum.element_7", "footprint": [2, 2], "height": 3 }
     }
