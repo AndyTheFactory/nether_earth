@@ -248,3 +248,25 @@ test('no gameplay commands while paused or finished', () => {
   controller.vertical(true);
   assert.deepEqual(sent(), []);
 });
+
+test('Alt+Q (#250) leaves the match from anywhere, even with a menu open', () => {
+  const { store, controller } = boot('commander-docked');
+  controller.action('Enter'); // open the robot menu first: the shortcut must still work
+  assert.equal(store.get().ui.menu, 'robot_menu');
+  assert.equal(store.get().ui.screen, 'match');
+  controller.action('Alt+KeyQ');
+  assert.equal(store.get().ui.screen, 'lobby');
+  assert.equal(store.get().connection.session, null);
+  assert.deepEqual(
+    controller.recorded!.sent.map((m) => m.type),
+    ['leave'],
+  );
+});
+
+test('plain Q and other Alt combos do not leave the match', () => {
+  const { store, controller } = boot('commander-docked');
+  controller.action('KeyQ');
+  controller.action('Alt+KeyW');
+  assert.equal(store.get().ui.screen, 'match');
+  assert.deepEqual(controller.recorded!.sent, []);
+});

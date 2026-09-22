@@ -307,6 +307,13 @@ export class GameController implements InputSink {
 
   action(code: string): void {
     const s = this.store.get();
+    if (code === 'Alt+KeyQ') {
+      // Quit-match shortcut (#250): deliberately Alt-gated so it can't be hit
+      // by accident during normal play. Works from anywhere in an active
+      // match, not just when a menu is open.
+      if (s.ui.screen === 'match') this.leave();
+      return;
+    }
     if (code === 'KeyG') {
       this.store.setUi({ debugGrid: !s.ui.debugGrid });
       return;
