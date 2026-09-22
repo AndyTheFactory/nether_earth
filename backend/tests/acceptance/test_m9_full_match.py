@@ -262,3 +262,15 @@ def test_cr001_fixture_is_rejected_as_a_rules_mismatch(world: WorldMap, tmp_path
 
     with pytest.raises(ReplayRulesMismatchError, match="rules version 'cr001'"):
         verify_replay(tmp_path, FIXTURE_MATCH, scenario=default_pvp_scenario(), world=world)
+
+
+def test_cr002_fixture_is_rejected_as_a_rules_mismatch(world: WorldMap, tmp_path: Path) -> None:
+    """A replay recorded before CR003 (rules version ``cr002``) fails on rules identity."""
+    legacy = tmp_path / FIXTURE_MATCH
+    shutil.copytree(FIXTURE_DIR / FIXTURE_MATCH, legacy)
+    meta = json.loads((legacy / "meta.json").read_text(encoding="utf-8"))
+    meta["rules_version"] = "cr002"
+    (legacy / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    with pytest.raises(ReplayRulesMismatchError, match="rules version 'cr002'"):
+        verify_replay(tmp_path, FIXTURE_MATCH, scenario=default_pvp_scenario(), world=world)

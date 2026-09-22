@@ -202,7 +202,7 @@ __all__ = [
 #: makes older replays non-reproducible. ``rules_content_hash`` catches
 #: ``EngineRules`` value changes on its own; logic changes are caught only by
 #: this bump.
-RULES_VERSION = "cr002"
+RULES_VERSION = "cr003"
 
 
 #: How many grid cells one in-game *mile* spans.
