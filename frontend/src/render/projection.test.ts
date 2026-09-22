@@ -1,6 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { project, unproject, depthKey, groundDepth, viewZoom, VIEW_SPAN_PX } from './projection.ts';
+import { project, unproject, depthKey, groundDepth, playViewCentre, viewZoom, VIEW_SPAN_PX } from './projection.ts';
+import { MENU_COLUMN_UNITS } from '../ui/radar.ts';
 import { KEY_TO_AXIS } from '../input/keyboard.ts';
 import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
 
@@ -77,4 +78,16 @@ test('zoom: the shorter view side shows VIEW_SPAN_PX world pixels', () => {
   assert.equal(viewZoom(100, 100), 1);
   // more zoomed in than the pre-CR002 view (2 screen px per world px)
   assert.ok(viewZoom(1280, 720) > 2);
+});
+
+test('camera centres in the play view left of the menu column (CR003.11)', () => {
+  // No column: the middle of the window, as before.
+  assert.deepEqual(playViewCentre(1280, 800), { x: 640, y: 400 });
+  assert.deepEqual(playViewCentre(1280, 800, 0), { x: 640, y: 400 });
+  // Docked at 1280x800 (--mu 2px): the column takes 192 px; vertical framing is unchanged.
+  assert.deepEqual(playViewCentre(1280, 800, MENU_COLUMN_UNITS * 2), { x: 544, y: 400 });
+  // Phone width (--mu 1px).
+  assert.deepEqual(playViewCentre(390, 844, MENU_COLUMN_UNITS), { x: 147, y: 422 });
+  // A column wider than the window never puts the centre off the left edge.
+  assert.deepEqual(playViewCentre(50, 100, MENU_COLUMN_UNITS), { x: 0, y: 50 });
 });

@@ -120,6 +120,12 @@ const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 /** Width of the right-hand robot menu column plus its margins, in Spectrum pixels (--mu); see style.css #menus. */
 export const MENU_COLUMN_UNITS = 96;
 
+/** Screen pixels the menu column reserves at the current --mu (style.css breakpoints). */
+export function menuColumnPx(): number {
+  const mu = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mu')) || 0;
+  return MENU_COLUMN_UNITS * mu;
+}
+
 /** Largest integer radar scale (1-4) whose strip fits in `availablePx` beside the page margins. */
 export function radarScale(availablePx: number, stripWidth: number): number {
   return Math.max(1, Math.min(4, Math.floor((availablePx - 48) / stripWidth)));
@@ -156,8 +162,7 @@ export class Radar {
     // "RADAR" in the tall font sized to the strip height: 5 glyphs, each half as wide as tall.
     const labelWidth = 5 * 0.5 * this.canvas.height + 8;
     // The docked robot menu column (CR003.6) keeps the right edge; the radar stays left of it.
-    const mu = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mu')) || 0;
-    const scale = radarScale(window.innerWidth - MENU_COLUMN_UNITS * mu, this.canvas.width + labelWidth);
+    const scale = radarScale(window.innerWidth - menuColumnPx(), this.canvas.width + labelWidth);
     const root = document.documentElement.style;
     root.setProperty('--rs', String(scale));
     root.setProperty('--radar-h', `${this.canvas.height * scale}px`);

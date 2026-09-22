@@ -4,7 +4,7 @@ import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
 import { footprintCells, surfaceHeightAt, terrainAt } from '../world/map.ts';
-import { TILE_H, TILE_W, depthKey, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
+import { TILE_H, TILE_W, depthKey, playViewCentre, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
@@ -13,6 +13,8 @@ import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
 import { textOverlays } from '../state/labels.ts';
+import { menuColumnShown } from '../ui/menus.ts';
+import { menuColumnPx } from '../ui/radar.ts';
 
 interface Effect {
   x: number;
@@ -284,7 +286,7 @@ export class WorldRenderer {
 
     this.drawEffects(nowMs);
     if (state.ui.debugGrid) this.drawDebug(snap);
-    this.applyCamera();
+    this.applyCamera(menuColumnShown(state) ? menuColumnPx() : 0);
     this.cullStructures();
   }
 
@@ -355,11 +357,13 @@ export class WorldRenderer {
     }
   }
 
-  private applyCamera(): void {
+  /** `columnPx`: screen width the docked menu column covers on the right (CR003.11). */
+  private applyCamera(columnPx: number): void {
     const p = project(this.cam.x, this.cam.y);
+    const c = playViewCentre(this.app.screen.width, this.app.screen.height, columnPx);
     this.world.scale.set(this.zoom);
     // Centre slightly above the ground point so standing entities sit mid-view.
-    this.world.position.set(Math.round(this.app.screen.width / 2 - p.x * this.zoom), Math.round(this.app.screen.height / 2 - (p.y - TILE_H) * this.zoom));
+    this.world.position.set(Math.round(c.x - p.x * this.zoom), Math.round(c.y - (p.y - TILE_H) * this.zoom));
     this.labels.position.copyFrom(this.world.position);
   }
 
