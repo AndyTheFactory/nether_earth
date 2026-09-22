@@ -21,6 +21,18 @@ export function unitCentre(x: number, y: number): { x: number; y: number } {
   return { x: x + (UNIT_SIZE - 1) / 2, y: y - (UNIT_SIZE - 1) / 2 };
 }
 
+/**
+ * The 2×2 body's own footprint cells (x..x+1, y-1..y; CR002.3/4), so a robot
+ * or commander can be drawn one cell at a time and share the structures'/
+ * scenery's per-cell painter's-order key (#242): a single anchor-only key
+ * puts the wrong body in front when two 2×2 bodies partly overlap.
+ */
+export function unitFootprintCells(x: number, y: number): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+  for (let dx = 0; dx < UNIT_SIZE; dx++) for (let dy = 0; dy < UNIT_SIZE; dy++) cells.push({ x: x + dx, y: y - dy });
+  return cells;
+}
+
 export type ModuleId = 'bipod' | 'tracks' | 'anti_grav' | 'cannon' | 'missile' | 'phaser' | 'nuclear' | 'electronics';
 
 /**
@@ -64,10 +76,11 @@ export function robotGround(
 }
 
 /** Draws the stack standing at elevation `opts.ground` (default 0); returns its top. */
-export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonly ModuleId[], owner: string | null, opts: { alpha?: number; totalHeight?: number; ground?: number } = {}): number {
+export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonly ModuleId[], owner: string | null, opts: { alpha?: number; totalHeight?: number; ground?: number; size?: number } = {}): number {
   const alpha = opts.alpha ?? 1;
   const ground = opts.ground ?? 0;
-  drawDiamond(g, x, y, ownerColor(owner), 0.35 * alpha, undefined, ground, UNIT_SIZE);
+  const size = opts.size ?? UNIT_SIZE;
+  drawDiamond(g, x, y, ownerColor(owner), 0.35 * alpha, undefined, ground, size);
   let z = ground;
   const n = stack.length;
   // If the authoritative height differs from our visual sum, scale to match it
@@ -77,7 +90,7 @@ export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonl
   for (let i = 0; i < n; i++) {
     const m = stack[i];
     const h = MODULE_VISUAL_HEIGHT[m] * scale;
-    drawPrism(g, x, y, z, h, colorFor(`module.${m}` as SemanticAsset), alpha, UNIT_SIZE);
+    drawPrism(g, x, y, z, h, colorFor(`module.${m}` as SemanticAsset), alpha, size);
     z += h;
   }
   return z;
@@ -88,9 +101,9 @@ export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonl
  * structure roof, heli-pad; see surface.ts): its shadow is drawn there so
  * altitude reads against the surface. No shadow when resting on it.
  */
-export function drawCommander(g: Graphics, x: number, y: number, altitude: number, owner: string, surfaceZ = 0, height = 4): void {
-  if (altitude > surfaceZ) drawDiamond(g, x, y, 0x000000, 0.35, undefined, surfaceZ, UNIT_SIZE);
-  drawPrism(g, x, y, altitude, height, colorFor('commander'), 1, UNIT_SIZE);
+export function drawCommander(g: Graphics, x: number, y: number, altitude: number, owner: string, surfaceZ = 0, height = 4, size = UNIT_SIZE): void {
+  if (altitude > surfaceZ) drawDiamond(g, x, y, 0x000000, 0.35, undefined, surfaceZ, size);
+  drawPrism(g, x, y, altitude, height, colorFor('commander'), 1, size);
   // ownership pennant on top
-  drawPrism(g, x, y, altitude + height, 1, ownerColor(owner), 1, UNIT_SIZE);
+  drawPrism(g, x, y, altitude + height, 1, ownerColor(owner), 1, size);
 }

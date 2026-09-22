@@ -59,6 +59,20 @@ export function depthKey(x: number, y: number, z = 0): number {
 }
 
 /**
+ * Structures and scenery key off their own base (z = 0) so that whatever
+ * rests on top of them (a docked commander, a landed one) reliably sorts
+ * after them by its own, much larger, altitude. At a footprint cell two
+ * bodies genuinely share, a grounded commander or robot can only tie a
+ * co-located structure's key (altitude can't go negative) but should still
+ * tuck behind the solid, static one rather than default to drawing over it —
+ * Pixi's stable sort would otherwise favour whichever was added to the scene
+ * later, i.e. the commander/robot, every frame (#242). Subtracting this from
+ * a movable unit's per-cell key breaks such ties in the static body's favour
+ * without ever flipping a real altitude difference (module heights start at 6).
+ */
+export const CO_LOCATED_TIE_BIAS = -0.01;
+
+/**
  * Zoom (CR002.8): Spectrum pixels of world shown across the shorter side of
  * the play view. The original's play window is ~168 px square (main-screen.png),
  * about 19 cells along the map and its full 16-cell width. The one tunable.
