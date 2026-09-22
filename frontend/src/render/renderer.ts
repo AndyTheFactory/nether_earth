@@ -34,7 +34,12 @@ export class WorldRenderer {
   // rebuilt every frame.
   private scene = new Container({ sortableChildren: true });
   private structureCells: { g: Container; x: number }[] = [];
-  private dynamic: Graphics[] = [];
+  // Dynamic (robot/commander/projectile) Graphics are pooled by a stable key
+  // (#256): every frame still redraws their contents (interpolated position
+  // changes every tick), but reusing the Graphics object instead of
+  // destroying and reallocating one avoids per-frame GC churn and scene-graph
+  // add/remove on top of that redraw cost.
+  private dynamicPool = new Map<string, Graphics>();
   private structureLabels = new Container();
   private effects = new Graphics();
   private overlay = new Graphics();
@@ -164,10 +169,25 @@ export class WorldRenderer {
     for (const { g, x } of this.structureCells) g.renderable = Math.abs(x - this.cam.x) <= span;
   }
 
-  private addDynamic(g: Graphics, key: number): void {
-    g.zIndex = key;
-    this.dynamic.push(g);
-    this.scene.addChild(g);
+  /**
+   * Returns this frame's Graphics for `poolKey`, cleared and ready to redraw
+   * (a reused object on every frame but the first) and records it as used.
+   * `usedKeys` is swept against `this.dynamicPool` at the end of the frame
+   * (see `render()`) so entities that left the snapshot get their Graphics
+   * destroyed instead of leaking.
+   */
+  private pooledDynamic(poolKey: string, depthZ: number, usedKeys: Set<string>): Graphics {
+    usedKeys.add(poolKey);
+    let g = this.dynamicPool.get(poolKey);
+    if (!g) {
+      g = new Graphics();
+      this.dynamicPool.set(poolKey, g);
+      this.scene.addChild(g);
+    } else {
+      g.clear();
+    }
+    g.zIndex = depthZ;
+    return g;
   }
 
   private label(_id: string, comps: MapComponent[], text: string, color: number): void {
@@ -194,12 +214,14 @@ export class WorldRenderer {
     this.zoom = viewZoom(this.app.screen.width, this.app.screen.height);
     const text = textOverlays(state.ui);
     this.drawStructures(snap, text.structureNames);
-    for (const g of this.dynamic) g.destroy();
-    this.dynamic = [];
+    const usedDynamicKeys = new Set<string>();
     this.effects.clear();
     this.overlay.clear();
     this.overlayLabels.removeChildren();
-    if (!snap) return;
+    if (!snap) {
+      this.sweepDynamicPool(usedDynamicKeys);
+      return;
+    }
 
     const frozen = state.lifecycle.phase !== 'active';
     const tick = displayTick(snap.tick, state.ui.latestSnapshotAtMs, nowMs, frozen);
@@ -218,13 +240,13 @@ export class WorldRenderer {
       // Sliced one cell at a time (CR002.3/4), like structures and scenery,
       // so a 2×2 body that partly overlaps another one occludes correctly
       // cell-by-cell instead of by a single whole-body anchor key (#242).
-      for (const cell of unitFootprintCells(p.x, p.y)) {
-        const g = new Graphics();
-        drawRobotStack(g, cell.x, cell.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground, size: 1 });
+      const bodyCells = unitFootprintCells(p.x, p.y);
+      bodyCells.forEach((cell, i) => {
         // No CO_LOCATED_TIE_BIAS here: robots are grounded, structure-like
         // bodies, so they win ties the same way a war base or factory does.
-        this.addDynamic(g, depthKey(cell.x, cell.y, ground));
-      }
+        const g = this.pooledDynamic(`robot:${r.entity_id}:${i}`, depthKey(cell.x, cell.y, ground), usedDynamicKeys);
+        drawRobotStack(g, cell.x, cell.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground, size: 1 });
+      });
       if (r.owner !== me) {
         // Enemy marker ring so ownership stays readable at distance. Sliced
         // per footprint cell like the body (#248): this ring kept the old
@@ -233,11 +255,10 @@ export class WorldRenderer {
         // the body itself now correctly occludes — flickering against it
         // frame to frame whenever the anchor cell's own comparison result
         // (correct) disagreed with the ring's (stale, anchor-only) one.
-        for (const cell of unitFootprintCells(p.x, p.y)) {
-          const g = new Graphics();
+        unitFootprintCells(p.x, p.y).forEach((cell, i) => {
+          const g = this.pooledDynamic(`ring:${r.entity_id}:${i}`, depthKey(cell.x, cell.y, ground), usedDynamicKeys);
           drawDiamond(g, cell.x, cell.y, ownerColor(r.owner), 0, ownerColor(r.owner), ground, 1);
-          this.addDynamic(g, depthKey(cell.x, cell.y, ground));
-        }
+        });
       }
       if (text.robotStrength) {
         const centre = unitCentre(p.x, p.y);
@@ -280,11 +301,10 @@ export class WorldRenderer {
       // stack there because its altitude is higher); CO_LOCATED_TIE_BIAS
       // covers the remaining tie where the commander's altitude can't go
       // low enough to sort strictly under a co-located structure's base.
-      for (const cell of unitFootprintCells(x, y)) {
-        const g = new Graphics();
+      unitFootprintCells(x, y).forEach((cell, i) => {
+        const g = this.pooledDynamic(`commander:${c.player_id}:${i}`, depthKey(cell.x, cell.y, alt) + CO_LOCATED_TIE_BIAS, usedDynamicKeys);
         drawCommander(g, cell.x, cell.y, alt, c.player_id, surfaceZ, 4, 1);
-        this.addDynamic(g, depthKey(cell.x, cell.y, alt) + CO_LOCATED_TIE_BIAS);
-      }
+      });
       if (c.player_id === me) {
         // Locked to the interpolated position (CR003.5): no lag, no overshoot.
         const centre = unitCentre(x, y);
@@ -302,17 +322,26 @@ export class WorldRenderer {
       const centre = unitCentre(x, y);
       const p = project(centre.x, centre.y, pr.z);
       const col = colorFor(`projectile.${pr.weapon}` as SemanticAsset);
-      const g = new Graphics();
       const sh = project(centre.x, centre.y, Math.min(pr.z, this.surface.underUnit(x, y, destroyed)));
+      const g = this.pooledDynamic(`projectile:${pr.id}`, depthKey(x, y, pr.z), usedDynamicKeys);
       g.circle(sh.x, sh.y, 1).fill({ color: 0x000000, alpha: 0.4 });
       g.circle(p.x, p.y, pr.weapon === 'nuclear' ? 2.5 : 1.5).fill(col);
-      this.addDynamic(g, depthKey(x, y, pr.z));
     }
 
     this.drawEffects(nowMs);
     if (state.ui.debugGrid) this.drawDebug(snap);
     this.applyCamera(menuColumnShown(state) ? menuColumnPx() : 0);
     this.cullStructures();
+    this.sweepDynamicPool(usedDynamicKeys);
+  }
+
+  /** Destroys and drops pooled dynamic Graphics for entities no longer in this frame's snapshot. */
+  private sweepDynamicPool(usedKeys: Set<string>): void {
+    for (const [key, g] of this.dynamicPool) {
+      if (usedKeys.has(key)) continue;
+      g.destroy();
+      this.dynamicPool.delete(key);
+    }
   }
 
   private diffForEffects(snap: SnapshotState, nowMs: number): void {
