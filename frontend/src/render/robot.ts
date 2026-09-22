@@ -2,11 +2,25 @@
 // The stack array in the snapshot is already in canonical order
 // (chassis → cannon → missile → phaser → nuke → electronics); we draw it
 // bottom-up and never reorder or re-derive it.
-import { Graphics } from 'pixi.js';
-import { drawPrism, drawDiamond } from './prism.ts';
-import { colorFor, ownerColor, type SemanticAsset } from './assets.ts';
+//
+// Owner-directed extension (2026-09-22): pieces and the commander are drawn
+// with the decoded Spectrum sprites (robot-sprites.ts / commander-sprites.ts,
+// see frontend/scripts/decode-unit-sprites.py) instead of procedural prisms,
+// sliced per footprint cell the same way scenery is (sprite-slice.ts). Each
+// sprite's silhouette is ink=white/paper=mid-grey so PixiJS `tint` recolors
+// the whole piece to the owner's colour in one draw call, matching the
+// Spectrum's single per-player screen attribute (it has no per-module
+// colour; the previous placeholder's per-module rainbow was our own
+// invention and is dropped along with the prisms it decorated).
+import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
+import { drawDiamond } from './prism.ts';
+import { ownerColor } from './assets.ts';
 import { interpolateAltitude, type GridTransition } from './interpolation.ts';
 import type { SurfaceMap } from './surface.ts';
+import { depthKey } from './projection.ts';
+import { pixelTexture, sliceSpriteRows, spriteOriginFor, type SpriteSlice } from './sprite-slice.ts';
+import { ROBOT_SPRITES } from './robot-sprites.ts';
+import { COMMANDER_SPRITES } from './commander-sprites.ts';
 
 /**
  * Robots and commanders are 2×2 bodies (CR002.3/4). A snapshot's (x, y) is
@@ -51,6 +65,45 @@ export const MODULE_VISUAL_HEIGHT: Record<ModuleId, number> = {
   electronics: 7,
 };
 
+const SPRITE_INK = 0xffffff;
+const SPRITE_PAPER = 0xaaaaaa;
+const FOOTPRINT: readonly [number, number] = [UNIT_SIZE, UNIT_SIZE];
+
+interface UnitSliceTexture {
+  slice: SpriteSlice;
+  texture: Texture;
+}
+
+const moduleSliceCache = new Map<ModuleId, UnitSliceTexture[]>();
+
+/** Per-footprint-cell slices of a module's sprite, built once (cached like scenery's `sceneryTexturesFor`). */
+function moduleSlices(m: ModuleId): UnitSliceTexture[] {
+  let s = moduleSliceCache.get(m);
+  if (!s) {
+    s = sliceSpriteRows(ROBOT_SPRITES[m], FOOTPRINT, MODULE_VISUAL_HEIGHT[m]).map((slice) => ({
+      slice,
+      texture: pixelTexture(slice.rows, SPRITE_INK, SPRITE_PAPER),
+    }));
+    moduleSliceCache.set(m, s);
+  }
+  return s;
+}
+
+/** Key of COMMANDER_SPRITES (single frame, no facing: `Lcd83_render_player`). */
+const COMMANDER_SPRITE_ID = 'spectrum.commander';
+let commanderSliceCache: UnitSliceTexture[] | null = null;
+
+function commanderSlices(): UnitSliceTexture[] {
+  if (!commanderSliceCache) {
+    const rows = COMMANDER_SPRITES[COMMANDER_SPRITE_ID]!;
+    commanderSliceCache = sliceSpriteRows(rows, FOOTPRINT, rows.length).map((slice) => ({
+      slice,
+      texture: pixelTexture(slice.rows, SPRITE_INK, SPRITE_PAPER),
+    }));
+  }
+  return commanderSliceCache;
+}
+
 /**
  * Elevation a robot stands at (CR002.25): the highest map piece under its
  * 2×2 body, the Spectrum's ROBOT_STRUCT_ALTITUDE (`Lb5d6_map_altitude_2x2`,
@@ -75,22 +128,49 @@ export function robotGround(
   return interpolateAltitude(from, { from_altitude: from, to_altitude: to, started_tick: move.started_tick, duration_ticks: move.duration_ticks }, tick);
 }
 
-/** Draws the stack standing at elevation `opts.ground` (default 0); returns its top. */
-export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonly ModuleId[], owner: string | null, opts: { alpha?: number; totalHeight?: number; ground?: number; size?: number } = {}): number {
+/**
+ * Sliced, owner-tinted Sprites (plus the ground shadow diamond) for a 2×2
+ * body's stack, anchored at (x, y) and standing at elevation `opts.ground`
+ * (default 0). Each object is already positioned and `zIndex`-ed for the
+ * shared scene painter's order (CR002.14); the caller only adds them.
+ * Returns the stack's top elevation too (ground + total height).
+ */
+export function drawRobotStack(
+  x: number,
+  y: number,
+  stack: readonly ModuleId[],
+  owner: string | null,
+  opts: { alpha?: number; totalHeight?: number; ground?: number } = {},
+  getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
+): number {
   const alpha = opts.alpha ?? 1;
   const ground = opts.ground ?? 0;
-  const size = opts.size ?? UNIT_SIZE;
-  drawDiamond(g, x, y, ownerColor(owner), 0.35 * alpha, undefined, ground, size);
+  let idx = 0;
+
+  const shadow = getPiece(idx++, false) as Graphics;
+  if ('clear' in shadow) shadow.clear();
+  drawDiamond(shadow, x, y, ownerColor(owner), 0.35 * alpha, undefined, ground, UNIT_SIZE);
+  shadow.zIndex = depthKey(x, y, ground);
+
   let z = ground;
-  const n = stack.length;
   // If the authoritative height differs from our visual sum, scale to match it
-  // so the docked commander lands exactly on the authoritative top.
+  // so the docked commander lands exactly on the authoritative top. The
+  // sprite's own pixel size never stretches (it would smear the pixel art);
+  // only the elevation each piece stacks at is rescaled.
   const visualSum = stack.reduce((h, m) => h + MODULE_VISUAL_HEIGHT[m], 0) || 1;
   const scale = opts.totalHeight !== undefined ? opts.totalHeight / visualSum : 1;
-  for (let i = 0; i < n; i++) {
-    const m = stack[i];
+  const tint = ownerColor(owner);
+  for (const m of stack) {
     const h = MODULE_VISUAL_HEIGHT[m] * scale;
-    drawPrism(g, x, y, z, h, colorFor(`module.${m}` as SemanticAsset), alpha, size);
+    const origin = spriteOriginFor(ROBOT_SPRITES[m], FOOTPRINT, { x, y }, z);
+    for (const { slice, texture } of moduleSlices(m)) {
+      const s = getPiece(idx++, true) as Sprite;
+      s.texture = texture;
+      s.position.set(origin.x, origin.y);
+      s.tint = tint;
+      s.alpha = alpha;
+      s.zIndex = depthKey(x + slice.dx, y + slice.dy, z);
+    }
     z += h;
   }
   return z;
@@ -99,11 +179,34 @@ export function drawRobotStack(g: Graphics, x: number, y: number, stack: readonl
 /**
  * `surfaceZ` is the top of whatever lies under the commander (ground,
  * structure roof, heli-pad; see surface.ts): its shadow is drawn there so
- * altitude reads against the surface. No shadow when resting on it.
+ * altitude reads against the surface. No shadow when resting on it. Returns
+ * the sliced, owner-tinted commander Sprites plus the shadow diamond,
+ * positioned and `zIndex`-ed for the scene.
  */
-export function drawCommander(g: Graphics, x: number, y: number, altitude: number, owner: string, surfaceZ = 0, height = 4, size = UNIT_SIZE): void {
-  if (altitude > surfaceZ) drawDiamond(g, x, y, 0x000000, 0.35, undefined, surfaceZ, size);
-  drawPrism(g, x, y, altitude, height, colorFor('commander'), 1, size);
-  // ownership pennant on top
-  drawPrism(g, x, y, altitude + height, 1, ownerColor(owner), 1, size);
+export function drawCommander(
+  x: number,
+  y: number,
+  altitude: number,
+  owner: string,
+  surfaceZ = 0,
+  zBias = 0,
+  getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
+): void {
+  let idx = 0;
+  if (altitude > surfaceZ) {
+    const shadow = getPiece(idx++, false) as Graphics;
+    if ('clear' in shadow) shadow.clear();
+    drawDiamond(shadow, x, y, 0x000000, 0.35, undefined, surfaceZ, UNIT_SIZE);
+    shadow.zIndex = depthKey(x, y, surfaceZ) + zBias;
+  }
+  const rows = COMMANDER_SPRITES[COMMANDER_SPRITE_ID]!;
+  const origin = spriteOriginFor(rows, FOOTPRINT, { x, y }, altitude);
+  const tint = ownerColor(owner);
+  for (const { slice, texture } of commanderSlices()) {
+    const s = getPiece(idx++, true) as Sprite;
+    s.texture = texture;
+    s.position.set(origin.x, origin.y);
+    s.tint = tint;
+    s.zIndex = depthKey(x + slice.dx, y + slice.dy, altitude) + zBias;
+  }
 }

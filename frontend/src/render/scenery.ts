@@ -5,8 +5,9 @@
 // the manifest changes the render with no code change. Presentation only:
 // collision and heights stay with the engine and the map data.
 import type { MapBlocker, MapData } from '../world/map.ts';
-import { depthKey, project, unproject } from './projection.ts';
+import { depthKey } from './projection.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
+import { sliceSpriteRows, spriteOriginFor, type SpriteSlice } from './sprite-slice.ts';
 
 export interface SceneryAsset {
   /** Key into SCENERY_SPRITES. */
@@ -88,56 +89,21 @@ export function sceneryPlacements(
  * the result.
  */
 export function spriteOrigin(asset: SceneryAsset, anchor: { x: number; y: number }): { x: number; y: number } {
-  const rows = SCENERY_SPRITES[asset.sprite]!.length;
-  const left = project(anchor.x - 0.5, anchor.y - asset.footprint[1] + 0.5);
-  const bottom = project(anchor.x - 0.5, anchor.y + 0.5);
-  const [dx, dy] = asset.offset ?? [0, 0];
-  return { x: left.x - 0.5 + dx, y: bottom.y - rows + 0.5 + dy };
+  return spriteOriginFor(SCENERY_SPRITES[asset.sprite]!, asset.footprint, anchor, 0, asset.offset ?? [0, 0]);
 }
 
-export interface SpriteSlice {
-  /** Footprint cell offset from the anchor (dx >= 0, dy <= 0). */
-  dx: number;
-  dy: number;
-  /** Same size as the sprite; ' ' where another cell owns the pixel. */
-  rows: string[];
-}
+export type { SpriteSlice };
 
 /**
  * Split a sprite into one slice per footprint cell so each slice joins the
  * shared painter's order with its own cell's depth key, like the per-cell
  * prisms of war bases and factories. A pixel belongs to the cell whose
  * visible surface it shows: the highest point of the footprint's solid
- * (0..height) on that pixel's view line.
+ * (0..height) on that pixel's view line. See `sprite-slice.ts` (CR002.5,
+ * shared with robots/commander/structure walls since #owner-2026-09-22).
  */
 export function sliceSprite(asset: SceneryAsset): SpriteSlice[] {
-  const rows = SCENERY_SPRITES[asset.sprite]!;
-  const [fw, fh] = asset.footprint;
-  const o = spriteOrigin(asset, { x: 0, y: 0 });
-  const cells: [number, number][] = [];
-  for (let dy = 0; dy > -fh; dy--) for (let dx = 0; dx < fw; dx++) cells.push([dx, dy]);
-  const out = cells.map(() => rows.map((r) => [...r].map(() => ' ')));
-  const zTop = Math.min(asset.height, rows.length);
-  rows.forEach((row, r) => {
-    for (let c = 0; c < row.length; c++) {
-      if (row[c] === ' ') continue;
-      const sx = o.x + c + 0.5;
-      const sy = o.y + r + 0.5;
-      let owner = -1;
-      let nearest = 0;
-      let nearestD = Infinity;
-      for (let z = zTop; z >= 0 && owner < 0; z -= 0.25) {
-        const g = unproject(sx, sy + z);
-        cells.forEach(([dx, dy], i) => {
-          const d = Math.max(Math.abs(g.x - dx), Math.abs(g.y - dy));
-          if (d <= 0.5 && owner < 0) owner = i;
-          if (d < nearestD) [nearestD, nearest] = [d, i];
-        });
-      }
-      out[owner < 0 ? nearest : owner]![r]![c] = row[c]!;
-    }
-  });
-  return cells.map(([dx, dy], i) => ({ dx, dy, rows: out[i]!.map((r) => r.join('')) }));
+  return sliceSpriteRows(SCENERY_SPRITES[asset.sprite]!, asset.footprint, asset.height);
 }
 
 /** Painter's key of a slice for a blocker anchored at `anchor`. */

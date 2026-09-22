@@ -10,11 +10,31 @@ import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
 import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
-import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
+import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, type SemanticAsset } from './assets.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
+import { pixelTexture } from './sprite-slice.ts';
 import { textOverlays } from '../state/labels.ts';
 import { menuColumnShown } from '../ui/menus.ts';
 import { menuColumnPx } from '../ui/radar.ts';
+
+/**
+ * War-base/factory wall segments (owner-directed extension, 2026-09-22):
+ * `Lbfb2_warbase` / `Lbfe2_factory` (`netherearth-annotated.asm`) build both
+ * structures from just these two map-element types (15 and 16), placed via
+ * `Lbd61_add_complex_structure_to_map`. Their heights (`Ld7bc_map_piece_heights`
+ * types 15/16 = 7/15) are exactly the two component heights the built-in map
+ * (`data/maps/zx-spectrum-original.yaml`) already uses for every war-base and
+ * factory cell, so `manifest.json`'s `structures.walls` maps each height to a
+ * sprite with no invented data (`public/assets/README.md`). A component whose
+ * height has no entry (a custom/future map, or a missing/unreadable manifest)
+ * falls back to the placeholder prism, like an unmapped scenery kind.
+ */
+function structureWallAsset(height: number): { id: string; asset: SceneryAsset } | undefined {
+  const m = structureManifest();
+  const id = m?.walls[String(height)];
+  const asset = id !== undefined ? m?.assets[id] : undefined;
+  return id !== undefined && asset ? { id, asset } : undefined;
+}
 
 interface Effect {
   x: number;
@@ -34,12 +54,13 @@ export class WorldRenderer {
   // rebuilt every frame.
   private scene = new Container({ sortableChildren: true });
   private structureCells: { g: Container; x: number }[] = [];
-  // Dynamic (robot/commander/projectile) Graphics are pooled by a stable key
-  // (#256): every frame still redraws their contents (interpolated position
-  // changes every tick), but reusing the Graphics object instead of
-  // destroying and reallocating one avoids per-frame GC churn and scene-graph
-  // add/remove on top of that redraw cost.
-  private dynamicPool = new Map<string, Graphics>();
+  // Dynamic (robot/commander/projectile) Graphics/Sprites are pooled by a
+  // stable key (#256): every frame still redraws/repositions their contents
+  // (interpolated position changes every tick), but reusing the object
+  // instead of destroying and reallocating one avoids per-frame GC churn and
+  // scene-graph add/remove on top of that redraw cost. Sprite pieces (owner
+  // extension, 2026-09-22) are pooled the same way, keyed per slice index.
+  private dynamicPool = new Map<string, Container>();
   private structureLabels = new Container();
   private effects = new Graphics();
   private overlay = new Graphics();
@@ -96,17 +117,23 @@ export class WorldRenderer {
 
     // CR002.18: a nuclear blast turns destructible scenery into rough debris.
     const debrisIds = new Set(state?.scenery_debris ?? []);
-    const blocks: { c: MapComponent; color: number; dead: boolean; debris?: boolean }[] = [];
+    // War-base/factory blocks (owner-directed extension, 2026-09-22): a
+    // component whose height matches a decoded wall segment (7 or 15, see
+    // structureWallAsset) draws that Spectrum sprite; anything else (a
+    // custom map's own heights, or a dead structure's rubble) keeps the
+    // placeholder prism, exactly like an unmapped scenery kind.
+    const structureBlocks: { c: MapComponent; color: number; dead: boolean }[] = [];
     for (const wb of this.map.war_bases) {
       const col = ownerColor(owner(wb.id));
-      for (const c of wb.components) blocks.push({ c, color: col, dead: destroyed(wb.id) });
+      for (const c of wb.components) structureBlocks.push({ c, color: col, dead: destroyed(wb.id) });
       if (debug) this.label(wb.id, wb.components, `WAR BASE ${owner(wb.id) ?? 'neutral'}${destroyed(wb.id) ? ' ✕' : ''}`, col);
     }
     for (const f of this.map.factories) {
       const col = shade(colorFor('structure.factory'), owner(f.id) ? 1.2 : 0.9);
-      for (const c of f.components) blocks.push({ c, color: col, dead: destroyed(f.id) });
+      for (const c of f.components) structureBlocks.push({ c, color: col, dead: destroyed(f.id) });
       if (debug) this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
     }
+    const blocks: { c: MapComponent; color: number; dead: boolean; debris?: boolean }[] = [];
     // CR002.5: mapped blockers are Spectrum sprites (below); the rest keep placeholder prisms.
     // CR002.18: debris blockers resolve through the manifest's `debris` kind.
     const scenery = sceneryPlacements(this.map, sceneryManifest(), debrisIds);
@@ -124,17 +151,46 @@ export class WorldRenderer {
     // CR002.6: an ownership flag stands on its roof cell and is drawn with
     // that cell, so it shares the cell's place in the depth ordering.
     const flags = new Map(ownershipFlags(this.map, state?.structure_ownership ?? [], destroyedIds).map((f) => [`${f.x},${f.y}`, f.owner]));
+    for (const { c, color, dead } of structureBlocks) {
+      const wall = !dead ? structureWallAsset(c.height) : undefined;
+      if (wall) {
+        const origin = spriteOrigin(wall.asset, { x: c.x, y: c.y });
+        for (const { texture } of this.sceneryTexturesFor(wall.id, wall.asset)) {
+          const s = new Sprite(texture);
+          s.position.set(origin.x, origin.y);
+          s.zIndex = depthKey(c.x, c.y);
+          this.structureCells.push({ g: s, x: c.x });
+          this.scene.addChild(s);
+        }
+        if (pads.has(`${c.x},${c.y}`) || flags.has(`${c.x},${c.y}`)) {
+          const g = new Graphics();
+          if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+          const flag = flags.get(`${c.x},${c.y}`);
+          if (flag) drawFlag(g, c.x, c.y, c.height, flag);
+          g.zIndex = depthKey(c.x, c.y);
+          this.structureCells.push({ g, x: c.x });
+          this.scene.addChild(g);
+        }
+      } else {
+        const g = new Graphics();
+        if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
+        else {
+          drawPrism(g, c.x, c.y, 0, c.height, color);
+          if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+          const flag = flags.get(`${c.x},${c.y}`);
+          if (flag) drawFlag(g, c.x, c.y, c.height, flag);
+        }
+        g.zIndex = depthKey(c.x, c.y);
+        this.structureCells.push({ g, x: c.x });
+        this.scene.addChild(g);
+      }
+    }
     for (const { c, color, dead, debris } of blocks) {
       const g = new Graphics();
       if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
       // Fallback prism of unmapped debris: the map's rough-piece debris height (types 6/7, 3).
       else if (debris) drawPrism(g, c.x, c.y, 0, this.map.terrain.debris_height, shade(color, (c.x + c.y) % 2 ? 0.8 : 1));
-      else {
-        drawPrism(g, c.x, c.y, 0, c.height, color);
-        if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
-        const flag = flags.get(`${c.x},${c.y}`);
-        if (flag) drawFlag(g, c.x, c.y, c.height, flag);
-      }
+      else drawPrism(g, c.x, c.y, 0, c.height, color);
       g.zIndex = depthKey(c.x, c.y);
       this.structureCells.push({ g, x: c.x });
       this.scene.addChild(g);
@@ -178,8 +234,8 @@ export class WorldRenderer {
    */
   private pooledDynamic(poolKey: string, depthZ: number, usedKeys: Set<string>): Graphics {
     usedKeys.add(poolKey);
-    let g = this.dynamicPool.get(poolKey);
-    if (!g) {
+    let g: Graphics | undefined = this.dynamicPool.get(poolKey) as Graphics | undefined;
+    if (!g || !(g instanceof Graphics)) {
       g = new Graphics();
       this.dynamicPool.set(poolKey, g);
       this.scene.addChild(g);
@@ -187,6 +243,29 @@ export class WorldRenderer {
       g.clear();
     }
     g.zIndex = depthZ;
+    return g;
+  }
+
+  /**
+   * Returns this frame's piece (Sprite for a textured slice, Graphics for a
+   * procedural one, e.g. a shadow) for `baseKey:index` -- a reused object on
+   * every frame but the first, pooled the same way as `pooledDynamic` (#256)
+   * but keyed per visual piece so a multi-sprite entity (owner extension,
+   * 2026-09-22: decoded Spectrum sprites for robots/commanders) doesn't
+   * reallocate one `Sprite` per slice every frame.
+   */
+  private pooledPiece(baseKey: string, index: number, textured: boolean, usedKeys: Set<string>): Container {
+    const key = `${baseKey}:${index}`;
+    usedKeys.add(key);
+    let g = this.dynamicPool.get(key);
+    const wantsSprite = textured;
+    if (!g || g instanceof Sprite !== wantsSprite) {
+      g = wantsSprite ? new Sprite() : new Graphics();
+      this.dynamicPool.set(key, g);
+      this.scene.addChild(g);
+    } else if (!wantsSprite) {
+      (g as Graphics).clear();
+    }
     return g;
   }
 
@@ -240,13 +319,16 @@ export class WorldRenderer {
       // Sliced one cell at a time (CR002.3/4), like structures and scenery,
       // so a 2×2 body that partly overlaps another one occludes correctly
       // cell-by-cell instead of by a single whole-body anchor key (#242).
-      const bodyCells = unitFootprintCells(p.x, p.y);
-      bodyCells.forEach((cell, i) => {
-        // No CO_LOCATED_TIE_BIAS here: robots are grounded, structure-like
-        // bodies, so they win ties the same way a war base or factory does.
-        const g = this.pooledDynamic(`robot:${r.entity_id}:${i}`, depthKey(cell.x, cell.y, ground), usedDynamicKeys);
-        drawRobotStack(g, cell.x, cell.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground, size: 1 });
-      });
+      // No CO_LOCATED_TIE_BIAS here: robots are grounded, structure-like
+      // bodies, so they win ties the same way a war base or factory does.
+      // Sliced sprite piece (owner extension, 2026-09-22): drawRobotStack
+      // already zIndexes each visual piece per its own sub-footprint offset
+      // (slice.dx/dy), a finer-grained version of the per-footprint-cell
+      // occlusion #242/#244 introduced, so one call per robot (pooled per
+      // piece index, #256) replaces the outer per-cell loop.
+      drawRobotStack(p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground }, (i, textured) =>
+        this.pooledPiece(`robot:${r.entity_id}`, i, textured, usedDynamicKeys),
+      );
       if (r.owner !== me) {
         // Enemy marker ring so ownership stays readable at distance. Sliced
         // per footprint cell like the body (#248): this ring kept the old
@@ -301,10 +383,11 @@ export class WorldRenderer {
       // stack there because its altitude is higher); CO_LOCATED_TIE_BIAS
       // covers the remaining tie where the commander's altitude can't go
       // low enough to sort strictly under a co-located structure's base.
-      unitFootprintCells(x, y).forEach((cell, i) => {
-        const g = this.pooledDynamic(`commander:${c.player_id}:${i}`, depthKey(cell.x, cell.y, alt) + CO_LOCATED_TIE_BIAS, usedDynamicKeys);
-        drawCommander(g, cell.x, cell.y, alt, c.player_id, surfaceZ, 4, 1);
-      });
+      // Sliced sprite piece (owner extension, 2026-09-22), same reasoning
+      // as the robot body above: one call per commander, pooled per piece.
+      drawCommander(x, y, alt, c.player_id, surfaceZ, CO_LOCATED_TIE_BIAS, (i, textured) =>
+        this.pooledPiece(`commander:${c.player_id}`, i, textured, usedDynamicKeys),
+      );
       if (c.player_id === me) {
         // Locked to the interpolated position (CR003.5): no lag, no overshoot.
         const centre = unitCentre(x, y);
@@ -431,28 +514,6 @@ export class WorldRenderer {
     const w = unproject((sx - this.world.position.x) / this.zoom, (sy - this.world.position.y) / this.zoom);
     return { x: Math.round(w.x), y: Math.round(w.y) };
   }
-}
-
-/** Nearest-filtered texture of a '#'/'.'/' ' pixel sprite (world units are Spectrum pixels). */
-function pixelTexture(rows: readonly string[], ink: number, paper: number): Texture {
-  const w = rows[0]?.length ?? 0;
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, w);
-  canvas.height = Math.max(1, rows.length);
-  const ctx = canvas.getContext('2d')!;
-  const img = ctx.createImageData(canvas.width, canvas.height);
-  rows.forEach((row, r) => {
-    for (let c = 0; c < row.length; c++) {
-      if (row[c] === ' ') continue;
-      const col = row[c] === '#' ? ink : paper;
-      const i = (r * canvas.width + c) * 4;
-      img.data.set([(col >> 16) & 0xff, (col >> 8) & 0xff, col & 0xff, 255], i);
-    }
-  });
-  ctx.putImageData(img, 0, 0);
-  const tex = Texture.from(canvas);
-  tex.source.scaleMode = 'nearest';
-  return tex;
 }
 
 /** Spectrum flag sprite at native size (world units are Spectrum pixels), pole foot on the roof centre. */

@@ -3,7 +3,7 @@
 // (all of them today) an explicit procedural placeholder is used so nothing
 // blocks UI work. No gameplay value (cost, range, collision) lives here.
 import { Assets, Texture } from 'pixi.js';
-import type { SceneryManifest } from './scenery.ts';
+import type { SceneryAsset, SceneryManifest } from './scenery.ts';
 
 export type SemanticAsset =
   | 'terrain.normal'
@@ -80,18 +80,39 @@ export const PLACEHOLDER_COLORS: Record<SemanticAsset, number> = {
 
 const textures = new Map<SemanticAsset, Texture>();
 
+/**
+ * War-base/factory wall segments (owner-directed extension, 2026-09-22):
+ * `walls` maps a `MapComponent.height` (as a string key, since JSON object
+ * keys are strings) to a `structure.*` asset id; `assets` is shaped like
+ * `SceneryManifest.assets` (sprite/footprint/height) so the same
+ * `sceneryPlacements`-style "unmapped falls back to a placeholder prism"
+ * contract applies to any height a custom map uses that isn't 7 or 15.
+ */
+export interface StructureManifest {
+  walls: Record<string, string>;
+  assets: Record<string, SceneryAsset>;
+}
+
 export interface AssetManifest {
   /** semantic id → image path under public/ (e.g. "assets/module.bipod.png") */
   images: Partial<Record<SemanticAsset, string>>;
   /** CR002.5: blocker kind -> scenery asset (sprite, footprint, height). */
   scenery?: SceneryManifest;
+  /** War-base/factory wall segments (owner-directed extension, 2026-09-22). */
+  structures?: StructureManifest;
 }
 
 let scenery: SceneryManifest | null = null;
+let structures: StructureManifest | null = null;
 
 /** Scenery mapping from the loaded manifest; null (placeholder prisms) if absent. */
 export function sceneryManifest(): SceneryManifest | null {
   return scenery;
+}
+
+/** War-base/factory wall-segment mapping from the loaded manifest; null (placeholder prisms) if absent. */
+export function structureManifest(): StructureManifest | null {
+  return structures;
 }
 
 /**
@@ -109,6 +130,7 @@ export async function loadAssets(manifestUrl = '/assets/manifest.json'): Promise
     /* no manifest: placeholders everywhere */
   }
   scenery = manifest.scenery ?? null;
+  structures = manifest.structures ?? null;
   const missing: SemanticAsset[] = [];
   await Promise.all(
     ids.map(async (id) => {

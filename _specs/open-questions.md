@@ -867,6 +867,7 @@ Deliberate differences from the original that the owner decided to keep. They ar
 7. **Radar shows only the viewer's own commander (owner decision 2026-09-21),** as in the single-player original; enemy robots are shown. Marks are white only (the original flickers cyan/yellow on blue).
 8. **Debris variant.** The Spectrum picks debris type 6 or 7 at random; both behave the same, so the engine consumes no RNG for it and the renderer always uses one sprite.
 9. **Fence post centred on its footprint (owner decision 2026-09-22, CR003.7 #222).** The renderer draws the map-end fence sprite centred on its 2×2 footprint, not where the Spectrum draws it. Presentation only; see "Map-end fence placement" below.
+10. **Robot/commander/structure Spectrum sprites replace procedural prisms (owner-directed, 2026-09-22).** See "Commander/robot/structure sprites" below. Presentation only; robot direction facing is not wired (no protocol field carries it), so all four cardinal-direction piece sprites the disassembly shows are decoded but only direction 0 is drawn.
 
 ## Nuclear blast vs. scenery — RESOLVED (CR002.18 #196, owner decision 2026-09-21)
 
@@ -921,6 +922,80 @@ Evidence (`netherearth-annotated.asm`):
 - *4-px odd-parity offset (not applied).* `Lcf2d_draw_sprite_to_buffer` computes the x position in 4-px steps (2·x + y − 24). It draws at the byte below, and table entry 2·type + (step & 1) supplies a copy pre-shifted by 4 px for odd steps, so for odd y. Type 21 has no shifted copy, and every fence anchor has an odd y. So the Spectrum draws the fences 4 px left of the placement the renderer uses for all other sprites. Template matching `_specs/milestones/cr002/main-screen.png` confirms it: the fence anchored at (12, 13) is 40 px left of box blocker-9 (16, 14), against 36 px in the renderer.
 
 Owner decision (2026-09-22): centre the fence post on its 2×2 footprint. This is presentation only: map data, collision and heights are unchanged, and the 4-px Spectrum shift is not applied. Implementation is generic, with no special case per column. A scenery asset may carry an optional `offset` (world pixels, [right, down]) in `frontend/public/assets/manifest.json`, and `spriteOrigin` applies it (so the per-cell slices follow). `scenery.fence` uses `[2, -3]`, which puts the post base within 1 px of the footprint centre (`frontend/src/render/scenery.test.ts`). Both walls now leave the same half-cell gap to a unit at the movement limit.
+
+## Commander/robot/structure sprites — RESOLVED (owner-directed, 2026-09-22)
+
+Owner-directed extension of the CR002.5 scenery pipeline: replace the
+procedural placeholder prisms of the commander, robot modules and war-base/
+factory blocks with decoded Spectrum sprites, the same way scenery blockers
+already are. Requested directly by the owner, not inferred from a milestone.
+Evidence (`santiontanon/netherearth-disassembly`, `netherearth-annotated.asm`
+and `netherearth-annotated-data.asm`):
+
+- **Commander.** `Lcd83_render_player` always draws graphic index 0 of
+  `Ld6e8_additional_isometric_graphic_pointers` (`xor a` before the call):
+  one frame (`L8e3a_iso_additional_graphic_0`), no directional facing, no
+  selectable pieces. This is the on-foot commander figure, distinct from a
+  robot.
+- **Robot pieces.** `Lcefd_draw_robot_piece_to_buffer` looks up
+  `Ld6c8_piece_direction_graphic_indices` at `4 * piece + direction` (piece
+  0 = bipod .. 7 = electronics; direction is one of 4 cardinal directions
+  decoded from the robot's one-hot `ROBOT_STRUCT_DIRECTION`), then draws the
+  indexed sprite from `Ld740_isometric_graphic_pointers` (58 pointers,
+  confirmed by its own per-piece inline comments: "tracks", "bipod",
+  "antigrav", "cannon", "missiles", "phaser", "nuclear"). Every piece has 4
+  direction-indexed table entries; some pieces reuse the same sprite for
+  more than one direction (`anti_grav` and `nuclear` reuse one sprite for
+  all 4; `bipod`/`tracks`/`missile` reuse one sprite per pair of directions;
+  `cannon`/`phaser`/`electronics` have 4 distinct sprites) — read directly
+  off `Ld6c8_piece_direction_graphic_indices`, not guessed.
+- **War-base/factory blocks.** Both structures are built from map elements,
+  not from the "robot/factory/warbase is here" object-draw path (that path
+  only draws the flag/`"H"`/piece-on-top *decoration*, `Lce38_draw_decoration`
+  — see below). `Lbcf9_add_warbases_and_factories_to_map` adds each as a
+  "complex structure" (`Lbd61_add_complex_structure_to_map`) from
+  `Lbfb2_warbase` / `Lbfe2_factory`: a list of (map-element type, x-offset,
+  y-offset) triples. Both lists use only element types 15 and 16 (`Ld7bc_
+  map_piece_heights` gives them height 7 and 15). `data/maps/zx-spectrum-
+  original.yaml`'s `war_bases`/`factories` components already use exactly
+  those two heights (7 and 15) for every cell, so `MapComponent.height`
+  maps 1:1 to one of the two decoded wall sprites with no invented data.
+- **Factory piece-on-top / war-base "H" decorations.** `Lce56_decoration_
+  sprite_indexes` (9 entries) draws a flag (decorations 7/8, already sourced
+  as `FLAG_SPRITES`/`flags.ts`, CR002.6), the war-base `"H"` (decoration 0,
+  the one entry at a distinct height, `L87f0_iso_graphic_44`), and one icon
+  per `FactoryType` (decorations 1–6, at the piece table's electronics/
+  nuclear/phaser/missile/cannon/chassis(tracks) graphic indices — matching
+  the engine's 6 `FactoryType` values exactly). **Not implemented**: the
+  owner's request covered the four sprite categories above; the decoration
+  overlay (flag excepted, already shipped) is a smaller follow-up left for a
+  future pass, not a gap in the sourcing.
+
+Owner decision: ship it, same terms and same caveat as the scenery exception
+(`public/assets/README.md`, "Provenance and licensing" — the pixel data's
+redistribution rights are unverified, flagged for public release, not a v1
+blocker). Presentation only: no engine, collision or height change. New
+generated files: `frontend/src/render/robot-sprites.ts`, `commander-sprites.ts`
+(from `frontend/scripts/decode-unit-sprites.py`); the war-base/factory wall
+sprites are decoded into `scenery-sprites.ts` itself (elements 15/16) since
+they use the exact same per-map-element decode as scenery, and are wired
+through `manifest.json`'s new `structures` section (`structureWallAsset` in
+`renderer.ts`), matching the "unmapped falls back to a placeholder prism"
+contract every other sprite category already has. `sprite-slice.ts` factors
+the slicing/positioning/texture-caching algorithm scenery.ts used to own
+alone, so robots, the commander and structure walls share it instead of each
+reinventing it.
+
+**Known gap, not resolved here:** robot facing. The disassembly clearly
+encodes 4 cardinal-direction sprites per piece (above), but the WebSocket
+snapshot protocol (`protocol/generated/types.ts`) carries no robot direction/
+facing field, so the frontend has nothing to select a direction with. All 4
+direction sprites are documented in `decode-unit-sprites.py`'s docstring for
+when this is picked up, but only direction 0 is decoded and drawn — a
+presentation-only, backward-compatible follow-up (adding a facing field to
+the snapshot), not a gameplay decision, so it is not logged as a new
+"Remaining research" item; whoever picks it up should check with the owner
+before extending the protocol.
 
 ## Resolution process
 
