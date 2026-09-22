@@ -8,7 +8,7 @@ import { CO_LOCATED_TIE_BIAS, TILE_H, TILE_W, depthKey, playViewCentre, project,
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
-import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, UNIT_SIZE, type ModuleId } from './robot.ts';
+import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
@@ -226,10 +226,18 @@ export class WorldRenderer {
         this.addDynamic(g, depthKey(cell.x, cell.y, ground));
       }
       if (r.owner !== me) {
-        // enemy marker ring so ownership stays readable at distance
-        const g = new Graphics();
-        drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner), ground, UNIT_SIZE);
-        this.addDynamic(g, depthKey(p.x, p.y, ground));
+        // Enemy marker ring so ownership stays readable at distance. Sliced
+        // per footprint cell like the body (#248): this ring kept the old
+        // whole-body, anchor-only key pattern the body fix (#242/#244)
+        // replaced, so it could still draw over/under a structure or robot
+        // the body itself now correctly occludes — flickering against it
+        // frame to frame whenever the anchor cell's own comparison result
+        // (correct) disagreed with the ring's (stale, anchor-only) one.
+        for (const cell of unitFootprintCells(p.x, p.y)) {
+          const g = new Graphics();
+          drawDiamond(g, cell.x, cell.y, ownerColor(r.owner), 0, ownerColor(r.owner), ground, 1);
+          this.addDynamic(g, depthKey(cell.x, cell.y, ground));
+        }
       }
       if (text.robotStrength) {
         const centre = unitCentre(p.x, p.y);
