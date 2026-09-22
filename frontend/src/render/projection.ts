@@ -69,3 +69,12 @@ export const VIEW_SPAN_PX = 168;
 export function viewZoom(width: number, height: number): number {
   return Math.max(1, Math.min(width, height) / VIEW_SPAN_PX);
 }
+
+/**
+ * Screen point the camera centres on: the middle of the play view left of any
+ * column reserved on the right (the docked robot menu, CR003.11). Vertical
+ * framing is the full height.
+ */
+export function playViewCentre(width: number, height: number, reservedRight = 0): ScreenPoint {
+  return { x: Math.max(0, width - reservedRight) / 2, y: height / 2 };
+}

@@ -122,20 +122,25 @@ const HINT: Record<MenuMode, string> = {
   combat: 'ARROWS AIM  1-4 WEAPON',
 };
 
-export function renderMenus(panel: Panel, s: AppState, aim: { dx: number; dy: number }, weaponIndex: number): void {
+/** The docked robot the column is shown for, or null when the column is hidden. */
+function columnRobot(s: AppState) {
   const snap = s.latest;
   const me = s.connection.session?.playerId ?? '';
-  if (s.ui.screen !== 'match' || !snap) {
-    panel.set('');
-    return;
-  }
+  if (s.ui.screen !== 'match' || !snap) return null;
   // The construction session has its own full-screen view (ui/construction.ts).
-  if (myConstruction(snap, me)) {
-    panel.set('');
-    return;
-  }
-  const robot = dockedRobot(snap, me);
-  if (!robot) {
+  if (myConstruction(snap, me)) return null;
+  return dockedRobot(snap, me);
+}
+
+/** Whether the right-hand menu column is on screen (the camera centres beside it). */
+export function menuColumnShown(s: AppState): boolean {
+  return columnRobot(s) !== null;
+}
+
+export function renderMenus(panel: Panel, s: AppState, aim: { dx: number; dy: number }, weaponIndex: number): void {
+  const snap = s.latest;
+  const robot = columnRobot(s);
+  if (!snap || !robot) {
     panel.set('');
     return;
   }

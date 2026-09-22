@@ -6,7 +6,7 @@ import { Store, TICKS_PER_HOUR, HOURS_PER_DAY, type MenuMode } from '../state/st
 import { findFixture } from '../fixtures/index.ts';
 import { runFixtureMessage } from '../fixtures/harness.ts';
 import type { Panel } from './dom.ts';
-import { renderMenus, orderText, dayTimeLines } from './menus.ts';
+import { renderMenus, orderText, dayTimeLines, menuColumnShown } from './menus.ts';
 import { radarScale, MENU_COLUMN_UNITS } from './radar.ts';
 
 function docked(menu: MenuMode = 'none') {
@@ -95,4 +95,16 @@ test('CSS docks #menus as a right-hand column and narrows it at phone width', ()
   assert.match(css, /@media \(max-width: 720px\)[^{]*\{ :root \{ --mu: 1px; \} \}/);
   assert.match(css, /#menus \.mclock \{ background: #ff0000; color: var\(--white\)/);
   assert.match(css, /#menus \.mblk \{[^}]*background: #0000ff; color: var\(--cyan\)/);
+});
+
+test('menu column is shown exactly while the column renders (camera reserve, CR003.11)', () => {
+  const { store, html } = docked();
+  assert.ok(html);
+  assert.equal(menuColumnShown(store.get()), true);
+  const free = new Store();
+  for (const m of findFixture('commander-moving')!.messages) runFixtureMessage(free, m, 0);
+  free.setUi({ screen: 'match' });
+  assert.equal(menuColumnShown(free.get()), false);
+  store.setUi({ screen: 'lobby' });
+  assert.equal(menuColumnShown(store.get()), false);
 });
