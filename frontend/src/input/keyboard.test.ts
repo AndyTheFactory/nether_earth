@@ -56,3 +56,22 @@ test('non-movement keys are forwarded as actions once', () => {
   k.keyDown('Enter', true);
   assert.deepEqual(log, ['action Enter']);
 });
+
+test('Alt+Q is forwarded as the quit action once, ignoring repeat', () => {
+  const { log, k } = harness();
+  k.keyDown('KeyQ', false, true);
+  k.keyDown('KeyQ', true, true);
+  assert.deepEqual(log, ['action Alt+KeyQ']);
+});
+
+test('plain Q (no Alt) is forwarded as an ordinary action, not the quit action', () => {
+  const { log, k } = harness();
+  k.keyDown('KeyQ', false);
+  assert.deepEqual(log, ['action KeyQ']);
+});
+
+test('Alt held with an unrelated key does not trigger the quit action', () => {
+  const { log, k } = harness();
+  k.keyDown('Escape', false, true);
+  assert.deepEqual(log, ['action Escape']);
+});

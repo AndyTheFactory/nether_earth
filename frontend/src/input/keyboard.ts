@@ -25,6 +25,11 @@ export const KEY_TO_AXIS: Readonly<Record<string, MoveIntent>> = {
 
 export const RISE_KEY = 'Space';
 
+/** Quit-match shortcut: Alt+Q, chosen to be hard to hit by accident (Alt alone has no
+ * movement/menu meaning here, and KeyQ is otherwise unbound). See issue #250. */
+export const QUIT_KEY = 'KeyQ';
+export const QUIT_ACTION = 'Alt+KeyQ';
+
 export interface InputSink {
   /** Horizontal intent for the free commander or direct-controlled robot. */
   move(intent: MoveIntent): void;
@@ -44,7 +49,11 @@ export class KeyboardIntent {
 
   constructor(private readonly sink: InputSink) {}
 
-  keyDown(code: string, repeat: boolean): boolean {
+  keyDown(code: string, repeat: boolean, altKey = false): boolean {
+    if (altKey && code === QUIT_KEY) {
+      if (!repeat) this.sink.action(QUIT_ACTION);
+      return false;
+    }
     if (code === RISE_KEY) {
       if (!repeat && !this.rising) {
         this.rising = true;
@@ -117,7 +126,7 @@ export class KeyboardIntent {
 export function bindKeyboard(target: Window, intent: KeyboardIntent, pulseMs = 50): () => void {
   const down = (e: KeyboardEvent) => {
     if (isTypingTarget(e.target)) return;
-    if (intent.keyDown(e.code, e.repeat)) e.preventDefault();
+    if (intent.keyDown(e.code, e.repeat, e.altKey)) e.preventDefault();
   };
   const up = (e: KeyboardEvent) => {
     if (isTypingTarget(e.target)) return;
