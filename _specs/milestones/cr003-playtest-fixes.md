@@ -61,6 +61,7 @@ Tracker: #225.
 | CR003.7 (#222) | Left map-edge wall renders like the right one | — |
 | CR003.8 (#223) | Rules version bump, spec updates, fixture regeneration | CR003.1–CR003.4, CR003.10 |
 | CR003.10 (#232) | Commander moves chain without an idle tick (engine step order) | — |
+| CR003.11 (#235) | Camera centres the play view beside the menu column | CR003.6 |
 | CR003.9 (#224) | CR003 acceptance gate | all |
 
 Parallel groups: engine (CR003.1, CR003.2, CR003.3 → CR003.4) and frontend (CR003.5, CR003.6, CR003.7). CR003.5 and CR003.7 both touch `renderer.ts`, so merge one after the other.
