@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from nether_earth.capture import (
     NeutralStructureAcquiredEvent,
     StructureCapturedEvent,
@@ -411,6 +413,52 @@ def test_search_destroy_closes_on_its_target_every_tick_it_has_one() -> None:
     intents = _of(events, RobotEngagementIntentEvent)
     assert intents  # produced continuously while a target exists
     assert all(event.intent.target_id == enemy.entity_id for event in intents)  # type: ignore[attr-defined]
+
+
+def _with_electronics(robot: Robot) -> Robot:
+    build = replace(robot.build, electronics=ModuleIdentity.ELECTRONICS)
+    stack, height = derive_stack_and_height(build, DEFAULT_RULES)
+    return replace(robot, build=build, stack=stack, height=height)
+
+
+@pytest.mark.parametrize("electronics", [False, True], ids=["greedy", "electronic"])
+@pytest.mark.parametrize("enemy_x", [8, 20])
+def test_search_destroy_robot_hunter_closes_damages_and_destroys_its_target(
+    electronics: bool, enemy_x: int
+) -> None:
+    """CR003.4 regression (`_specs/milestones/cr003-playtest-fixes.md`, evidence 6).
+
+    An electronic hunter used to plan to the target's own (occupied) anchor,
+    get ``UNREACHABLE`` and drop to Stop & Defend on the first tick.
+    """
+    world = _world()
+    hunter = _robot("robot-a", x=0, y=5, order=SearchDestroy(SearchDestroyTarget.ROBOT))
+    if electronics:
+        hunter = _with_electronics(hunter)
+    enemy = _robot("robot-z", PLAYER_TWO, x=enemy_x, y=5)
+    state = _state((hunter, enemy))
+
+    damaged = False
+    destroyed_at: int | None = None
+    for tick in range(600):
+        state, events = step(state, (), world)
+        target = state.robot_for(enemy.entity_id)
+        if target is None:
+            destroyed_at = tick
+            assert _of(events, RobotDestroyedEvent)
+            break
+        damaged = damaged or target.strength < 100
+        # The order holds while a hostile robot exists.
+        assert state.robot_for(hunter.entity_id).order == SearchDestroy(  # type: ignore[union-attr]
+            SearchDestroyTarget.ROBOT
+        )
+
+    assert damaged
+    assert destroyed_at is not None
+    final = state.robot_for(hunter.entity_id)
+    assert final is not None
+    if enemy_x == 20:
+        assert final.x > 0  # it had to close the distance to get in range
 
 
 def test_search_destroy_of_a_structure_without_a_nuke_falls_back() -> None:

@@ -21,10 +21,13 @@ from nether_earth.navigation import (
     NavigationDecision,
     NavigationStatus,
     NonElectronicNavigation,
+    body_contact_anchors,
     cell_is_enterable,
     navigation_policy_for,
+    next_body_approach_step,
     next_navigation_step,
     plan_route,
+    plan_route_to_any,
 )
 from nether_earth.reservations import apply_robot_move_batch, destination_available
 from nether_earth.robot import Robot, RobotMoveTransition
@@ -751,3 +754,70 @@ def test_navigation_is_deterministic_under_a_different_match_seed() -> None:
     ) == next_navigation_step(
         robot, _TARGET[0], _TARGET[1], _state((robot,), seed=987654321), world
     )
+
+
+# --- Closing on another unit's body (CR003.4) ---------------------------------
+
+
+def test_body_contact_anchors_are_every_anchor_touching_or_overlapping_the_body() -> None:
+    anchors = body_contact_anchors(5, 5)
+    # Two 2x2 bodies touch or overlap exactly when their anchors differ by at
+    # most 2 on each axis (corner contact included).
+    assert anchors == tuple(
+        sorted((x, y) for x in range(3, 8) for y in range(3, 8))
+    )
+
+
+def test_electronic_navigation_to_an_occupied_robot_body_is_not_unreachable() -> None:
+    world = _world(width=30, height=12)
+    hunter = _robot(x=0, y=5, chassis=ModuleIdentity.TRACKS, electronics=ModuleIdentity.ELECTRONICS)
+    target = _robot("robot-z", PLAYER_TWO, x=20, y=5, chassis=ModuleIdentity.TRACKS)
+    state = _state((hunter, target))
+
+    # The regression: the target's own anchor is occupied, so a plain route to
+    # it is proved unreachable...
+    assert ELECTRONIC_NAVIGATION.next_step(hunter, 20, 5, state, world).status is (
+        NavigationStatus.UNREACHABLE
+    )
+    # ...while closing on its body plans to the nearest touching anchor.
+    decision = next_body_approach_step(hunter, 20, 5, state, world)
+    assert decision.status is NavigationStatus.STEP
+    assert decision.request == RobotMoveRequest(entity_id=hunter.entity_id, dx=1, dy=0)
+    assert decision.route[-1] == (18, 5)
+
+
+def test_body_approach_is_arrived_once_touching_and_greedy_robots_stay_greedy() -> None:
+    world = _world(width=30, height=12)
+    target = _robot("robot-z", PLAYER_TWO, x=20, y=5, chassis=ModuleIdentity.TRACKS)
+    electronic = _robot(
+        x=18, y=5, chassis=ModuleIdentity.TRACKS, electronics=ModuleIdentity.ELECTRONICS
+    )
+    greedy = _robot(x=18, y=5, chassis=ModuleIdentity.TRACKS)
+
+    assert next_body_approach_step(
+        electronic, 20, 5, _state((electronic, target)), world
+    ).status is NavigationStatus.ARRIVED
+    # The non-electronic policy is unchanged: it greedily steps at the anchor
+    # and is refused the overlapping step, which is BLOCKED, never UNREACHABLE.
+    state = _state((greedy, target))
+    assert next_body_approach_step(greedy, 20, 5, state, world) == (
+        NON_ELECTRONIC_NAVIGATION.next_step(greedy, 20, 5, state, world)
+    )
+    assert next_body_approach_step(greedy, 20, 5, state, world).status is (
+        NavigationStatus.BLOCKED
+    )
+
+
+def test_plan_route_to_any_ignores_unenterable_goals_and_is_order_independent() -> None:
+    world = _world(width=30, height=12)
+    hunter = _robot(x=0, y=5, chassis=ModuleIdentity.TRACKS)
+    blocker = _robot("robot-z", PLAYER_TWO, x=4, y=5, chassis=ModuleIdentity.TRACKS)
+    state = _state((hunter, blocker))
+    goals = ((4, 5), (8, 5), (6, 5))
+
+    route = plan_route_to_any(hunter, goals, state, world)
+    assert route is not None
+    assert route[-1] == (6, 5)  # the cheapest enterable goal; (4, 5) is occupied
+    assert plan_route_to_any(hunter, tuple(reversed(goals)), state, world) == route
+    assert plan_route_to_any(hunter, ((4, 5),), state, world) is None
+    assert plan_route_to_any(hunter, ((0, 5), (9, 9)), state, world) == ()

@@ -107,7 +107,12 @@ from nether_earth.movement import (
     unit_terrain_enterable,
     validate_robot_move,
 )
-from nether_earth.occupancy import OccupancyGrid, unit_footprint_cells, unit_footprint_in_bounds
+from nether_earth.occupancy import (
+    UNIT_FOOTPRINT_OFFSETS,
+    OccupancyGrid,
+    unit_footprint_cells,
+    unit_footprint_in_bounds,
+)
 from nether_earth.reservations import (
     ReservationTable,
     destination_available,
@@ -126,10 +131,13 @@ __all__ = [
     "NavigationPolicy",
     "NavigationStatus",
     "NonElectronicNavigation",
+    "body_contact_anchors",
     "cell_is_enterable",
     "navigation_policy_for",
+    "next_body_approach_step",
     "next_navigation_step",
     "plan_route",
+    "plan_route_to_any",
 ]
 
 
@@ -343,7 +351,27 @@ def plan_route(
     Returns the route as cells excluding the robot's current cell and ending
     at the target -- ``()`` when the robot is already there -- or ``None``
     when no route exists under this robot's own chassis permissions and the
-    current obstacles.
+    current obstacles. The single-goal case of :func:`plan_route_to_any`,
+    which documents the algorithm.
+    """
+    return plan_route_to_any(robot, ((target_x, target_y),), state, world, rules)
+
+
+def plan_route_to_any(
+    robot: Robot,
+    goals: tuple[tuple[int, int], ...],
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules = DEFAULT_RULES,
+) -> tuple[tuple[int, int], ...] | None:
+    """Return the cheapest legal route for ``robot`` to *any* anchor of ``goals``.
+
+    Returns the route as cells excluding the robot's current cell and ending
+    at the reached goal -- ``()`` when the robot already stands on a goal --
+    or ``None`` when no goal is reachable under this robot's own chassis
+    permissions and the current obstacles. A goal ``robot`` cannot currently
+    stand on is simply not a goal; only when *none* is enterable (and the
+    robot is not already on one) is the answer ``None`` without a search.
 
     Algorithm: uniform-cost search (Dijkstra) over the 4-connected grid,
     where a cell's edge cost is
@@ -357,25 +385,32 @@ def plan_route(
     routing cost and movement cost derived from the one centralized
     :class:`~nether_earth.rules.EngineRules` source. There is no A*
     heuristic: the grid is small, and Dijkstra keeps tie-breaking trivially
-    auditable.
+    auditable. With several goals the search stops at the first one popped,
+    i.e. the cheapest; equal-cost goals resolve by the same deterministic
+    queue order as equal-cost routes.
 
     Determinism: neighbours are expanded in the fixed
     :data:`CARDINAL_DIRECTIONS` order and the priority queue is keyed by
     ``(cost, insertion_counter, cell)``, so equal-cost routes always resolve
     to the same one; a cell's predecessor is only overwritten on a *strictly*
-    cheaper path, never an equal one. No dict or set is ever iterated.
+    cheaper path, never an equal one. ``goals`` is only used for membership,
+    so its order never affects the result.
 
     Terrain safety: every expanded cell passes :func:`cell_is_enterable` for
     *this* robot, so a returned route is always traversable by its own
     chassis -- electronics can never route a bipod through a ditch.
     """
     start = (robot.x, robot.y)
-    target = (target_x, target_y)
-    if start == target:
+    if start in goals:
         return ()
 
     view = _traversal_view(state, world)
-    if not _enterable(robot, target_x, target_y, state, world, rules, view):
+    targets = frozenset(
+        goal
+        for goal in goals
+        if _enterable(robot, goal[0], goal[1], state, world, rules, view)
+    )
+    if not targets:
         return None
 
     best: dict[tuple[int, int], int] = {start: 0}
@@ -385,8 +420,8 @@ def plan_route(
 
     while frontier:
         cost, _order, cell = heappop(frontier)
-        if cell == target:
-            return _reconstruct(came_from, start, target)
+        if cell in targets:
+            return _reconstruct(came_from, start, cell)
         if cost > best[cell]:
             continue  # a cheaper path to this cell was already expanded
         for dx, dy in CARDINAL_DIRECTIONS:
@@ -405,6 +440,27 @@ def plan_route(
                 heappush(frontier, (neighbour_cost, counter, neighbour))
 
     return None
+
+
+def body_contact_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int], ...]:
+    """Return every anchor from which a 2×2 body touches or overlaps the target body.
+
+    ``(target_x, target_y)`` is the target unit's 2×2 body anchor (CR002.3).
+    An anchor qualifies when some cell of the body anchored there is equal
+    or 8-neighbour adjacent to some cell of the target's body, which is the
+    CR003.4 "touches or overlaps" rule. Derived from
+    :data:`~nether_earth.occupancy.UNIT_FOOTPRINT_OFFSETS` rather than a
+    hard-coded box, and returned sorted so callers never depend on set order.
+    Overlapping anchors are included for completeness; they are never
+    enterable while the target stands there, so a route always ends beside it.
+    """
+    anchors: set[tuple[int, int]] = set()
+    for cell_x, cell_y in unit_footprint_cells(target_x, target_y):
+        for off_x, off_y in UNIT_FOOTPRINT_OFFSETS:
+            for near_x in (-1, 0, 1):
+                for near_y in (-1, 0, 1):
+                    anchors.add((cell_x + near_x - off_x, cell_y + near_y - off_y))
+    return tuple(sorted(anchors))
 
 
 def _reconstruct(
@@ -453,6 +509,23 @@ class NavigationPolicy(Protocol):
         rules: EngineRules = DEFAULT_RULES,
     ) -> NavigationDecision:
         """Return this tick's decision for ``robot`` heading to the target cell."""
+        ...
+
+    def next_step_to_body(
+        self,
+        robot: Robot,
+        target_x: int,
+        target_y: int,
+        state: GameState,
+        world: WorldMap,
+        rules: EngineRules = DEFAULT_RULES,
+    ) -> NavigationDecision:
+        """Return this tick's decision for ``robot`` closing on the unit anchored there.
+
+        The target cell is another unit's 2×2 body anchor, which is occupied
+        by definition, so an implementation must not treat that occupancy as
+        proof the target is unreachable (CR003.4).
+        """
         ...
 
 
@@ -543,6 +616,23 @@ class NonElectronicNavigation:
 
         return NavigationDecision(status=NavigationStatus.BLOCKED)
 
+    def next_step_to_body(
+        self,
+        robot: Robot,
+        target_x: int,
+        target_y: int,
+        state: GameState,
+        world: WorldMap,
+        rules: EngineRules = DEFAULT_RULES,
+    ) -> NavigationDecision:
+        """Greedy-step toward the target unit's anchor, exactly as :meth:`next_step`.
+
+        No special case is needed: the greedy rule never searches, so the
+        occupied anchor only makes the final step ``BLOCKED`` -- the robot
+        simply stops beside its target, which is the locked limited behavior.
+        """
+        return self.next_step(robot, target_x, target_y, state, world, rules)
+
 
 @dataclass(frozen=True, slots=True)
 class ElectronicNavigation:
@@ -583,18 +673,49 @@ class ElectronicNavigation:
             return trivial
 
         route = plan_route(robot, target_x, target_y, state, world, rules)
-        if route is None:
-            return NavigationDecision(status=NavigationStatus.UNREACHABLE)
+        return _first_step_decision(robot, route, state, world, rules)
 
-        next_x, next_y = route[0]
-        request = _step_is_legal(
-            robot, next_x - robot.x, next_y - robot.y, state, world, rules
+    def next_step_to_body(
+        self,
+        robot: Robot,
+        target_x: int,
+        target_y: int,
+        state: GameState,
+        world: WorldMap,
+        rules: EngineRules = DEFAULT_RULES,
+    ) -> NavigationDecision:
+        """Replan to any anchor touching the target unit's body (CR003.4).
+
+        The goal set is :func:`body_contact_anchors` of the target's anchor,
+        so the (necessarily occupied) target body itself is never the goal
+        and never makes the target ``UNREACHABLE``. Standing on any contact
+        anchor is ``ARRIVED``; the caller decides what arrival means.
+        """
+        if robot.movement is not None:
+            return NavigationDecision(status=NavigationStatus.MOVE_IN_PROGRESS)
+        route = plan_route_to_any(
+            robot, body_contact_anchors(target_x, target_y), state, world, rules
         )
-        if request is None:
-            return NavigationDecision(status=NavigationStatus.BLOCKED, route=route)
-        return NavigationDecision(
-            status=NavigationStatus.STEP, request=request, route=route
-        )
+        if route == ():
+            return NavigationDecision(status=NavigationStatus.ARRIVED)
+        return _first_step_decision(robot, route, state, world, rules)
+
+
+def _first_step_decision(
+    robot: Robot,
+    route: tuple[tuple[int, int], ...] | None,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+) -> NavigationDecision:
+    """Turn a planned (non-empty) route, or ``None``, into this tick's decision."""
+    if route is None:
+        return NavigationDecision(status=NavigationStatus.UNREACHABLE)
+    next_x, next_y = route[0]
+    request = _step_is_legal(robot, next_x - robot.x, next_y - robot.y, state, world, rules)
+    if request is None:
+        return NavigationDecision(status=NavigationStatus.BLOCKED, route=route)
+    return NavigationDecision(status=NavigationStatus.STEP, request=request, route=route)
 
 
 #: The stateless singleton instances callers should use. Policies hold no
@@ -636,5 +757,24 @@ def next_navigation_step(
     :func:`~nether_earth.reservations.apply_robot_move_batch`.
     """
     return navigation_policy_for(robot).next_step(
+        robot, target_x, target_y, state, world, rules
+    )
+
+
+def next_body_approach_step(
+    robot: Robot,
+    target_x: int,
+    target_y: int,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules = DEFAULT_RULES,
+) -> NavigationDecision:
+    """Return ``robot``'s decision for closing on the unit anchored at the target.
+
+    Equivalent to ``navigation_policy_for(robot).next_step_to_body(...)``:
+    the entry point for pursuing another robot, whose anchor cell is
+    occupied (CR003.4, Search & Destroy robots).
+    """
+    return navigation_policy_for(robot).next_step_to_body(
         robot, target_x, target_y, state, world, rules
     )
