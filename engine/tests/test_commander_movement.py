@@ -360,7 +360,8 @@ def test_ascent_clamps_at_max_altitude_and_stops_emitting_events() -> None:
     assert event is None  # already at max: no-op, no event
 
 
-def test_no_rise_descends_minus_one_per_update_until_min() -> None:
+def test_no_rise_descends_by_descent_step_per_update_until_min() -> None:
+    # CR003.1 (#216): gravity is -2 per update; 1 - 2 clamps to 0.
     state = _state_with_commanders(_free_commander(altitude=3, rising=False))
     commander = state.commander_for(PLAYER_ONE)
 
@@ -369,7 +370,7 @@ def test_no_rise_descends_minus_one_per_update_until_min() -> None:
         commander, _event = apply_vertical_physics(commander, state, tick)
         altitudes.append(commander.altitude)
 
-    assert altitudes == [2, 1, 0, 0]
+    assert altitudes == [1, 0, 0, 0]
 
 
 def test_descent_clamps_at_min_altitude_and_stops_emitting_events() -> None:
@@ -604,7 +605,7 @@ def test_elevate_counter_ascends_regardless_of_rise_intent_and_counts_down() -> 
     for tick in (4, 8, 12, 16, 20, 24, 28):
         commander, _event = apply_vertical_physics(commander, state, tick)
         altitudes.append(commander.altitude)
-    assert altitudes == [17, 19, 21, 23, 25, 24, 23]
+    assert altitudes == [17, 19, 21, 23, 25, 23, 21]
     assert commander.elevate_updates_remaining == 0
 
 

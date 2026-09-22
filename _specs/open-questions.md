@@ -649,15 +649,15 @@ This is random to players but replay-safe for identical seed + commands + state.
 
 ## 13. Commander vertical limits and speed — RESOLVED
 
-Spectrum-compatible defaults at the locked 20 Hz engine rate:
+Defaults at the locked 20 Hz engine rate (Spectrum-compatible except the descent step):
 
 - minimum altitude: 0
 - maximum altitude: 48
 - vertical update cadence: every 4 simulation ticks (5 updates/sec)
 - ascent step: +2
-- descent/gravity step: -1
+- descent/gravity step: -2 (owner deviation, see below)
 
-Ascent/descent are intentionally asymmetric. Approximate unobstructed times are 4.8 s from 0→48 and 9.6 s from 48→0.
+**Descent step (CR003.1 #216, owner decision 2026-09-22).** The Spectrum's gravity is −1 per game cycle (`Lafc3_gravity`; `Lafb5_elevate` adds 2), so the original is asymmetric: 4.8 s from 0→48 and 9.6 s from 48→0. Playtesting found the descent too slow, and the owner changed it to −2 per vertical update, cadence unchanged, so 48→0 takes 24 updates (4.8 s), the same as the ascent. This is a deliberate deviation, not a fidelity fix. Gravity still stops on the surface under the ship: when a surface is at an odd altitude, the last step is shortened to land exactly on it (`commander_movement._gravity_landing_altitude`), so the ship never skips past or hovers above it, and docking on an odd-height friendly robot top still triggers.
 
 Configuration keys/defaults:
 
@@ -665,7 +665,7 @@ Configuration keys/defaults:
 - `commander_max_altitude = 48`
 - `commander_vertical_update_ticks = 4`
 - `commander_ascent_step = 2`
-- `commander_descent_step = 1`
+- `commander_descent_step = 2`
 
 Horizontal and vertical movement may occur simultaneously.
 

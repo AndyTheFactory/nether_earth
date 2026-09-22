@@ -507,8 +507,9 @@ def apply_vertical_physics(
     `_specs/functional-spec.md` §8.4) and is returned unchanged.
 
     Ascent applies ``+rules.commander_ascent_step`` when ``commander.rising``
-    is true; otherwise gravity applies ``-rules.commander_descent_step``.
-    The result is clamped to
+    is true; otherwise gravity applies ``-rules.commander_descent_step``,
+    stopping on the first surface met on the way down (see
+    :func:`_gravity_landing_altitude`). The result is clamped to
     ``[rules.commander_min_altitude, rules.commander_max_altitude]``. If the
     clamped candidate equals the current altitude (already at a bound) or
     ``vertical_check`` disallows the destination, the commander is returned
@@ -532,6 +533,8 @@ def apply_vertical_physics(
         )
     else:
         candidate = _clamped_vertical_step(commander, rules)
+        if candidate < commander.altitude:
+            candidate = _gravity_landing_altitude(commander, state, candidate, vertical_check)
     if candidate == commander.altitude:
         return commander, None
     if not vertical_check(state, commander, candidate):
@@ -552,6 +555,28 @@ def apply_vertical_physics(
         tick=tick,
     )
     return updated, event
+
+
+def _gravity_landing_altitude(
+    commander: Commander,
+    state: GameState,
+    candidate: int,
+    vertical_check: VerticalMoveCheck,
+) -> int:
+    """Return how far gravity lowers ``commander`` toward ``candidate``.
+
+    A descent step larger than 1 (CR003.1, ``commander_descent_step = 2``)
+    must not skip past a surface at an odd altitude, nor stop a whole step
+    above it: the commander falls one altitude unit at a time and stops on
+    the first surface it meets (the last legal altitude before a blocked
+    one). With a step of 1 this is the old single-check behavior.
+    """
+    landed = commander.altitude
+    for altitude in range(commander.altitude - 1, candidate - 1, -1):
+        if not vertical_check(state, commander, altitude):
+            break
+        landed = altitude
+    return landed
 
 
 def apply_automatic_elevation(

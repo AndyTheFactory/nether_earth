@@ -357,7 +357,8 @@ def _undock_altitude_trace(rising_after_undock: bool) -> tuple[list[int], list[o
 def test_undock_lift_profile_matches_construction_exit_and_lands_back_on_robot() -> None:
     # Spectrum: #a80d sets Lfd30_player_elevate_timer = 5 on leaving a robot,
     # exactly as Lcb8e does on leaving the construction screen; Lafa2 then
-    # climbs +2 per update for 5 updates and gravity drops -1 per update.
+    # climbs +2 per update for 5 updates and gravity drops
+    # commander_descent_step (2, CR003.1) per update.
     # La69a re-docks when the ship is back at the robot top on its anchor.
     trace, events = _undock_altitude_trace(rising_after_undock=False)
 
@@ -367,7 +368,7 @@ def test_undock_lift_profile_matches_construction_exit_and_lands_back_on_robot()
     rising = [a for i, a in enumerate(trace[: peak_index + 1]) if i == 0 or a != trace[i - 1]]
     assert rising == [4, 6, 8, 10, 12, 14]  # robot top, then +2 per update
     falling = trace[peak_index:]
-    assert all(b in (a, a - 1) for a, b in pairwise(falling))
+    assert all(0 <= a - b <= DEFAULT_RULES.commander_descent_step for a, b in pairwise(falling))
     assert trace[-1] == 4
 
     docked = [e for e in events if isinstance(e, CommanderDockedEvent)]

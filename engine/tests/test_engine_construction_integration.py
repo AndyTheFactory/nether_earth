@@ -612,15 +612,16 @@ def _altitudes_until_reentry(state: GameState, world: WorldMap) -> tuple[GameSta
 
 
 def _assert_exit_ascent(trace: list[int]) -> None:
-    # Up by +2 per vertical update to exactly pad + 10, then gravity -1 per
-    # update back onto the pad; no overshoot, no teleport.
+    # Up by +2 per vertical update to exactly pad + 10, then gravity
+    # (commander_descent_step per update) back onto the pad; no overshoot,
+    # no teleport.
     peak_index = trace.index(max(trace))
     assert max(trace) == EXIT_PEAK
     assert trace[-1] == PAD_ALTITUDE
     rising = [a for i, a in enumerate(trace[: peak_index + 1]) if i == 0 or a != trace[i - 1]]
     assert rising == list(range(PAD_ALTITUDE + 2, EXIT_PEAK + 1, 2))
     falling = trace[peak_index:]
-    assert all(b in (a, a - 1) for a, b in pairwise(falling))
+    assert all(0 <= a - b <= DEFAULT_RULES.commander_descent_step for a, b in pairwise(falling))
 
 
 def test_exit_menu_with_build_in_progress_closes_screen_and_lifts_commander() -> None:

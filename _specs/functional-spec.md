@@ -169,18 +169,18 @@ Commander X/Y movement is authoritative cell-to-cell movement. Rendering may int
 
 ### 8.2 Vertical movement
 
-Spectrum-compatible default vertical rules:
+Default vertical rules (Spectrum-compatible except the descent step):
 
 - minimum altitude: 0;
 - maximum altitude: 48;
 - vertical update every 4 simulation ticks;
 - ascent step: +2;
-- descent/gravity step: -1;
+- descent/gravity step: -2 (owner deviation from the Spectrum's -1, CR003.1 #216, 2026-09-22; see `open-questions.md` §13). The ship still lands exactly on the surface under it: a surface at an odd altitude shortens the last step instead of being skipped;
 - holding Space ascends; releasing Space descends;
 - horizontal and vertical movement may occur simultaneously;
 - automatic lift after leaving the construction screen or a robot: the commander climbs +2 on each of the next **5** vertical updates, whatever the rise key does, and then normal rise/gravity applies (Spectrum `Lfd30_player_elevate_timer`, set to 5 by `Lcb8e_construction_screen_exit` and by `La7fd` when leaving a robot). Moving along the map's y axis during the lift does not shorten it (owner decision 2026-09-21: the Spectrum quirk where held up/down keys shorten it is ignored). Neither construction nor auto-docking is checked while the lift runs. Afterwards, a commander that falls back onto the pad re-opens construction, and one that falls back onto the same friendly robot's anchor docks again. See `open-questions.md` §13.
 
-All numeric values are centralized gameplay configuration, with the Spectrum values above as defaults.
+All numeric values are centralized gameplay configuration, with the values above as defaults.
 
 ### 8.3 Commander collision
 

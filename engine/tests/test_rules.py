@@ -14,7 +14,7 @@ def test_default_rules_match_locked_spectrum_values() -> None:
     assert DEFAULT_RULES.commander_max_altitude == 48
     assert DEFAULT_RULES.commander_vertical_update_ticks == 4
     assert DEFAULT_RULES.commander_ascent_step == 2
-    assert DEFAULT_RULES.commander_descent_step == 1
+    assert DEFAULT_RULES.commander_descent_step == 2
 
 
 def test_engine_rules_default_constructor_matches_default_rules_instance() -> None:
@@ -63,14 +63,14 @@ def test_engine_rules_accepts_custom_overrides() -> None:
         commander_max_altitude=64,
         commander_vertical_update_ticks=8,
         commander_ascent_step=4,
-        commander_descent_step=2,
+        commander_descent_step=3,
     )
 
     assert rules.commander_min_altitude == 1
     assert rules.commander_max_altitude == 64
     assert rules.commander_vertical_update_ticks == 8
     assert rules.commander_ascent_step == 4
-    assert rules.commander_descent_step == 2
+    assert rules.commander_descent_step == 3
 
 
 def test_engine_rules_rejects_negative_min_altitude() -> None:

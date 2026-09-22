@@ -94,7 +94,7 @@ RULES = DEFAULT_RULES
 V_TICKS = RULES.commander_vertical_update_ticks  # 4
 H_TICKS = RULES.commander_horizontal_move_ticks  # 4
 ASCENT = RULES.commander_ascent_step  # 2
-DESCENT = RULES.commander_descent_step  # 1
+DESCENT = RULES.commander_descent_step  # 2
 HEIGHT = RULES.commander_height  # 4
 # The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
 # commander lands at that component height (open-questions.md §18).
@@ -203,9 +203,9 @@ def test_altitude_clamps_to_0_and_48() -> None:
     # exceeds 48 and clamps; a second cadence tick at the clamped bound then
     # produces no further change/event (49 -> would-be 51, clamped stable).
     high = _free(PLAYER_ONE, x=7, y=2, altitude=47, rising=True)
-    # Near the floor, not rising: two normal descent ticks reach exactly 0,
-    # then a third tick's candidate (-1) clamps to a stable 0 with no event.
-    low = _free(PLAYER_TWO, x=9, y=5, altitude=2, rising=False)
+    # Near the floor, not rising: one normal descent tick (3-2=1), then the
+    # second tick's candidate (-1) clamps to 0, then a stable 0 with no event.
+    low = _free(PLAYER_TWO, x=9, y=5, altitude=3, rising=False)
     world = _world()
     state = _new_game((high, low))
 
@@ -219,7 +219,7 @@ def test_altitude_clamps_to_0_and_48() -> None:
             )
         events_by_cadence_tick.append(collected)
 
-    # Cadence tick 1 (tick 4): high clamps 47+2=49 -> 48; low steps 2-1=1.
+    # Cadence tick 1 (tick 4): high clamps 47+2=49 -> 48; low steps 3-2=1.
     first = events_by_cadence_tick[0]
     high_first = [e for e in first if e.player_id == PLAYER_ONE]
     low_first = [e for e in first if e.player_id == PLAYER_TWO]
@@ -227,7 +227,7 @@ def test_altitude_clamps_to_0_and_48() -> None:
     assert len(low_first) == 1 and low_first[0].to_altitude == 1
 
     # Cadence tick 2 (tick 8): high is stable at the clamped ceiling (no
-    # event); low steps 1-1=0.
+    # event); low's 1-2=-1 clamps to 0.
     second = events_by_cadence_tick[1]
     assert [e for e in second if e.player_id == PLAYER_ONE] == []
     low_second = [e for e in second if e.player_id == PLAYER_TWO]
