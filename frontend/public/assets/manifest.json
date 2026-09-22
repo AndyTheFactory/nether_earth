@@ -14,5 +14,15 @@
       "scenery.debris_a": { "sprite": "spectrum.element_6", "footprint": [2, 2], "height": 3 },
       "scenery.debris_b": { "sprite": "spectrum.element_7", "footprint": [2, 2], "height": 3 }
     }
+  },
+  "structures": {
+    "walls": {
+      "7": "structure.wall_low",
+      "15": "structure.wall_high"
+    },
+    "assets": {
+      "structure.wall_low": { "sprite": "spectrum.element_15", "footprint": [1, 1], "height": 7 },
+      "structure.wall_high": { "sprite": "spectrum.element_16", "footprint": [1, 1], "height": 15 }
+    }
   }
 }

@@ -66,6 +66,43 @@ needs only new sprite rows plus manifest entries. The ownership flag sprites
 (`src/render/flags.ts`, CR002.6) come from the same source and have the same
 status.
 
+## Commander, robot pieces and war-base/factory walls (owner-directed, 2026-09-22)
+
+Extends the CR002.5 scenery exception above to four more categories, on the
+owner's direct request (not inferred from a milestone): the commander
+figure, the 8 robot-piece silhouettes and the two war-base/factory wall
+segments. Same provenance/licensing status as scenery (see below): shipped
+on the owner's decision, redistribution rights for the original pixel data
+unverified and flagged for public release. Full evidence and the sourcing
+decisions are in `_specs/open-questions.md`, "Commander/robot/structure
+sprites" (and its "Known gap" note on robot facing); summary:
+
+| category | generated file | decoder | sprite(s) |
+|----------|----------------|---------|-----------|
+| commander | `src/render/commander-sprites.ts` | `frontend/scripts/decode-unit-sprites.py commander` | `L8e3a_iso_additional_graphic_0`, one frame, no facing (`Lcd83_render_player`) |
+| robot pieces | `src/render/robot-sprites.ts` | `frontend/scripts/decode-unit-sprites.py robot` | direction 0 of each of the 8 `Ld7b4_piece_heights` pieces (`Ld6c8_piece_direction_graphic_indices` / `Ld740_isometric_graphic_pointers`); the other 3 cardinal directions are decoded in the script's docstring but not wired in (no facing field in the snapshot protocol) |
+| war-base/factory walls | `src/render/scenery-sprites.ts` (`spectrum.element_15`/`_16`) | `frontend/scripts/decode-scenery-sprites.py` (same map-element decode as scenery) | `L9914_iso_additional_graphic_18` (height 7), `L9b18_iso_additional_graphic_20` (height 15) — the only two element types `Lbfb2_warbase`/`Lbfe2_factory` use |
+
+Rendering: `src/render/sprite-slice.ts` generalizes the scenery per-footprint-
+cell slicing/positioning/texture-caching (originally scenery.ts-only) so
+robots, the commander and structure walls share one algorithm. Robot pieces
+and the commander are drawn ink-white/paper-grey and recoloured per owner
+with PixiJS `tint` (`ownerColor`), matching the Spectrum's single per-player
+screen attribute; this replaces the previous placeholder's per-module
+rainbow colouring (our own invention, not sourced from the game). War-base/
+factory walls are selected per `MapComponent.height` through `manifest.json`'s
+`structures.walls`/`structures.assets` (a component height with no entry —
+a custom/future map — falls back to the placeholder prism, like an unmapped
+scenery kind).
+
+**Not sourced/not wired (documented gaps, not invented):**
+
+- Robot facing: decoded but not drawn (see the "Known gap" note above).
+- Factory piece-on-top / war-base "H" decorations (`Lce56_decoration_
+  sprite_indexes`): identified and cited in open-questions.md but not
+  implemented; the flag decorations it shares a table with are already
+  shipped (`flags.ts`, CR002.6).
+
 ## Construction-screen module icons (CR002.9)
 
 The eight module icons of the ROBOT CONSTRUCTION screen (and the robot

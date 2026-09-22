@@ -27,8 +27,11 @@ Usage:
         > frontend/src/render/scenery-sprites.ts
 """
 
-import re
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from _netherearth_gfx import decode  # noqa: E402
 
 SPRITES = [
     ("spectrum.element_17", 17, "La0e2_iso_additional_graphic_27"),
@@ -36,42 +39,11 @@ SPRITES = [
     ("spectrum.element_21", 21, "La050_iso_additional_graphic_26"),
     ("spectrum.element_6", 6, "L9d9c_iso_additional_graphic_22"),
     ("spectrum.element_7", 7, "L9ef6_iso_additional_graphic_24"),
+    # CR-robots: the two wall-segment graphics war bases and factories are
+    # built from (see decode-unit-sprites.py / warbase-sprites.ts docstring).
+    ("spectrum.element_15", 15, "L9914_iso_additional_graphic_18"),
+    ("spectrum.element_16", 16, "L9b18_iso_additional_graphic_20"),
 ]
-
-
-def data_bytes(lines: list[str], label: str) -> list[int]:
-    out: list[int] = []
-    on = False
-    for line in lines:
-        if line.startswith(label + ":"):
-            on = True
-            continue
-        if on:
-            if re.match(r"^L[0-9a-f]{4}", line):
-                break
-            out += [int(v[1:], 16) for v in re.findall(r"#[0-9a-f]{2}", line.split(";")[0])]
-    if not out:
-        raise SystemExit(f"label {label} not found")
-    return out
-
-
-def decode(lines: list[str], label: str) -> list[str]:
-    b = data_bytes(lines, label)
-    h, w, d = b[0], b[1], b[2:]
-    rows = []
-    for r in range(h):
-        s = ""
-        for c in range(w):
-            mask, ink = d[(r * w + c) * 2], d[(r * w + c) * 2 + 1]
-            for bit in range(7, -1, -1):
-                if ink >> bit & 1:
-                    s += "#"
-                elif mask >> bit & 1:
-                    s += " "
-                else:
-                    s += "."
-        rows.append(s)
-    return rows[::-1]
 
 
 def main() -> None:
