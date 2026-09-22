@@ -1,9 +1,10 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { project, unproject, depthKey, groundDepth, playViewCentre, viewZoom, VIEW_SPAN_PX } from './projection.ts';
+import { project, unproject, depthKey, groundDepth, playViewCentre, viewZoom, VIEW_SPAN_PX, CO_LOCATED_TIE_BIAS } from './projection.ts';
 import { MENU_COLUMN_UNITS } from '../ui/radar.ts';
 import { KEY_TO_AXIS } from '../input/keyboard.ts';
 import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
+import { unitFootprintCells } from './robot.ts';
 
 test('project/unproject round-trip', () => {
   for (const [x, y] of [[10, 3], [0, 0], [511, 15], [2.5, 7.25]]) {
@@ -52,6 +53,44 @@ test('occlusion: a robot behind war base 1 sorts before, and is covered by, the 
   assert.ok(robotTop > blockTop, 'robot top is below the block top on screen');
   // a robot in front (higher y) of the same block draws after it
   assert.ok(depthKey(21, 10) > depthKey(block.x, block.y));
+});
+
+test('#242: a commander sliced per footprint cell draws beneath a robot or war base it partly overlaps when behind it, above when in front', () => {
+  // Renderer.render() slices a robot's or commander's 2×2 body one footprint
+  // cell at a time (CR002.3/4, like structures and scenery) and keys each
+  // slice with depthKey(cell, altitude) (+ CO_LOCATED_TIE_BIAS for the
+  // commander). This reproduces that per-cell key for the slice each pair of
+  // bodies actually shares, without needing the full Pixi renderer.
+  const map = loadMap(DEFAULT_MAP_ID);
+
+  // -- vs a robot, overlapping by one cell (diagonal, corner touch) --
+  // Robot-6 (bipod+cannon) anchored at (30, 12): footprint (30,12) (31,12) (30,11) (31,11).
+  const robotAnchor = { x: 30, y: 12 };
+  const robotGround = 0;
+  const robotKeyAt = (cell: { x: number; y: number }) => depthKey(cell.x, cell.y, robotGround);
+  // Commander anchored at (29, 11): footprint (29,11) (30,11) (29,10) (30,10).
+  const commanderVsRobotAnchor = { x: 29, y: 11 };
+  const robotCells = unitFootprintCells(robotAnchor.x, robotAnchor.y);
+  const commanderVsRobotCells = unitFootprintCells(commanderVsRobotAnchor.x, commanderVsRobotAnchor.y);
+  const sharedWithRobot = robotCells.filter((rc) => commanderVsRobotCells.some((cc) => cc.x === rc.x && cc.y === rc.y));
+  assert.deepEqual(sharedWithRobot, [{ x: 30, y: 11 }], 'the two bodies overlap by exactly one cell');
+  const commanderVsRobotKey = (alt: number) => depthKey(sharedWithRobot[0]!.x, sharedWithRobot[0]!.y, alt) + CO_LOCATED_TIE_BIAS;
+  // Grounded at the shared cell: behind/beneath the robot.
+  assert.ok(commanderVsRobotKey(0) < robotKeyAt(sharedWithRobot[0]!), 'a grounded commander draws beneath the robot it overlaps');
+  // Flying above the robot's height (6): in front/above it.
+  assert.ok(commanderVsRobotKey(20) > robotKeyAt(sharedWithRobot[0]!), 'a commander flying above the robot draws above it');
+
+  // -- vs war base 1's 15-high block at (21, 1), overlapping by one cell --
+  const block = map.war_bases.find((w) => w.id === 'warbase-1')!.components.find((c) => c.x === 21 && c.y === 1)!;
+  assert.equal(block.height, 15);
+  // Commander anchored at (20, 2): footprint (20,2) (21,2) (20,1) (21,1).
+  const commanderVsBaseAnchor = { x: 20, y: 2 };
+  const commanderVsBaseCells = unitFootprintCells(commanderVsBaseAnchor.x, commanderVsBaseAnchor.y);
+  assert.ok(commanderVsBaseCells.some((c) => c.x === block.x && c.y === block.y), 'the commander overlaps the block by one cell');
+  const commanderVsBaseKey = (alt: number) => depthKey(block.x, block.y, alt) + CO_LOCATED_TIE_BIAS;
+  const blockKey = depthKey(block.x, block.y);
+  assert.ok(commanderVsBaseKey(0) < blockKey, 'a grounded commander draws beneath the war base it overlaps');
+  assert.ok(commanderVsBaseKey(20) > blockKey, 'a commander flying above the war base draws above it');
 });
 
 test('keyboard directions match on-screen directions', () => {

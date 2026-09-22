@@ -4,11 +4,11 @@ import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
 import { footprintCells, surfaceHeightAt, terrainAt } from '../world/map.ts';
-import { TILE_H, TILE_W, depthKey, playViewCentre, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
+import { CO_LOCATED_TIE_BIAS, TILE_H, TILE_W, depthKey, playViewCentre, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
-import { drawRobotStack, drawCommander, robotGround, unitCentre, UNIT_SIZE, type ModuleId } from './robot.ts';
+import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, UNIT_SIZE, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, type SemanticAsset } from './assets.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
@@ -215,15 +215,22 @@ export class WorldRenderer {
       // Robots stand on the terrain under them (CR002.25, `Lcee8`).
       const ground = robotGround(this.surface, r.x, r.y, mv, tick, destroyed);
       robotPos.set(r.entity_id, { x: p.x, y: p.y, top: ground + r.height });
-      const g = new Graphics();
-      drawRobotStack(g, p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground });
+      // Sliced one cell at a time (CR002.3/4), like structures and scenery,
+      // so a 2×2 body that partly overlaps another one occludes correctly
+      // cell-by-cell instead of by a single whole-body anchor key (#242).
+      for (const cell of unitFootprintCells(p.x, p.y)) {
+        const g = new Graphics();
+        drawRobotStack(g, cell.x, cell.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground, size: 1 });
+        // No CO_LOCATED_TIE_BIAS here: robots are grounded, structure-like
+        // bodies, so they win ties the same way a war base or factory does.
+        this.addDynamic(g, depthKey(cell.x, cell.y, ground));
+      }
       if (r.owner !== me) {
         // enemy marker ring so ownership stays readable at distance
+        const g = new Graphics();
         drawDiamond(g, p.x, p.y, ownerColor(r.owner), 0, ownerColor(r.owner), ground, UNIT_SIZE);
+        this.addDynamic(g, depthKey(p.x, p.y, ground));
       }
-      // The anchor is the 2×2 body's cell nearest the viewer (min x, max y;
-      // CR002.3), so it is the body's painter's-order key.
-      this.addDynamic(g, depthKey(p.x, p.y, ground));
       if (text.robotStrength) {
         const centre = unitCentre(p.x, p.y);
         const sp = project(centre.x, centre.y, ground + r.height + 3);
@@ -254,12 +261,22 @@ export class WorldRenderer {
         y = p.y;
         alt = interpolateAltitude(c.altitude, vt, tick);
       }
-      const g = new Graphics();
       // Docked: resting on the robot top, so no separate shadow.
       // The shadow falls on the highest surface under the 2×2 body (CR002.4).
       const surfaceZ = docked ? alt : Math.min(alt, this.surface.underUnit(x, y, destroyed));
-      drawCommander(g, x, y, alt, c.player_id, surfaceZ);
-      this.addDynamic(g, depthKey(x, y, alt) + 0.5);
+      // Sliced one cell at a time, like robots (#242): a single anchor-only
+      // key (formerly biased +0.5 to always win ties) put the commander in
+      // front even when it stood behind a robot or warbase it partly
+      // overlapped by one cell. Per-cell keys let altitude decide the order
+      // at a shared cell (e.g. a docked commander sits above the robot's
+      // stack there because its altitude is higher); CO_LOCATED_TIE_BIAS
+      // covers the remaining tie where the commander's altitude can't go
+      // low enough to sort strictly under a co-located structure's base.
+      for (const cell of unitFootprintCells(x, y)) {
+        const g = new Graphics();
+        drawCommander(g, cell.x, cell.y, alt, c.player_id, surfaceZ, 4, 1);
+        this.addDynamic(g, depthKey(cell.x, cell.y, alt) + CO_LOCATED_TIE_BIAS);
+      }
       if (c.player_id === me) {
         // Locked to the interpolated position (CR003.5): no lag, no overshoot.
         const centre = unitCentre(x, y);
