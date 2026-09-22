@@ -593,6 +593,9 @@ Still open (not resolved by this research pass):
   scale-reconciliation caveat on starting strength noted above.
 - the follow-up note above on ``ground_height_at`` always being zero is
   resolved by CR002.21 (#203).
+- the scale-reconciliation caveat is settled by CR003.3 (#218): robot
+  heights are now the Spectrum's raw 13–38 piece-height sums; see "Robot
+  piece heights" below.
 
 ## 10. Resource spending rules — RESOLVED
 
@@ -899,6 +902,12 @@ Engine: the altitude is `collision.unit_surface_height` at the robot's authorita
 ## Robot piece heights — RESOLVED (CR003.3 #218, owner decision 2026-09-22)
 
 Owner decision: adopt the Spectrum piece heights. `Ld7b4_piece_heights` (summed per equipped piece by `Lb904_robot_height_loop` into `ROBOT_STRUCT_HEIGHT`) gives bipod 11, tracks 7, anti-grav 8, cannon 6, missile 6, phaser 7, nuclear 7, electronics 7. They replace the earlier placeholder `EngineRules.module_height_*` values (chassis 4, other modules 2), which had no evidence behind them. Robot heights now range over the disassembly header's 13 (tracks + cannon) to 38 (bipod + missile + phaser + nuclear + electronics), so the damage formula runs on its native scale: a phaser hit on a tracks + cannon robot at ground level deals `(60 − 13) / 4 × 4 = 44`, the header's worked example (this also settles the §9 strength note's caveat about the input range). The robot top (`collision.robot_top`), docking altitude and the ship's collision with robots follow from the stack height with no other change. The tallest robot on the highest walkable ground (mountain, 6) has its top at 44, below `commander_max_altitude` (48), so the ship can rest and dock on every robot. Tests: `engine/tests/test_rules.py::test_default_rules_match_spectrum_piece_heights`, `engine/tests/test_robot_stack.py` (13–38 range, the 44 ceiling check), `engine/tests/test_combat_damage.py::test_spectrum_worked_example_phaser_on_derived_tracks_cannon_robot_deals_44`.
+
+## Capture order lifecycle — RESOLVED (CR003.2 #217, owner decision 2026-09-22)
+
+Owner decision: full Spectrum behavior. Before CR003.2 a Search & Capture order completed when the robot reached the capture footprint and was replaced by Stop & Defend, and it fell back to Stop & Defend when no target existed, so a robot stayed on the first factory it captured. Evidence (`_specs/milestones/cr003-playtest-fixes.md`, item 2): `Lb289_choose_direction_orders_with_building_targets` re-checks the stored target (`ROBOT_STRUCT_ORDERS_ARGUMENT`) each update and calls `Lb34d_find_capture_or_destroy_target` when its ownership no longer matches; the order never changes. With no target a player robot keeps its order and does not move. `Lb36c_check_if_building_is_available_and_nearest_than_current_nearest` skips a building another friendly robot with the same order already targets.
+
+Engine (`orders.py`): `SearchCapture.structure_id` stores the target. The order stays `ACTIVE` for as long as the player leaves it; it holds the capture cell (Stop & Defend intent) while the target is uncaptured, retargets after the capture, and idles under the same order when nothing matches. Capture progress itself is unchanged (§6, §7). The enemy AI's no-target switch to Destroy Enemy Robots is not adopted: the bot keeps its existing behavior (CR003 scope). Tests: `engine/tests/test_orders.py`, `engine/tests/test_engine_orders_integration.py`.
 
 ## Map-end fence placement — RESOLVED (CR003.7 #222, owner decision 2026-09-22)
 

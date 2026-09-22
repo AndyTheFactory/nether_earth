@@ -167,6 +167,8 @@ Starting positions: Player 1 starts at the extreme-left war-base anchor + (−5,
 
 Commander X/Y movement is authoritative cell-to-cell movement. Rendering may interpolate between cells.
 
+A held direction chains cells with no idle tick: a move command that arrives on the tick the current move completes starts on that tick (CR003.10 #232, owner decision 2026-09-22; `open-questions.md` §23).
+
 ### 8.2 Vertical movement
 
 Default vertical rules (Spectrum-compatible except the descent step):
@@ -386,10 +388,10 @@ Supported orders:
 - **Stop & Defend** — hold position and engage valid enemies (a newly launched robot first walks out of its war base, §11);
 - **Advance N** — move East 0–50 miles, then Stop & Defend;
 - **Retreat N** — move West 0–50 miles, then Stop & Defend;
-- **Search & Capture** — target neutral factories, enemy factories, or war bases;
+- **Search & Capture** — target neutral factories, enemy factories, or war bases. The order never completes: the robot walks to the nearest matching structure that no other friendly robot with the same order already targets, holds its capture cell until the structure changes hands, then retargets and leaves. With no matching structure it keeps the order and holds position (still defending) until one appears (CR003.2 #217, Spectrum `Lb289`/`Lb36c`; `open-questions.md` "Capture order lifecycle");
 - **Search & Destroy** — target robots, factories, or war bases.
 
-Invalid/impossible orders fall back to Stop & Defend.
+Invalid/impossible orders fall back to Stop & Defend. Search & Capture never falls back (above). Search & Destroy against robots falls back only when no hostile robot remains; while one exists the robot closes on its body and engages it (CR003.4 #219).
 
 An order-driven robot acts only on its own **robot update**, as in the Spectrum (`Lb154_robot_ai_update`, CR002.19 #197). Its update period is its move duration for the terrain under its body (§13). On an update it fires when it has a shot, and otherwise moves; a firing update does not move. Direct fire (§17.1) is not tied to the robot update.
 

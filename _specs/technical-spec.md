@@ -179,7 +179,7 @@ GameRules:
 
 Not every gameplay value should be an environment variable. Gameplay configuration is versioned game data. Environment configuration remains deployment-only.
 
-Rules identity: `nether_earth.rules.RULES_VERSION` names the rule set, and `rules_content_hash()` hashes the `EngineRules` values. Both are recorded in every replay. Replay verification rejects an artifact whose version or hash differs from the running engine's (`ReplayRulesMismatchError`) before it replays anything. The hash catches value changes by itself; a change to rule logic or rule-bearing map data must bump `RULES_VERSION`. CR002 changed rule logic and map data, so it bumps the version to `cr002` once (CR002.16); `cr001` replays are rejected.
+Rules identity: `nether_earth.rules.RULES_VERSION` names the rule set, and `rules_content_hash()` hashes the `EngineRules` values. Both are recorded in every replay. Replay verification rejects an artifact whose version or hash differs from the running engine's (`ReplayRulesMismatchError`) before it replays anything. The hash catches value changes by itself; a change to rule logic or rule-bearing map data must bump `RULES_VERSION`. CR002 changed rule logic and map data, so it bumps the version to `cr002` once (CR002.16); `cr001` replays are rejected. CR003 changed rule logic and values (descent step, capture orders, piece heights, Search & Destroy approach, commander step order), so it bumps the version to `cr003` once (CR003.8); `cr002` replays are rejected.
 
 ## 6. Scenario and victory model
 
@@ -341,6 +341,8 @@ fall/gravity = -2   (Spectrum: -1; owner decision CR003.1 #216, open-questions.m
 Gravity descends one altitude unit at a time up to `commander_descent_step` and stops at the last legal altitude, so it lands exactly on a surface at an odd altitude (static component, terrain, robot top or another commander) rather than skipping past it or stopping a step above it (`commander_movement._gravity_landing_altitude`).
 
 Horizontal and vertical movement may occur simultaneously.
+
+Step order (CR003.10 #232, `open-questions.md` §23): `engine.step` resolves due commander horizontal transitions before it applies the tick's commander commands, so a `commander_move` on the completion tick starts at once and held moves take exactly `commander_horizontal_move_ticks` (4) per cell with no idle tick. Robots already resolve due moves before starting new ones.
 
 Automatic lift: leaving the construction screen (EXIT MENU or a successful START ROBOT, `construction_session.exit_construction`) and undocking from a robot (CR002.24 #207) set `elevate_updates_remaining = commander_exit_elevate_updates` (5); `docking.apply_undock` sets it without moving the commander, and the ascent runs on the following cadence ticks. While it is above 0, each vertical update ascends by `commander_ascent_step` whatever the rise intent, and consumes one, even if the ascent is clamped or blocked (Spectrum `Lfd30_player_elevate_timer`). Horizontal moves do not consume it (owner decision 2026-09-21). Neither construction entry nor auto-dock (`docking.attempt_auto_dock`, `engine.step` Step 7) is checked while the lift runs; a commander that falls back onto the same friendly robot's anchor after it docks again.
 
@@ -542,6 +544,8 @@ Electronic policy:
 
 Electronics never overrides terrain restrictions.
 
+Robot targets (CR003.4 #219): a Search & Destroy (robots) goal is another robot's occupied anchor, so navigation closes on the target's body (`navigation.next_body_approach_step`). Electronic robots plan to any anchor from which their 2×2 body touches or overlaps the target's body (`body_contact_anchors`, `plan_route_to_any`) instead of reporting the occupied goal `UNREACHABLE`; non-electronic robots keep greedy steps and stop beside the target when the overlapping step is refused.
+
 ## 15. Robot orders
 
 Recommended domain model:
@@ -550,13 +554,15 @@ Recommended domain model:
 StopAndDefend
 Advance(distance_miles)
 Retreat(distance_miles)
-SearchCapture(target_type)
+SearchCapture(target_type, structure_id)  # structure_id: engine-bound current target
 SearchDestroy(target_type)
 ```
 
 `Advance`/`Retreat`: 0–50 miles, converted using shared 2-cells-per-mile rule.
 
 Impossible orders revert to Stop & Defend.
+
+`SearchCapture` never completes or falls back (CR003.2 #217, Spectrum `Lb289`). Each evaluation keeps `structure_id` while its live ownership still matches the order, and otherwise selects the nearest matching structure that no other same-owner robot with the same `SearchCapture` target type holds (`Lb36c`), ties broken by structure id. On an uncaptured target's capture cell the robot holds with the Stop & Defend intent while `capture.py` counts the occupation; once captured it retargets and leaves. With no match it holds and resumes when a structure matches again. `structure_id` is serialized in snapshots/replays and cleared on order assignment; the order-command payload is unchanged.
 
 ## 16. Projectiles and firing
 
