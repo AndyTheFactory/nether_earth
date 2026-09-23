@@ -24,7 +24,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from nether_earth.capture import NeutralStructureAcquiredEvent, StructureCapturedEvent
+from nether_earth.capture import StructureCapturedEvent
 from nether_earth.combat import ProjectileTerminatedEvent, RobotDamagedEvent
 from nether_earth.commands import Command
 from nether_earth.construction_commands import RobotLaunchedEvent
@@ -218,8 +218,15 @@ def test_committed_fixture_replays_deterministically_without_the_script(world: W
     # Subsystem coverage of the stored match, localized by event type.
     assert len(by_type[RobotLaunchedEvent]) == 3
     assert len(by_type[DailyProductionApplied]) >= 2
-    assert [e.structure_id.value for e in by_type[StructureCapturedEvent]] == ["warbase-2"]
-    assert any(e.structure_id.value.startswith("factory") for e in by_type[NeutralStructureAcquiredEvent])
+    # Both captures are StructureCapturedEvent now: the owner decision of
+    # 2026-09-23 removed instant neutral-factory acquisition, so a neutral
+    # factory runs the same countdown as warbase-2 and reports the same
+    # event with ``previous_owner is None``.
+    captured = by_type[StructureCapturedEvent]
+    assert any(e.structure_id.value == "warbase-2" for e in captured)
+    assert any(
+        e.structure_id.value.startswith("factory") and e.previous_owner is None for e in captured
+    )
     assert any(e.hit_robot_id is None for e in by_type[ProjectileTerminatedEvent])  # structure shot
     assert any(e.entity_id == P1_STRIKER for e in by_type[RobotDamagedEvent])
     assert [e.structure_id for e in by_type[StructureDestroyedEvent]] == [EntityId("warbase-4")]

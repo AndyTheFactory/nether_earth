@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { project, unproject, depthKey, groundDepth, playViewCentre, viewZoom, VIEW_SPAN_PX, CO_LOCATED_TIE_BIAS } from './projection.ts';
+import { project, unproject, depthKey, groundDepth, playViewCentre, viewZoom, VIEW_SPAN_PX, CO_LOCATED_TIE_BIAS, terrainBand, bandCovers, TERRAIN_MARGIN } from './projection.ts';
 import { MENU_COLUMN_UNITS } from '../ui/radar.ts';
 import { KEY_TO_AXIS } from '../input/keyboard.ts';
 import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
@@ -242,4 +242,27 @@ test('camera centres in the play view left of the menu column (CR003.11)', () =>
   assert.deepEqual(playViewCentre(390, 844, MENU_COLUMN_UNITS), { x: 147, y: 422 });
   // A column wider than the window never puts the centre off the left edge.
   assert.deepEqual(playViewCentre(50, 100, MENU_COLUMN_UNITS), { x: 0, y: 50 });
+});
+
+// Terrain is drawn as a band around the camera, not as the whole 512-column
+// map (owner request, 2026-09-23): the visible span plus TERRAIN_MARGIN cells
+// of slack on each side, rebuilt only once the view leaves the drawn band.
+test('the terrain band covers the view plus the margin and clamps to the map', () => {
+  const band = terrainBand(100, 20, 512);
+  assert.equal(band.x0, 100 - 20 - TERRAIN_MARGIN);
+  assert.equal(band.x1, 100 + 20 + TERRAIN_MARGIN);
+
+  // Clamped at both map edges rather than running negative or past the end.
+  assert.equal(terrainBand(2, 20, 512).x0, 0);
+  assert.equal(terrainBand(510, 20, 512).x1, 511);
+});
+
+test('a drawn band is only rebuilt once the view leaves it', () => {
+  const band = terrainBand(100, 20, 512);
+  // The margin is slack: the camera moves within it without a rebuild.
+  assert.equal(bandCovers(band, 100, 20, 512), true);
+  assert.equal(bandCovers(band, 100 + TERRAIN_MARGIN, 20, 512), true);
+  // One cell past the margin and the view needs a column the band lacks.
+  assert.equal(bandCovers(band, 100 + TERRAIN_MARGIN + 1, 20, 512), false);
+  assert.equal(bandCovers(band, 100 - TERRAIN_MARGIN - 1, 20, 512), false);
 });

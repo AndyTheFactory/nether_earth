@@ -461,6 +461,13 @@ export interface SnapshotState {
     strength: number;
     last_fire_tick: number | null;
     exit_steps_remaining: number;
+    /**
+     * Mirrors nether_earth.robot.RobotFacing. Presentation-only: the cardinal direction a robot's body faces, which selects one of the four per-piece Spectrum sprites. No rule reads it.
+     *
+     * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+     * via the `definition` "robotFacing".
+     */
+    facing: "east" | "west" | "south" | "north";
   }[];
   structure_ownership: {
     /**

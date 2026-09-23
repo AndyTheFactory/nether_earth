@@ -11,9 +11,12 @@ import { COMMANDER_SPRITES } from './commander-sprites.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
 
 test('every decoded sprite is rectangular (every row the same width)', () => {
-  for (const [id, rows] of Object.entries(ROBOT_SPRITES)) {
-    const w = rows[0]!.length;
-    for (const row of rows) assert.equal(row.length, w, `ROBOT_SPRITES.${id}`);
+  // One sprite per (piece, facing) since the 4-direction decode.
+  for (const [id, byFacing] of Object.entries(ROBOT_SPRITES)) {
+    for (const [facing, rows] of Object.entries(byFacing)) {
+      const w = rows[0]!.length;
+      for (const row of rows) assert.equal(row.length, w, `ROBOT_SPRITES.${id}.${facing}`);
+    }
   }
   for (const [id, rows] of Object.entries(COMMANDER_SPRITES)) {
     const w = rows[0]!.length;
@@ -27,7 +30,7 @@ test('war-base/factory wall segments (element 15/16) decoded alongside scenery',
 });
 
 test('slices of a 2x2-footprint robot piece partition the sprite exactly once per pixel', () => {
-  const rows = ROBOT_SPRITES.bipod;
+  const rows = ROBOT_SPRITES.bipod.south;
   const slices = sliceSpriteRows(rows, [2, 2], 11);
   assert.equal(slices.length, 4);
   rows.forEach((row, r) => {
@@ -56,7 +59,7 @@ test('spriteOriginFor lifts the sprite by elevation without changing its footpri
 });
 
 test('spriteOriginFor applies a presentation-only offset on top of elevation', () => {
-  const rows = ROBOT_SPRITES.cannon;
+  const rows = ROBOT_SPRITES.cannon.south;
   const plain = spriteOriginFor(rows, [2, 2], { x: 3, y: 4 }, 2);
   const shifted = spriteOriginFor(rows, [2, 2], { x: 3, y: 4 }, 2, [1, -1]);
   assert.deepEqual([shifted.x - plain.x, shifted.y - plain.y], [1, -1]);

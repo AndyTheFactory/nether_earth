@@ -26,7 +26,7 @@ from nether_earth.movement import (
     robot_move_duration_ticks,
     validate_robot_move,
 )
-from nether_earth.robot import Robot, RobotMoveTransition
+from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES, EngineRules
@@ -723,3 +723,39 @@ def test_engine_step_completes_an_in_flight_move() -> None:
     assert robot is not None
     assert (robot.x, robot.y, robot.movement) == (6, 5, None)
     assert any(isinstance(event, RobotMoveCompletedEvent) for event in events)
+
+
+# Robot facing (owner request, 2026-09-23): presentation-only state that
+# follows the accepted step, so the frontend can pick one of the four
+# per-piece Spectrum sprites. Nothing in the engine reads it back.
+
+
+def test_starting_a_step_turns_the_robot_to_face_it() -> None:
+    for dx, dy, expected in [
+        (1, 0, RobotFacing.EAST),
+        (-1, 0, RobotFacing.WEST),
+        (0, 1, RobotFacing.SOUTH),
+        (0, -1, RobotFacing.NORTH),
+    ]:
+        robot = _robot("robot-a", x=5, y=5)
+        state = _state((robot,))
+        request = RobotMoveRequest(entity_id=robot.entity_id, dx=dx, dy=dy)
+        new_state, result, _event = apply_robot_move(request, state, _world(), tick=1)
+        assert result.accepted, (dx, dy)
+        moved = new_state.robot_for(robot.entity_id)
+        assert moved is not None
+        assert moved.facing is expected, (dx, dy)
+        # Turning does not move the robot: the transition still does that.
+        assert (moved.x, moved.y) == (5, 5)
+
+
+def test_a_rejected_step_leaves_the_facing_alone() -> None:
+    robot = _robot("robot-a", x=0, y=5)
+    state = _state((robot,))
+    # Off the west edge of the map: never accepted, so never a turn.
+    request = RobotMoveRequest(entity_id=robot.entity_id, dx=-1, dy=0)
+    new_state, result, _event = apply_robot_move(request, state, _world(), tick=1)
+    assert not result.accepted
+    unmoved = new_state.robot_for(robot.entity_id)
+    assert unmoved is not None
+    assert unmoved.facing is RobotFacing.SOUTH

@@ -341,6 +341,13 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
 
     Extended again by CR002.3 (#170) with ``exit_steps_remaining``, appended
     last: the steps left in a launched robot's walk out of its war base.
+
+    Extended again (owner request, 2026-09-23) with ``facing``, appended
+    last: the cardinal direction the robot's body faces, which the frontend
+    needs to pick the right one of the four per-piece Spectrum sprites. It
+    is presentation-only state (see :class:`~nether_earth.robot.RobotFacing`)
+    but still authoritative per-robot state, so a snapshot that dropped it
+    would make a restored robot face south again.
     """
     return {
         "entity_id": robot.entity_id.to_json(),
@@ -360,6 +367,7 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
         "strength": robot.strength,
         "last_fire_tick": robot.last_fire_tick,
         "exit_steps_remaining": robot.exit_steps_remaining,
+        "facing": robot.facing.value,
     }
 
 

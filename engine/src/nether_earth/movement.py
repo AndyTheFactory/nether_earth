@@ -113,7 +113,7 @@ from nether_earth.occupancy import (
     unit_footprint_in_bounds,
     unit_footprints_overlap,
 )
-from nether_earth.robot import Robot, RobotMoveTransition
+from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition
 from nether_earth.robot_build import CHASSIS_MODULES, ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
@@ -687,7 +687,15 @@ def apply_robot_move(
         started_tick=tick,
         duration_ticks=duration,
     )
-    new_state = _replace_robot(state, robot.with_movement(transition))
+    # Turning is part of starting a step (owner request, 2026-09-23):
+    # the Spectrum stores the robot's direction alongside the move
+    # (`Lb471`, which returns without moving *or* turning for direction 0),
+    # so facing follows the accepted step and never changes on its own.
+    # Presentation only -- nothing in the engine reads it back. See
+    # `robot.RobotFacing`.
+    turned = RobotFacing.from_step(request.dx, request.dy)
+    moved = robot.with_movement(transition)
+    new_state = _replace_robot(state, moved if turned is None else moved.with_facing(turned))
 
     sequence = sequencer.next_sequence() if sequencer is not None else 0
     event = RobotMoveStartedEvent(

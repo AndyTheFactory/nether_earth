@@ -179,7 +179,8 @@ Exact historical quirks of the dumb algorithm remain research detail, not a prod
 ## 6. War-base capture mechanics — RESOLVED
 
 - Enemy robots can capture war bases.
-- War-base capture uses the same continuous-occupation rule as factory capture by default.
+- War-base capture uses the same continuous-occupation rule as factory capture.
+- Neutral structures use that same rule too: a neutral factory is **not** acquired instantly (owner decision, 2026-09-23 — see `functional-spec.md` §9; this supersedes the earlier "first qualifying robot under the verified original behavior" resolution, which the engine implemented until that date).
 - Default duration: 12 in-game hours = 1,440 simulation ticks = 72 real seconds at 20 Hz.
 - Ownership changes immediately when the duration completes.
 - Victory is evaluated in the same authoritative simulation step.
@@ -867,7 +868,7 @@ Deliberate differences from the original that the owner decided to keep. They ar
 7. **Radar shows only the viewer's own commander (owner decision 2026-09-21),** as in the single-player original; enemy robots are shown. Marks are white only (the original flickers cyan/yellow on blue).
 8. **Debris variant.** The Spectrum picks debris type 6 or 7 at random; both behave the same, so the engine consumes no RNG for it and the renderer always uses one sprite.
 9. **Fence post centred on its footprint (owner decision 2026-09-22, CR003.7 #222).** The renderer draws the map-end fence sprite centred on its 2×2 footprint, not where the Spectrum draws it. Presentation only; see "Map-end fence placement" below.
-10. **Robot/commander/structure Spectrum sprites replace procedural prisms (owner-directed, 2026-09-22).** See "Commander/robot/structure sprites" below. Presentation only; robot direction facing is not wired (no protocol field carries it), so all four cardinal-direction piece sprites the disassembly shows are decoded but only direction 0 is drawn.
+10. **Robot/commander/structure Spectrum sprites replace procedural prisms (owner-directed, 2026-09-22).** See "Commander/robot/structure sprites" below. Presentation only. Robot facing was wired up on 2026-09-23 (owner request): the snapshot carries a `facing` field and all four cardinal-direction piece sprites the disassembly encodes are decoded and drawn. The commander still has a single frame with no facing (`Lcd83_render_player`).
 
 ## Nuclear blast vs. scenery — RESOLVED (CR002.18 #196, owner decision 2026-09-21)
 
@@ -908,7 +909,9 @@ Owner decision: adopt the Spectrum piece heights. `Ld7b4_piece_heights` (summed 
 
 Owner decision: full Spectrum behavior. Before CR003.2 a Search & Capture order completed when the robot reached the capture footprint and was replaced by Stop & Defend, and it fell back to Stop & Defend when no target existed, so a robot stayed on the first factory it captured. Evidence (`_specs/milestones/cr003-playtest-fixes.md`, item 2): `Lb289_choose_direction_orders_with_building_targets` re-checks the stored target (`ROBOT_STRUCT_ORDERS_ARGUMENT`) each update and calls `Lb34d_find_capture_or_destroy_target` when its ownership no longer matches; the order never changes. With no target a player robot keeps its order and does not move. `Lb36c_check_if_building_is_available_and_nearest_than_current_nearest` skips a building another friendly robot with the same order already targets.
 
-Engine (`orders.py`): `SearchCapture.structure_id` stores the target. The order stays `ACTIVE` for as long as the player leaves it; it holds the capture cell (Stop & Defend intent) while the target is uncaptured, retargets after the capture, and idles under the same order when nothing matches. Capture progress itself is unchanged (§6, §7). The enemy AI's no-target switch to Destroy Enemy Robots is not adopted: the bot keeps its existing behavior (CR003 scope). Tests: `engine/tests/test_orders.py`, `engine/tests/test_engine_orders_integration.py`.
+Engine (`orders.py`): `SearchCapture.structure_id` stores the target. The order stays `ACTIVE` for as long as the player leaves it; it holds the capture cell (Stop & Defend intent) while the target is uncaptured, retargets after the capture, and idles under the same order when nothing matches. Capture progress itself is unchanged (§6, §7).
+
+**Amended (owner decision, 2026-09-23): target selection re-opens on any ownership change.** Each evaluation re-runs the nearest-match selection instead of holding the stored target until it stops matching, so a structure that changes hands nearer to the robot than its current target pulls it in. This deliberately departs from `Lb289`, which only retargets once the stored target's own ownership stops matching: on the 512-cell map that let a robot walk hundreds of cells past structures that had become valid targets behind it (observed in a live match replay — a robot ordered to capture enemy factories at x≈494 targeted the only enemy factory, at x=227, and was still 25 cells short three thousand ticks later). The order is still never dropped or completed. One exception: a robot standing on its target's capture footprint keeps that target, because an interrupted capture resets to zero (§7), so re-aiming mid-capture would discard the elapsed occupation and could pull a robot off every target in turn without finishing one. The enemy AI's no-target switch to Destroy Enemy Robots is not adopted: the bot keeps its existing behavior (CR003 scope). Tests: `engine/tests/test_orders.py`, `engine/tests/test_engine_orders_integration.py`.
 
 ## Map-end fence placement — RESOLVED (CR003.7 #222, owner decision 2026-09-22)
 
@@ -986,16 +989,31 @@ the slicing/positioning/texture-caching algorithm scenery.ts used to own
 alone, so robots, the commander and structure walls share it instead of each
 reinventing it.
 
-**Known gap, not resolved here:** robot facing. The disassembly clearly
-encodes 4 cardinal-direction sprites per piece (above), but the WebSocket
-snapshot protocol (`protocol/generated/types.ts`) carries no robot direction/
-facing field, so the frontend has nothing to select a direction with. All 4
-direction sprites are documented in `decode-unit-sprites.py`'s docstring for
-when this is picked up, but only direction 0 is decoded and drawn — a
-presentation-only, backward-compatible follow-up (adding a facing field to
-the snapshot), not a gameplay decision, so it is not logged as a new
-"Remaining research" item; whoever picks it up should check with the owner
-before extending the protocol.
+**Resolved (owner request, 2026-09-23):** robot facing. The snapshot now
+carries a per-robot `facing` (`east`/`west`/`south`/`north`,
+`nether_earth.robot.RobotFacing`), and all 4 direction sprites per piece are
+decoded and drawn. A robot is launched facing south (the walk-out direction,
+`La6c8`) and turns to the direction of each accepted step, matching `Lb471`,
+which neither moves nor turns for direction 0.
+
+Facing is **presentation only**: no engine rule reads it. The one gameplay
+use in the original — the autonomous fire-decision scan reaching 10 cells in
+the facing direction rather than 8 — stays unadopted, because that scan is
+still an open research item (§8, "Still open" above). Wiring facing into
+combat would decide that item by implementation.
+
+**Still open (research only; not blocking):** which one-hot
+`ROBOT_STRUCT_DIRECTION` bit maps to which of the 4
+`Ld6c8_piece_direction_graphic_indices` columns. The decoder
+(`frontend/scripts/decode-unit-sprites.py`) assigns them east, west, south,
+north, carried over from the `rrca`/`jr nc` decode chain documented for the
+identical one-hot encoding on the bullet side (§8:
+`Lb724_bullet_update_internal` → `Lb73c_not_down` = right, left, down, up).
+That is an assumption, not a reading of `Lcefd_draw_robot_piece_to_buffer`,
+and the pieces that reuse one sprite across two or four directions make it
+hard to falsify by eye. Consequence if wrong: robots face the wrong way
+visually; no rule changes. The ordering lives in one constant (`FACINGS`) so
+correcting it is a one-line change plus a regenerate.
 
 ## Resolution process
 

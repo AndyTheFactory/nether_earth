@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from nether_earth.capture import (
     CapturableStructureKind,
-    NeutralStructureAcquiredEvent,
     StructureCapturedEvent,
 )
 from nether_earth.engine import new_game, step
@@ -102,17 +101,29 @@ def _robot(entity_id: str, owner: PlayerId, x: int, y: int) -> Robot:
     return Robot(entity_id=EntityId(entity_id), owner=owner, x=x, y=y, build=build, stack=stack, height=height)
 
 
-def test_neutral_factory_acquired_instantly_through_engine_step() -> None:
+def test_neutral_factory_needs_the_full_capture_duration_through_engine_step() -> None:
+    # Owner decision, 2026-09-23 (`functional-spec.md` §9): a neutral factory
+    # is no longer acquired on the first qualifying tick. It runs the same
+    # continuous-occupation countdown as the enemy-owned case below, and
+    # completes with an ordinary StructureCapturedEvent whose
+    # ``previous_owner`` is ``None``.
     world = _world(factory_owner=None)
     robot = _robot("robot-p1-1", PLAYER_ONE, *FACTORY_CAPTURE_CELL)
     state = _base_state().with_robots((robot,))
 
+    for _tick in range(1, DEFAULT_RULES.capture_duration_ticks):
+        state, events = step(state, [], world=world)
+        assert not any(isinstance(e, StructureCapturedEvent) for e in events)
+        assert state.structure_ownership_for(FACTORY_ONE) is None
+
     state, events = step(state, [], world=world)
 
-    acquired = [e for e in events if isinstance(e, NeutralStructureAcquiredEvent)]
-    assert len(acquired) == 1
-    assert acquired[0].new_owner == PLAYER_ONE
-    assert acquired[0].structure_id == FACTORY_ONE
+    captured = [e for e in events if isinstance(e, StructureCapturedEvent)]
+    assert len(captured) == 1
+    assert captured[0].structure_id == FACTORY_ONE
+    assert captured[0].structure_kind is CapturableStructureKind.FACTORY
+    assert captured[0].previous_owner is None
+    assert captured[0].new_owner == PLAYER_ONE
     assert state.structure_ownership_for(FACTORY_ONE) is not None
     assert state.structure_ownership_for(FACTORY_ONE).owner == PLAYER_ONE  # type: ignore[union-attr]
 

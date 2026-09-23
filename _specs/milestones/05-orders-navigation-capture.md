@@ -101,7 +101,7 @@ For combat-capable orders, this milestone determines target selection, movement/
 Implement separate non-electronic and electronic policies behind one engine navigation interface.
 
 ### Capture subsystem
-Implement neutral acquisition, enemy capture progress, reset semantics, ownership events, and war-base capture using canonical interaction points from Milestone 2.
+Implement capture progress, reset semantics, ownership events, and war-base capture using canonical interaction points from Milestone 2. Neutral and enemy-owned structures share one continuous-occupation rule (owner decision, 2026-09-23).
 
 ## Parallelization
 

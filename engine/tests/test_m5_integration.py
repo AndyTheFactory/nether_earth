@@ -27,7 +27,6 @@ from dataclasses import dataclass
 from nether_earth import engine
 from nether_earth.capture import (
     CapturableStructureKind,
-    NeutralStructureAcquiredEvent,
     StructureCapturedEvent,
 )
 from nether_earth.commander import Commander, CommanderMode
@@ -487,12 +486,15 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     )
 
     # ---------------------------------------------------------------
-    # 5. Neutral factory instant acquisition.
+    # 5. Neutral factory capture (continuous occupation since the owner
+    #    decision of 2026-09-23 -- no longer an instant acquisition).
     # ---------------------------------------------------------------
-    acquisitions = _events_of(events, NeutralStructureAcquiredEvent)
-    neutral_acq = [e for e in acquisitions if e.structure_id == FACTORY_NEUTRAL]
+    neutral_acq = [
+        e for e in _events_of(events, StructureCapturedEvent) if e.structure_id == FACTORY_NEUTRAL
+    ]
     assert len(neutral_acq) == 1
     assert neutral_acq[0].robot_id == winner_id
+    assert neutral_acq[0].previous_owner is None
     assert neutral_acq[0].structure_kind == CapturableStructureKind.FACTORY
 
     # ---------------------------------------------------------------

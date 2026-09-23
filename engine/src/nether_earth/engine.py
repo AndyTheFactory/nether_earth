@@ -49,7 +49,6 @@ from nether_earth.autonomous_combat import (
 )
 from nether_earth.capture import (
     CapturableStructureKind,
-    NeutralStructureAcquiredEvent,
     StructureCapturedEvent,
     advance_capture,
 )
@@ -447,15 +446,14 @@ def step(
        authoritative position, so Step 2d's placement relative to Step 2c
        has no observable effect on capture outcomes), applies
        :func:`~nether_earth.capture.advance_capture`: neutral factory
-       instant acquisition, and enemy factory/war-base continuous-
-       occupation progress/interruption/completion. This is a no-op for
+       continuous-occupation progress/interruption/completion for every
+       capturable structure, neutral or enemy-owned. This is a no-op for
        any state with no capturable structures/qualifying robots, so every
        existing call site is unaffected. Skipped entirely when
        ``world is None`` (there is no structure/interaction-point data to
        evaluate capture against).
-    9. Whenever Step 2c completes at least one war-base capture/neutral
-       acquisition (a :class:`~nether_earth.capture.StructureCapturedEvent`
-       or :class:`~nether_earth.capture.NeutralStructureAcquiredEvent` with
+    9. Whenever Step 2c completes at least one war-base capture (a
+       :class:`~nether_earth.capture.StructureCapturedEvent` with
        ``structure_kind is CapturableStructureKind.WAR_BASE``),
        :func:`~nether_earth.victory.evaluate_victory` is invoked in this
        same step (`_specs/technical-spec.md` §6/§10's "victory is evaluated
@@ -878,7 +876,7 @@ def step(
         events.extend(capture_events)
 
         war_base_ownership_changed = any(
-            isinstance(event, (NeutralStructureAcquiredEvent, StructureCapturedEvent))
+            isinstance(event, StructureCapturedEvent)
             and event.structure_kind is CapturableStructureKind.WAR_BASE
             for event in capture_events
         )

@@ -13,7 +13,6 @@ from dataclasses import replace
 import pytest
 
 from nether_earth.capture import (
-    NeutralStructureAcquiredEvent,
     StructureCapturedEvent,
     StructureOwnership,
 )
@@ -49,6 +48,10 @@ from nether_earth.structures import Component, Factory, FactoryType, Footprint, 
 from nether_earth.terrain import TerrainGrid, TerrainType
 
 TRACKS_TICKS = DEFAULT_RULES.robot_move_ticks_tracks_normal
+# Every capture -- neutral factories included, since the owner decision of
+# 2026-09-23 removed instant neutral acquisition -- costs this many ticks
+# of continuous occupation, so a walk-then-capture run must budget for it.
+CAPTURE_TICKS = DEFAULT_RULES.capture_duration_ticks
 
 NEUTRAL_FACTORY = EntityId("factory-neutral")
 NEUTRAL_FACTORY_CAPTURE_CELL = (6, 5)
@@ -268,12 +271,16 @@ def test_search_capture_walks_to_the_footprint_and_capture_completes_there() -> 
     state, events = _run(state, world, TRACKS_TICKS * 6 + 2)
 
     assert (state.robots[0].x, state.robots[0].y) == NEUTRAL_FACTORY_CAPTURE_CELL
+    # Reaching the footprint only starts the countdown now; the robot holds
+    # the cell while it runs.
+    assert _owner(state, NEUTRAL_FACTORY) is None
+    state, more = _run(state, world, CAPTURE_TICKS)
+    events += more
+
     # CR003.2: the order persists; with nothing neutral left the robot idles.
     assert state.robots[0].order == SearchCapture(
         SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=NEUTRAL_FACTORY
     )
-    # Reaching the footprint is what hands over to capture.py: a neutral
-    # factory is acquired instantly on qualifying occupation.
     assert _owner(state, NEUTRAL_FACTORY) == PLAYER_ONE
     statuses = {event.status for event in _of(events, RobotOrderChangedEvent)}  # type: ignore[attr-defined]
     assert statuses == {OrderStatus.ACTIVE}
@@ -285,11 +292,11 @@ def test_one_robot_captures_two_neutral_factories_in_sequence() -> None:
     robot = _robot(x=0, y=5, order=SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY))
     state = _state((robot,))
 
-    state, events = _run(state, world, TRACKS_TICKS * 6 + 2)
+    state, events = _run(state, world, TRACKS_TICKS * 6 + 2 + CAPTURE_TICKS)
     assert _owner(state, NEUTRAL_FACTORY) == PLAYER_ONE
     assert _owner(state, SECOND_FACTORY) is None
 
-    state, more = _run(state, world, TRACKS_TICKS * 10 + 2)
+    state, more = _run(state, world, TRACKS_TICKS * 10 + 2 + CAPTURE_TICKS)
     events += more
     assert (state.robots[0].x, state.robots[0].y) == SECOND_FACTORY_CAPTURE_CELL
     assert _owner(state, SECOND_FACTORY) == PLAYER_ONE
@@ -303,7 +310,7 @@ def test_one_robot_captures_two_neutral_factories_in_sequence() -> None:
     assert targets == [NEUTRAL_FACTORY, SECOND_FACTORY]
     captured = [
         event.structure_id  # type: ignore[attr-defined]
-        for event in _of(events, NeutralStructureAcquiredEvent)
+        for event in _of(events, StructureCapturedEvent)
     ]
     assert captured == [NEUTRAL_FACTORY, SECOND_FACTORY]
 
@@ -324,7 +331,7 @@ def test_two_robots_with_the_same_capture_order_split_two_factories() -> None:
         SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY, structure_id=SECOND_FACTORY),
     ]
 
-    state, _events = _run(state, world, TRACKS_TICKS * 30)
+    state, _events = _run(state, world, TRACKS_TICKS * 30 + CAPTURE_TICKS)
     assert _owner(state, NEUTRAL_FACTORY) == PLAYER_ONE
     assert _owner(state, SECOND_FACTORY) == PLAYER_ONE
     assert (state.robots[0].x, state.robots[0].y) == NEUTRAL_FACTORY_CAPTURE_CELL

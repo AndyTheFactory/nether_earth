@@ -72,7 +72,7 @@ gameplay correctness or presentation.
 - [ ] Land on the robot; direct control moves it one cell per key press; rising undocks.
 - [ ] Give Advance, Search & Capture, and Stop & Defend orders; the robot acts on its own.
 - [ ] **Terrain (§4).** Rough, mountain and ditch cells are drawn on the map. A bipod slows on rough and cannot enter mountain or ditch. Tracks enter mountain but not ditch. Anti-grav crosses every class, ditch at its flat speed. Boxes and walls do not block robots yet (open owner decision, §4); do not log that as a defect.
-- [ ] Capture a neutral factory; ownership changes on the map and in the HUD.
+- [ ] Capture a neutral factory; ownership changes on the map and in the HUD. (Since the owner decision of 2026-09-23 this needs 1,440 ticks / 72 s of continuous occupation, not a single tick.)
 - [ ] After a game day, resources increase by war-base and factory production.
 - [ ] **Projectiles (§8).** Fire a weapon at an enemy robot; projectiles, hits and strength are visible. A projectile moves 2 cells per step (every 4 ticks, 5 steps per second) and disappears after 10 cells for cannon and phaser and 14 for missile, 2 more with electronics. A second shot from the same robot is refused while its projectile is in flight.
 - [ ] **No autonomous detonation (§19).** Build a robot with a nuclear weapon and give it Advance, Retreat, Stop & Defend, Search & Capture, and Search & Destroy against robots, with enemy robots on the map. It never detonates on its own.

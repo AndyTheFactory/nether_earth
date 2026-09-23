@@ -130,6 +130,7 @@ terminates, are later M6 tasks' jobs (projectile simulation).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from nether_earth.ids import EntityId, PlayerId
@@ -138,7 +139,54 @@ from nether_earth.robot_build import ModuleIdentity, RobotBuild
 if TYPE_CHECKING:
     from nether_earth.orders import Order
 
-__all__ = ["Robot", "RobotMoveTransition"]
+__all__ = ["Robot", "RobotFacing", "RobotMoveTransition"]
+
+
+class RobotFacing(str, Enum):
+    """The cardinal direction a robot's body faces (owner request, 2026-09-23).
+
+    Presentation state, deliberately not a gameplay input. The Spectrum
+    keeps a one-hot ``ROBOT_STRUCT_DIRECTION`` per robot and
+    ``Lcefd_draw_robot_piece_to_buffer`` indexes
+    ``Ld6c8_piece_direction_graphic_indices`` at ``4 * piece + direction``
+    to pick that piece's sprite, so a facing is exactly what the frontend
+    needs to draw the other three sprites the disassembly already encodes
+    (`_specs/open-questions.md`, "Known gap, not resolved here: robot
+    facing" -- which asked for an owner decision before extending the
+    protocol, now given).
+
+    Facing does **not** feed any rule. The one place the original uses it
+    for gameplay -- the autonomous fire-decision scan, which reaches 10
+    cells in the facing direction instead of 8 -- is still an open research
+    item (`_specs/open-questions.md` §8, "Still open"), so wiring facing
+    into combat here would be inventing an unresolved rule. The engine
+    carries facing, serializes it, and nothing reads it back.
+
+    Axis conventions match the rest of the engine and the Spectrum's own
+    step directions (``Lb4d5``: "down" is ``inc b``, i.e. ``y + 1``):
+    ``EAST``/``WEST`` are ``+x``/``-x``, ``SOUTH``/``NORTH`` are
+    ``+y``/``-y``.
+    """
+
+    EAST = "east"
+    WEST = "west"
+    SOUTH = "south"
+    NORTH = "north"
+
+    @classmethod
+    def from_step(cls, dx: int, dy: int) -> RobotFacing | None:
+        """Return the facing a one-cell step ``(dx, dy)`` turns a robot to.
+
+        Returns ``None`` for a zero or non-cardinal step, which leaves the
+        robot's current facing alone -- the original turns only when it
+        actually moves in a direction (``Lb471`` returns at once for
+        direction 0, so a firing update neither moves nor turns).
+        """
+        if dx and not dy:
+            return cls.EAST if dx > 0 else cls.WEST
+        if dy and not dx:
+            return cls.SOUTH if dy > 0 else cls.NORTH
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +260,12 @@ class Robot:
     #: its war base's doorway before settling into Stop & Defend. See
     #: `robot_launch.py` and `orders.py`.
     exit_steps_remaining: int = 0
+    #: The cardinal direction this robot's body faces (owner request,
+    #: 2026-09-23). Presentation only -- see :class:`RobotFacing`. A robot
+    #: is launched facing south, the direction it walks out of its war
+    #: base's doorway (`La6c8` sets ``ROBOT_STRUCT_DIRECTION`` 4, "down",
+    #: before the walk-out; see `robot_launch.py`).
+    facing: RobotFacing = RobotFacing.SOUTH
 
     def __post_init__(self) -> None:
         if self.height <= 0:
@@ -225,6 +279,30 @@ class Robot:
                 f"movement transition entity_id {self.movement.entity_id.value!r} does not "
                 f"match robot entity_id {self.entity_id.value!r}"
             )
+
+    def with_facing(self, facing: RobotFacing) -> Robot:
+        """Return a copy of this robot facing ``facing``.
+
+        Every other field is carried over unchanged, like every other
+        ``with_*`` method here (see :meth:`with_movement` for why this
+        file spells each copy out rather than using ``dataclasses.replace``).
+        """
+        return Robot(
+            entity_id=self.entity_id,
+            owner=self.owner,
+            x=self.x,
+            y=self.y,
+            build=self.build,
+            stack=self.stack,
+            height=self.height,
+            movement=self.movement,
+            order=self.order,
+            active_projectile_id=self.active_projectile_id,
+            strength=self.strength,
+            last_fire_tick=self.last_fire_tick,
+            exit_steps_remaining=self.exit_steps_remaining,
+            facing=facing,
+        )
 
     def with_movement(self, movement: RobotMoveTransition | None) -> Robot:
         """Return a copy of this robot with ``movement`` replaced.
@@ -258,6 +336,7 @@ class Robot:
             strength=self.strength,
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
+            facing=self.facing,
         )
 
     def with_position(self, x: int, y: int) -> Robot:
@@ -287,6 +366,7 @@ class Robot:
             strength=self.strength,
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
+            facing=self.facing,
         )
 
     def with_order(self, order: Order | None) -> Robot:
@@ -313,6 +393,7 @@ class Robot:
             strength=self.strength,
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
+            facing=self.facing,
         )
 
     def with_active_projectile(self, active_projectile_id: EntityId | None) -> Robot:
@@ -337,6 +418,7 @@ class Robot:
             strength=self.strength,
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
+            facing=self.facing,
         )
 
     def with_strength(self, strength: int) -> Robot:
@@ -367,4 +449,5 @@ class Robot:
             strength=strength,
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
+            facing=self.facing,
         )

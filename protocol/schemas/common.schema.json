@@ -73,6 +73,11 @@
       "type": "integer",
       "enum": [-1, 0, 1]
     },
+    "robotFacing": {
+      "description": "Mirrors nether_earth.robot.RobotFacing. Presentation-only: the cardinal direction a robot's body faces, which selects one of the four per-piece Spectrum sprites. No rule reads it.",
+      "type": "string",
+      "enum": ["east", "west", "south", "north"]
+    },
     "moduleIdentity": {
       "description": "Mirrors nether_earth.robot_build.ModuleIdentity's eight canonical values.",
       "type": "string",
@@ -375,12 +380,13 @@
               "last_fire_tick": {
                 "anyOf": [{ "type": "integer" }, { "type": "null" }]
               },
-              "exit_steps_remaining": { "type": "integer", "minimum": 0 }
+              "exit_steps_remaining": { "type": "integer", "minimum": 0 },
+              "facing": { "$ref": "#/$defs/robotFacing" }
             },
             "required": [
               "entity_id", "owner", "x", "y", "build", "stack", "height",
               "movement", "order", "active_projectile_id", "strength", "last_fire_tick",
-              "exit_steps_remaining"
+              "exit_steps_remaining", "facing"
             ],
             "additionalProperties": false
           }

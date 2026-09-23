@@ -92,3 +92,28 @@ export function viewZoom(width: number, height: number): number {
 export function playViewCentre(width: number, height: number, reservedRight = 0): ScreenPoint {
   return { x: Math.max(0, width - reservedRight) / 2, y: height / 2 };
 }
+
+/**
+ * Columns of terrain to keep drawn: the visible span around `camX` plus
+ * `TERRAIN_MARGIN` cells of slack on each side, clamped to the map.
+ *
+ * The terrain used to be one `Graphics` holding every cell of the 512x16 map,
+ * built once and redrawn in full on every frame even though ~30 columns are
+ * on screen. Drawing a band instead costs a rebuild whenever the camera
+ * travels far enough that the visible span leaves the drawn band -- the
+ * margin is what makes that rare rather than per-frame.
+ */
+export const TERRAIN_MARGIN = 10;
+
+export function terrainBand(camX: number, spanX: number, mapWidth: number): { x0: number; x1: number } {
+  return {
+    x0: Math.max(0, Math.floor(camX - spanX - TERRAIN_MARGIN)),
+    x1: Math.min(mapWidth - 1, Math.ceil(camX + spanX + TERRAIN_MARGIN)),
+  };
+}
+
+/** True when `band` still covers every column visible from `camX`. */
+export function bandCovers(band: { x0: number; x1: number }, camX: number, spanX: number, mapWidth: number): boolean {
+  const needed = { x0: Math.max(0, Math.floor(camX - spanX)), x1: Math.min(mapWidth - 1, Math.ceil(camX + spanX)) };
+  return band.x0 <= needed.x0 && band.x1 >= needed.x1;
+}

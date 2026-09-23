@@ -705,8 +705,8 @@ def evaluate_victory_after_nuclear_detonation(
     """Trigger `victory.py`'s one authoritative victory check after a nuclear detonation.
 
     Mirrors `engine.py`'s existing Step 2d pattern for M5 capture (see that
-    module's ``step``, where a ``NeutralStructureAcquiredEvent``/
-    ``StructureCapturedEvent`` naming a war base gates a single
+    module's ``step``, where a ``StructureCapturedEvent`` naming a war
+    base gates a single
     :func:`~nether_earth.victory.evaluate_victory` call) -- just for the
     nuclear-destruction case instead of the capture case. This function does
     not define a second victory rule: it only decides *whether* a war base's

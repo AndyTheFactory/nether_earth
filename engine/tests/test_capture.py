@@ -5,7 +5,6 @@ from __future__ import annotations
 from nether_earth.capture import (
     CapturableStructureKind,
     CaptureProgress,
-    NeutralStructureAcquiredEvent,
     StructureCapturedEvent,
     StructureOwnership,
     advance_capture,
@@ -98,30 +97,67 @@ def _state(robots: tuple[Robot, ...] = (), **kwargs: object) -> GameState:
     return create_game_state(0, (PLAYER_ONE, PLAYER_TWO), robots=list(robots), **kwargs)  # type: ignore[arg-type]
 
 
-# --- Neutral factory acquisition ---------------------------------------------
+# --- Neutral factory capture -------------------------------------------------
 
 
-def test_neutral_factory_is_acquired_instantly_by_first_qualifying_robot() -> None:
+def test_neutral_factory_counts_down_like_an_enemy_one_instead_of_instant_acquisition() -> None:
+    # Owner decision, 2026-09-23 (`functional-spec.md` §9): a neutral factory
+    # used to be acquired instantly by the first qualifying robot. It now pays
+    # the same continuous-occupation duration as an enemy-owned one.
+    rules = EngineRules(capture_duration_ticks=3)
     world = _world(factory_owner=None)
     robot = _robot("robot-p1-1", PLAYER_ONE, *FACTORY_CAPTURE_CELL)
     state = _state((robot,))
 
-    new_state, events = advance_capture(state, world, tick=1)
+    new_state, events = advance_capture(state, world, tick=1, rules=rules)
+
+    assert events == ()
+    assert new_state.structure_ownership_for(FACTORY_ID) is None
+    assert new_state.capture_progress_for(FACTORY_ID) == CaptureProgress(
+        structure_id=FACTORY_ID,
+        capturing_player=PLAYER_ONE,
+        robot_id=EntityId("robot-p1-1"),
+        elapsed_ticks=1,
+        required_ticks=3,
+    )
+
+    # Ownership transfers on the 3rd continuously-occupied tick, and the
+    # completion is a plain StructureCapturedEvent with no previous owner.
+    for tick in (2, 3):
+        new_state, events = advance_capture(new_state, world, tick=tick, rules=rules)
 
     assert new_state.structure_ownership_for(FACTORY_ID) == StructureOwnership(
         structure_id=FACTORY_ID, owner=PLAYER_ONE
     )
     assert new_state.capture_progress == ()
     assert events == (
-        NeutralStructureAcquiredEvent(
+        StructureCapturedEvent(
             sequence=0,
             structure_id=FACTORY_ID,
             structure_kind=CapturableStructureKind.FACTORY,
+            previous_owner=None,
             new_owner=PLAYER_ONE,
             robot_id=EntityId("robot-p1-1"),
-            tick=1,
+            tick=3,
         ),
     )
+
+
+def test_neutral_factory_capture_resets_when_the_robot_leaves() -> None:
+    rules = EngineRules(capture_duration_ticks=3)
+    world = _world(factory_owner=None)
+    robot = _robot("robot-p1-1", PLAYER_ONE, *FACTORY_CAPTURE_CELL)
+    state = _state((robot,))
+
+    state, _ = advance_capture(state, world, tick=1, rules=rules)
+    assert state.capture_progress_for(FACTORY_ID) is not None
+
+    # Robot walks off the capture cell: progress drops, ownership unchanged.
+    state, events = advance_capture(state.with_robots(()), world, tick=2, rules=rules)
+
+    assert events == ()
+    assert state.capture_progress == ()
+    assert state.structure_ownership_for(FACTORY_ID) is None
 
 
 def test_neutral_factory_with_no_robot_present_stays_neutral() -> None:
@@ -135,15 +171,16 @@ def test_neutral_factory_with_no_robot_present_stays_neutral() -> None:
 
 
 def test_neutral_factory_second_tick_is_a_no_op_once_owned() -> None:
+    rules = EngineRules(capture_duration_ticks=1)
     world = _world(factory_owner=None)
     robot = _robot("robot-p1-1", PLAYER_ONE, *FACTORY_CAPTURE_CELL)
     state = _state((robot,))
 
-    state, _events = advance_capture(state, world, tick=1)
-    state, events = advance_capture(state, world, tick=2)
+    state, _events = advance_capture(state, world, tick=1, rules=rules)
+    state, events = advance_capture(state, world, tick=2, rules=rules)
 
     # Robot now shares ownership with the factory (its own player); no
-    # further acquisition/capture activity -- own-structure occupation never
+    # further capture activity -- own-structure occupation never
     # qualifies.
     assert events == ()
     assert state.structure_ownership_for(FACTORY_ID) == StructureOwnership(
@@ -167,11 +204,12 @@ def test_neutral_factory_two_candidates_pick_deterministic_smallest_entity_id() 
 
     _new_state, events = advance_capture(state, world, tick=1)
 
-    assert len(events) == 1
-    assert isinstance(events[0], NeutralStructureAcquiredEvent)
+    assert events == ()
+    progress = _new_state.capture_progress_for(FACTORY_ID)
+    assert progress is not None
     # "robot-p1-1" < "robot-p2-9" lexicographically.
-    assert events[0].robot_id == EntityId("robot-p1-1")
-    assert events[0].new_owner == PLAYER_ONE
+    assert progress.robot_id == EntityId("robot-p1-1")
+    assert progress.capturing_player == PLAYER_ONE
 
 
 # --- Enemy factory continuous-occupation capture -----------------------------
@@ -367,7 +405,7 @@ def test_neutral_war_base_starts_a_capture_progress_countdown_not_instant_owners
 
     new_state, events = advance_capture(state, world, tick=1, rules=rules)
 
-    # No instant acquisition, no NeutralStructureAcquiredEvent, no ownership
+    # No instant acquisition, no ownership
     # override yet -- just a fresh CaptureProgress record, exactly like an
     # enemy-owned war base would get.
     assert events == ()
@@ -509,11 +547,12 @@ def test_advance_capture_is_deterministic_given_same_inputs() -> None:
 
 
 def test_sequencer_is_used_when_supplied() -> None:
+    rules = EngineRules(capture_duration_ticks=1)
     world = _world(factory_owner=None)
     robot = _robot("robot-p1-1", PLAYER_ONE, *FACTORY_CAPTURE_CELL)
     state = _state((robot,))
     sequencer = EventSequencer(start=5)
 
-    _new_state, events = advance_capture(state, world, tick=1, sequencer=sequencer)
+    _new_state, events = advance_capture(state, world, tick=1, rules=rules, sequencer=sequencer)
 
     assert events[0].sequence == 5

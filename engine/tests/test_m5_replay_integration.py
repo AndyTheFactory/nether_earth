@@ -25,7 +25,6 @@ import json
 
 from nether_earth.capture import (
     CapturableStructureKind,
-    NeutralStructureAcquiredEvent,
     StructureCapturedEvent,
 )
 from nether_earth.commander import Commander, CommanderMode
@@ -326,19 +325,25 @@ def test_reservations_are_fully_derivable_from_the_serialized_movement_state() -
     assert "reservations" not in snapshot
 
 
-def test_order_lifecycle_and_neutral_acquisition_replay_identically() -> None:
-    """The winner arrives, acquires the neutral factory, and both orders settle."""
+def test_order_lifecycle_and_neutral_capture_replay_identically() -> None:
+    """The winner arrives, captures the neutral factory, and both orders settle.
+
+    Since the owner decision of 2026-09-23 the neutral factory costs a full
+    ``capture_duration_ticks`` of continuous occupation like any other
+    structure, so the fixture runs long enough for that countdown to finish.
+    """
     fixture = _fixture(
-        tick_count=TRACKS_MOVE_TICKS + 4,
+        tick_count=TRACKS_MOVE_TICKS + 4 + DEFAULT_RULES.capture_duration_ticks,
         commands_by_tick=_contention_commands(),
         initial_robots=_contention_robots(),
     )
 
     state, events = _replay_twice(fixture)
 
-    acquired = [e for e in events if isinstance(e, NeutralStructureAcquiredEvent)]
+    acquired = [e for e in events if isinstance(e, StructureCapturedEvent)]
     assert len(acquired) == 1
     assert acquired[0].structure_id == FACTORY_ONE
+    assert acquired[0].previous_owner is None
     assert acquired[0].structure_kind is CapturableStructureKind.FACTORY
 
     ownership = state.structure_ownership_for(FACTORY_ONE)
@@ -351,9 +356,13 @@ def test_order_lifecycle_and_neutral_acquisition_replay_identically() -> None:
         {"structure_id": FACTORY_ONE.to_json(), "owner": ownership.owner.to_json()}
     ]
 
-    # Both robots' final standing orders survive into the snapshot, stored
-    # target included (CR003.2): Search & Capture never completes, so with
-    # no neutral factory left both robots keep the order and idle.
+    # Final standing orders survive into the snapshot, stored target
+    # included (CR003.2): Search & Capture never completes, so with no
+    # neutral factory left a robot keeps the order and idles. Asserted over
+    # whoever is still alive rather than over both contenders by name: the
+    # fixture now runs the full capture countdown, and over that many ticks
+    # the two adjacent contenders shoot each other (CR003.3 piece heights
+    # make every robot tall enough to be hit), so one of them is gone.
     assert all(robot.order is not None for robot in state.robots)
     serialized_orders = {
         entry["entity_id"]: entry["order"] for entry in snapshot["robots"]
@@ -363,7 +372,9 @@ def test_order_lifecycle_and_neutral_acquisition_replay_identically() -> None:
         "target": "neutral_factory",
         "structure_id": FACTORY_ONE.to_json(),
     }
-    assert serialized_orders == {ROBOT_WEST.to_json(): held, ROBOT_EAST.to_json(): held}
+    assert serialized_orders
+    assert set(serialized_orders) <= {ROBOT_WEST.to_json(), ROBOT_EAST.to_json()}
+    assert all(order == held for order in serialized_orders.values())
     assert any(isinstance(e, RobotOrderChangedEvent) for e in events)
 
 

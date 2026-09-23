@@ -48,6 +48,9 @@ CellDelta = Literal[-1, 0, 1]
 
 #: Mirrors common.schema.json `$defs.moduleIdentity`
 #: (`nether_earth.robot_build.ModuleIdentity`'s eight values).
+#: Mirrors nether_earth.robot.RobotFacing: presentation-only robot facing.
+RobotFacingWire = Literal["east", "west", "south", "north"]
+
 ModuleIdentityWire = Literal[
     "bipod", "tracks", "anti_grav", "cannon", "missile", "phaser", "nuclear", "electronics"
 ]
@@ -387,6 +390,7 @@ class RobotSnapshot(_SnapshotSubModel):
     strength: int
     last_fire_tick: int | None
     exit_steps_remaining: int
+    facing: RobotFacingWire
 
 
 class StructureOwnershipSnapshot(_SnapshotSubModel):
