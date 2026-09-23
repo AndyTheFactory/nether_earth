@@ -996,24 +996,38 @@ decoded and drawn. A robot is launched facing south (the walk-out direction,
 `La6c8`) and turns to the direction of each accepted step, matching `Lb471`,
 which neither moves nor turns for direction 0.
 
-Facing is **presentation only**: no engine rule reads it. The one gameplay
-use in the original — the autonomous fire-decision scan reaching 10 cells in
-the facing direction rather than 8 — stays unadopted, because that scan is
-still an open research item (§8, "Still open" above). Wiring facing into
-combat would decide that item by implementation.
+**Extended (owner decision, 2026-09-23): facing drives combat, and turning
+costs ticks.** A projectile travels in the firing robot's facing —
+`Lb6d6_weapon_fire` copies `ROBOT_STRUCT_DIRECTION` straight into
+`BULLET_STRUCT_DIRECTION` — so the fire command carries no target and there
+is no aiming; the engine's old target-cell-to-direction rule is gone, along
+with `targetX`/`targetY` on the protocol payload. A robot that wants to step
+or shoot in a direction it does not face spends one update rotating 90
+degrees toward it and does not move (`Lb471`, whose rotate branch sets the
+new direction and returns, putting the walk-out step counter back "since
+this was not a move"). `Lb471` rotates the desired bit two places when
+`desired | current` is `0x03` or `0x0c`, so a reversal goes through a
+perpendicular and costs two rotations. A robot mid-turn neither moves nor
+fires. Duration: `rules.robot_turn_ticks`, one game cycle.
 
-**Still open (research only; not blocking):** which one-hot
-`ROBOT_STRUCT_DIRECTION` bit maps to which of the 4
-`Ld6c8_piece_direction_graphic_indices` columns. The decoder
-(`frontend/scripts/decode-unit-sprites.py`) assigns them east, west, south,
-north, carried over from the `rrca`/`jr nc` decode chain documented for the
-identical one-hot encoding on the bullet side (§8:
-`Lb724_bullet_update_internal` → `Lb73c_not_down` = right, left, down, up).
-That is an assumption, not a reading of `Lcefd_draw_robot_piece_to_buffer`,
-and the pieces that reuse one sprite across two or four directions make it
-hard to falsify by eye. Consequence if wrong: robots face the wrong way
-visually; no rule changes. The ordering lives in one constant (`FACINGS`) so
-correcting it is a one-line change plus a regenerate.
+An autonomous robot turns toward its target before firing; a robot standing
+on a capture cell never turns for combat, since an interrupted capture
+resets to zero (§7).
+
+The facing-direction bonus to the fire-decision *scan* (10 cells ahead
+rather than 8) is still unadopted — that remains the open research item in
+§8, and the rules above do not decide it.
+
+**Resolved by evidence (2026-09-23):** the one-hot
+`ROBOT_STRUCT_DIRECTION` bit order is east 1, west 2, south 4, north 8, and
+the sprite columns follow the set-bit position.
+`Lb724_bullet_update_internal`'s `rrca` chain moves `+x`, `-x`, `+y`, `-y`
+in that bit order, and `Lcefd_draw_robot_piece_to_buffer`'s
+`Lcf08_direction_loop` shifts the one-hot value right until carry, counting
+the bit position into `b`, then indexes
+`Ld6c8_piece_direction_graphic_indices` at `4 * piece + b`. So the decoder's
+east/west/south/north column order (`FACINGS`) is a reading of the code, not
+an assumption.
 
 ## Resolution process
 

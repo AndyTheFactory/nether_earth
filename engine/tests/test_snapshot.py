@@ -318,6 +318,7 @@ def test_robot_snapshot_includes_order_key_defaulting_to_none() -> None:
         "last_fire_tick",
         "exit_steps_remaining",
         "facing",
+        "turning",
     ]
     assert entry["order"] is None
     assert entry["active_projectile_id"] is None
@@ -326,6 +327,7 @@ def test_robot_snapshot_includes_order_key_defaulting_to_none() -> None:
     assert entry["exit_steps_remaining"] == 0
     # Launch facing (owner request, 2026-09-23): south, the walk-out direction.
     assert entry["facing"] == "south"
+    assert entry["turning"] is None
 
 
 def test_robot_snapshot_serializes_active_projectile_id_when_set() -> None:

@@ -39,7 +39,7 @@ from nether_earth.orders import (
     StopAndDefend,
 )
 from nether_earth.reservations import DestinationContentionResolvedEvent
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES, miles_to_cells
@@ -103,6 +103,7 @@ def _robot(
     *,
     weapons: tuple[ModuleIdentity, ...] = (ModuleIdentity.CANNON,),
     order: object = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=weapons)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -114,7 +115,8 @@ def _robot(
         build=build,
         stack=stack,
         height=height,
-        order=order,  # type: ignore[arg-type]
+        order=order,  # type: ignore[arg-type],
+        facing=facing,
     )
 
 
@@ -626,7 +628,10 @@ def test_autonomous_and_direct_control_moves_share_one_contention_batch() -> Non
     # 2×2 bodies (CR002.3): robot-a advances east into the body (4..5, 2..3);
     # robot-b is driven north into (5..6, 3..4). The bodies overlap at (5, 3).
     autonomous = _robot("robot-a", x=3, y=3, order=Advance(1))
-    driven = _robot("robot-b", x=5, y=5)
+    # The driven robot is pushed north, so it must already face north: a robot
+    # turned the wrong way spends the tick rotating and never enters the
+    # contention batch this test is about.
+    driven = _robot("robot-b", x=5, y=5, facing=RobotFacing.NORTH)
     commander = Commander(
         player_id=PLAYER_ONE,
         x=5,

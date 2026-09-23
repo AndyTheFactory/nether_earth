@@ -40,7 +40,7 @@ from nether_earth.reservations import (
     apply_robot_move_batch,
     destination_available,
 )
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -83,11 +83,13 @@ def _robot(
     owner: PlayerId = PLAYER_ONE,
     chassis: ModuleIdentity = ModuleIdentity.BIPOD,
     weapons: tuple[ModuleIdentity, ...] = (ModuleIdentity.CANNON,),
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=chassis, weapons=weapons)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
     return Robot(
-        entity_id=EntityId(entity_id), owner=owner, x=x, y=y, build=build, stack=stack, height=height
+        entity_id=EntityId(entity_id), owner=owner, x=x, y=y, build=build, stack=stack, height=height,
+        facing=facing,
     )
 
 

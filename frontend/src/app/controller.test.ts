@@ -75,14 +75,20 @@ test('orders menu covers every order kind with canonical payloads', () => {
   assert.equal(store.get().ui.menu, 'none');
 });
 
-test('combat: aim with movement keys, fitted weapon index, fire targets adjacent cell', () => {
+test('combat: arrows turn the robot, fire carries no target', () => {
+  // There is no aiming (owner decision, 2026-09-23): a shot travels in the
+  // robot's own facing, so the combat menu's arrows drive it -- which turns
+  // it -- and the fire command carries only the weapon.
   const { controller, sent } = boot('commander-docked');
   controller.action('Enter');
   controller.action('Digit3');
   controller.move({ dx: 0, dy: 1 });
   controller.action('Digit1');
   controller.action('Enter');
-  assert.deepEqual(sent(), [{ kind: 'robot_fire', entityId: 'robot-1', weapon: 'cannon', targetX: 30, targetY: 11 }]);
+  assert.deepEqual(sent(), [
+    { kind: 'direct_robot_move', dx: 0, dy: 1 },
+    { kind: 'robot_fire', entityId: 'robot-1', weapon: 'cannon' },
+  ]);
 });
 
 test('construction: digits toggle select/deselect from authoritative build; enter fires at the cursor; C cancels', () => {

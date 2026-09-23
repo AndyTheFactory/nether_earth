@@ -405,7 +405,13 @@ An autonomous robot detonates its nuclear weapon only when it is on a Search & D
 
 A robot faces one of the four cardinal directions. It is launched facing south — the direction it walks out of its war base's doorway — and turns to face each step it takes; a step that is rejected, or a tick in which it fires instead of moving, does not turn it.
 
-Facing is presentation state (owner request, 2026-09-23): it selects which of the four per-piece sprites the original encodes, and no gameplay rule reads it. In particular the original's facing-direction bonus to the autonomous fire-decision scan is not adopted; see `open-questions.md` §8.
+Facing selects which of the four per-piece sprites the original encodes, and it decides where a shot goes (owner decision, 2026-09-23): a projectile always travels in the firing robot's facing, matching `Lb6d6_weapon_fire`, which copies the robot's direction into the bullet's. There is no aiming — to shoot a different way a robot must turn.
+
+Turning costs time. A robot that wants to step or shoot in a direction it does not face spends one update rotating 90 degrees toward it and does not move that update (`Lb471`). A 180-degree reversal therefore takes two rotations, passing through a perpendicular direction on the way, and a robot mid-turn can neither move nor fire. The duration is centralized rule data (`robot_turn_ticks`, one Spectrum game cycle).
+
+An autonomous robot with an enemy in range but the wrong facing turns toward it first and fires once the turn lands. A robot standing on a capture cell is the exception: it never turns for combat, because an interrupted capture resets to zero.
+
+The original's facing-direction bonus to the autonomous fire-decision *scan* (10 cells ahead rather than 8) is still not adopted; see `open-questions.md` §8.
 
 ### Navigation intelligence
 

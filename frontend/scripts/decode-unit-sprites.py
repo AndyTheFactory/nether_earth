@@ -24,16 +24,12 @@ request, 2026-09-23; the snapshot protocol now carries a ``facing`` field,
 which closes the gap ``_specs/open-questions.md`` logged under "Known gap,
 not resolved here: robot facing").
 
-Which one-hot ``ROBOT_STRUCT_DIRECTION`` bit maps to which of the 4 table
-columns is NOT established by the evidence gathered in this repository. The
-order used below -- east, west, south, north -- follows the ``rrca``/``jr
-nc`` decode chain documented for the identical one-hot encoding on the
-bullet side (``Lb724_bullet_update_internal`` through ``Lb73c_not_down``:
-right, left, down, up; see ``_specs/open-questions.md`` §8). It is an
-assumption, flagged there, not a verified reading of ``Lcefd``; pieces whose
-4 entries are not all distinct (see the table) make it hard to falsify by
-eye, so confirm it against ``Lcefd_draw_robot_piece_to_buffer`` before
-treating it as settled.
+The column order below -- east, west, south, north -- is read off the code,
+not assumed. ``Lcefd_draw_robot_piece_to_buffer``'s ``Lcf08_direction_loop``
+shifts the one-hot ``ROBOT_STRUCT_DIRECTION`` right until carry, counting
+the set bit's position into ``b``, and indexes the table at
+``4 * piece + b``; ``Lb724_bullet_update_internal``'s ``rrca`` chain walks
+the same bits as right, left, down, up, i.e. ``+x``, ``-x``, ``+y``, ``-y``.
 
 Full 4-direction table (piece: dir0, dir1, dir2, dir3), each entry is a label
 in ``Ld740_isometric_graphic_pointers``:
@@ -69,8 +65,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _netherearth_gfx import decode  # noqa: E402
 
 #: Facing order of the 4 ``Ld6c8_piece_direction_graphic_indices`` columns.
-#: See the module docstring: this ordering is an assumption carried from the
-#: bullet-side one-hot decode chain, not a verified reading of ``Lcefd``.
+#: See the module docstring: this ordering is read off ``Lcf08_direction_loop``'s
+#: set-bit index and ``Lb724``'s ``rrca`` chain (east 1, west 2, south 4, north 8).
 FACINGS = ("east", "west", "south", "north")
 
 #: One label per (piece, facing), in ``FACINGS`` order. Read straight off
@@ -98,8 +94,8 @@ def emit_robot(lines: list[str]) -> None:
     print("// Rows top first: '#' ink, '.' paper, ' ' transparent.")
     print("// One sprite per (piece, facing). Several pieces reuse one sprite for")
     print("// more than one facing -- that repetition is the disassembly's own table,")
-    print("// not a decode shortcut. See this script's docstring for the facing order,")
-    print("// which is an assumption carried from the bullet one-hot decode chain.")
+    print("// not a decode shortcut. The facing order is read off Lcf08_direction_loop's")
+    print("// set-bit index and Lb724's rrca chain (east 1, west 2, south 4, north 8).")
     print("import type { ModuleId, RobotFacing } from './robot.ts';")
     print("")
     print("export const ROBOT_SPRITES: Record<ModuleId, Record<RobotFacing, readonly string[]>> = {")

@@ -122,14 +122,19 @@ from nether_earth.destruction import effective_world, execute_nuclear_detonation
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId
 from nether_earth.map import WorldMap
-from nether_earth.movement import RobotMoveRequest, robot_move_duration_ticks, unit_move_terrain
+from nether_earth.movement import (
+    RobotMoveRequest,
+    RobotTurnStartedEvent,
+    robot_move_duration_ticks,
+    unit_move_terrain,
+)
 from nether_earth.orders import (
     EngagementIntent,
     EngagementTargetKind,
     OrderEvaluation,
     StopAndDefend,
 )
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing, RobotTurnTransition
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
@@ -193,6 +198,30 @@ def _target_still_valid(
     return any(structure.id == intent.target_id for structure in structures)
 
 
+
+def _facing_toward(robot: Robot, intent: EngagementIntent) -> RobotFacing | None:
+    """Return the cardinal facing that points ``robot`` at ``intent``'s target.
+
+    The Spectrum's own scan (``Lb626_check_directions_with_enemy_robots``)
+    is per-direction: it looks along the robot's lane and the lanes either
+    side, so "the direction the enemy is in" is already cardinal there. An
+    engagement intent here carries a target cell instead, which may be off
+    both axes, so the cardinal is chosen by dominant axis with X winning a
+    tie -- the same total, deterministic rule the old target-cell fire
+    direction used, now applied to turning rather than to the bullet.
+
+    Returns ``None`` when the target is on the robot's own cell, where no
+    direction can be derived and turning would be meaningless.
+    """
+    raw_dx = intent.target_x - robot.x
+    raw_dy = intent.target_y - robot.y
+    if raw_dx == 0 and raw_dy == 0:
+        return None
+    if abs(raw_dx) >= abs(raw_dy):
+        return RobotFacing.EAST if raw_dx > 0 else RobotFacing.WEST
+    return RobotFacing.SOUTH if raw_dy > 0 else RobotFacing.NORTH
+
+
 def consume_engagement_intent(
     intent: EngagementIntent,
     state: GameState,
@@ -250,6 +279,41 @@ def consume_engagement_intent(
     request = _select_fire_request(intent, robot, state, world, rules)
     if request is None:
         return state, ()
+
+    # Turn to face the target before shooting (owner decision, 2026-09-23):
+    # a bullet travels in the robot's own facing (`Lb6d6_weapon_fire`), so a
+    # robot aimed the wrong way has nothing to shoot at. It spends this
+    # update rotating 90 degrees instead of firing, exactly as `Lb471` does
+    # for a move it is not facing; a 180-degree turn therefore costs two
+    # updates before the shot goes out. Nuclear is exempt: it detonates on
+    # the carrier's own cell, so facing is irrelevant to it.
+    if request.weapon is not ModuleIdentity.NUCLEAR:
+        desired = _facing_toward(robot, intent)
+        if desired is not None and desired is not robot.facing:
+            if robot.turning is not None:
+                return state, ()  # already rotating; the turn resolves on its own
+            turn = RobotTurnTransition(
+                entity_id=robot.entity_id,
+                from_facing=robot.facing,
+                to_facing=robot.facing.rotate_toward(desired),
+                started_tick=tick,
+                duration_ticks=rules.robot_turn_ticks,
+            )
+            sequence = sequencer.next_sequence() if sequencer is not None else 0
+            turned = robot.with_turning(turn)
+            return state.with_robots(
+                tuple(turned if r.entity_id == robot.entity_id else r for r in state.robots)
+            ), (
+                RobotTurnStartedEvent(
+                    sequence=sequence,
+                    entity_id=robot.entity_id,
+                    owner=robot.owner,
+                    from_facing=turn.from_facing,
+                    to_facing=turn.to_facing,
+                    started_tick=tick,
+                    duration_ticks=turn.duration_ticks,
+                ),
+            )
 
     if request.weapon is ModuleIdentity.NUCLEAR:
         result = validate_fire(request, state)
@@ -379,8 +443,6 @@ def _select_fire_request(
         robot_id=intent.robot_id,
         player=robot.owner,
         weapon=selected_weapon,
-        target_x=intent.target_x,
-        target_y=intent.target_y,
     )
 
 

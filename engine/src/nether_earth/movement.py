@@ -113,7 +113,7 @@ from nether_earth.occupancy import (
     unit_footprint_in_bounds,
     unit_footprints_overlap,
 )
-from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition
+from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition, RobotTurnTransition
 from nether_earth.robot_build import CHASSIS_MODULES, ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
@@ -128,6 +128,8 @@ __all__ = [
     "RobotMoveRequest",
     "RobotMoveResult",
     "RobotMoveStartedEvent",
+    "RobotTurnCompletedEvent",
+    "RobotTurnStartedEvent",
     "advance_all_robot_transitions",
     "advance_robot_transition",
     "apply_robot_move",
@@ -410,6 +412,7 @@ class MovementRejectionReason(str, Enum):
 
     NO_SUCH_ROBOT = "no_such_robot"
     MOVE_IN_PROGRESS = "move_in_progress"
+    TURN_IN_PROGRESS = "turn_in_progress"
     OUT_OF_BOUNDS = "out_of_bounds"
     TERRAIN_IMPASSABLE = "terrain_impassable"
     OCCUPIED = "occupied"
@@ -462,6 +465,35 @@ class RobotMoveStartedEvent(Event):
     to_y: int
     started_tick: int
     duration_ticks: int
+
+
+@dataclass(frozen=True, slots=True)
+class RobotTurnStartedEvent(Event):
+    """A robot began a 90-degree turn; it neither moves nor fires until it resolves.
+
+    ``to_facing`` is one rotation toward what the robot wanted, which for a
+    180-degree turn is an intermediate direction (`Lb471`; see
+    :meth:`~nether_earth.robot.RobotFacing.rotate_toward`). The robot's
+    authoritative facing is still ``from_facing`` until
+    :class:`RobotTurnCompletedEvent`.
+    """
+
+    entity_id: EntityId
+    owner: PlayerId
+    from_facing: RobotFacing
+    to_facing: RobotFacing
+    started_tick: int
+    duration_ticks: int
+
+
+@dataclass(frozen=True, slots=True)
+class RobotTurnCompletedEvent(Event):
+    """A robot's turn resolved; ``facing`` is now authoritative."""
+
+    entity_id: EntityId
+    owner: PlayerId
+    facing: RobotFacing
+    tick: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -606,6 +638,12 @@ def validate_robot_move(
         return RobotMoveResult.reject(request, MovementRejectionReason.NO_SUCH_ROBOT)
     if robot.movement is not None:
         return RobotMoveResult.reject(request, MovementRejectionReason.MOVE_IN_PROGRESS)
+    # A robot mid-turn is busy exactly like one mid-move (owner decision,
+    # 2026-09-23). Without this a caller that re-requests the same step every
+    # tick -- which every order policy does -- would restart the turn each
+    # tick, so it could never elapse and the robot would spin forever.
+    if robot.turning is not None:
+        return RobotMoveResult.reject(request, MovementRejectionReason.TURN_IN_PROGRESS)
 
     dest_x = robot.x + request.dx
     dest_y = robot.y + request.dy
@@ -650,7 +688,7 @@ def apply_robot_move(
     rules: EngineRules = DEFAULT_RULES,
     destination_check: DestinationAvailabilityCheck = _permissive_destination_check,
     sequencer: EventSequencer | None = None,
-) -> tuple[GameState, RobotMoveResult, RobotMoveStartedEvent | None]:
+) -> tuple[GameState, RobotMoveResult, RobotMoveStartedEvent | RobotTurnStartedEvent | None]:
     """Validate and, if legal, start ``request``'s move. The one move-start point.
 
     Returns ``(new_state, result, event)``. When rejected, ``new_state is
@@ -675,6 +713,39 @@ def apply_robot_move(
     robot = state.robot_for(request.entity_id)
     assert robot is not None  # guaranteed by validate_robot_move's NO_SUCH_ROBOT check
 
+    # A step in a direction the robot is not facing spends this update
+    # turning instead of moving (owner request, 2026-09-23). `Lb471`
+    # rotates 90 degrees toward the wanted direction, stores the new
+    # direction and returns without advancing -- it even puts the walk-out
+    # step counter back, "since this was not a move". The move itself is
+    # not started, so the caller re-requests it on a later update and it
+    # goes through once the facing matches; a 180-degree turn therefore
+    # costs two updates (`RobotFacing.rotate_toward`).
+    wanted = RobotFacing.from_step(request.dx, request.dy)
+    if wanted is not None and wanted is not robot.facing:
+        turn = RobotTurnTransition(
+            entity_id=robot.entity_id,
+            from_facing=robot.facing,
+            to_facing=robot.facing.rotate_toward(wanted),
+            started_tick=tick,
+            duration_ticks=rules.robot_turn_ticks,
+        )
+        turning_state = _replace_robot(state, robot.with_turning(turn))
+        sequence = sequencer.next_sequence() if sequencer is not None else 0
+        return (
+            turning_state,
+            result,
+            RobotTurnStartedEvent(
+                sequence=sequence,
+                entity_id=robot.entity_id,
+                owner=robot.owner,
+                from_facing=turn.from_facing,
+                to_facing=turn.to_facing,
+                started_tick=tick,
+                duration_ticks=turn.duration_ticks,
+            ),
+        )
+
     dest_x = robot.x + request.dx
     dest_y = robot.y + request.dy
     duration = robot_move_duration_ticks(robot, unit_move_terrain(world, dest_x, dest_y), rules)
@@ -687,15 +758,7 @@ def apply_robot_move(
         started_tick=tick,
         duration_ticks=duration,
     )
-    # Turning is part of starting a step (owner request, 2026-09-23):
-    # the Spectrum stores the robot's direction alongside the move
-    # (`Lb471`, which returns without moving *or* turning for direction 0),
-    # so facing follows the accepted step and never changes on its own.
-    # Presentation only -- nothing in the engine reads it back. See
-    # `robot.RobotFacing`.
-    turned = RobotFacing.from_step(request.dx, request.dy)
-    moved = robot.with_movement(transition)
-    new_state = _replace_robot(state, moved if turned is None else moved.with_facing(turned))
+    new_state = _replace_robot(state, robot.with_movement(transition))
 
     sequence = sequencer.next_sequence() if sequencer is not None else 0
     event = RobotMoveStartedEvent(
@@ -741,11 +804,37 @@ def advance_robot_transition(
     return updated, event
 
 
+def advance_robot_turn(
+    robot: Robot,
+    tick: int,
+    sequencer: EventSequencer | None = None,
+) -> tuple[Robot, RobotTurnCompletedEvent | None]:
+    """Resolve ``robot``'s in-progress turn if it is due by ``tick``.
+
+    The mirror of :func:`advance_robot_transition` for turns: the robot's
+    authoritative ``facing`` only changes here, so a robot mid-turn still
+    faces (and would still fire) the old way until the turn elapses.
+    """
+    turn = robot.turning
+    if turn is None or not turn.is_complete(tick):
+        return robot, None
+    updated = robot.with_facing(turn.to_facing)
+    sequence = sequencer.next_sequence() if sequencer is not None else 0
+    event = RobotTurnCompletedEvent(
+        sequence=sequence,
+        entity_id=updated.entity_id,
+        owner=updated.owner,
+        facing=updated.facing,
+        tick=tick,
+    )
+    return updated, event
+
+
 def advance_all_robot_transitions(
     state: GameState,
     tick: int,
     sequencer: EventSequencer | None = None,
-) -> tuple[GameState, tuple[RobotMoveCompletedEvent, ...]]:
+) -> tuple[GameState, tuple[RobotMoveCompletedEvent | RobotTurnCompletedEvent, ...]]:
     """Apply :func:`advance_robot_transition` to every robot in ``state``.
 
     Robots are processed in ``state.robots``' canonical order (sorted by
@@ -753,10 +842,16 @@ def advance_all_robot_transitions(
     the event order are independent of any incidental construction/launch
     ordering.
     """
-    events: list[RobotMoveCompletedEvent] = []
+    events: list[RobotMoveCompletedEvent | RobotTurnCompletedEvent] = []
     updated_robots: list[Robot] = []
     for robot in state.robots:
-        updated, event = advance_robot_transition(robot, tick, sequencer)
+        # Turns resolve in the same pass as moves: a robot can hold only one
+        # of the two at a time (starting a turn does not start a move), so
+        # the order between them here is immaterial.
+        updated, turn_event = advance_robot_turn(robot, tick, sequencer)
+        if turn_event is not None:
+            events.append(turn_event)
+        updated, event = advance_robot_transition(updated, tick, sequencer)
         updated_robots.append(updated)
         if event is not None:
             events.append(event)

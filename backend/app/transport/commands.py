@@ -148,8 +148,6 @@ def _dispatch(payload: CommandPayload, player: PlayerId, sequence: int) -> Comma
             sequence=sequence,
             entity_id=EntityId.from_json(payload.entity_id),
             weapon=ModuleIdentity(payload.weapon),
-            target_x=payload.target_x,
-            target_y=payload.target_y,
         )
     if isinstance(payload, SetRobotOrderCommandPayload):
         return SetRobotOrderCommand(

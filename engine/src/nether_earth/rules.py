@@ -480,6 +480,12 @@ class EngineRules:
     phaser_damage_multiplier: int = 4
     projectile_advance_ticks: int = 4
     projectile_cells_per_advance: int = 2
+    #: Ticks a 90-degree robot turn costs (owner request, 2026-09-23). A
+    #: robot that wants to step in a direction it is not facing spends an
+    #: update rotating instead of moving (`Lb471`), so the cost is one
+    #: Spectrum game cycle -- the same 4 ticks as
+    #: ``robot_fire_cycle_ticks``, which is that cycle's length.
+    robot_turn_ticks: int = 4
     robot_fire_cycle_ticks: int = 4
     robot_launch_exit_steps: int = 5
 
@@ -574,6 +580,8 @@ class EngineRules:
             raise ValueError("nuclear building dy offsets must be non-negative")
         if self.projectile_cells_per_advance <= 0:
             raise ValueError("projectile_cells_per_advance must be a positive integer")
+        if self.robot_turn_ticks <= 0:
+            raise ValueError("robot_turn_ticks must be a positive integer")
         if self.robot_fire_cycle_ticks <= 0:
             raise ValueError("robot_fire_cycle_ticks must be a positive integer")
         if self.robot_launch_exit_steps < 0:

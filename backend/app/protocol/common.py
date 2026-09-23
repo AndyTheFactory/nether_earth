@@ -247,15 +247,17 @@ class DirectRobotMoveCommandPayload(ProtocolModel):
 
 
 class RobotFireCommandPayload(ProtocolModel):
-    """Mirrors `nether_earth.combat.FireCommand`."""
+    """Mirrors `nether_earth.combat.FireCommand`.
+
+    No target: a shot travels in the firing robot's own facing (owner
+    decision, 2026-09-23), so aiming means turning the robot first.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["robot_fire"]
     entity_id: EntityId
     weapon: WeaponIdentityWire
-    target_x: int
-    target_y: int
 
 
 class SetRobotOrderCommandPayload(ProtocolModel):
@@ -391,6 +393,7 @@ class RobotSnapshot(_SnapshotSubModel):
     last_fire_tick: int | None
     exit_steps_remaining: int
     facing: RobotFacingWire
+    turning: dict[str, Any] | None
 
 
 class StructureOwnershipSnapshot(_SnapshotSubModel):

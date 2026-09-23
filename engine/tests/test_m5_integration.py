@@ -49,7 +49,7 @@ from nether_earth.orders import (
 )
 from nether_earth.replay import ReplayFixture, run_fixture
 from nether_earth.reservations import DestinationContentionResolvedEvent
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES, miles_to_cells
@@ -135,6 +135,7 @@ def _robot(
     chassis: ModuleIdentity,
     electronics: ModuleIdentity | None = None,
     order=None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=chassis, weapons=(ModuleIdentity.CANNON,), electronics=electronics)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -147,6 +148,7 @@ def _robot(
         stack=stack,
         height=height,
         order=order,
+        facing=facing,
     )
 
 
@@ -193,7 +195,10 @@ def _initial_robots() -> tuple[Robot, ...]:
             chassis=ModuleIdentity.TRACKS,
         ),
         # Commander-blocking lane.
-        _robot(ROBOT_BLOCKED, PLAYER_ONE, 1, 22, chassis=ModuleIdentity.TRACKS, order=Advance(1)),
+        # x=5 for the same reason as the direct-control lane below: at x=1
+        # this robot's body covered column 2, the captor's column, so it shot
+        # p2's captor dead mid-capture.
+        _robot(ROBOT_BLOCKED, PLAYER_ONE, 5, 22, chassis=ModuleIdentity.TRACKS, order=Advance(1)),
         # Search & Destroy / engagement-intent lane.
         _robot(
             ROBOT_DEFENDER,
@@ -212,7 +217,14 @@ def _initial_robots() -> tuple[Robot, ...]:
             order=SearchDestroy(target=SearchDestroyTarget.ROBOT),
         ),
         # Direct-control lane.
-        _robot(ROBOT_DIRECT, PLAYER_ONE, 2, 28, chassis=ModuleIdentity.TRACKS),
+        # x=8, not x=2: since combat became directional (owner decision,
+        # 2026-09-23) a robot only shoots along the column or row it faces,
+        # and at x=2 this lane shared a column with p2's war-base captor at
+        # (2, 31). Two p1 robots then shot the captor dead long before its
+        # 1,440-tick capture finished, which is correct behaviour but turns
+        # this composition test's capture lane into a firefight. Each lane
+        # gets its own column instead.
+        _robot(ROBOT_DIRECT, PLAYER_ONE, 8, 28, chassis=ModuleIdentity.TRACKS),
         # Capture lane.
         _robot(
             ROBOT_FACTORY_CAPTOR,
@@ -237,13 +249,13 @@ def _commanders() -> tuple[Commander, ...]:
         Commander(
             player_id=PLAYER_ONE,
             mode=CommanderMode.DOCKED,
-            x=2,
+            x=8,
             y=28,
             altitude=0,
             docked_robot_id=ROBOT_DIRECT,
         ),
-        # Its body (3..4, 22..23) overlaps the lane robot's next body.
-        Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=3, y=23, altitude=0),
+        # Its body (7..8, 23..24) overlaps the lane robot's next body (6..7, 22..23).
+        Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=7, y=23, altitude=0),
     )
 
 
@@ -445,7 +457,7 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     before_unblock = states[TICK_UNBLOCK - 1]
     still_blocked = before_unblock.robot_for(ROBOT_BLOCKED)
     assert still_blocked is not None
-    assert (still_blocked.x, still_blocked.y) == (1, 22)  # never advanced past the commander
+    assert (still_blocked.x, still_blocked.y) == (5, 22)  # never advanced past the commander
     # Checked when the Advance completes: with the Spectrum piece heights
     # (CR003.3) every robot is tall enough to be hit, so later in the run
     # the enemy war-base captor's cannon destroys this robot.
@@ -456,7 +468,7 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert unblocked_tick is not None and unblocked_tick > TICK_UNBLOCK
     after_unblock = states[unblocked_tick].robot_for(ROBOT_BLOCKED)
     assert after_unblock is not None
-    assert (after_unblock.x, after_unblock.y) == (1 + miles_to_cells(1), 22)
+    assert (after_unblock.x, after_unblock.y) == (5 + miles_to_cells(1), 22)
 
     # ---------------------------------------------------------------
     # 4. Same-tick destination contention: exactly one contest, one winner.
@@ -555,13 +567,13 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     # ---------------------------------------------------------------
     direct_moves = move_started_by_robot[ROBOT_DIRECT]
     assert len(direct_moves) == 1
-    assert direct_moves[0].to_x == 3 and direct_moves[0].to_y == 28
+    assert direct_moves[0].to_x == 9 and direct_moves[0].to_y == 28
     # Checked when the move completes (the war-base captor's cannon later
     # destroys this robot, CR003.3 heights).
     direct_done_tick = direct_moves[0].started_tick + direct_moves[0].duration_ticks
     direct_robot = states[direct_done_tick].robot_for(ROBOT_DIRECT)
     assert direct_robot is not None
-    assert (direct_robot.x, direct_robot.y) == (3, 28)
+    assert (direct_robot.x, direct_robot.y) == (9, 28)
 
     # ---------------------------------------------------------------
     # 9. Search & Destroy target selection + engagement intent (M6

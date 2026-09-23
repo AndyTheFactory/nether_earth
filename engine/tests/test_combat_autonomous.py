@@ -14,6 +14,7 @@ from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import WorldMap
+from nether_earth.movement import advance_all_robot_transitions
 from nether_earth.orders import (
     EngagementIntent,
     EngagementTargetKind,
@@ -21,7 +22,7 @@ from nether_earth.orders import (
     OrderStatus,
     StopAndDefend,
 )
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -62,6 +63,7 @@ def _robot(
     weapons: tuple[ModuleIdentity, ...] = (ModuleIdentity.CANNON,),
     electronics: ModuleIdentity | None = None,
     active_projectile_id: EntityId | None = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=ModuleIdentity.BIPOD, weapons=weapons, electronics=electronics)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -74,6 +76,7 @@ def _robot(
         stack=stack,
         height=height,
         active_projectile_id=active_projectile_id,
+        facing=facing,
     )
 
 
@@ -163,7 +166,10 @@ def test_stop_and_defend_style_intent_fires_when_in_range_with_free_channel() ->
 
 
 def test_search_and_destroy_style_intent_against_robot_fires() -> None:
-    robot = _robot(x=0, y=0, weapons=(ModuleIdentity.MISSILE,))
+    # Target is due south, so the firer must already face that way -- a robot
+    # aimed elsewhere spends the update turning instead (owner decision,
+    # 2026-09-23); that path is covered by the turn-to-face tests below.
+    robot = _robot(x=0, y=0, weapons=(ModuleIdentity.MISSILE,), facing=RobotFacing.SOUTH)
     target = _robot(entity_id="target-1", owner=PLAYER_TWO, x=0, y=10)
     state = _state((robot, target))
     world = _world()
@@ -477,8 +483,6 @@ def test_autonomous_and_direct_fire_share_the_identical_code_path() -> None:
         robot_id=direct_robot.entity_id,
         player=direct_robot.owner,
         weapon=ModuleIdentity.CANNON,
-        target_x=5,
-        target_y=0,
     )
     direct_new_state, direct_result, direct_events = apply_fire(
         direct_request, direct_state, world, tick=4
@@ -584,3 +588,57 @@ def test_consume_engagement_intents_is_deterministic_across_repeated_calls() -> 
 
     assert state_a == state_b
     assert log_a == log_b
+
+
+# --- Turn to face before firing (owner decision, 2026-09-23) -------------------
+# A bullet travels in the robot's own facing (`Lb6d6_weapon_fire`), so an
+# autonomous robot aimed the wrong way rotates first and shoots once it lands.
+
+
+def test_an_autonomous_robot_turns_toward_its_target_instead_of_firing() -> None:
+    robot = _robot(x=0, y=0, weapons=(ModuleIdentity.MISSILE,), facing=RobotFacing.EAST)
+    target = _robot(entity_id="target-1", owner=PLAYER_TWO, x=0, y=10)
+    state = _state((robot, target))
+    intent = _intent(
+        robot,
+        target_id=target.entity_id,
+        target_x=0,
+        target_y=10,
+        weapons=(ModuleIdentity.MISSILE,),
+    )
+
+    new_state, events = consume_engagement_intent(intent, state, _world(), tick=4)
+
+    assert not [e for e in events if isinstance(e, ProjectileFiredEvent)]
+    turning = new_state.robot_for(robot.entity_id)
+    assert turning is not None and turning.turning is not None
+    assert turning.turning.to_facing is RobotFacing.SOUTH
+    assert turning.facing is RobotFacing.EAST  # not until the turn resolves
+
+
+def test_the_shot_goes_out_once_the_turn_resolves() -> None:
+    robot = _robot(x=0, y=0, weapons=(ModuleIdentity.MISSILE,), facing=RobotFacing.EAST)
+    target = _robot(entity_id="target-1", owner=PLAYER_TWO, x=0, y=10)
+    state = _state((robot, target))
+    intent = _intent(
+        robot,
+        target_id=target.entity_id,
+        target_x=0,
+        target_y=10,
+        weapons=(ModuleIdentity.MISSILE,),
+    )
+
+    state, _events = consume_engagement_intent(intent, state, _world(), tick=4)
+    state, _turn_events = advance_all_robot_transitions(state, 4 + DEFAULT_RULES.robot_turn_ticks)
+    assert state.robot_for(robot.entity_id).facing is RobotFacing.SOUTH  # type: ignore[union-attr]
+
+    # Its next update now finds it facing the target and fires.
+    fire_tick = 4 + DEFAULT_RULES.robot_turn_ticks
+    while True:
+        _state_after, events = consume_engagement_intent(intent, state, _world(), tick=fire_tick)
+        fired = [e for e in events if isinstance(e, ProjectileFiredEvent)]
+        if fired:
+            assert fired[0].weapon is ModuleIdentity.MISSILE
+            break
+        fire_tick += 1
+        assert fire_tick < 4 + DEFAULT_RULES.robot_turn_ticks + 64, "never fired after turning"

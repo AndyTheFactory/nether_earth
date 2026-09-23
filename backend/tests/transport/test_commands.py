@@ -184,35 +184,29 @@ def test_set_robot_order_advance_always_binds_unbound_target_x() -> None:
 
 def test_robot_fire_normal_weapon_payload_maps() -> None:
     payload = RobotFireCommandPayload(
-        kind="robot_fire", entity_id="robot-1", weapon="cannon", target_x=5, target_y=7
-    )
+        kind="robot_fire", entity_id="robot-1", weapon="cannon")
     command = payload_to_command(payload, _PLAYER, _SEQ)
     assert command == FireCommand(
         player=_PLAYER,
         sequence=_SEQ,
         entity_id=EntityId("robot-1"),
         weapon=ModuleIdentity.CANNON,
-        target_x=5,
-        target_y=7,
     )
 
 
 def test_robot_fire_nuclear_weapon_payload_maps() -> None:
-    """Nuclear reuses the same `robot_fire` payload shape; `targetX`/`targetY`
-    are structurally present but ignored by the engine (a nuclear
-    detonation always centers on the carrier robot's own position -- see
-    `combat.FireCommand`'s own docstring), so the adapter passes them
-    through unchanged rather than special-casing nuclear itself (that
-    decision belongs to the engine, not the transport adapter)."""
+    """Nuclear reuses the same `robot_fire` payload shape.
+
+    The payload carries no target at all since the owner decision of
+    2026-09-23 (a shot travels in the robot's own facing, and a nuclear
+    detonation always centred on the carrier's own position never needed
+    one), so the adapter has nothing to special-case for nuclear."""
     payload = RobotFireCommandPayload(
-        kind="robot_fire", entity_id="robot-1", weapon="nuclear", target_x=0, target_y=0
-    )
+        kind="robot_fire", entity_id="robot-1", weapon="nuclear")
     command = payload_to_command(payload, _PLAYER, _SEQ)
     assert command == FireCommand(
         player=_PLAYER,
         sequence=_SEQ,
         entity_id=EntityId("robot-1"),
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=0,
-        target_y=0,
     )

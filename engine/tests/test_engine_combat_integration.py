@@ -37,7 +37,7 @@ from nether_earth.movement import robot_move_duration_ticks
 from nether_earth.orders import SearchDestroy, SearchDestroyTarget
 from nether_earth.replay import ReplayFixture, run_fixture
 from nether_earth.resource_production import DailyProductionApplied
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -165,6 +165,7 @@ def _robot(
     *,
     order: object | None = None,
     strength: int = 100,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=weapons)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -178,6 +179,7 @@ def _robot(
         height=height,
         order=order,  # type: ignore[arg-type]
         strength=strength,
+        facing=facing,
     )
 
 
@@ -216,8 +218,6 @@ def test_fire_command_creates_an_in_flight_projectile_through_engine_step() -> N
         sequence=0,
         entity_id=shooter.entity_id,
         weapon=ModuleIdentity.CANNON,
-        target_x=QUIET_X + 10,
-        target_y=QUIET_Y,
     )
     state, events = step(state, [command], world=world)
 
@@ -243,8 +243,6 @@ def test_fire_command_from_a_player_who_does_not_own_the_robot_is_a_no_op() -> N
         sequence=0,
         entity_id=shooter.entity_id,
         weapon=ModuleIdentity.CANNON,
-        target_x=QUIET_X + 10,
-        target_y=QUIET_Y,
     )
     state, events = step(state, [command], world=world)
 
@@ -266,8 +264,6 @@ def test_projectile_advances_over_ticks_and_damages_the_robot_it_hits() -> None:
         sequence=0,
         entity_id=shooter.entity_id,
         weapon=ModuleIdentity.CANNON,
-        target_x=QUIET_X + 10,
-        target_y=QUIET_Y,
     )
     state, _events = step(state, [command], world=world)
 
@@ -306,8 +302,6 @@ def test_a_lethal_hit_destroys_the_target_robot_through_engine_step() -> None:
         sequence=0,
         entity_id=shooter.entity_id,
         weapon=ModuleIdentity.CANNON,
-        target_x=QUIET_X + 10,
-        target_y=QUIET_Y,
     )
     # Adjacent target: hit by the first move, on the fire tick (CR002.2 #169).
     state, events = step(state, [command], world=world)
@@ -337,8 +331,6 @@ def test_nuclear_fire_command_detonates_within_the_single_step_that_processed_it
         sequence=0,
         entity_id=carrier.entity_id,
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=NUKE_X + 2,
-        target_y=NUKE_Y,
     )
     state, events = step(state, [command], world=world)
 
@@ -368,8 +360,6 @@ def test_nuclear_destruction_of_the_last_war_base_produces_victory_in_the_same_t
         sequence=0,
         entity_id=carrier.entity_id,
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=SIZE - 1,
-        target_y=SIZE - 1,
     )
     state, events = step(state, [command], world=world)
 
@@ -425,16 +415,12 @@ def test_two_nuclear_fire_commands_in_one_tick_emit_exactly_one_victory_event() 
             sequence=0,
             entity_id=first.entity_id,
             weapon=ModuleIdentity.NUCLEAR,
-            target_x=SIZE - 1,
-            target_y=SIZE - 1,
         ),
         FireCommand(
             player=PLAYER_ONE,
             sequence=1,
             entity_id=second.entity_id,
             weapon=ModuleIdentity.NUCLEAR,
-            target_x=20,
-            target_y=0,
         ),
     ]
     state, events = step(state, commands, world=world)
@@ -492,8 +478,6 @@ def test_victory_is_announced_once_when_a_nuke_and_a_capture_land_in_one_tick() 
         sequence=0,
         entity_id=carrier.entity_id,
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=SIZE - 1,
-        target_y=SIZE - 1,
     )
     state, events = step(state, [command], world=world)
 
@@ -528,8 +512,6 @@ def test_a_destroyed_factory_stops_being_capturable_on_the_following_tick() -> N
         sequence=0,
         entity_id=carrier.entity_id,
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=NUKE_X,
-        target_y=NUKE_Y + 1,
     )
     state, _events = step(state, [command], world=world)
 
@@ -593,8 +575,6 @@ def test_a_destroyed_factory_stops_producing_resources() -> None:
         sequence=0,
         entity_id=carrier.entity_id,
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=FACTORY_CELL[0],
-        target_y=FACTORY_CELL[1],
     )
     state, _events = step(state, [command], world=world)
     assert FACTORY_ONE in state.structure_destruction
@@ -679,8 +659,6 @@ def _combat_fixture() -> ReplayFixture:
                     sequence=0,
                     entity_id=shooter.entity_id,
                     weapon=ModuleIdentity.CANNON,
-                    target_x=QUIET_X + 10,
-                    target_y=QUIET_Y,
                 ),
             ),
             3 * ADVANCE: (
@@ -689,8 +667,6 @@ def _combat_fixture() -> ReplayFixture:
                     sequence=0,
                     entity_id=carrier.entity_id,
                     weapon=ModuleIdentity.NUCLEAR,
-                    target_x=SIZE - 1,
-                    target_y=SIZE - 1,
                 ),
             ),
         },
@@ -727,8 +703,6 @@ def test_combat_state_round_trips_into_the_snapshot() -> None:
         sequence=0,
         entity_id=shooter.entity_id,
         weapon=ModuleIdentity.CANNON,
-        target_x=QUIET_X + 10,
-        target_y=QUIET_Y,
     )
     state, _events = step(state, [command], world=world)
 
@@ -783,8 +757,6 @@ def test_direct_fire_every_tick_at_an_adjacent_target_fires_once_per_game_cycle(
             sequence=0,
             entity_id=shooter.entity_id,
             weapon=ModuleIdentity.CANNON,
-            target_x=QUIET_X + 2,
-            target_y=QUIET_Y,
         )
         state, events = step(state, [command], world=world)
         fire_ticks += [e.tick for e in _of(events, ProjectileFiredEvent)]  # type: ignore[attr-defined]

@@ -49,7 +49,7 @@ from nether_earth.orders import (
 )
 from nether_earth.replay import ReplayFixture, run_fixture
 from nether_earth.reservations import DestinationContentionResolvedEvent, reservations_from_state
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -157,11 +157,24 @@ def _scenario_and_map() -> tuple[Scenario, BootstrapMap]:
     return scenario, BootstrapMap(map_id=MAP_ID, version=1, width=MAP_SIZE, height=MAP_SIZE)
 
 
-def _robot(entity_id: EntityId, owner: PlayerId, x: int, y: int) -> Robot:
+def _robot(
+    entity_id: EntityId,
+    owner: PlayerId,
+    x: int,
+    y: int,
+    facing: RobotFacing = RobotFacing.EAST,
+) -> Robot:
     build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.CANNON,))
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
     return Robot(
-        entity_id=entity_id, owner=owner, x=x, y=y, build=build, stack=stack, height=height
+        entity_id=entity_id,
+        owner=owner,
+        x=x,
+        y=y,
+        build=build,
+        stack=stack,
+        height=height,
+        facing=facing,
     )
 
 
@@ -211,8 +224,12 @@ def _contention_robots() -> tuple[Robot, ...]:
     west = FACTORY_CAPTURE_CELLS[0][0] - 1, FACTORY_CAPTURE_CELLS[0][1]
     east = FACTORY_CAPTURE_CELLS[1][0] + 1, FACTORY_CAPTURE_CELLS[1][1]
     return (
-        _robot(ROBOT_WEST, PLAYER_ONE, *west),
-        _robot(ROBOT_EAST, PLAYER_TWO, *east),
+        # Each faces the way it will step onto the shared capture cell: a
+        # robot turned the wrong way spends the tick rotating instead of
+        # claiming a destination, which would make the contention fixture
+        # vacuous (owner decision, 2026-09-23).
+        _robot(ROBOT_WEST, PLAYER_ONE, *west, facing=RobotFacing.EAST),
+        _robot(ROBOT_EAST, PLAYER_TWO, *east, facing=RobotFacing.WEST),
     )
 
 

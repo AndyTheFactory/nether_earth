@@ -88,7 +88,7 @@ from nether_earth.map import BootstrapMap, load_world_map
 from nether_earth.movement import folded_robot_occupancy
 from nether_earth.orders import SearchDestroy, SearchDestroyTarget
 from nether_earth.replay import ReplayFixture, run_fixture
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -277,6 +277,7 @@ def _robot(
     electronics: ModuleIdentity | None = None,
     order: object | None = None,
     strength: int = 100,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=weapons, electronics=electronics)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -290,6 +291,7 @@ def _robot(
         height=height,
         order=order,  # type: ignore[arg-type]
         strength=strength,
+        facing=facing,
     )
 
 
@@ -395,8 +397,6 @@ def _commands_by_tick() -> dict[int, tuple[Command, ...]]:
                 sequence=seq,
                 entity_id=entity_id,
                 weapon=weapon,
-                target_x=target_x,
-                target_y=target_y,
             ),
         )
         seq += 1
@@ -442,8 +442,6 @@ def _commands_by_tick() -> dict[int, tuple[Command, ...]]:
             sequence=0,
             entity_id=ROBOT_B_SHOOTER,
             weapon=ModuleIdentity.CANNON,
-            target_x=east_of(10),
-            target_y=B_Y,
         ),
     )
 

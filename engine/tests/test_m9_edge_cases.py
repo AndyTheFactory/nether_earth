@@ -34,7 +34,7 @@ from nether_earth.map import WorldMap, load_world_map
 from nether_earth.map_overlay import apply_overlay, default_pvp_overlay
 from nether_earth.movement import RobotMoveStartedEvent
 from nether_earth.occupancy import unit_footprint_cells
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -68,6 +68,7 @@ def _robot(
     weapons: tuple[ModuleIdentity, ...] = (ModuleIdentity.CANNON,),
     electronics: ModuleIdentity | None = None,
     order: object | None = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=chassis, weapons=weapons, electronics=electronics)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -79,7 +80,8 @@ def _robot(
         build=build,
         stack=stack,
         height=height,
-        order=order,  # type: ignore[arg-type]
+        order=order,  # type: ignore[arg-type],
+        facing=facing,
     )
 
 
@@ -229,8 +231,11 @@ CONTENTION_DESTINATIONS = {"left": (200, 15), "right": (201, 15)}
 
 def _contention_state(world: WorldMap, seed: int) -> GameState:
     state = _initial(world, seed=seed)
-    left = _robot("left", PLAYER_ONE, 199, 15)
-    right = _robot("right", PLAYER_TWO, 202, 15)
+    # Each already faces the way it is driven: a robot turned the wrong way
+    # spends the tick rotating (owner decision, 2026-09-23) and never claims a
+    # destination, which would make this contention fixture vacuous.
+    left = _robot("left", PLAYER_ONE, 199, 15, facing=RobotFacing.EAST)
+    right = _robot("right", PLAYER_TWO, 202, 15, facing=RobotFacing.WEST)
     state = state.with_robots((left, right))
     state = _docked(state, PLAYER_ONE, left)
     state = _docked(state, PLAYER_TWO, right)
@@ -279,7 +284,9 @@ def test_contention_outcome_varies_with_seed(world: WorldMap) -> None:
 def test_leaving_the_capture_cell_resets_progress_to_zero(world: WorldMap) -> None:
     cell = _cell(world, "warbase-2", InteractionKind.WARBASE_CAPTURE)
     state = _initial(world)
-    robot = _robot("capturer", PLAYER_ONE, *cell)
+    # Faces south because that is the way it is driven off the footprint
+    # below: a robot facing elsewhere spends that tick turning instead.
+    robot = _robot("capturer", PLAYER_ONE, *cell, facing=RobotFacing.SOUTH)
     state = state.with_robots((robot,))
     state = _docked(state, PLAYER_ONE, robot)
     state, _ = _step(state, world, ticks=CAPTURE_TICKS // 2)
@@ -294,9 +301,25 @@ def test_leaving_the_capture_cell_resets_progress_to_zero(world: WorldMap) -> No
     assert state.capture_progress_for(EntityId("warbase-2")) is None
     assert state.structure_ownership_for(EntityId("warbase-2")) is None
 
-    # Return: progress restarts from zero -- full duration again.
-    state, _ = _step(state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=1, dx=0, dy=-1),))
-    state, _ = _step(state, world, ticks=DEFAULT_RULES.robot_move_ticks_tracks_normal)
+    # Return: progress restarts from zero -- full duration again. Going back
+    # north is a 180-degree reversal, which `Lb471` takes two rotations to
+    # make (owner decision, 2026-09-23), and a direct-control command is
+    # one-shot -- so the drive is re-issued until the robot actually steps.
+    sequence = 1
+    for _attempt in range(8):
+        state, _ = _step(
+            state, world, (DirectRobotMoveCommand(player=PLAYER_ONE, sequence=sequence, dx=0, dy=-1),)
+        )
+        sequence += 1
+        state, _ = _step(
+            state,
+            world,
+            ticks=max(DEFAULT_RULES.robot_move_ticks_tracks_normal, DEFAULT_RULES.robot_turn_ticks),
+        )
+        moved = state.robot_for(EntityId("capturer"))
+        assert moved is not None
+        if (moved.x, moved.y) == cell:
+            break
     assert (state.robot_for(EntityId("capturer")).x, state.robot_for(EntityId("capturer")).y) == cell  # type: ignore[union-attr]
     state, events = _step(state, world, ticks=CAPTURE_TICKS // 2)
     assert not _events(events, StructureCapturedEvent)
@@ -329,12 +352,14 @@ def test_shortest_robot_is_hit_before_a_tall_robot_behind_it(world: WorldMap) ->
     # CR003.3: with the Spectrum piece heights the shortest robot (tracks +
     # cannon = 13) is taller than the bullet altitude (10), so on flat ground
     # the first robot on the line takes the hit and shields the one behind.
-    shooter = _tall("shooter", PLAYER_TWO, 320, 15)
+    # Shots travel in the firer's facing (owner decision, 2026-09-23), and
+    # both targets lie west of it.
+    shooter = _tall("shooter", PLAYER_TWO, 320, 15, facing=RobotFacing.WEST)
     short = _robot("short", PLAYER_ONE, 314, 15)
     tall = _tall("tall", PLAYER_ONE, 310, 15)
     state = _initial(world).with_robots((shooter, short, tall))
     assert PROJECTILE_ALTITUDE <= short.height == 13 < tall.height
-    fire = FireCommand(player=PLAYER_TWO, sequence=0, entity_id=EntityId("shooter"), weapon=ModuleIdentity.CANNON, target_x=300, target_y=15)
+    fire = FireCommand(player=PLAYER_TWO, sequence=0, entity_id=EntityId("shooter"), weapon=ModuleIdentity.CANNON)
     state, events = _step(state, world, (fire,), ticks=60)
     damaged = _events(events, RobotDamagedEvent)
     assert [d.entity_id.value for d in damaged] == ["short"]
@@ -347,9 +372,9 @@ def test_shortest_robot_is_hit_before_a_tall_robot_behind_it(world: WorldMap) ->
 def test_projectile_stops_at_a_structure_wall_and_never_destroys_it(world: WorldMap) -> None:
     # warbase-2's capture cell (261, 8) sits directly under the base; the wall at (261, 7) is 15 high.
     cell = _cell(world, "warbase-2", InteractionKind.WARBASE_CAPTURE)
-    shooter = _tall("shooter", PLAYER_ONE, cell[0], cell[1] + 4)
+    shooter = _tall("shooter", PLAYER_ONE, cell[0], cell[1] + 4, facing=RobotFacing.NORTH)
     state = _initial(world).with_robots((shooter,))
-    fire = FireCommand(player=PLAYER_ONE, sequence=0, entity_id=EntityId("shooter"), weapon=ModuleIdentity.MISSILE, target_x=cell[0], target_y=0)
+    fire = FireCommand(player=PLAYER_ONE, sequence=0, entity_id=EntityId("shooter"), weapon=ModuleIdentity.MISSILE)
     state, events = _step(state, world, (fire,), ticks=80)
     terminated = _events(events, ProjectileTerminatedEvent)
     assert len(terminated) == 1
@@ -395,7 +420,7 @@ def test_detonation_destroys_carrier_neighbours_and_structures_but_never_command
     state, _ = _step(state, world, ticks=10)
     assert state.capture_progress_for(EntityId("warbase-2")) is not None
 
-    fire = FireCommand(player=PLAYER_ONE, sequence=0, entity_id=EntityId("carrier"), weapon=ModuleIdentity.NUCLEAR, target_x=cell[0], target_y=cell[1])
+    fire = FireCommand(player=PLAYER_ONE, sequence=0, entity_id=EntityId("carrier"), weapon=ModuleIdentity.NUCLEAR)
     state, events = _step(state, world, (fire,))
 
     destroyed = {e.entity_id.value for e in _events(events, RobotDestroyedEvent)}

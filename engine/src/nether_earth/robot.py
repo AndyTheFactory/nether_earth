@@ -139,7 +139,7 @@ from nether_earth.robot_build import ModuleIdentity, RobotBuild
 if TYPE_CHECKING:
     from nether_earth.orders import Order
 
-__all__ = ["Robot", "RobotFacing", "RobotMoveTransition"]
+__all__ = ["Robot", "RobotFacing", "RobotMoveTransition", "RobotTurnTransition"]
 
 
 class RobotFacing(str, Enum):
@@ -173,6 +173,39 @@ class RobotFacing(str, Enum):
     SOUTH = "south"
     NORTH = "north"
 
+    @property
+    def step(self) -> tuple[int, int]:
+        """Return this facing's ``(dx, dy)`` unit step."""
+        return _FACING_STEPS[self]
+
+    def rotate_toward(self, desired: RobotFacing) -> RobotFacing:
+        """Return the facing one 90-degree rotation from this one toward ``desired``.
+
+        Exactly ``Lb471_move_robot_one_step_in_desired_direction``'s rotation
+        (owner request, 2026-09-23). The Spectrum stores direction one-hot as
+        east 1, west 2, south 4, north 8 (``Lb724_bullet_update_internal``'s
+        ``rrca`` chain: right, left, down, up), and turns like this:
+
+        - already facing ``desired``: no rotation, the robot moves instead;
+        - perpendicular: ``c = desired``, a single 90-degree turn straight
+          onto it (``Lb471``'s fall-through to
+          ``Lb48e_new_direction_calculated``);
+        - opposite: ``desired | current`` is ``0x03`` (east/west) or ``0x0c``
+          (south/north), and the code rotates the *desired* bit two positions
+          (``rlc c`` twice, or ``rrc c`` twice) to land on a perpendicular
+          direction first. A 180-degree turn therefore costs two rotations,
+          not one.
+
+        The two-position bit rotation is reproduced here as the explicit
+        table it resolves to rather than as bit arithmetic on a one-hot
+        value this engine does not otherwise carry.
+        """
+        if self is desired:
+            return self
+        if _FACING_BITS[self] | _FACING_BITS[desired] in (0x03, 0x0C):
+            return _OPPOSITE_TURN_VIA[desired]
+        return desired
+
     @classmethod
     def from_step(cls, dx: int, dy: int) -> RobotFacing | None:
         """Return the facing a one-cell step ``(dx, dy)`` turns a robot to.
@@ -187,6 +220,36 @@ class RobotFacing(str, Enum):
         if dy and not dx:
             return cls.SOUTH if dy > 0 else cls.NORTH
         return None
+
+
+
+#: The Spectrum's one-hot ``ROBOT_STRUCT_DIRECTION`` values, needed only to
+#: reproduce ``Lb471``'s opposite/perpendicular test exactly.
+_FACING_BITS: dict[RobotFacing, int] = {
+    RobotFacing.EAST: 0x01,
+    RobotFacing.WEST: 0x02,
+    RobotFacing.SOUTH: 0x04,
+    RobotFacing.NORTH: 0x08,
+}
+
+_FACING_STEPS: dict[RobotFacing, tuple[int, int]] = {
+    RobotFacing.EAST: (1, 0),
+    RobotFacing.WEST: (-1, 0),
+    RobotFacing.SOUTH: (0, 1),
+    RobotFacing.NORTH: (0, -1),
+}
+
+#: Where a 180-degree turn goes first, keyed by the *desired* facing. This is
+#: ``Lb471``'s ``rlc c``/``rrc c`` pair applied to the desired direction's
+#: bit: east (0x01) rotates up two places to south (0x04), west (0x02) to
+#: north (0x08), south (0x04) rotates down two places to east (0x01), and
+#: north (0x08) to west (0x02).
+_OPPOSITE_TURN_VIA: dict[RobotFacing, RobotFacing] = {
+    RobotFacing.EAST: RobotFacing.SOUTH,
+    RobotFacing.WEST: RobotFacing.NORTH,
+    RobotFacing.SOUTH: RobotFacing.EAST,
+    RobotFacing.NORTH: RobotFacing.WEST,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +296,50 @@ class RobotMoveTransition:
         return tick >= self.completes_at()
 
 
+
+@dataclass(frozen=True, slots=True)
+class RobotTurnTransition:
+    """An in-progress 90-degree turn (owner request, 2026-09-23).
+
+    A robot that wants to step in a direction it is not facing spends an
+    update rotating instead of moving (``Lb471``: the rotate branch sets the
+    new direction and returns, and even puts the walk-out step counter back
+    because "this was not a move"). This engine spells that cost as a
+    transition, mirroring :class:`RobotMoveTransition`, so it is visible in
+    snapshots and blocks the robot the same way an in-flight move does.
+
+    ``to_facing`` is the facing the robot lands on when the turn resolves --
+    one 90-degree rotation toward what it wanted, not necessarily the
+    direction it ultimately wants (see
+    :meth:`RobotFacing.rotate_toward`; a 180-degree turn takes two of
+    these). The robot's authoritative ``facing`` stays at ``from_facing``
+    until the turn completes, so a half-finished turn never fires or moves
+    in the new direction.
+    """
+
+    entity_id: EntityId
+    from_facing: RobotFacing
+    to_facing: RobotFacing
+    started_tick: int
+    duration_ticks: int
+
+    def __post_init__(self) -> None:
+        if self.started_tick < 0:
+            raise ValueError("started_tick must be non-negative")
+        if self.duration_ticks <= 0:
+            raise ValueError("duration_ticks must be a positive integer")
+        if self.from_facing is self.to_facing:
+            raise ValueError("a turn must change the robot's facing")
+
+    def completes_at(self) -> int:
+        """Return the tick at which this turn becomes authoritative-complete."""
+        return self.started_tick + self.duration_ticks
+
+    def is_complete(self, tick: int) -> bool:
+        """Return whether this turn has resolved as of ``tick``."""
+        return tick >= self.completes_at()
+
+
 @dataclass(frozen=True, slots=True)
 class Robot:
     """An authoritative, launched robot entity.
@@ -266,6 +373,10 @@ class Robot:
     #: base's doorway (`La6c8` sets ``ROBOT_STRUCT_DIRECTION`` 4, "down",
     #: before the walk-out; see `robot_launch.py`).
     facing: RobotFacing = RobotFacing.SOUTH
+    #: An in-progress turn, or ``None``. A robot that is turning is busy:
+    #: it neither moves nor fires until the turn resolves (owner request,
+    #: 2026-09-23). See :class:`RobotTurnTransition`.
+    turning: RobotTurnTransition | None = None
 
     def __post_init__(self) -> None:
         if self.height <= 0:
@@ -274,14 +385,48 @@ class Robot:
             raise ValueError("exit_steps_remaining must be non-negative")
         if not self.stack:
             raise ValueError("stack must not be empty")
+        if self.turning is not None and self.turning.entity_id != self.entity_id:
+            raise ValueError(
+                "a robot's turn transition must name that robot's own entity_id"
+            )
+        if self.turning is not None and self.turning.from_facing is not self.facing:
+            raise ValueError(
+                "a robot's turn transition must start from its current facing"
+            )
         if self.movement is not None and self.movement.entity_id != self.entity_id:
             raise ValueError(
                 f"movement transition entity_id {self.movement.entity_id.value!r} does not "
                 f"match robot entity_id {self.entity_id.value!r}"
             )
 
+    def with_turning(self, turning: RobotTurnTransition | None) -> Robot:
+        """Return a copy of this robot with ``turning`` replaced.
+
+        Passing ``None`` clears an in-progress turn without applying it;
+        :meth:`with_facing` is what resolves one (it sets the new facing and
+        clears the transition in the same step). Every other field is
+        carried over unchanged -- see :meth:`with_movement`.
+        """
+        return Robot(
+            entity_id=self.entity_id,
+            owner=self.owner,
+            x=self.x,
+            y=self.y,
+            build=self.build,
+            stack=self.stack,
+            height=self.height,
+            movement=self.movement,
+            order=self.order,
+            active_projectile_id=self.active_projectile_id,
+            strength=self.strength,
+            last_fire_tick=self.last_fire_tick,
+            exit_steps_remaining=self.exit_steps_remaining,
+            facing=self.facing,
+            turning=turning,
+        )
+
     def with_facing(self, facing: RobotFacing) -> Robot:
-        """Return a copy of this robot facing ``facing``.
+        """Return a copy of this robot facing ``facing``, with any turn resolved.
 
         Every other field is carried over unchanged, like every other
         ``with_*`` method here (see :meth:`with_movement` for why this
@@ -302,6 +447,7 @@ class Robot:
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
             facing=facing,
+            turning=None,
         )
 
     def with_movement(self, movement: RobotMoveTransition | None) -> Robot:
@@ -337,6 +483,7 @@ class Robot:
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
+            turning=self.turning,
         )
 
     def with_position(self, x: int, y: int) -> Robot:
@@ -367,6 +514,7 @@ class Robot:
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
+            turning=self.turning,
         )
 
     def with_order(self, order: Order | None) -> Robot:
@@ -394,6 +542,7 @@ class Robot:
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
+            turning=self.turning,
         )
 
     def with_active_projectile(self, active_projectile_id: EntityId | None) -> Robot:
@@ -419,6 +568,7 @@ class Robot:
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
+            turning=self.turning,
         )
 
     def with_strength(self, strength: int) -> Robot:
@@ -450,4 +600,5 @@ class Robot:
             last_fire_tick=self.last_fire_tick,
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
+            turning=self.turning,
         )

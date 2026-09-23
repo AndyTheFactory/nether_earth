@@ -801,8 +801,6 @@ def step(
                 robot_id=command.entity_id,
                 player=command.player,
                 weapon=command.weapon,
-                target_x=command.target_x,
-                target_y=command.target_y,
             )
             if command.weapon is ModuleIdentity.NUCLEAR:
                 # Nuclear creates no projectile: it clears `validate_fire`'s

@@ -52,7 +52,6 @@ async function main(): Promise<void> {
 
   const keyboard = new KeyboardIntent(controller);
   bindKeyboard(window, keyboard);
-  app.canvas.addEventListener('click', (ev) => controller.aimAtCell(renderer.screenToCell(ev.offsetX, ev.offsetY)));
 
   const params = new URLSearchParams(location.search);
   store.setUi({ labels: loadLabels(location.search) });
@@ -80,7 +79,7 @@ async function main(): Promise<void> {
     renderHud(hud, s, map);
     radar.update(s.ui.screen === 'match', s.latest, s.connection.session?.playerId ?? null, now);
     ui.classList.toggle('menu-open', menuColumnShown(s));
-    renderMenus(menus, s, controller.aim, controller.weaponIndex);
+    renderMenus(menus, s, controller.weaponIndex);
     const cs = s.ui.screen === 'match' && s.latest ? myConstruction(s.latest, s.connection.session?.playerId ?? '') : null;
     construction.update(cs, controller.buildCursor, window.innerWidth, window.innerHeight);
     renderOverlay(overlay, s, Date.now());

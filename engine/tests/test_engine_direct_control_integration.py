@@ -22,7 +22,7 @@ from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.movement import RobotMoveCompletedEvent, RobotMoveStartedEvent
 from nether_earth.reservations import DestinationContentionResolvedEvent
-from nether_earth.robot import Robot, RobotMoveTransition
+from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -78,6 +78,7 @@ def _robot(
     y: int = 5,
     chassis: ModuleIdentity = ModuleIdentity.BIPOD,
     movement: RobotMoveTransition | None = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=chassis, weapons=(ModuleIdentity.CANNON,))
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -90,6 +91,7 @@ def _robot(
         stack=stack,
         height=height,
         movement=movement,
+        facing=facing,
     )
 
 

@@ -16,6 +16,8 @@ from nether_earth.movement import (
     RobotMoveRequest,
     RobotMoveResult,
     RobotMoveStartedEvent,
+    RobotTurnCompletedEvent,
+    RobotTurnStartedEvent,
     advance_all_robot_transitions,
     advance_robot_transition,
     apply_robot_move,
@@ -62,6 +64,11 @@ def _world(
     )
 
 
+# Robots here default to facing EAST, the direction `_east()` requests, so a
+# test about movement exercises the move rather than the turn that would
+# otherwise come first (owner decision, 2026-09-23: a step in a direction the
+# robot is not facing spends the update rotating). Turning itself is covered
+# by the facing tests at the end of this file.
 def _robot(
     entity_id: str = "robot-player-one-1",
     owner: PlayerId = PLAYER_ONE,
@@ -70,6 +77,7 @@ def _robot(
     chassis: ModuleIdentity = ModuleIdentity.BIPOD,
     electronics: ModuleIdentity | None = None,
     movement: RobotMoveTransition | None = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(
         chassis=chassis, weapons=(ModuleIdentity.CANNON,), electronics=electronics
@@ -84,6 +92,7 @@ def _robot(
         stack=stack,
         height=height,
         movement=movement,
+        facing=facing,
     )
 
 
@@ -725,37 +734,76 @@ def test_engine_step_completes_an_in_flight_move() -> None:
     assert any(isinstance(event, RobotMoveCompletedEvent) for event in events)
 
 
-# Robot facing (owner request, 2026-09-23): presentation-only state that
-# follows the accepted step, so the frontend can pick one of the four
-# per-piece Spectrum sprites. Nothing in the engine reads it back.
+# Robot facing. A bullet travels in the robot's facing (`Lb6d6_weapon_fire`),
+# and a step in a direction the robot is not facing spends the update turning
+# instead of moving (`Lb471`) -- owner decisions of 2026-09-23.
 
 
-def test_starting_a_step_turns_the_robot_to_face_it() -> None:
-    for dx, dy, expected in [
-        (1, 0, RobotFacing.EAST),
-        (-1, 0, RobotFacing.WEST),
-        (0, 1, RobotFacing.SOUTH),
-        (0, -1, RobotFacing.NORTH),
-    ]:
-        robot = _robot("robot-a", x=5, y=5)
-        state = _state((robot,))
-        request = RobotMoveRequest(entity_id=robot.entity_id, dx=dx, dy=dy)
-        new_state, result, _event = apply_robot_move(request, state, _world(), tick=1)
-        assert result.accepted, (dx, dy)
-        moved = new_state.robot_for(robot.entity_id)
-        assert moved is not None
-        assert moved.facing is expected, (dx, dy)
-        # Turning does not move the robot: the transition still does that.
-        assert (moved.x, moved.y) == (5, 5)
-
-
-def test_a_rejected_step_leaves_the_facing_alone() -> None:
-    robot = _robot("robot-a", x=0, y=5)
+def test_a_step_the_robot_already_faces_moves_without_turning() -> None:
+    robot = _robot("robot-a", x=5, y=5, facing=RobotFacing.EAST)
     state = _state((robot,))
-    # Off the west edge of the map: never accepted, so never a turn.
+    request = RobotMoveRequest(entity_id=robot.entity_id, dx=1, dy=0)
+    new_state, result, event = apply_robot_move(request, state, _world(), tick=1)
+    assert result.accepted
+    moved = new_state.robot_for(robot.entity_id)
+    assert moved is not None
+    assert moved.turning is None
+    assert moved.movement is not None
+    assert isinstance(event, RobotMoveStartedEvent)
+
+
+def test_a_perpendicular_step_turns_instead_of_moving() -> None:
+    robot = _robot("robot-a", x=5, y=5, facing=RobotFacing.EAST)
+    state = _state((robot,))
+    request = RobotMoveRequest(entity_id=robot.entity_id, dx=0, dy=1)  # south
+    new_state, result, event = apply_robot_move(request, state, _world(), tick=1)
+    assert result.accepted
+    turning = new_state.robot_for(robot.entity_id)
+    assert turning is not None
+    # The update was spent rotating: no move started, position unchanged, and
+    # the authoritative facing only changes when the turn resolves.
+    assert turning.movement is None
+    assert (turning.x, turning.y) == (5, 5)
+    assert turning.facing is RobotFacing.EAST
+    assert turning.turning is not None
+    assert turning.turning.to_facing is RobotFacing.SOUTH
+    assert isinstance(event, RobotTurnStartedEvent)
+
+    # It resolves exactly at the configured duration, not before.
+    ticks = DEFAULT_RULES.robot_turn_ticks
+    mid, _ = advance_all_robot_transitions(new_state, 1 + ticks - 1)
+    assert mid.robots[0].facing is RobotFacing.EAST
+    done, events = advance_all_robot_transitions(new_state, 1 + ticks)
+    assert done.robots[0].facing is RobotFacing.SOUTH
+    assert done.robots[0].turning is None
+    assert any(isinstance(e, RobotTurnCompletedEvent) for e in events)
+
+
+def test_a_reversal_costs_two_turns_via_a_perpendicular_direction() -> None:
+    """`Lb471` rotates the desired bit two places, so 180 degrees is not one turn."""
+    robot = _robot("robot-a", x=5, y=5, facing=RobotFacing.EAST)
+    state = _state((robot,))
+    request = RobotMoveRequest(entity_id=robot.entity_id, dx=-1, dy=0)  # west
+
+    state, _result, _event = apply_robot_move(request, state, _world(), tick=1)
+    state, _ = advance_all_robot_transitions(state, 1 + DEFAULT_RULES.robot_turn_ticks)
+    # East -> west goes via north first, never straight across.
+    assert state.robots[0].facing is RobotFacing.NORTH
+
+    state, _result, _event = apply_robot_move(request, state, _world(), tick=10)
+    state, _ = advance_all_robot_transitions(state, 10 + DEFAULT_RULES.robot_turn_ticks)
+    assert state.robots[0].facing is RobotFacing.WEST
+    assert (state.robots[0].x, state.robots[0].y) == (5, 5)  # still has not moved
+
+
+def test_a_rejected_step_neither_moves_nor_turns() -> None:
+    robot = _robot("robot-a", x=0, y=5, facing=RobotFacing.EAST)
+    state = _state((robot,))
+    # Off the west edge of the map: never accepted, so never a turn either.
     request = RobotMoveRequest(entity_id=robot.entity_id, dx=-1, dy=0)
     new_state, result, _event = apply_robot_move(request, state, _world(), tick=1)
     assert not result.accepted
     unmoved = new_state.robot_for(robot.entity_id)
     assert unmoved is not None
-    assert unmoved.facing is RobotFacing.SOUTH
+    assert unmoved.facing is RobotFacing.EAST
+    assert unmoved.turning is None

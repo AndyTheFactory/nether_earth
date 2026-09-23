@@ -85,7 +85,8 @@
         "strength": 80,
         "last_fire_tick": 40,
         "exit_steps_remaining": 0,
-        "facing": "south"
+        "facing": "south",
+        "turning": null
       }
     ],
     "structure_ownership": [

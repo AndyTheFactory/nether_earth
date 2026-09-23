@@ -4,8 +4,8 @@
 // Rows top first: '#' ink, '.' paper, ' ' transparent.
 // One sprite per (piece, facing). Several pieces reuse one sprite for
 // more than one facing -- that repetition is the disassembly's own table,
-// not a decode shortcut. See this script's docstring for the facing order,
-// which is an assumption carried from the bullet one-hot decode chain.
+// not a decode shortcut. The facing order is read off Lcf08_direction_loop's
+// set-bit index and Lb724's rrca chain (east 1, west 2, south 4, north 8).
 import type { ModuleId, RobotFacing } from './robot.ts';
 
 export const ROBOT_SPRITES: Record<ModuleId, Record<RobotFacing, readonly string[]>> = {
