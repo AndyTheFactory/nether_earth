@@ -311,6 +311,34 @@ def unit_move_terrain(world: WorldMap, x: int, y: int) -> TerrainType:
 # --------------------------------------------------------------------------
 
 
+#: ``world.occupancy()`` rebuilds the static structure grid from scratch on
+#: every call -- deliberately, so ``WorldMap`` stays a plain immutable value
+#: type (see its own docstring). Electronic navigation calls it once per
+#: robot per tick, where it measured as one of the tick's hottest costs, so
+#: the result is memoized here instead of on the map. Same shape as
+#: `capture.py`'s ``_EFFECTIVE_WORLD_MEMO``: keyed by object identity, with
+#: the world kept alongside so a recycled ``id()`` can never serve a stale
+#: grid, and cleared wholesale rather than evicted.
+_STATIC_OCCUPANCY_MEMO: dict[int, tuple[WorldMap, OccupancyGrid]] = {}
+_STATIC_OCCUPANCY_MEMO_MAX = 8
+
+
+def static_occupancy(world: WorldMap) -> OccupancyGrid:
+    """Return ``world``'s static structure occupancy grid, memoized per world.
+
+    A ``WorldMap`` is immutable, so this is a pure cache of
+    :meth:`~nether_earth.map.WorldMap.occupancy`.
+    """
+    cached = _STATIC_OCCUPANCY_MEMO.get(id(world))
+    if cached is not None and cached[0] is world:
+        return cached[1]
+    grid = world.occupancy()
+    if len(_STATIC_OCCUPANCY_MEMO) >= _STATIC_OCCUPANCY_MEMO_MAX:
+        _STATIC_OCCUPANCY_MEMO.clear()
+    _STATIC_OCCUPANCY_MEMO[id(world)] = (world, grid)
+    return grid
+
+
 def folded_robot_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
     """Return ``world``'s static occupancy grid with every live robot folded in.
 
@@ -329,7 +357,7 @@ def folded_robot_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
     destination is claimed through M5.3's reservation contract, not through
     this grid.
     """
-    grid = world.occupancy()
+    grid = static_occupancy(world)
     for robot in state.robots:
         grid = grid.with_added(robot.entity_id, unit_footprint(robot.x, robot.y))
     return grid
