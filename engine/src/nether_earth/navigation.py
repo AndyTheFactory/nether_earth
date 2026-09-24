@@ -244,11 +244,33 @@ class _TraversalView:
     reservations: ReservationTable
 
 
+#: One traversal view per (state, world), shared by every robot planning in
+#: the same tick. The view is a pure derivation of both (see
+#: :class:`_TraversalView`), but electronic navigation rebuilt it once per
+#: robot per tick -- folding every robot into the occupancy grid and walking
+#: the reservation table each time -- which profiled as the dominant cost of
+#: a tick with more than one electronic robot. Same memo shape as
+#: `capture.py`'s ``_EFFECTIVE_WORLD_MEMO``: keyed by object identity, with
+#: both inputs kept alongside so a recycled ``id()`` cannot serve a stale
+#: view, and cleared wholesale rather than evicted. ``GameState`` is
+#: immutable, so a given state's view can never go out of date.
+_TRAVERSAL_VIEW_MEMO: dict[tuple[int, int], tuple[GameState, WorldMap, _TraversalView]] = {}
+_TRAVERSAL_VIEW_MEMO_MAX = 8
+
+
 def _traversal_view(state: GameState, world: WorldMap) -> _TraversalView:
-    return _TraversalView(
+    key = (id(state), id(world))
+    cached = _TRAVERSAL_VIEW_MEMO.get(key)
+    if cached is not None and cached[0] is state and cached[1] is world:
+        return cached[2]
+    view = _TraversalView(
         occupancy=folded_robot_occupancy(world, state),
         reservations=reservations_from_state(state),
     )
+    if len(_TRAVERSAL_VIEW_MEMO) >= _TRAVERSAL_VIEW_MEMO_MAX:
+        _TRAVERSAL_VIEW_MEMO.clear()
+    _TRAVERSAL_VIEW_MEMO[key] = (state, world, view)
+    return view
 
 
 def _in_bounds(world: WorldMap, x: int, y: int) -> bool:
@@ -409,11 +431,36 @@ def plan_route_to_any(
         return ()
 
     view = _traversal_view(state, world)
-    targets = frozenset(
-        goal
-        for goal in goals
-        if _enterable(robot, goal[0], goal[1], state, world, rules, view)
-    )
+
+    # Per-plan caches. Every argument of `_enterable` and of the step cost
+    # except the cell itself is fixed for the whole search, so caching by
+    # cell returns exactly what recomputing would -- this is a pure memo, not
+    # a behaviour change, and the route is bit-for-bit the same. It matters
+    # because the search reaches a cell once per incoming edge: profiling a
+    # full-width route on the 512x16 map measured ~38k `_enterable` calls for
+    # ~8k cells, and a single plan cost several times the whole 50 ms tick
+    # budget.
+    enterable_cache: dict[tuple[int, int], bool] = {}
+
+    def enterable(cell: tuple[int, int]) -> bool:
+        cached = enterable_cache.get(cell)
+        if cached is None:
+            cached = _enterable(robot, cell[0], cell[1], state, world, rules, view)
+            enterable_cache[cell] = cached
+        return cached
+
+    step_cost_cache: dict[tuple[int, int], int] = {}
+
+    def step_cost_of(cell: tuple[int, int]) -> int:
+        cached = step_cost_cache.get(cell)
+        if cached is None:
+            cached = move_duration_ticks(
+                robot.build.chassis, unit_move_terrain(world, *cell), rules
+            )
+            step_cost_cache[cell] = cached
+        return cached
+
+    targets = frozenset(goal for goal in goals if enterable(goal))
     if not targets:
         return None
 
@@ -430,12 +477,9 @@ def plan_route_to_any(
             continue  # a cheaper path to this cell was already expanded
         for dx, dy in CARDINAL_DIRECTIONS:
             neighbour = (cell[0] + dx, cell[1] + dy)
-            if not _enterable(robot, neighbour[0], neighbour[1], state, world, rules, view):
+            if not enterable(neighbour):
                 continue
-            step_cost = move_duration_ticks(
-                robot.build.chassis, unit_move_terrain(world, *neighbour), rules
-            )
-            neighbour_cost = cost + step_cost
+            neighbour_cost = cost + step_cost_of(neighbour)
             known = best.get(neighbour)
             if known is None or neighbour_cost < known:
                 best[neighbour] = neighbour_cost
