@@ -132,6 +132,11 @@ is also the run's orientation. The manifest therefore gives these three types a
 `[even, odd]` pair instead of a single asset, and `terrainElementAsset()`
 resolves it.
 
+Terrain assets carry `"paper": "none"`, so only their ink pixels are drawn and
+the ground checker shows through the rest. The renderer also leaves the checker
+under a sprited element in the plain ground colour rather than the per-class
+tint; the tint remains the fallback for an element type with no sprite.
+
 The odd entry of a pair is authored 4 px further right inside its canvas,
 because the Spectrum draws it at the byte boundary below a half-byte x. The
 renderer positions sprites at their true pixel x, so the horizontal ditch
