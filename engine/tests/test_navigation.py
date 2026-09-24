@@ -772,11 +772,26 @@ def test_navigation_is_deterministic_under_a_different_match_seed() -> None:
 
 def test_body_contact_anchors_are_every_anchor_touching_or_overlapping_the_body() -> None:
     anchors = body_contact_anchors(5, 5)
-    # Two 2x2 bodies touch or overlap exactly when their anchors differ by at
-    # most 2 on each axis (corner contact included).
+    # Two 2x2 bodies share an edge or overlap exactly when their anchors
+    # differ by at most 2 on each axis and not by 2 on both: the four
+    # corner-only anchors are excluded, because a hunter standing there
+    # fires along a cardinal lane that misses the target body entirely.
     assert anchors == tuple(
-        sorted((x, y) for x in range(3, 8) for y in range(3, 8))
+        sorted(
+            (x, y)
+            for x in range(3, 8)
+            for y in range(3, 8)
+            if not (abs(x - 5) == 2 and abs(y - 5) == 2)
+        )
     )
+
+
+def test_body_contact_anchors_exclude_diagonal_corner_contact() -> None:
+    # The Search & Destroy stall: routing to (3, 3) against a target anchored
+    # at (5, 5) leaves the bullet lane one cell off the target body on the
+    # other axis, so the hunter arrives, stops and fires for ever.
+    for corner in ((3, 3), (3, 7), (7, 3), (7, 7)):
+        assert corner not in body_contact_anchors(5, 5)
 
 
 def test_electronic_navigation_to_an_occupied_robot_body_is_not_unreachable() -> None:
@@ -795,6 +810,21 @@ def test_electronic_navigation_to_an_occupied_robot_body_is_not_unreachable() ->
     assert decision.status is NavigationStatus.STEP
     assert decision.request == RobotMoveRequest(entity_id=hunter.entity_id, dx=1, dy=0)
     assert decision.route[-1] == (18, 5)
+
+
+def test_electronic_body_approach_does_not_stop_on_a_diagonal_corner_anchor() -> None:
+    # Approaching from the diagonal, (18, 3) touches the target body only at a
+    # corner: the hunter would stop there, face one cardinal and fire past the
+    # target for ever. It must close onto an anchor sharing an edge instead.
+    world = _world(width=30, height=12)
+    hunter = _robot(x=16, y=1, chassis=ModuleIdentity.TRACKS, electronics=ModuleIdentity.ELECTRONICS)
+    target = _robot("robot-z", PLAYER_TWO, x=20, y=5, chassis=ModuleIdentity.TRACKS)
+    state = _state((hunter, target))
+
+    decision = next_body_approach_step(hunter, 20, 5, state, world)
+    assert decision.status is NavigationStatus.STEP
+    end_x, end_y = decision.route[-1]
+    assert not (abs(end_x - 20) == 2 and abs(end_y - 5) == 2)
 
 
 def test_body_approach_is_arrived_once_touching_and_greedy_robots_stay_greedy() -> None:
