@@ -47,11 +47,15 @@ NEUTRAL_FACTORY = EntityId("factory-neutral")
 ENEMY_FACTORY = EntityId("factory-enemy")
 OWN_FACTORY = EntityId("factory-own")
 ENEMY_WAR_BASE = EntityId("warbase-enemy")
+NEUTRAL_WAR_BASE = EntityId("warbase-neutral")
+OWN_WAR_BASE = EntityId("warbase-own")
 
 NEUTRAL_FACTORY_CAPTURE_CELL = (6, 2)
 ENEMY_FACTORY_CAPTURE_CELL = (8, 8)
 OWN_FACTORY_CAPTURE_CELL = (1, 8)
 ENEMY_WAR_BASE_CAPTURE_CELL = (9, 1)
+NEUTRAL_WAR_BASE_CAPTURE_CELL = (16, 10)
+OWN_WAR_BASE_CAPTURE_CELL = (17, 2)
 
 
 # --------------------------------------------------------------------------
@@ -121,11 +125,24 @@ def _world(
         )
 
     if war_bases:
+        # The neutral and friendly war bases sit farther from the origin than
+        # the enemy one, so a robot spawned near (0, 0) still picks the enemy
+        # base and only a robot placed beside them reaches them.
         built_war_bases = (
             WarBase(
                 id=ENEMY_WAR_BASE,
                 components=(Component(x=10, y=0, height=3),),
                 owner=PLAYER_TWO,
+            ),
+            WarBase(
+                id=NEUTRAL_WAR_BASE,
+                components=(Component(x=16, y=11, height=3),),
+                owner=None,
+            ),
+            WarBase(
+                id=OWN_WAR_BASE,
+                components=(Component(x=17, y=1, height=3),),
+                owner=PLAYER_ONE,
             ),
         )
         points += (
@@ -134,6 +151,18 @@ def _world(
                 kind=InteractionKind.WARBASE_CAPTURE,
                 structure_id=ENEMY_WAR_BASE,
                 footprint=Footprint(cells=frozenset({ENEMY_WAR_BASE_CAPTURE_CELL})),
+            ),
+            InteractionPoint(
+                id="neutral-warbase-capture",
+                kind=InteractionKind.WARBASE_CAPTURE,
+                structure_id=NEUTRAL_WAR_BASE,
+                footprint=Footprint(cells=frozenset({NEUTRAL_WAR_BASE_CAPTURE_CELL})),
+            ),
+            InteractionPoint(
+                id="own-warbase-capture",
+                kind=InteractionKind.WARBASE_CAPTURE,
+                structure_id=OWN_WAR_BASE,
+                footprint=Footprint(cells=frozenset({OWN_WAR_BASE_CAPTURE_CELL})),
             ),
         )
 
@@ -553,6 +582,32 @@ def test_search_capture_enemy_war_base_uses_war_base_capture_points() -> None:
         robot, SearchCaptureTarget.ENEMY_WAR_BASE, _state((robot,)), world
     )
     assert selected == (ENEMY_WAR_BASE, ENEMY_WAR_BASE_CAPTURE_CELL)
+
+
+def test_search_capture_war_base_takes_a_neutral_war_base() -> None:
+    """A war base target is any war base not already mine, neutral included.
+
+    Owner decision, 2026-09-25: there is no separate neutral-war-base target
+    in the menu, and the interior war bases start neutral, so without this a
+    robot could never be ordered to take one. Deliberately unlike the
+    Spectrum's `Lb3d5`, which matches one exact ownership flag.
+    """
+    world = _world()
+    robot = _robot(x=15, y=10)  # beside NEUTRAL_WAR_BASE's capture cell
+    selected = select_capture_target(
+        robot, SearchCaptureTarget.ENEMY_WAR_BASE, _state((robot,)), world
+    )
+    assert selected == (NEUTRAL_WAR_BASE, NEUTRAL_WAR_BASE_CAPTURE_CELL)
+
+
+def test_search_capture_war_base_never_takes_its_own_war_base() -> None:
+    world = _world()
+    robot = _robot(x=17, y=2)  # standing on OWN_WAR_BASE's capture cell
+    selected = select_capture_target(
+        robot, SearchCaptureTarget.ENEMY_WAR_BASE, _state((robot,)), world
+    )
+    assert selected is not None
+    assert selected[0] != OWN_WAR_BASE
 
 
 def test_search_capture_respects_runtime_ownership_overrides() -> None:
@@ -1011,8 +1066,12 @@ def test_search_destroy_structure_skips_structures_without_a_capture_cell() -> N
         war_bases=world.war_bases,
         factories=world.factories,
         blockers=world.blockers,
+        # Every war base loses its capture point, so none of them has a cell
+        # for a destroy order to navigate to.
         interaction_points=tuple(
-            point for point in world.interaction_points if point.structure_id != ENEMY_WAR_BASE
+            point
+            for point in world.interaction_points
+            if point.kind is not InteractionKind.WARBASE_CAPTURE
         ),
         spawn_positions={},
     )

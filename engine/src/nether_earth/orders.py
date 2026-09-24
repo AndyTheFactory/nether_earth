@@ -226,6 +226,12 @@ class SearchCaptureTarget(str, Enum):
     currently owned by somebody other than me", which is re-resolved against
     live ownership (`capture.py`'s :func:`~nether_earth.capture.effective_owner`)
     on every evaluation rather than frozen when the order was issued.
+
+    ``ENEMY_WAR_BASE`` is the broadest of the three: it takes any war base
+    not already mine, neutral ones included, because there is no separate
+    neutral-war-base target to send a robot after the two interior war bases
+    that start neutral (owner decision, 2026-09-25; see
+    :func:`_capture_candidate`). The wire token stays ``enemy_war_base``.
     """
 
     NEUTRAL_FACTORY = "neutral_factory"
@@ -731,9 +737,20 @@ def _capture_candidate(
     if target is SearchCaptureTarget.NEUTRAL_FACTORY:
         if owner is not None:
             return None
+    elif target is SearchCaptureTarget.ENEMY_WAR_BASE:
+        # A war base target takes any war base that is not already mine,
+        # neutral ones included (owner decision, 2026-09-25): the menu offers
+        # no separate neutral-war-base target, and the two interior war bases
+        # start neutral (functional-spec.md §16 and the map). This is a
+        # deliberate deviation from the Spectrum, whose `Lb3d5` builds one
+        # exact ownership-flag value to match on and so takes enemy-owned
+        # war bases only. It matches what Search & Destroy already does
+        # against structures (:func:`select_destroy_target`).
+        if owner == robot.owner:
+            return None
     elif owner is None or owner == robot.owner:
-        # ENEMY_FACTORY / ENEMY_WAR_BASE: a neutral structure is not an
-        # enemy one, and a robot never captures its own side's holding.
+        # ENEMY_FACTORY: a neutral factory is not an enemy one (it has its
+        # own target), and a robot never captures its own side's holding.
         return None
     _kind, interaction_kind = _capture_structure_kinds(target)
     footprint = capture_footprint(world, structure.id, interaction_kind)
