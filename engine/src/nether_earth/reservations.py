@@ -110,6 +110,7 @@ from nether_earth.movement import (
     RobotMoveRequest,
     RobotMoveResult,
     RobotMoveStartedEvent,
+    RobotTurnStartedEvent,
     apply_robot_move,
     validate_robot_move,
 )
@@ -300,12 +301,16 @@ class RobotMoveBatchResult:
     (sorted by ``entity_id.value``), so a losing contender always gets a
     stable, inspectable reason its order/policy layer can retry or replan
     on. ``started``/``contentions`` are the events to merge into the tick's
-    event stream.
+    event stream. ``started`` carries a
+    :class:`~nether_earth.movement.RobotTurnStartedEvent` in place of a
+    move for a robot that had to turn toward its step first (owner request,
+    2026-09-23): the batch still resolved that request, it just cost the
+    robot a rotation rather than a cell.
     """
 
     state: GameState
     results: tuple[RobotMoveResult, ...]
-    started: tuple[RobotMoveStartedEvent, ...]
+    started: tuple[RobotMoveStartedEvent | RobotTurnStartedEvent, ...]
     contentions: tuple[DestinationContentionResolvedEvent, ...]
 
 
@@ -450,7 +455,7 @@ def apply_robot_move_batch(
             open_claims.remove(claim)
 
     # --- Phase 3: start the winners' moves, canonical entity order ---------
-    started: list[RobotMoveStartedEvent] = []
+    started: list[RobotMoveStartedEvent | RobotTurnStartedEvent] = []
     for index, request in sorted(winners, key=lambda pair: pair[0]):
         state, result, event = apply_robot_move(
             request, state, world, tick, rules, destination_available, sequencer

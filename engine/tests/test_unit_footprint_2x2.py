@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from nether_earth.capture import StructureOwnership, advance_capture
+from nether_earth.capture import advance_capture
 from nether_earth.collision import (
     RobotFixture,
     commander_horizontal_move_allowed,
@@ -40,7 +40,7 @@ from nether_earth.reservations import (
     apply_robot_move_batch,
     destination_available,
 )
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -83,11 +83,13 @@ def _robot(
     owner: PlayerId = PLAYER_ONE,
     chassis: ModuleIdentity = ModuleIdentity.BIPOD,
     weapons: tuple[ModuleIdentity, ...] = (ModuleIdentity.CANNON,),
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=chassis, weapons=weapons)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
     return Robot(
-        entity_id=EntityId(entity_id), owner=owner, x=x, y=y, build=build, stack=stack, height=height
+        entity_id=EntityId(entity_id), owner=owner, x=x, y=y, build=build, stack=stack, height=height,
+        facing=facing,
     )
 
 
@@ -297,11 +299,16 @@ def _capture_world() -> WorldMap:
 
 
 def test_a_robot_anchored_on_the_capture_cell_captures() -> None:
+    # Qualifying occupation is what this test pins, so it asserts the
+    # countdown starts rather than the ownership flip: since the owner
+    # decision of 2026-09-23 even a neutral factory takes the full
+    # ``capture_duration_ticks`` (see test_capture.py for the completion).
     state = _state(_robot("robot-a", *CAPTURE_CELL))
     new_state, _events = advance_capture(state, _capture_world(), tick=1)
-    assert new_state.structure_ownership_for(FACTORY_ID) == StructureOwnership(
-        structure_id=FACTORY_ID, owner=PLAYER_ONE
-    )
+    progress = new_state.capture_progress_for(FACTORY_ID)
+    assert progress is not None
+    assert progress.capturing_player == PLAYER_ONE
+    assert progress.robot_id == EntityId("robot-a")
 
 
 @pytest.mark.parametrize("anchor", [(9, 10), (10, 11), (9, 11)])
@@ -313,6 +320,7 @@ def test_a_body_covering_the_capture_cell_with_its_anchor_elsewhere_does_not(
     state = _state(_robot("robot-a", *anchor))
     new_state, events = advance_capture(state, _capture_world(), tick=1)
     assert new_state.structure_ownership_for(FACTORY_ID) is None
+    assert new_state.capture_progress_for(FACTORY_ID) is None
     assert events == ()
 
 

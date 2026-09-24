@@ -162,8 +162,6 @@ _REPRESENTATIVE_COMMANDS: tuple[tuple[str, dict[str, Any], type[Command]], ...] 
             "kind": "robot_fire",
             "entityId": "no-such-robot",
             "weapon": "nuclear",
-            "targetX": 5,
-            "targetY": 5,
         },
         FireCommand,
     ),

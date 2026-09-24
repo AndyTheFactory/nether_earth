@@ -172,7 +172,7 @@ Depends on: Task 1 (movement/occupancy contract, for qualifying occupation) and 
 
 Scope:
 - Implement capture state per eligible structure/robot, fitting the existing engine architecture (structures in `structures.py`, interaction points in `interactions.py`).
-- Neutral factories: activate for the first qualifying robot/player under the verified original rule (see `_specs/open-questions.md` §6, resolved).
+- Neutral factories: captured by continuous occupation like any other structure (owner decision, 2026-09-23; see `_specs/open-questions.md` §6). Historical note: until that date they were acquired instantly by the first qualifying robot.
 - Enemy factories and war bases: require continuous qualifying occupation of the canonical M2 interaction location.
 - Default duration = 1,440 authoritative ticks, centralized/configurable (not hardcoded at call sites).
 - Any interruption (occupation lost) resets progress to zero immediately — no partial-credit resume.
@@ -184,7 +184,7 @@ Acceptance criteria:
 - Capture progress advances only while the qualifying robot continuously occupies the canonical capture location.
 - Interruption resets progress to zero immediately.
 - Ownership changes exactly at the configured duration boundary (not off-by-one).
-- Neutral acquisition, enemy factory capture, and enemy war-base capture are all deterministic.
+- Neutral and enemy factory capture and war-base capture are all deterministic.
 - War-base capture invokes victory evaluation in the same step.
 - Tests cover start/progress/interruption/reset/completion/ownership/victory, plus replay determinism.
 
@@ -267,7 +267,7 @@ Scope — build one deterministic fixture battlefield (normal/rough/ditch terrai
 - Advance/Retreat distances through the shared miles-to-cells conversion;
 - Search & Capture and Search & Destroy target selection;
 - intentionally limited non-electronic routing vs. electronic replanning, contrasted on the same obstacle layout;
-- neutral acquisition and enemy factory/war-base capture;
+- neutral and enemy factory/war-base capture;
 - capture interruption with immediate reset verified;
 - war-base capture completion with same-step victory evaluation verified;
 - engagement intent produced without any firing/damage;

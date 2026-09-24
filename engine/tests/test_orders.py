@@ -653,11 +653,16 @@ def test_search_capture_holds_on_the_footprint_of_an_uncaptured_target() -> None
     assert evaluation.intent.target_id == enemy.entity_id
 
 
-def test_search_capture_keeps_its_target_while_ownership_still_matches() -> None:
-    """Lb289: a stored target that still matches is kept even if another is nearer."""
+def test_search_capture_switches_to_a_nearer_target_that_just_changed_hands() -> None:
+    """Owner decision, 2026-09-23: an ownership change re-opens target selection.
+
+    The robot at (6, 4) is already walking to ENEMY_FACTORY at (8, 8) when
+    NEUTRAL_FACTORY at (6, 2) turns enemy-owned. It is nearer, so the robot
+    re-aims at it. Before this decision the stored target was held while it
+    still matched (`Lb289`), which on a 512-cell map let a robot walk past
+    structures that became valid targets behind it.
+    """
     world = _world()
-    # Both factories are enemy-owned; the robot at (6, 4) is nearer (6, 2), but
-    # it already targets ENEMY_FACTORY at (8, 8) and keeps heading there.
     order = SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, structure_id=ENEMY_FACTORY)
     robot = _robot(x=6, y=4, order=order)
     state = _state(
@@ -665,8 +670,30 @@ def test_search_capture_keeps_its_target_while_ownership_still_matches() -> None
     )
     evaluation = evaluate_order(robot, state, world)
     assert evaluation is not None and evaluation.request is not None
+    assert evaluation.order == SearchCapture(
+        SearchCaptureTarget.ENEMY_FACTORY, structure_id=NEUTRAL_FACTORY
+    )
+    # Heading north, toward (6, 2), instead of on toward (8, 8).
+    assert (evaluation.request.dx, evaluation.request.dy) == (0, -1)
+
+
+def test_search_capture_does_not_abandon_a_capture_already_under_way() -> None:
+    """A robot standing on its target's capture cell keeps it, nearer target or not.
+
+    `capture.py` resets an interrupted capture to zero (open-questions §7),
+    so re-aiming mid-capture would throw away the elapsed occupation and
+    could pull a robot off every target in turn without finishing one.
+    """
+    world = _world()
+    order = SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, structure_id=ENEMY_FACTORY)
+    robot = _robot(x=ENEMY_FACTORY_CAPTURE_CELL[0], y=ENEMY_FACTORY_CAPTURE_CELL[1], order=order)
+    state = _state(
+        (robot,), ownership=(StructureOwnership(structure_id=NEUTRAL_FACTORY, owner=PLAYER_TWO),)
+    )
+    evaluation = evaluate_order(robot, state, world)
+    assert evaluation is not None
     assert evaluation.order == order
-    assert (evaluation.request.dx, evaluation.request.dy) in {(1, 0), (0, 1)}
+    assert evaluation.request is None
 
 
 def test_search_capture_retargets_when_its_target_changes_hands() -> None:

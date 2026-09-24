@@ -46,14 +46,12 @@ def _request(
     player: PlayerId = PLAYER_ONE,
     weapon: ModuleIdentity = ModuleIdentity.CANNON,
     target_x: int = 6,
-    target_y: int = 5,
+    target_y: int = 5
 ) -> FireRequest:
     return FireRequest(
         robot_id=EntityId(robot_id),
         player=player,
         weapon=weapon,
-        target_x=target_x,
-        target_y=target_y,
     )
 
 

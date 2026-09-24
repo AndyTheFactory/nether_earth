@@ -50,6 +50,19 @@ export function unitFootprintCells(x: number, y: number): { x: number; y: number
 export type ModuleId = 'bipod' | 'tracks' | 'anti_grav' | 'cannon' | 'missile' | 'phaser' | 'nuclear' | 'electronics';
 
 /**
+ * The cardinal direction a robot's body faces, as the snapshot's `facing`
+ * field spells it (owner request, 2026-09-23). Each piece has its own sprite
+ * per facing (`Ld6c8_piece_direction_graphic_indices`); several pieces reuse
+ * one sprite across two or four facings, which is the original's own table.
+ * Declared here rather than imported because the protocol generator emits
+ * this union inline on the robot snapshot instead of as a named type.
+ */
+export type RobotFacing = 'east' | 'west' | 'south' | 'north';
+
+/** The facing a robot without one falls back to: south, the launch facing (`La6c8`). */
+export const DEFAULT_FACING: RobotFacing = 'south';
+
+/**
  * Visual module heights: the Spectrum's `Ld7b4_piece_heights`, the same values
  * as the engine's `EngineRules.module_height_*` (CR003.3). Drawing only: the
  * stack is still scaled to the snapshot's authoritative `height`.
@@ -74,17 +87,23 @@ interface UnitSliceTexture {
   texture: Texture;
 }
 
-const moduleSliceCache = new Map<ModuleId, UnitSliceTexture[]>();
+const moduleSliceCache = new Map<string, UnitSliceTexture[]>();
 
-/** Per-footprint-cell slices of a module's sprite, built once (cached like scenery's `sceneryTexturesFor`). */
-function moduleSlices(m: ModuleId): UnitSliceTexture[] {
-  let s = moduleSliceCache.get(m);
+/**
+ * Per-footprint-cell slices of a module's sprite for one facing, built once
+ * (cached like scenery's `sceneryTexturesFor`). Keyed per (module, facing)
+ * now that each piece has four sprites: a cache keyed by module alone would
+ * hand back the first-drawn facing's textures for every later one.
+ */
+function moduleSlices(m: ModuleId, facing: RobotFacing): UnitSliceTexture[] {
+  const key = `${m}:${facing}`;
+  let s = moduleSliceCache.get(key);
   if (!s) {
-    s = sliceSpriteRows(ROBOT_SPRITES[m], FOOTPRINT, MODULE_VISUAL_HEIGHT[m]).map((slice) => ({
+    s = sliceSpriteRows(ROBOT_SPRITES[m][facing], FOOTPRINT, MODULE_VISUAL_HEIGHT[m]).map((slice) => ({
       slice,
       texture: pixelTexture(slice.rows, SPRITE_INK, SPRITE_PAPER),
     }));
-    moduleSliceCache.set(m, s);
+    moduleSliceCache.set(key, s);
   }
   return s;
 }
@@ -140,11 +159,12 @@ export function drawRobotStack(
   y: number,
   stack: readonly ModuleId[],
   owner: string | null,
-  opts: { alpha?: number; totalHeight?: number; ground?: number } = {},
+  opts: { alpha?: number; totalHeight?: number; ground?: number; facing?: RobotFacing } = {},
   getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
 ): number {
   const alpha = opts.alpha ?? 1;
   const ground = opts.ground ?? 0;
+  const facing = opts.facing ?? DEFAULT_FACING;
   let idx = 0;
 
   const shadow = getPiece(idx++, false) as Graphics;
@@ -162,8 +182,8 @@ export function drawRobotStack(
   const tint = ownerColor(owner);
   for (const m of stack) {
     const h = MODULE_VISUAL_HEIGHT[m] * scale;
-    const origin = spriteOriginFor(ROBOT_SPRITES[m], FOOTPRINT, { x, y }, z);
-    for (const { slice, texture } of moduleSlices(m)) {
+    const origin = spriteOriginFor(ROBOT_SPRITES[m][facing], FOOTPRINT, { x, y }, z);
+    for (const { slice, texture } of moduleSlices(m, facing)) {
       const s = getPiece(idx++, true) as Sprite;
       s.texture = texture;
       s.position.set(origin.x, origin.y);
@@ -192,13 +212,13 @@ export function drawCommander(
   zBias = 0,
   getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
 ): void {
+  // The body slices take the leading indices and the (airborne-only) shadow
+  // the trailing one, so a given index always asks for the same kind of
+  // object. Drawing the shadow first instead made index 0 flip Graphics <->
+  // Sprite on every take-off and landing; a pool keyed by index then had to
+  // swap the object under a key that stayed in use, which left the old one
+  // painted at the lift-off cell (a frozen commander "trace").
   let idx = 0;
-  if (altitude > surfaceZ) {
-    const shadow = getPiece(idx++, false) as Graphics;
-    if ('clear' in shadow) shadow.clear();
-    drawDiamond(shadow, x, y, 0x000000, 0.35, undefined, surfaceZ, UNIT_SIZE);
-    shadow.zIndex = depthKey(x, y, surfaceZ) + zBias;
-  }
   const rows = COMMANDER_SPRITES[COMMANDER_SPRITE_ID]!;
   const origin = spriteOriginFor(rows, FOOTPRINT, { x, y }, altitude);
   const tint = ownerColor(owner);
@@ -208,5 +228,11 @@ export function drawCommander(
     s.position.set(origin.x, origin.y);
     s.tint = tint;
     s.zIndex = depthKey(x + slice.dx, y + slice.dy, altitude) + zBias;
+  }
+  if (altitude > surfaceZ) {
+    const shadow = getPiece(idx++, false) as Graphics;
+    if ('clear' in shadow) shadow.clear();
+    drawDiamond(shadow, x, y, 0x000000, 0.35, undefined, surfaceZ, UNIT_SIZE);
+    shadow.zIndex = depthKey(x, y, surfaceZ) + zBias;
   }
 }

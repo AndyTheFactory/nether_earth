@@ -15,7 +15,7 @@ function docked(menu: MenuMode = 'none') {
   for (const m of findFixture('commander-docked')!.messages) runFixtureMessage(store, m, 0);
   store.setUi({ screen: 'match', menu });
   const panel = { html: '', set(h: string) { this.html = h; } };
-  renderMenus(panel as unknown as Panel, store.get(), { dx: 1, dy: 0 }, 0);
+  renderMenus(panel as unknown as Panel, store.get(), 0);
   return { store, html: panel.html };
 }
 
@@ -70,7 +70,7 @@ test('hidden when not docked or not in a match', () => {
   const { store } = docked();
   const panel = { html: 'x', set(h: string) { this.html = h; } };
   store.setUi({ screen: 'lobby' });
-  renderMenus(panel as unknown as Panel, store.get(), { dx: 1, dy: 0 }, 0);
+  renderMenus(panel as unknown as Panel, store.get(), 0);
   assert.equal(panel.html, '');
 });
 
@@ -122,7 +122,7 @@ test('clicking a rendered menu block reaches the panel action handler (#240)', (
   const calls: [string, string][] = [];
   const panel = new Panel('menus', (action, arg) => calls.push([action, arg]));
   document.body.appendChild(panel.root);
-  renderMenus(panel, store.get(), { dx: 1, dy: 0 }, 0);
+  renderMenus(panel, store.get(), 0);
 
   const button = panel.root.querySelector<HTMLElement>('[data-action="menu"][data-arg="direct_control"]');
   assert.ok(button, 'DIRECT CONTROL block should render as a clickable button');
@@ -145,10 +145,10 @@ test('clicking GIVE ORDERS then a listed order reaches the action handler in seq
     store.setUi({ menu: (arg || 'none') as MenuMode });
   });
   document.body.appendChild(panel.root);
-  renderMenus(panel, store.get(), { dx: 1, dy: 0 }, 0);
+  renderMenus(panel, store.get(), 0);
   panel.root.querySelector<HTMLElement>('[data-action="menu"][data-arg="orders"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-  renderMenus(panel, store.get(), { dx: 1, dy: 0 }, 0);
+  renderMenus(panel, store.get(), 0);
   panel.root.querySelector<HTMLElement>('[data-action="pick"][data-arg="search_destroy"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
   assert.deepEqual(calls, [
@@ -179,7 +179,7 @@ test('the keyboard cursor highlights the block at ui.menuCursor', () => {
   for (const m of findFixture('commander-docked')!.messages) runFixtureMessage(store, m, 0);
   store.setUi({ screen: 'match', menu: 'robot_menu', menuCursor: 2 });
   const panel = { html: '', set(h: string) { this.html = h; } };
-  renderMenus(panel as unknown as Panel, store.get(), { dx: 1, dy: 0 }, 0);
+  renderMenus(panel as unknown as Panel, store.get(), 0);
   assert.deepEqual(
     blocks(panel.html).filter((b) => b.on).map((b) => b.text),
     ['COMBAT MODE'],

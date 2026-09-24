@@ -28,7 +28,7 @@ from nether_earth.reservations import (
     destination_available,
     reservations_from_state,
 )
-from nether_earth.robot import Robot, RobotMoveTransition
+from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -61,6 +61,7 @@ def _robot(
     y: int,
     owner: PlayerId = PLAYER_ONE,
     movement: RobotMoveTransition | None = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=ModuleIdentity.BIPOD, weapons=(ModuleIdentity.CANNON,))
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -73,6 +74,7 @@ def _robot(
         stack=stack,
         height=height,
         movement=movement,
+        facing=facing,
     )
 
 
@@ -97,8 +99,11 @@ def _converging_state(seed: int = 0, tick: int = 0) -> GameState:
     """
     return _state(
         (
-            _robot("robot-a", 3, 5),
-            _robot("robot-b", 6, 5, owner=PLAYER_TWO),
+            # Each already faces the way it steps: a robot that has to turn
+            # first spends the update rotating and never claims a cell, which
+            # would make these contention fixtures vacuous.
+            _robot("robot-a", 3, 5, facing=RobotFacing.EAST),
+            _robot("robot-b", 6, 5, owner=PLAYER_TWO, facing=RobotFacing.WEST),
         ),
         tick=tick,
         seed=seed,
@@ -115,9 +120,9 @@ def _three_way_state(seed: int = 0) -> GameState:
     """
     return _state(
         (
-            _robot("robot-a", 1, 3),
-            _robot("robot-b", 3, 5, owner=PLAYER_TWO),
-            _robot("robot-c", 4, 2),
+            _robot("robot-a", 1, 3, facing=RobotFacing.EAST),
+            _robot("robot-b", 3, 5, owner=PLAYER_TWO, facing=RobotFacing.NORTH),
+            _robot("robot-c", 4, 2, facing=RobotFacing.SOUTH),
         ),
         seed=seed,
     )
@@ -359,7 +364,12 @@ def test_a_held_reservation_survives_until_the_move_completes() -> None:
 
 
 def test_uncontested_claims_all_start() -> None:
-    state = _state((_robot("robot-a", 1, 1), _robot("robot-b", 8, 8, owner=PLAYER_TWO)))
+    state = _state(
+        (
+            _robot("robot-a", 1, 1, facing=RobotFacing.EAST),
+            _robot("robot-b", 8, 8, owner=PLAYER_TWO, facing=RobotFacing.WEST),
+        )
+    )
 
     batch = apply_robot_move_batch(
         (_move("robot-a", 1, 0), _move("robot-b", -1, 0)), state, _world(), tick=0

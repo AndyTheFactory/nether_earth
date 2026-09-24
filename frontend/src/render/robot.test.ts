@@ -100,3 +100,20 @@ test('the commander is sliced the same way, with a shadow only when airborne', (
   assert.equal(g2.objects.filter((o) => o instanceof Graphics).length, 1);
   assert.equal(g2.objects.filter((o) => o instanceof Sprite).length, UNIT_SIZE * UNIT_SIZE);
 });
+
+test('a commander piece index keeps its kind across take-off and landing', () => {
+  // Regression for the lift-off "trace": the renderer pools pieces by index,
+  // so an index that switches Graphics <-> Sprite orphans the object it
+  // replaces under a still-used key and it stays painted on the map.
+  const kinds = (altitude: number) => {
+    const seen: boolean[] = [];
+    drawCommander(30, 12, altitude, 'p1', 0, 0, (i, textured) => {
+      seen[i] = textured;
+      return textured ? new Sprite(Texture.EMPTY) : new Graphics();
+    });
+    return seen;
+  };
+  const grounded = kinds(0);
+  const airborne = kinds(8);
+  for (let i = 0; i < grounded.length; i++) assert.equal(airborne[i], grounded[i]);
+});

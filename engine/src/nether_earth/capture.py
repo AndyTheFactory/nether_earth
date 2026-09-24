@@ -4,22 +4,17 @@ Per `_specs/milestones/05-orders-navigation-capture.md` ("Task 6: Factory
 and war-base capture subsystem") and `_specs/open-questions.md` §§6-7
 (RESOLVED), this module implements:
 
-- **neutral factory acquisition**: a neutral factory (``owner is None``)
-  becomes owned by the first qualifying robot instantly -- no
-  continuous-occupation timer (`_specs/functional-spec.md` §9: "Neutral
-  factories become owned by the first qualifying robot under the verified
-  original behavior."). This is a *factory-only* exception;
-- **enemy factory/war-base capture, and neutral war-base capture**:
-  continuous qualifying occupation of the structure's canonical capture
-  interaction location for ``rules.capture_duration_ticks`` (default
-  ``1440``) authoritative ticks; any interruption resets progress to zero
-  immediately, with no partial-credit resume (`_specs/open-questions.md`
-  §7). Per `_specs/open-questions.md` §6 ("War-base capture uses the same
-  continuous-occupation rule as factory capture by default"), a **neutral**
-  war base is not an instant-acquisition case the way a neutral factory
-  is -- it goes through the identical continuous-occupation countdown as
-  an enemy-owned war base, just starting from ``owner is None`` instead of
-  an opposing player;
+- **capture of every capturable structure**: continuous qualifying
+  occupation of the structure's canonical capture interaction location for
+  ``rules.capture_duration_ticks`` (default ``1440``) authoritative ticks;
+  any interruption resets progress to zero immediately, with no
+  partial-credit resume (`_specs/open-questions.md` §7). One rule covers
+  all four cases -- enemy factory, enemy war base, neutral factory and
+  neutral war base -- per `_specs/functional-spec.md` §9 ("Factory and
+  war-base capture use continuous occupation, whether the structure is
+  enemy-owned or neutral"). A neutral structure differs only in that its
+  current owner is ``None``, which makes every robot a qualifying
+  occupier and leaves ``previous_owner`` ``None`` on the resulting event;
 - deterministic ownership transfer, exactly at the configured duration
   boundary, plus a deterministic capture event.
 
@@ -125,7 +120,6 @@ from nether_earth.structures import Factory, WarBase
 __all__ = [
     "CapturableStructureKind",
     "CaptureProgress",
-    "NeutralStructureAcquiredEvent",
     "StructureCapturedEvent",
     "StructureOwnership",
     "advance_capture",
@@ -200,39 +194,15 @@ class CaptureProgress:
 
 
 @dataclass(frozen=True, slots=True)
-class NeutralStructureAcquiredEvent(Event):
-    """A neutral factory was instantly acquired by the first qualifying robot.
-
-    Per `_specs/functional-spec.md` §9, neutral acquisition has no
-    continuous-occupation duration -- this event fires the same tick
-    ``robot_id`` is first detected qualifying. ``structure_kind`` is always
-    :attr:`CapturableStructureKind.FACTORY` in v1 (war bases start owned or
-    neutral-but-continuous-capture per `_specs/open-questions.md` §2/§6;
-    only factories use the instant-neutral-acquisition rule), but the field
-    is carried explicitly (rather than assumed) so a consumer never needs a
-    second event type if a future map ever declares a neutral, instantly-
-    acquirable war base.
-    """
-
-    structure_id: EntityId
-    structure_kind: CapturableStructureKind
-    new_owner: PlayerId
-    robot_id: EntityId
-    tick: int
-
-
-@dataclass(frozen=True, slots=True)
 class StructureCapturedEvent(Event):
     """A structure finished continuous-occupation capture.
 
     Emitted exactly once, on the tick ``elapsed_ticks`` reaches
     ``required_ticks`` (see the module docstring's tick-counting
-    convention), for: an enemy-owned factory, an enemy-owned war base, or a
-    **neutral** war base (per `_specs/open-questions.md` §6, a neutral war
-    base uses the same continuous-occupation rule as an enemy-owned one --
-    unlike a neutral factory, which instead gets
-    :class:`NeutralStructureAcquiredEvent`). ``previous_owner`` is ``None``
-    for that neutral-war-base case, and the real previous owner otherwise.
+    convention), for every capturable structure: an enemy-owned or neutral
+    factory, and an enemy-owned or neutral war base alike.
+    ``previous_owner`` is ``None`` for the neutral cases, and the real
+    previous owner otherwise.
     ``structure_kind`` lets `engine.py` decide whether to invoke the
     war-base-capture victory-evaluation hook without importing
     ``interactions.py`` itself.
@@ -405,24 +375,22 @@ def advance_capture(
     rules: EngineRules = DEFAULT_RULES,
     sequencer: EventSequencer | None = None,
 ) -> tuple[GameState, tuple[Event, ...]]:
-    """Advance neutral acquisition and continuous-occupation capture by one tick.
+    """Advance continuous-occupation capture by one tick.
 
     Pure function: computes qualifying occupation for every capturable
     structure from ``state.robots``' current authoritative positions
     (post move-completion; callers should invoke this after
     :func:`~nether_earth.movement.advance_all_robot_transitions` for the
-    same tick -- `engine.py` does), applies neutral-factory instant
-    acquisition plus continuous-occupation progress/reset/completion for
-    everything else -- enemy factories, enemy war bases, and neutral war
-    bases alike (see the module docstring) -- and returns
-    ``(new_state, events)``.
+    same tick -- `engine.py` does), applies continuous-occupation
+    progress/reset/completion uniformly to every capturable structure --
+    enemy and neutral factories, enemy and neutral war bases alike (see the
+    module docstring) -- and returns ``(new_state, events)``.
 
-    ``events`` holds one :class:`NeutralStructureAcquiredEvent` per neutral
-    factory acquired this tick and one :class:`StructureCapturedEvent` per
-    structure (enemy-owned or neutral war base) whose continuous-occupation
-    capture completed this tick, in canonical (structure-id) order.
+    ``events`` holds one :class:`StructureCapturedEvent` per structure
+    whose continuous-occupation capture completed this tick, in canonical
+    (structure-id) order.
     Interruptions and in-progress accrual never emit
-    an event -- only the two ownership-changing outcomes do, per this
+    an event -- only the ownership-changing completion does, per this
     issue's "emit a deterministic ownership/capture event [on completion]"
     acceptance criterion; a consumer that wants interruption/progress
     detail can already read it directly from
@@ -452,32 +420,11 @@ def advance_capture(
         current_owner = effective_owner(world, state, structure)
         qualifying_robot = _qualifying_robot(state.robots, footprint, current_owner)
 
-        if current_owner is None and structure_kind is CapturableStructureKind.FACTORY:
-            # Neutral *factories* alone get instant acquisition
-            # (`_specs/functional-spec.md` §9). A neutral *war base* falls
-            # through to the continuous-occupation path below --
-            # `_specs/open-questions.md` §6 is explicit that "war-base
-            # capture uses the same continuous-occupation rule as factory
-            # capture by default", which this module reads as applying
-            # regardless of whether the war base's current owner is another
-            # player or nobody (``None``); only a factory's neutral state is
-            # carved out as the one instant-acquisition exception.
-            if qualifying_robot is not None:
-                ownership_by_id[structure.id] = qualifying_robot.owner
-                events.append(
-                    NeutralStructureAcquiredEvent(
-                        sequence=resolved_sequencer.next_sequence(),
-                        structure_id=structure.id,
-                        structure_kind=structure_kind,
-                        new_owner=qualifying_robot.owner,
-                        robot_id=qualifying_robot.entity_id,
-                        tick=tick,
-                    )
-                )
-            continue
-
-        # Continuous-occupation path: every enemy-owned structure, plus a
-        # neutral war base (the one carve-out above is factories only).
+        # One continuous-occupation path for every capturable structure.
+        # A neutral factory used to be carved out here as an instant
+        # acquisition; owner decision (2026-09-23) removed that exception so
+        # a neutral factory costs the same 1,440 continuously-occupied ticks
+        # as an enemy one (`_specs/functional-spec.md` §9).
         existing = progress_by_id.get(structure.id)
         if qualifying_robot is None:
             # No qualifying robot currently occupies the capture location:

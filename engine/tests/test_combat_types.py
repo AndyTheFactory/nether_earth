@@ -19,14 +19,12 @@ def _fire_request(
     player: PlayerId = PLAYER_ONE,
     weapon: ModuleIdentity = ModuleIdentity.CANNON,
     target_x: int = 10,
-    target_y: int = 10,
+    target_y: int = 10
 ) -> FireRequest:
     return FireRequest(
         robot_id=EntityId(robot_id),
         player=player,
         weapon=weapon,
-        target_x=target_x,
-        target_y=target_y,
     )
 
 

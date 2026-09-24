@@ -4,7 +4,7 @@ import type { SnapshotState } from '../../../protocol/generated/types';
 import type { AppState } from '../state/store.ts';
 import type { MapData, MapComponent } from '../world/map.ts';
 import { footprintCells, surfaceHeightAt, terrainAt } from '../world/map.ts';
-import { CO_LOCATED_TIE_BIAS, TILE_H, TILE_W, depthKey, playViewCentre, project, unproject, viewZoom, type ScreenPoint } from './projection.ts';
+import { CO_LOCATED_TIE_BIAS, TILE_H, TILE_W, bandCovers, depthKey, playViewCentre, project, terrainBand, unproject, viewZoom, type ScreenPoint } from './projection.ts';
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
@@ -73,6 +73,7 @@ export class WorldRenderer {
   private readonly surface: SurfaceMap;
   private readonly sceneryTextures = new Map<string, { slice: SpriteSlice; texture: Texture }[]>();
   private lastStructureKey = '';
+  private terrainBandDrawn: { x0: number; x1: number } | null = null;
   private lastResync = -1;
   private prevSnapshot: SnapshotState | null = null;
   private fx: Effect[] = [];
@@ -85,22 +86,37 @@ export class WorldRenderer {
     this.world.addChild(this.terrain, this.scene, this.effects, this.overlay);
     this.labels.addChild(this.structureLabels, this.overlayLabels);
     app.stage.addChild(this.world, this.labels);
-    this.drawTerrain();
   }
 
   // ---- static layers ----
 
-  private drawTerrain(): void {
+  /**
+   * Rebuilds the terrain band around the camera when the view has left the
+   * drawn one. The whole 512x16 map used to live in this one `Graphics`,
+   * built once but submitted in full every frame for the ~30 columns on
+   * screen; a band plus `TERRAIN_MARGIN` cells of slack draws what is
+   * visible and rebuilds only every few cells of camera travel.
+   */
+  private updateTerrain(): void {
+    const span = this.viewSpanX();
+    if (this.terrainBandDrawn && bandCovers(this.terrainBandDrawn, this.cam.x, span, this.map.width)) return;
+    const band = terrainBand(this.cam.x, span, this.map.width);
+    this.terrainBandDrawn = band;
     const g = this.terrain;
     g.clear();
     for (let y = 0; y < this.map.height; y++) {
-      for (let x = 0; x < this.map.width; x++) {
+      for (let x = band.x0; x <= band.x1; x++) {
         const t = terrainAt(this.map, x, y);
         const id = `terrain.${t}` as SemanticAsset;
         const base = colorFor(id);
         drawDiamond(g, x, y, (x + y) % 2 ? base : shade(base, 1.12));
       }
     }
+  }
+
+  /** Half-width, in cells, of the view around `cam.x` (shared by terrain and structure culling). */
+  private viewSpanX(): number {
+    return (this.app.screen.width + this.app.screen.height) / this.zoom / TILE_W + 4;
   }
 
   // Structure name labels are an optional overlay (CR002.23, textOverlays); flags show ownership.
@@ -221,7 +237,7 @@ export class WorldRenderer {
 
   /** Skip drawing structure cells far outside the view (they stay in the ordering). */
   private cullStructures(): void {
-    const span = (this.app.screen.width + this.app.screen.height) / this.zoom / TILE_W + 4;
+    const span = this.viewSpanX();
     for (const { g, x } of this.structureCells) g.renderable = Math.abs(x - this.cam.x) <= span;
   }
 
@@ -260,6 +276,12 @@ export class WorldRenderer {
     let g = this.dynamicPool.get(key);
     const wantsSprite = textured;
     if (!g || g instanceof Sprite !== wantsSprite) {
+      // A piece index can switch kind mid-match (drawCommander emits its
+      // shadow as piece 0 only while airborne, shifting every sprite slice
+      // by one), so the replaced object must be destroyed here: leaving it
+      // in `scene` painted a frozen copy of the commander at its lift-off
+      // cell, and the frame sweep never saw it because the key stayed used.
+      g?.destroy();
       g = wantsSprite ? new Sprite() : new Graphics();
       this.dynamicPool.set(key, g);
       this.scene.addChild(g);
@@ -296,8 +318,9 @@ export class WorldRenderer {
     const usedDynamicKeys = new Set<string>();
     this.effects.clear();
     this.overlay.clear();
-    this.overlayLabels.removeChildren();
+    this.overlayLabels.removeChildren().forEach((t) => t.destroy());
     if (!snap) {
+      this.updateTerrain();
       this.sweepDynamicPool(usedDynamicKeys);
       return;
     }
@@ -326,7 +349,7 @@ export class WorldRenderer {
       // (slice.dx/dy), a finer-grained version of the per-footprint-cell
       // occlusion #242/#244 introduced, so one call per robot (pooled per
       // piece index, #256) replaces the outer per-cell loop.
-      drawRobotStack(p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground }, (i, textured) =>
+      drawRobotStack(p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground, facing: r.facing }, (i, textured) =>
         this.pooledPiece(`robot:${r.entity_id}`, i, textured, usedDynamicKeys),
       );
       if (r.owner !== me) {
@@ -414,6 +437,7 @@ export class WorldRenderer {
     this.drawEffects(nowMs);
     if (state.ui.debugGrid) this.drawDebug(snap);
     this.applyCamera(menuColumnShown(state) ? menuColumnPx() : 0);
+    this.updateTerrain();
     this.cullStructures();
     this.sweepDynamicPool(usedDynamicKeys);
   }

@@ -8,8 +8,6 @@
   "payload": {
     "kind": "robot_fire",
     "entityId": "robot-1",
-    "weapon": "cannon",
-    "targetX": 5,
-    "targetY": 7
+    "weapon": "cannon"
   }
 }

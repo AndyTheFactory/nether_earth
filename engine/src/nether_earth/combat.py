@@ -99,14 +99,19 @@ express it -- this paragraph is the decision.
 
 Fire direction resolution
 ---------------------------
-:class:`FireRequest` carries a target cell, not a cardinal direction, and
-:class:`~nether_earth.robot.Robot` has no facing field. The original
-disassembly copies the firing robot's own facing direction when creating a
-bullet; this engine has no equivalent state to copy, so
-:func:`resolve_fire_direction` instead derives a direction from the target
-cell via a documented, deliberate dominant-axis-with-x-tiebreak rule -- see
-its own docstring for the exact rationale. This is a documented
-simplification, not a fidelity claim.
+A shot travels in the firing robot's own facing, full stop:
+``Lb6d6_weapon_fire`` copies ``ROBOT_STRUCT_DIRECTION`` into
+``BULLET_STRUCT_DIRECTION``, and :func:`resolve_fire_direction` does the
+same with :attr:`~nether_earth.robot.Robot.facing` (owner decision,
+2026-09-23). There is no aiming: to shoot a different way a robot must
+turn, which costs ``rules.robot_turn_ticks`` per 90 degrees, and a robot
+mid-turn cannot fire at all (:attr:`FireRejectionReason.TURNING`).
+
+Until that decision :class:`FireRequest` carried a target cell and a
+dominant-axis-with-x-tiebreak rule derived a direction from it, because
+``Robot`` had no facing to copy. That was flagged in this docstring as a
+deliberate simplification rather than a fidelity claim; it is now gone,
+along with the target cell itself.
 
 Damage, strength, and destruction (issue #76, M6.6)
 -------------------------------------------------------
@@ -203,22 +208,25 @@ class FireRejectionReason(str, Enum):
     TARGET_OUT_OF_RANGE = "target_out_of_range"
     INVALID_NUCLEAR_STATE = "invalid_nuclear_state"
     ALREADY_FIRED_THIS_CYCLE = "already_fired_this_cycle"
+    TURNING = "turning"
 
 
 @dataclass(frozen=True, slots=True)
 class FireRequest:
-    """A request to fire one weapon at one target location.
+    """A request to fire one weapon.
 
-    ``target_x``/``target_y`` are the authoritative target grid cell
-    coordinates; direction/vector computation is the validation layer's
-    concern, not encoded here.
+    It carries no target: a shot goes wherever the robot is facing (owner
+    decision, 2026-09-23). The request used to carry a target cell that a
+    dominant-axis rule turned into a direction; ``Lb6d6_weapon_fire``
+    instead copies ``ROBOT_STRUCT_DIRECTION`` straight into
+    ``BULLET_STRUCT_DIRECTION``, and the engine now does the same. Aiming a
+    robot means turning it (`movement.py`), which costs
+    ``rules.robot_turn_ticks``.
     """
 
     robot_id: EntityId
     player: PlayerId
     weapon: ModuleIdentity
-    target_x: int
-    target_y: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,24 +283,17 @@ class FireCommand(Command):
     restricting the command's shape. Any presentation-level restriction
     (M7/M8) is a UI-availability concern, not an engine rule.
 
-    No ``__post_init__`` validation is needed beyond what
-    :func:`validate_fire` already checks structurally: unlike a move
-    command's ``dx``/``dy``, a target cell has no structurally invalid
-    shape -- an out-of-bounds or degenerate aim is a gameplay rejection
-    (:attr:`FireRejectionReason.TARGET_OUT_OF_RANGE`), not a malformed
-    command.
+    The command carries no target cell (owner decision, 2026-09-23): a
+    shot travels in the robot's own facing, so "aim" means "turn the robot
+    first", and a nuclear detonation always centred on the carrier's own
+    position never had a use for one either.
 
-    ``target_x``/``target_y`` are ignored when ``weapon`` is
-    :attr:`~nether_earth.robot_build.ModuleIdentity.NUCLEAR`: a nuclear
-    detonation always centers on the carrier robot's own position, never on
-    the aimed cell (see `engine.py`'s combat step for the code comment that
-    already explains this at the call site).
+    No ``__post_init__`` validation is needed beyond what
+    :func:`validate_fire` already checks structurally.
     """
 
     entity_id: EntityId
     weapon: ModuleIdentity
-    target_x: int
-    target_y: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,32 +400,16 @@ def validate_fire(request: FireRequest, state: GameState) -> FireResult:
 # --------------------------------------------------------------------------
 
 
-def resolve_fire_direction(robot: Robot, request: FireRequest) -> tuple[int, int] | None:
-    """Resolve ``request``'s target cell into a cardinal ``(dx, dy)`` direction.
+def resolve_fire_direction(robot: Robot) -> tuple[int, int]:
+    """Return the cardinal ``(dx, dy)`` a shot from ``robot`` travels in.
 
-    The original disassembly copies the firing robot's own facing direction
-    when a bullet is created; this engine's :class:`~nether_earth.robot.Robot`
-    carries no facing field, so this is a documented, deliberate
-    simplification rather than a fidelity claim: direction is derived from
-    ``request``'s target cell relative to ``robot``'s own position by a
-    total, deterministic dominant-axis rule.
-
-    ``raw_dx = request.target_x - robot.x``, ``raw_dy = request.target_y -
-    robot.y``. If both are zero (the target names the robot's own cell --
-    a degenerate aim with no direction to derive), returns ``None``.
-    Otherwise, whichever axis has the larger magnitude wins
-    (``abs(raw_dx) >= abs(raw_dy)`` favors X on a tie, an arbitrary but
-    fixed and documented tiebreak so the same request always resolves the
-    same direction): the winning axis' sign becomes the cardinal step on
-    that axis, and the other axis is ``0``.
+    ``Lb6d6_weapon_fire`` copies the firing robot's own
+    ``ROBOT_STRUCT_DIRECTION`` into ``BULLET_STRUCT_DIRECTION``, so this is
+    simply the robot's facing (owner decision, 2026-09-23). Total: a robot
+    always faces exactly one cardinal direction, so unlike the target-cell
+    rule this replaced there is no degenerate case and no ``None``.
     """
-    raw_dx = request.target_x - robot.x
-    raw_dy = request.target_y - robot.y
-    if raw_dx == 0 and raw_dy == 0:
-        return None
-    if abs(raw_dx) >= abs(raw_dy):
-        return (1 if raw_dx > 0 else -1, 0)
-    return (0, 1 if raw_dy > 0 else -1)
+    return robot.facing.step
 
 
 def weapon_range_cells(weapon: ModuleIdentity, rules: EngineRules) -> int:
@@ -553,10 +538,8 @@ def apply_fire(
        nuclear detonation execution is a later task's (M6.8's) scope; this
        function only lets it clear the accept boundary without creating a
        :class:`Projectile` or touching the combat channel.
-    2. A normal-weapon (cannon/missile/phaser) request whose target equals
-       the firing robot's own cell (a degenerate aim
-       :func:`resolve_fire_direction` cannot turn into a direction) is
-       rejected here, with :attr:`FireRejectionReason.TARGET_OUT_OF_RANGE`
+    2. A normal-weapon (cannon/missile/phaser) request from a robot that is
+       mid-turn is rejected here with :attr:`FireRejectionReason.TURNING`
        -- a fire-time-only check :func:`validate_fire` deliberately does
        not perform (see that function's docstring: its scope is narrower),
        so it is not added there. Likewise a robot that already fired in this
@@ -606,11 +589,12 @@ def apply_fire(
     robot = state.robot_for(request.robot_id)
     assert robot is not None  # guaranteed by validate_fire's NO_SUCH_ROBOT check
 
-    direction = resolve_fire_direction(robot, request)
-    if direction is None:
-        rejected = FireResult.reject(request, FireRejectionReason.TARGET_OUT_OF_RANGE)
-        return state, rejected, ()
-    dx, dy = direction
+    # A robot mid-turn is not facing anywhere definite yet, and `Lb471`'s
+    # rotate branch returns before the move/fire step, so it cannot shoot.
+    if robot.turning is not None:
+        return state, FireResult.reject(request, FireRejectionReason.TURNING), ()
+
+    dx, dy = resolve_fire_direction(robot)
 
     cycle = rules.robot_fire_cycle_ticks
     if robot.last_fire_tick is not None and robot.last_fire_tick // cycle == tick // cycle:

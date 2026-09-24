@@ -171,6 +171,10 @@ class NavigationStatus(str, Enum):
     STEP = "step"
     #: The robot already has a move in flight; nothing to decide this tick.
     MOVE_IN_PROGRESS = "move_in_progress"
+    #: The robot is mid-turn (owner decision, 2026-09-23): it is busy, not
+    #: stuck, so a caller should wait rather than replan or abandon. Kept
+    #: distinct from :attr:`BLOCKED` for exactly that reason.
+    TURN_IN_PROGRESS = "turn_in_progress"
     #: No legal step is available *right now*. Under
     #: :class:`NonElectronicNavigation` this is the locked "stuck even though
     #: a longer route exists" outcome; under :class:`ElectronicNavigation` it
@@ -542,6 +546,8 @@ def _trivial_decision(
     """
     if robot.movement is not None:
         return NavigationDecision(status=NavigationStatus.MOVE_IN_PROGRESS)
+    if robot.turning is not None:
+        return NavigationDecision(status=NavigationStatus.TURN_IN_PROGRESS)
     if (robot.x, robot.y) == (target_x, target_y):
         return NavigationDecision(status=NavigationStatus.ARRIVED)
     return None

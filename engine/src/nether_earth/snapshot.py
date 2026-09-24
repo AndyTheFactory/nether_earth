@@ -106,7 +106,7 @@ from nether_earth.orders import (
     StopAndDefend,
 )
 from nether_earth.resource_pool import PlayerResourcePool
-from nether_earth.robot import Robot, RobotMoveTransition
+from nether_earth.robot import Robot, RobotMoveTransition, RobotTurnTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.state import GameState
 from nether_earth.structures import FactoryType
@@ -261,6 +261,21 @@ def _robot_move_transition_snapshot(
     }
 
 
+def _robot_turn_transition_snapshot(
+    turn: RobotTurnTransition | None,
+) -> dict[str, Any] | None:
+    """Return a canonical, JSON-safe snapshot of a ``RobotTurnTransition``, or ``None``."""
+    if turn is None:
+        return None
+    return {
+        "entity_id": turn.entity_id.to_json(),
+        "from_facing": turn.from_facing.value,
+        "to_facing": turn.to_facing.value,
+        "started_tick": turn.started_tick,
+        "duration_ticks": turn.duration_ticks,
+    }
+
+
 def _order_snapshot(order: Order | None) -> dict[str, Any] | None:
     """Return a canonical, JSON-safe snapshot of a robot's ``Order``, or ``None``.
 
@@ -341,6 +356,18 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
 
     Extended again by CR002.3 (#170) with ``exit_steps_remaining``, appended
     last: the steps left in a launched robot's walk out of its war base.
+
+    Extended again (owner decision, 2026-09-23) with ``turning``, appended
+    last: an in-progress 90-degree turn. A robot mid-turn neither moves nor
+    fires, so a snapshot that dropped it would let a restored robot act a
+    turn early.
+
+    Extended again (owner request, 2026-09-23) with ``facing``, appended
+    last: the cardinal direction the robot's body faces, which the frontend
+    needs to pick the right one of the four per-piece Spectrum sprites. It
+    is presentation-only state (see :class:`~nether_earth.robot.RobotFacing`)
+    but still authoritative per-robot state, so a snapshot that dropped it
+    would make a restored robot face south again.
     """
     return {
         "entity_id": robot.entity_id.to_json(),
@@ -360,6 +387,8 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
         "strength": robot.strength,
         "last_fire_tick": robot.last_fire_tick,
         "exit_steps_remaining": robot.exit_steps_remaining,
+        "facing": robot.facing.value,
+        "turning": _robot_turn_transition_snapshot(robot.turning),
     }
 
 

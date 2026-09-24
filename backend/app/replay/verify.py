@@ -148,8 +148,6 @@ def _command_from_json(data: dict[str, Any]) -> Command:
             sequence=sequence,
             entity_id=EntityId.from_json(data["entity_id"]),
             weapon=ModuleIdentity(data["weapon"]),
-            target_x=data["target_x"],
-            target_y=data["target_y"],
         )
     if kind == "set_robot_order":
         return SetRobotOrderCommand(

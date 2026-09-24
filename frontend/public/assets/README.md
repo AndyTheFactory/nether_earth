@@ -80,7 +80,7 @@ sprites" (and its "Known gap" note on robot facing); summary:
 | category | generated file | decoder | sprite(s) |
 |----------|----------------|---------|-----------|
 | commander | `src/render/commander-sprites.ts` | `frontend/scripts/decode-unit-sprites.py commander` | `L8e3a_iso_additional_graphic_0`, one frame, no facing (`Lcd83_render_player`) |
-| robot pieces | `src/render/robot-sprites.ts` | `frontend/scripts/decode-unit-sprites.py robot` | direction 0 of each of the 8 `Ld7b4_piece_heights` pieces (`Ld6c8_piece_direction_graphic_indices` / `Ld740_isometric_graphic_pointers`); the other 3 cardinal directions are decoded in the script's docstring but not wired in (no facing field in the snapshot protocol) |
+| robot pieces | `src/render/robot-sprites.ts` | `frontend/scripts/decode-unit-sprites.py robot` | all 4 cardinal directions of each of the 8 `Ld7b4_piece_heights` pieces (`Ld6c8_piece_direction_graphic_indices` / `Ld740_isometric_graphic_pointers`), selected by the snapshot's `facing` field; several pieces reuse one sprite across 2 or 4 directions, which is the original table's own repetition. The direction-column order (east, west, south, north) is read off `Lcf08_direction_loop`'s set-bit index — see the script's docstring |
 | war-base/factory walls | `src/render/scenery-sprites.ts` (`spectrum.element_15`/`_16`) | `frontend/scripts/decode-scenery-sprites.py` (same map-element decode as scenery) | `L9914_iso_additional_graphic_18` (height 7), `L9b18_iso_additional_graphic_20` (height 15) — the only two element types `Lbfb2_warbase`/`Lbfe2_factory` use |
 
 Rendering: `src/render/sprite-slice.ts` generalizes the scenery per-footprint-

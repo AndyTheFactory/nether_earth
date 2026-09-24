@@ -17,7 +17,22 @@ import { renderOverlay } from './ui/overlays.ts';
 import { Radar } from './ui/radar.ts';
 import { loadLabels } from './state/labels.ts';
 
+/**
+ * Version and commit this bundle was built from, logged once at boot.
+ *
+ * `VITE_APP_VERSION` comes from package.json via Vite's own env, and
+ * `VITE_GIT_COMMIT` from the image build argument (frontend/Dockerfile). A
+ * loaded page therefore states which build it is, so a stale bundle behind a
+ * cache is visible in the console instead of being mistaken for a bug.
+ */
+function logBuild(): void {
+  const version = import.meta.env.VITE_APP_VERSION ?? 'dev';
+  const commit = import.meta.env.VITE_GIT_COMMIT ?? 'unknown';
+  console.info(`Nether Earth frontend ${version} (commit ${commit})`);
+}
+
 async function main(): Promise<void> {
+  logBuild();
   const host = document.querySelector<HTMLDivElement>('#app');
   if (!host) throw new Error('Missing #app host element');
 
@@ -52,7 +67,6 @@ async function main(): Promise<void> {
 
   const keyboard = new KeyboardIntent(controller);
   bindKeyboard(window, keyboard);
-  app.canvas.addEventListener('click', (ev) => controller.aimAtCell(renderer.screenToCell(ev.offsetX, ev.offsetY)));
 
   const params = new URLSearchParams(location.search);
   store.setUi({ labels: loadLabels(location.search) });
@@ -80,7 +94,7 @@ async function main(): Promise<void> {
     renderHud(hud, s, map);
     radar.update(s.ui.screen === 'match', s.latest, s.connection.session?.playerId ?? null, now);
     ui.classList.toggle('menu-open', menuColumnShown(s));
-    renderMenus(menus, s, controller.aim, controller.weaponIndex);
+    renderMenus(menus, s, controller.weaponIndex);
     const cs = s.ui.screen === 'match' && s.latest ? myConstruction(s.latest, s.connection.session?.playerId ?? '') : null;
     construction.update(cs, controller.buildCursor, window.innerWidth, window.innerHeight);
     renderOverlay(overlay, s, Date.now());

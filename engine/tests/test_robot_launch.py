@@ -28,7 +28,7 @@ from nether_earth.movement import (
 )
 from nether_earth.reservations import reservations_from_state
 from nether_earth.resource_pool import PlayerResourcePool
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_launch import LaunchRejectionReason, launch_robot
 from nether_earth.robot_stack import derive_stack_and_height
@@ -107,7 +107,9 @@ def _session(
     )
 
 
-def _dummy_robot(owner: PlayerId, ordinal: int, x: int, y: int) -> Robot:
+def _dummy_robot(
+    owner: PlayerId, ordinal: int, x: int, y: int, facing: RobotFacing = RobotFacing.EAST
+) -> Robot:
     build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.MISSILE,))
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
     return Robot(
@@ -118,6 +120,7 @@ def _dummy_robot(owner: PlayerId, ordinal: int, x: int, y: int) -> Robot:
         build=build,
         stack=stack,
         height=height,
+        facing=facing,
     )
 
 

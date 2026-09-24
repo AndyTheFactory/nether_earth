@@ -17,6 +17,7 @@ onto the developer's filesystem outside of a ``tmp_path`` -- see
 
 import asyncio
 import logging
+import os
 import tempfile
 import time
 from collections.abc import AsyncIterator, Callable
@@ -59,6 +60,18 @@ def _release_version() -> str:
         return package_version("nether-earth-backend")
     except PackageNotFoundError:
         return "unknown"
+
+
+def _release_commit() -> str:
+    """The commit this image was built from, or ``"unknown"`` outside an image.
+
+    Baked in by ``backend/Dockerfile``'s ``GIT_COMMIT`` build argument (see
+    ``deploy/docker-compose.yml``, which passes ``NETHER_EARTH_COMMIT``).
+    Logged beside the version at startup so a running container can be
+    identified from its logs rather than guessed at from image timestamps --
+    a rebuild that silently did not happen is otherwise invisible.
+    """
+    return os.environ.get("NETHER_EARTH_COMMIT") or "unknown"
 
 
 #: How often expired matches are looked for (M10.6).
@@ -186,6 +199,7 @@ def create_app(
             extra={
                 "event": "process_started",
                 "version": _release_version(),
+                "commit": _release_commit(),
                 "environment": "production" if settings.production else "development",
                 "replay_dir": str(replay_writer.base_dir),
                 "public_base_url": settings.public_base_url,

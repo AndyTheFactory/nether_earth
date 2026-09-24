@@ -8,6 +8,9 @@ import { Panel, esc } from './dom.ts';
 
 export const CHASSIS = ['bipod', 'tracks', 'anti_grav'] as const;
 export const WEAPONS = ['cannon', 'missile', 'phaser', 'nuclear'] as const;
+/** Arrow per snapshot facing, for the combat menu's readout. */
+const FACING_ARROW: Record<string, string> = { east: '→', west: '←', south: '↓', north: '↑' };
+
 export const CAPTURE_TARGETS = ['neutral_factory', 'enemy_factory', 'enemy_war_base'] as const;
 export const DESTROY_TARGETS = ['robot', 'factory', 'war_base'] as const;
 export const MAX_ORDER_MILES = 50;
@@ -79,7 +82,7 @@ export function dayTimeLines(tick: number): [string, string] {
   return [day, time];
 }
 
-function options(s: AppState, weapons: string[], aim: { dx: number; dy: number }, weaponIndex: number, busy: boolean): string {
+function options(s: AppState, weapons: string[], facing: string, weaponIndex: number, busy: boolean): string {
   const menu = s.ui.menu;
   const cursor = s.ui.menuCursor;
   const back = (to: MenuMode) => small('ESC BACK', 'menu', to);
@@ -101,10 +104,13 @@ function options(s: AppState, weapons: string[], aim: { dx: number; dy: number }
       return block(o?.lines ?? ['', ''], true) + targets.map((t, i) => block(TARGET_LABEL[t], i === cursor, 'target', t)).join('') + back('orders');
     }
     case 'combat': {
-      const arrow = aim.dx > 0 ? '→' : aim.dx < 0 ? '←' : aim.dy > 0 ? '↓' : '↑';
+      // A shot travels in the robot's own facing (owner decision,
+      // 2026-09-23), so this reports where it points rather than an aim the
+      // player sets; the arrows turn the robot instead.
+      const arrow = FACING_ARROW[facing] ?? '?';
       return (
         block(MAIN_BLOCKS[2].lines, true) +
-        `<div class="mhint">AIM ${arrow}</div>` +
+        `<div class="mhint">FACING ${arrow}</div>` +
         `<div class="mrow">${weapons.map((w, i) => small(`${i + 1} ${w.toUpperCase()}`, 'weapon', String(i), i === weaponIndex)).join('')}</div>` +
         `<div class="mrow">${small('⏎ FIRE', 'fire')}${back('robot_menu')}</div>` +
         (busy ? '<div class="mhint">PROJECTILE IN FLIGHT</div>' : '')
@@ -169,7 +175,7 @@ export function menuColumnShown(s: AppState): boolean {
   return columnRobot(s) !== null;
 }
 
-export function renderMenus(panel: Panel, s: AppState, aim: { dx: number; dy: number }, weaponIndex: number): void {
+export function renderMenus(panel: Panel, s: AppState, weaponIndex: number): void {
   const snap = s.latest;
   const robot = columnRobot(s);
   if (!snap || !robot) {
@@ -180,7 +186,7 @@ export function renderMenus(panel: Panel, s: AppState, aim: { dx: number; dy: nu
   const [day, time] = dayTimeLines(snap.tick);
   panel.set(
     `<div class="mclock"><div>${esc(day)}</div><div>${esc(time)}</div></div>` +
-      `<div class="mopts">${options(s, b.weapons ?? [], aim, weaponIndex, !!robot.active_projectile_id)}</div>` +
+      `<div class="mopts">${options(s, b.weapons ?? [], robot.facing, weaponIndex, !!robot.active_projectile_id)}</div>` +
       `<div class="mhint">${esc(HINT[s.ui.menu])}</div>` +
       `<div class="morders"><div class="mhead">-ORDERS-</div><div class="mtext">${orderText(robot.order as Record<string, unknown> | null).split(' ').map(esc).join('<br>')}</div></div>` +
       `<div class="mstrength"><div class="mhead">STRENGTH</div><div class="mval">${esc(robot.strength)}%</div></div>`,

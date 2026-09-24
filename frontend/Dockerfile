@@ -10,6 +10,10 @@ RUN npm ci --no-audit --no-fund
 COPY data/maps /src/data/maps
 COPY protocol /src/protocol
 COPY frontend ./
+# Which commit this bundle was built from; Vite inlines VITE_* at build time
+# and main.ts logs it, so a loaded page reports its own build.
+ARG GIT_COMMIT=unknown
+ENV VITE_GIT_COMMIT=$GIT_COMMIT
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.28-alpine AS runtime

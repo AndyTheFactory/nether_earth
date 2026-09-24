@@ -48,6 +48,9 @@ CellDelta = Literal[-1, 0, 1]
 
 #: Mirrors common.schema.json `$defs.moduleIdentity`
 #: (`nether_earth.robot_build.ModuleIdentity`'s eight values).
+#: Mirrors nether_earth.robot.RobotFacing: presentation-only robot facing.
+RobotFacingWire = Literal["east", "west", "south", "north"]
+
 ModuleIdentityWire = Literal[
     "bipod", "tracks", "anti_grav", "cannon", "missile", "phaser", "nuclear", "electronics"
 ]
@@ -244,15 +247,17 @@ class DirectRobotMoveCommandPayload(ProtocolModel):
 
 
 class RobotFireCommandPayload(ProtocolModel):
-    """Mirrors `nether_earth.combat.FireCommand`."""
+    """Mirrors `nether_earth.combat.FireCommand`.
+
+    No target: a shot travels in the firing robot's own facing (owner
+    decision, 2026-09-23), so aiming means turning the robot first.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["robot_fire"]
     entity_id: EntityId
     weapon: WeaponIdentityWire
-    target_x: int
-    target_y: int
 
 
 class SetRobotOrderCommandPayload(ProtocolModel):
@@ -387,6 +392,8 @@ class RobotSnapshot(_SnapshotSubModel):
     strength: int
     last_fire_tick: int | None
     exit_steps_remaining: int
+    facing: RobotFacingWire
+    turning: dict[str, Any] | None
 
 
 class StructureOwnershipSnapshot(_SnapshotSubModel):

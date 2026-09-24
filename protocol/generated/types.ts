@@ -199,7 +199,7 @@ export interface DirectRobotMoveCommandPayload {
   dy: -1 | 0 | 1;
 }
 /**
- * Mirrors nether_earth.combat.FireCommand. targetX/targetY are ignored by the engine when weapon is nuclear (a nuclear detonation always centers on the carrier robot's own position) but are still required here for shape uniformity with the engine dataclass.
+ * Mirrors nether_earth.combat.FireCommand. There is no target: a shot travels in the firing robot's own facing (owner decision, 2026-09-23), so aiming means turning the robot first.
  *
  * This interface was referenced by `ProtocolCommon`'s JSON-Schema
  * via the `definition` "robotFireCommandPayload".
@@ -218,8 +218,6 @@ export interface RobotFireCommandPayload {
    * via the `definition` "weaponIdentity".
    */
   weapon: "cannon" | "missile" | "phaser" | "nuclear";
-  targetX: number;
-  targetY: number;
 }
 /**
  * Mirrors nether_earth.orders.SetRobotOrderCommand.
@@ -461,6 +459,16 @@ export interface SnapshotState {
     strength: number;
     last_fire_tick: number | null;
     exit_steps_remaining: number;
+    /**
+     * Mirrors nether_earth.robot.RobotFacing. Presentation-only: the cardinal direction a robot's body faces, which selects one of the four per-piece Spectrum sprites. No rule reads it.
+     *
+     * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+     * via the `definition` "robotFacing".
+     */
+    facing: "east" | "west" | "south" | "north";
+    turning: {
+      [k: string]: unknown;
+    } | null;
   }[];
   structure_ownership: {
     /**

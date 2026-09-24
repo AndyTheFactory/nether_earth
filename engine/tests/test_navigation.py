@@ -30,7 +30,7 @@ from nether_earth.navigation import (
     plan_route_to_any,
 )
 from nether_earth.reservations import apply_robot_move_batch, destination_available
-from nether_earth.robot import Robot, RobotMoveTransition
+from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -82,6 +82,7 @@ def _robot(
     chassis: ModuleIdentity = ModuleIdentity.BIPOD,
     electronics: ModuleIdentity | None = None,
     movement: RobotMoveTransition | None = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(
         chassis=chassis, weapons=(ModuleIdentity.CANNON,), electronics=electronics
@@ -96,6 +97,7 @@ def _robot(
         stack=stack,
         height=height,
         movement=movement,
+        facing=facing,
     )
 
 
@@ -137,7 +139,11 @@ def _run_to_target(
     robot: Robot,
     world: WorldMap,
     target: tuple[int, int],
-    max_ticks: int = 400,
+    # Generous because every change of direction now costs a turn as well as
+    # the step (owner decision, 2026-09-23): a route that zig-zags around an
+    # obstacle pays `robot_turn_ticks` at each corner, and a reversal pays it
+    # twice. The tests below assert the route taken, not how long it took.
+    max_ticks: int = 2000,
 ) -> tuple[NavigationStatus, tuple[int, int], int]:
     """Drive ``robot`` toward ``target`` under its own policy until it settles.
 
@@ -155,6 +161,11 @@ def _run_to_target(
         current = state.robot_for(robot.entity_id)
         assert current is not None
         decision = next_navigation_step(current, target[0], target[1], state, world)
+        if decision.status in (
+            NavigationStatus.MOVE_IN_PROGRESS,
+            NavigationStatus.TURN_IN_PROGRESS,
+        ):
+            continue  # busy this tick, not a decision
         if decision.status is NavigationStatus.ARRIVED:
             return decision.status, (current.x, current.y), tick
         if decision.status in (NavigationStatus.BLOCKED, NavigationStatus.UNREACHABLE):

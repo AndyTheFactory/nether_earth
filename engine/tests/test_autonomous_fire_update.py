@@ -37,7 +37,7 @@ from nether_earth.orders import (
     SearchDestroyTarget,
     StopAndDefend,
 )
-from nether_earth.robot import Robot, RobotMoveTransition
+from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -89,6 +89,7 @@ def _robot(
     order: object | None = None,
     strength: int = 100,
     weapons: tuple[ModuleIdentity, ...] = WEAPONS,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=chassis, weapons=weapons)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -100,6 +101,7 @@ def _robot(
         build=build,
         stack=stack,
         height=height,
+        facing=facing,
         order=order,  # type: ignore[arg-type]
         strength=strength,
     )
@@ -240,8 +242,6 @@ def test_direct_fire_is_not_tied_to_the_robot_update() -> None:
             sequence=0,
             entity_id=shooter.entity_id,
             weapon=ModuleIdentity.CANNON,
-            target_x=HUNTER_X + 2,
-            target_y=ROW,
         )
         state, events = step(state, (command,), world)
         fire_ticks += [e.tick for e in _fired_by(events, "robot-a")]

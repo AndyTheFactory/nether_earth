@@ -20,7 +20,7 @@ from nether_earth.combat import (
 from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.map import WorldMap
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing, RobotTurnTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES, EngineRules
@@ -61,6 +61,7 @@ def _robot(
     weapons: tuple[ModuleIdentity, ...] = (ModuleIdentity.CANNON,),
     electronics: ModuleIdentity | None = None,
     active_projectile_id: EntityId | None = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=ModuleIdentity.BIPOD, weapons=weapons, electronics=electronics)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -73,6 +74,7 @@ def _robot(
         stack=stack,
         height=height,
         active_projectile_id=active_projectile_id,
+        facing=facing,
     )
 
 
@@ -88,16 +90,12 @@ def _state(robots: tuple[Robot, ...] = (), projectiles: tuple[Projectile, ...] =
 def _request(
     robot_id: str = "robot-player-one-1",
     player: PlayerId = PLAYER_ONE,
-    weapon: ModuleIdentity = ModuleIdentity.CANNON,
-    target_x: int = 6,
-    target_y: int = 5,
+    weapon: ModuleIdentity = ModuleIdentity.CANNON
 ) -> FireRequest:
     return FireRequest(
         robot_id=EntityId(robot_id),
         player=player,
         weapon=weapon,
-        target_x=target_x,
-        target_y=target_y,
     )
 
 
@@ -132,46 +130,44 @@ def _projectile(
 
 
 # --- resolve_fire_direction ----------------------------------------------------
+# A shot travels in the firing robot's own facing: `Lb6d6_weapon_fire` copies
+# ROBOT_STRUCT_DIRECTION into BULLET_STRUCT_DIRECTION (owner decision,
+# 2026-09-23). There is no aiming, so no target cell and no degenerate case.
 
 
-def test_resolve_fire_direction_east() -> None:
-    robot = _robot(x=5, y=5)
-    direction = resolve_fire_direction(robot, _request(target_x=9, target_y=5))
-    assert direction == (1, 0)
+@pytest.mark.parametrize(
+    ("facing", "expected"),
+    [
+        (RobotFacing.EAST, (1, 0)),
+        (RobotFacing.WEST, (-1, 0)),
+        (RobotFacing.SOUTH, (0, 1)),
+        (RobotFacing.NORTH, (0, -1)),
+    ],
+)
+def test_a_shot_travels_in_the_robots_facing(
+    facing: RobotFacing, expected: tuple[int, int]
+) -> None:
+    assert resolve_fire_direction(_robot(x=5, y=5, facing=facing)) == expected
 
 
-def test_resolve_fire_direction_west() -> None:
-    robot = _robot(x=5, y=5)
-    direction = resolve_fire_direction(robot, _request(target_x=1, target_y=5))
-    assert direction == (-1, 0)
-
-
-def test_resolve_fire_direction_south() -> None:
-    robot = _robot(x=5, y=5)
-    direction = resolve_fire_direction(robot, _request(target_x=5, target_y=9))
-    assert direction == (0, 1)
-
-
-def test_resolve_fire_direction_north() -> None:
-    robot = _robot(x=5, y=5)
-    direction = resolve_fire_direction(robot, _request(target_x=5, target_y=1))
-    assert direction == (0, -1)
-
-
-def test_resolve_fire_direction_ties_break_toward_x() -> None:
-    robot = _robot(x=5, y=5)
-    # |dx| == |dy| == 3; x-axis should win.
-    direction = resolve_fire_direction(robot, _request(target_x=8, target_y=8))
-    assert direction == (1, 0)
-
-    direction = resolve_fire_direction(robot, _request(target_x=2, target_y=2))
-    assert direction == (-1, 0)
-
-
-def test_resolve_fire_direction_none_when_target_is_own_cell() -> None:
-    robot = _robot(x=5, y=5)
-    direction = resolve_fire_direction(robot, _request(target_x=5, target_y=5))
-    assert direction is None
+def test_a_robot_mid_turn_cannot_fire() -> None:
+    """`Lb471`'s rotate branch returns before the move/fire step."""
+    robot = _robot(x=5, y=5, facing=RobotFacing.EAST)
+    turning = robot.with_turning(
+        RobotTurnTransition(
+            entity_id=robot.entity_id,
+            from_facing=RobotFacing.EAST,
+            to_facing=RobotFacing.SOUTH,
+            started_tick=0,
+            duration_ticks=DEFAULT_RULES.robot_turn_ticks,
+        )
+    )
+    state = _state((turning,))
+    new_state, result, events = apply_fire(_request(), state, _world(), tick=1)
+    assert not result.accepted
+    assert result.reason is FireRejectionReason.TURNING
+    assert new_state is state
+    assert events == ()
 
 
 # --- apply_fire ------------------------------------------------------------------
@@ -274,23 +270,6 @@ def test_apply_fire_channel_occupied_rejection() -> None:
     assert result.reason is FireRejectionReason.CHANNEL_OCCUPIED
     assert new_state is state
     assert events == ()
-
-
-def test_apply_fire_rejects_degenerate_aim_at_own_cell() -> None:
-    robot = _robot(x=5, y=5, weapons=(ModuleIdentity.CANNON,))
-    state = _state((robot,))
-    world = _world()
-
-    new_state, result, events = apply_fire(
-        _request(target_x=5, target_y=5), state, world, tick=1
-    )
-
-    assert not result.accepted
-    assert result.reason is FireRejectionReason.TARGET_OUT_OF_RANGE
-    assert new_state is state
-    assert events == ()
-    assert new_state.projectiles == ()
-
 
 def test_apply_fire_nuclear_accepted_creates_no_projectile_and_no_channel_touch() -> None:
     robot = _robot(weapons=(ModuleIdentity.NUCLEAR,))
@@ -660,7 +639,7 @@ def _fly_until_terminated(
     every cadence advance that moved it; a direct shot is held for the rest
     of its fire cycle).
     """
-    request = _request(robot_id=robot.entity_id.value, weapon=robot.build.weapons[0], target_x=robot.x + 1)
+    request = _request(robot_id=robot.entity_id.value, weapon=robot.build.weapons[0])
     state, result, _ = apply_fire(
         request, _state((robot,)), world, tick=0, rules=rules, autonomous=autonomous
     )
@@ -891,7 +870,7 @@ def test_target_two_or_three_cells_away_is_hit_on_the_fire_tick(distance: int) -
     firer = _robot(entity_id="robot-firer", x=5, y=5)
     target = _tall(_robot(entity_id="robot-target", owner=PLAYER_TWO, x=5 + distance, y=5))
     state = _state((firer, target))
-    request = _request(robot_id="robot-firer", target_x=5 + distance)
+    request = _request(robot_id="robot-firer")
 
     new_state, result, events = apply_fire(request, state, _world(), tick=5)
 
@@ -984,7 +963,7 @@ def test_fire_cycle_timeline_keeps_the_total_range(
     firer = _robot(entity_id="robot-firer", x=2, y=5)
     world = _world(width=40)
     state, _, _ = apply_fire(
-        _request(robot_id="robot-firer", target_x=3), _state((firer,)), world, tick=5,
+        _request(robot_id="robot-firer"), _state((firer,)), world, tick=5,
         autonomous=autonomous,
     )
     positions = {5: state.projectiles[0].x}

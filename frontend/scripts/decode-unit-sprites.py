@@ -18,13 +18,18 @@ one of 4 cardinal directions decoded from the robot's one-hot
 ``Ld6e8_additional_isometric_graphic_pointers`` table, and drawing the sprite
 at (that index - 22) * 2 of the following ``Ld740_isometric_graphic_pointers``
 table (58 pointers, confirmed by its own inline per-piece comments: "tracks",
-"bipod", "antigrav", "cannon", "missiles", "phaser", "nuclear"). This script
-decodes direction 0 of each piece (the first column of
-``Ld6c8_piece_direction_graphic_indices``); see the direction table below for
-the other 3 columns, which are not currently wired into the frontend because
-the WebSocket snapshot protocol does not expose a robot facing/direction
-field (a presentation-only gap, not a gameplay one -- see
-``_specs/open-questions.md``).
+"bipod", "antigrav", "cannon", "missiles", "phaser", "nuclear"). This script decodes
+all 4 columns of ``Ld6c8_piece_direction_graphic_indices`` per piece (owner
+request, 2026-09-23; the snapshot protocol now carries a ``facing`` field,
+which closes the gap ``_specs/open-questions.md`` logged under "Known gap,
+not resolved here: robot facing").
+
+The column order below -- east, west, south, north -- is read off the code,
+not assumed. ``Lcefd_draw_robot_piece_to_buffer``'s ``Lcf08_direction_loop``
+shifts the one-hot ``ROBOT_STRUCT_DIRECTION`` right until carry, counting
+the set bit's position into ``b``, and indexes the table at
+``4 * piece + b``; ``Lb724_bullet_update_internal``'s ``rrca`` chain walks
+the same bits as right, left, down, up, i.e. ``+x``, ``-x``, ``+y``, ``-y``.
 
 Full 4-direction table (piece: dir0, dir1, dir2, dir3), each entry is a label
 in ``Ld740_isometric_graphic_pointers``:
@@ -59,16 +64,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _netherearth_gfx import decode  # noqa: E402
 
-# Direction-0 label per robot piece (see module docstring for all 4 columns).
+#: Facing order of the 4 ``Ld6c8_piece_direction_graphic_indices`` columns.
+#: See the module docstring: this ordering is read off ``Lcf08_direction_loop``'s
+#: set-bit index and ``Lb724``'s ``rrca`` chain (east 1, west 2, south 4, north 8).
+FACINGS = ("east", "west", "south", "north")
+
+#: One label per (piece, facing), in ``FACINGS`` order. Read straight off
+#: ``Ld6c8_piece_direction_graphic_indices``; repeats are the table's own
+#: (anti_grav and nuclear reuse one sprite for all 4 directions,
+#: bipod/tracks/missile one per pair).
 ROBOT_PIECE_SPRITES = [
-    ("bipod", "L6c8a_iso_graphic_4"),
-    ("tracks", "L6980_iso_graphic_0"),
-    ("anti_grav", "L6fcc_iso_graphic_8"),
-    ("cannon", "L7112_iso_graphic_10"),
-    ("missile", "L7750_iso_graphic_18"),
-    ("phaser", "L7a5a_iso_graphic_22"),
-    ("nuclear", "L808a_iso_graphic_30"),
-    ("electronics", "L8224_iso_graphic_32"),
+    ("bipod", ("L6c8a_iso_graphic_4", "L6c8a_iso_graphic_4", "L6e32_iso_graphic_6", "L6e32_iso_graphic_6")),
+    ("tracks", ("L6980_iso_graphic_0", "L6980_iso_graphic_0", "L6afe_iso_graphic_2", "L6afe_iso_graphic_2")),
+    ("anti_grav", ("L6fcc_iso_graphic_8",) * 4),
+    ("cannon", ("L7112_iso_graphic_10", "L729e_iso_graphic_12", "L7446_iso_graphic_14", "L75ee_iso_graphic_16")),
+    ("missile", ("L7750_iso_graphic_18", "L7750_iso_graphic_18", "L78ce_iso_graphic_20", "L78ce_iso_graphic_20")),
+    ("phaser", ("L7a5a_iso_graphic_22", "L7be6_iso_graphic_24", "L7d80_iso_graphic_26", "L7f1a_iso_graphic_28")),
+    ("nuclear", ("L808a_iso_graphic_30",) * 4),
+    ("electronics", ("L8224_iso_graphic_32", "L8348_iso_graphic_34", "L846c_iso_graphic_36", "L8590_iso_graphic_38")),
 ]
 
 COMMANDER_SPRITE = ("spectrum.commander", "L8e3a_iso_additional_graphic_0")
@@ -79,19 +92,23 @@ def emit_robot(lines: list[str]) -> None:
     print("// santiontanon/netherearth-disassembly graphic data; do not edit by hand.")
     print("// Provenance and licensing: frontend/public/assets/README.md.")
     print("// Rows top first: '#' ink, '.' paper, ' ' transparent.")
-    print("// Direction 0 only (see the script's docstring for the other 3 cardinal")
-    print("// directions the disassembly encodes per piece; not wired in yet -- the")
-    print("// snapshot protocol carries no robot facing field).")
-    print("import type { ModuleId } from './robot.ts';")
+    print("// One sprite per (piece, facing). Several pieces reuse one sprite for")
+    print("// more than one facing -- that repetition is the disassembly's own table,")
+    print("// not a decode shortcut. The facing order is read off Lcf08_direction_loop's")
+    print("// set-bit index and Lb724's rrca chain (east 1, west 2, south 4, north 8).")
+    print("import type { ModuleId, RobotFacing } from './robot.ts';")
     print("")
-    print("export const ROBOT_SPRITES: Record<ModuleId, readonly string[]> = {")
-    for module_id, label in ROBOT_PIECE_SPRITES:
-        rows = decode(lines, label)
-        print(f"  // {label} (direction 0), {len(rows[0])}x{len(rows)}")
-        print(f"  {module_id}: [")
-        for row in rows:
-            print(f"    '{row}',")
-        print("  ],")
+    print("export const ROBOT_SPRITES: Record<ModuleId, Record<RobotFacing, readonly string[]>> = {")
+    for module_id, labels in ROBOT_PIECE_SPRITES:
+        print(f"  {module_id}: {{")
+        for facing, label in zip(FACINGS, labels, strict=True):
+            rows = decode(lines, label)
+            print(f"    // {label}, {len(rows[0])}x{len(rows)}")
+            print(f"    {facing}: [")
+            for row in rows:
+                print(f"      '{row}',")
+            print("    ],")
+        print("  },")
     print("};")
 
 

@@ -20,7 +20,6 @@ export const CURSOR_REPEAT_MS = 200;
 
 export class GameController implements InputSink {
   sender: CommandSender;
-  aim: MoveIntent = { dx: 1, dy: 0 };
   weaponIndex = 0;
   /** Construction-screen cursor (UI-only; resets on every new session). */
   buildCursor: BuildCursor | null = null;
@@ -214,7 +213,10 @@ export class GameController implements InputSink {
         this.sender.command({ kind: 'direct_robot_move', dx: intent.dx, dy: intent.dy });
         return;
       case 'combat':
-        this.aim = intent;
+        // There is no aiming (owner decision, 2026-09-23): a shot goes where
+        // the robot faces, so the combat menu's arrows drive the robot, which
+        // turns it. Turning costs ticks, so a reversal takes two nudges.
+        this.sender.command({ kind: 'direct_robot_move', dx: intent.dx, dy: intent.dy });
         return;
       case 'order_distance':
         this.adjustDistance(intent.dx !== 0 ? intent.dx : -intent.dy);
@@ -448,7 +450,7 @@ export class GameController implements InputSink {
         const weapons = ((robot.build as { weapons?: string[] }).weapons ?? []) as ('cannon' | 'missile' | 'phaser' | 'nuclear')[];
         const weapon = weapons[this.weaponIndex] ?? weapons[0];
         if (!weapon) return;
-        this.sender.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon, targetX: robot.x + this.aim.dx, targetY: robot.y + this.aim.dy });
+        this.sender.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon });
         this.store.setUi({ notice: `fire ${weapon}` });
         return;
       }
@@ -477,16 +479,6 @@ export class GameController implements InputSink {
     }
   }
 
-  /** Click-to-aim in combat mode: target the clicked cell. */
-  aimAtCell(cell: { x: number; y: number }): void {
-    const s = this.store.get();
-    if (s.ui.menu !== 'combat' || !s.latest) return;
-    const robot = dockedRobot(s.latest, s.connection.session?.playerId ?? '');
-    if (!robot) return;
-    const dx = Math.sign(cell.x - robot.x) as -1 | 0 | 1;
-    const dy = Math.sign(cell.y - robot.y) as -1 | 0 | 1;
-    if (dx !== 0 || dy !== 0) this.aim = dx !== 0 ? { dx, dy: 0 } : { dx: 0, dy };
-  }
 }
 
 /** Menu modes whose block list is keyboard-navigable (CR003.241: arrows/WASD move, Space activates). */

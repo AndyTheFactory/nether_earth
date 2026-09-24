@@ -1,11 +1,11 @@
 {
   "name": "nether-earth-frontend",
   "private": true,
-  "version": "1.0.0-rc1",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run map:generate && tsc --noEmit && vite build",
+    "build": "npm run map:generate && tsc --noEmit && VITE_APP_VERSION=$npm_package_version vite build",
     "typecheck": "tsc --noEmit",
     "protocol:validate": "node scripts/validate-protocol.mjs",
     "protocol:generate": "node scripts/generate-protocol.mjs",

@@ -49,7 +49,7 @@ from nether_earth.orders import (
     SetRobotOrderCommand,
     StopAndDefend,
 )
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState
@@ -177,6 +177,18 @@ class Api:
         yield lambda s: len(s.robots_for(player)) > len(before)
 
     def direct_move(self, player: PlayerId, dx: int, dy: int, cells: int) -> Iterator[Predicate]:
+        """Drive the docked robot ``cells`` steps, re-issuing across turns.
+
+        A direct-control command is one-shot, and since the owner decision of
+        2026-09-23 a step in a direction the robot is not facing spends that
+        command rotating 90 degrees instead of moving (`Lb471`) -- so one cell
+        can cost three commands: two rotations for a reversal, then the move.
+        The wait therefore still ends only on arrival, and re-issues the
+        command whenever the robot falls idle short of the goal. Re-issuing
+        from inside the predicate is what lets it happen while waiting: the
+        runner drains the outbox every tick, and the generator only resumes
+        once the predicate is true.
+        """
         commander = self.state.commander_for(player)
         assert commander is not None and commander.docked_robot_id is not None
         robot_id = commander.docked_robot_id
@@ -184,8 +196,48 @@ class Api:
             robot = self.state.robot_for(robot_id)
             assert robot is not None
             goal = (robot.x + dx, robot.y + dy)
+
+            def arrived(s: GameState, g: tuple[int, int] = goal) -> bool:
+                r = s.robot_for(robot_id)
+                if r is None:
+                    return False
+                if (r.x, r.y) == g:
+                    return True
+                if r.movement is None and r.turning is None:
+                    self.cmd(DirectRobotMoveCommand, player, dx=dx, dy=dy)
+                return False
+
             self.cmd(DirectRobotMoveCommand, player, dx=dx, dy=dy)
-            yield lambda s, g=goal: (r := s.robot_for(robot_id)) is not None and (r.x, r.y) == g
+            yield arrived
+
+    def face(self, player: PlayerId, dx: int, dy: int) -> Iterator[Predicate]:
+        """Turn the docked robot to face ``(dx, dy)`` without moving it.
+
+        Since 2026-09-23 a shot travels in the robot's own facing, and the
+        only way to turn under direct control is to ask for a step that way:
+        `Lb471` rotates and returns without advancing. Asking once per
+        rotation and stopping as soon as the facing matches therefore turns
+        the robot in place -- the command that *would* move it is never sent.
+        """
+        commander = self.state.commander_for(player)
+        assert commander is not None and commander.docked_robot_id is not None
+        robot_id = commander.docked_robot_id
+        wanted = RobotFacing.from_step(dx, dy)
+        assert wanted is not None
+        for _attempt in range(3):  # a reversal is two rotations
+            robot = self.state.robot_for(robot_id)
+            assert robot is not None
+            if robot.facing is wanted:
+                return
+            facing_before = robot.facing
+            self.cmd(DirectRobotMoveCommand, player, dx=dx, dy=dy)
+            yield lambda s, f=facing_before: (
+                (r := s.robot_for(robot_id)) is not None
+                and r.facing is not f
+                and r.turning is None
+            )
+        robot = self.state.robot_for(robot_id)
+        assert robot is not None and robot.facing is wanted
 
     def drive_to(self, player: PlayerId, x: int, y: int) -> Iterator[Predicate]:
         """Direct-control the docked robot along the row first, then the column, one cell per move."""
@@ -299,8 +351,29 @@ def player_one(api: Api) -> Actor:
     # Direct fire at the adjacent factory wall: a normal weapon never destroys a structure.
     scout = api.state.robot_for(P1_SCOUT)
     assert scout is not None
-    api.cmd(FireCommand, PLAYER_ONE, entity_id=P1_SCOUT, weapon=ModuleIdentity.CANNON, target_x=scout.x - 1, target_y=scout.y)
-    yield lambda s: (r := s.robot_for(P1_SCOUT)) is not None and r.active_projectile_id is not None
+    # A shot goes where the robot faces (owner decision, 2026-09-23). The
+    # scout took the factory's capture cell by stepping into its doorway, so
+    # it is already pointed at the structure and needs no aiming -- which is
+    # just as well, since turning is only possible under direct control.
+    # Stop it first. Since capture target selection re-opens on every
+    # ownership change (owner decision, 2026-09-23) the scout sets off for
+    # the next neutral factory the moment this one falls, and a robot that is
+    # moving or mid-turn cannot fire.
+    api.cmd(
+        SetRobotOrderCommand, PLAYER_ONE, entity_id=P1_SCOUT, order=StopAndDefend()
+    )
+    yield lambda s: (
+        (r := s.robot_for(P1_SCOUT)) is not None
+        and r.movement is None
+        and r.turning is None
+    )
+    api.cmd(FireCommand, PLAYER_ONE, entity_id=P1_SCOUT, weapon=ModuleIdentity.CANNON)
+    # Waits on `last_fire_tick`, not on the combat channel filling and
+    # emptying. Facing north out of the doorway the wall is two cells away,
+    # and a projectile makes its first 2-cell move on the fire tick
+    # (`Lb6d6_weapon_fire`), so this shot hits the structure and terminates
+    # within its own tick -- the channel is never occupied to observe.
+    yield lambda s: (r := s.robot_for(P1_SCOUT)) is not None and r.last_fire_tick is not None
     yield lambda s: (r := s.robot_for(P1_SCOUT)) is not None and r.active_projectile_id is None
     api.mark("p1 scout fired at a structure")
 
@@ -369,7 +442,7 @@ def player_one(api: Api) -> Actor:
     # (OQ §19): the striker must still be alive, and the nuclear module is
     # fired directly.
     assert api.state.robot_for(P1_STRIKER) is not None, "striker detonated autonomously (OQ §19)"
-    api.cmd(FireCommand, PLAYER_ONE, entity_id=P1_STRIKER, weapon=ModuleIdentity.NUCLEAR, target_x=enemy[0], target_y=enemy[1])
+    api.cmd(FireCommand, PLAYER_ONE, entity_id=P1_STRIKER, weapon=ModuleIdentity.NUCLEAR)
     yield lambda s: EntityId("warbase-4") in s.structure_destruction
     api.mark("p1 destroyed warbase-4")
 
@@ -404,7 +477,7 @@ def player_two(api: Api) -> Actor:
     guard = api.state.robot_for(P2_GUARD)
     striker = api.state.robot_for(P1_STRIKER)
     assert guard is not None and striker is not None
-    api.cmd(FireCommand, PLAYER_TWO, entity_id=P2_GUARD, weapon=ModuleIdentity.CANNON, target_x=striker.x, target_y=striker.y)
+    api.cmd(FireCommand, PLAYER_TWO, entity_id=P2_GUARD, weapon=ModuleIdentity.CANNON)
     api.mark("p2 guard fired directly")
 
 
@@ -589,6 +662,13 @@ async def drive_runtime(world: WorldMap, replay_dir: object) -> RuntimeRun:
         await runtime._advance_one_tick()
         assert match.game_state is not None
         api.state = match.game_state
+    # Let the script observe the final state once the match is over. Victory
+    # is decided in the same authoritative step as the war base's
+    # destruction, so without this the loop exits on that very tick and the
+    # script never sees `structure_destruction` -- it would look like the
+    # detonation milestone was never reached when in fact it was the winning
+    # blow. Only the observation runs; no further tick is simulated.
+    scheduler.collect_commands()
     return RuntimeRun(
         match_id=match.match_id,
         match=match,

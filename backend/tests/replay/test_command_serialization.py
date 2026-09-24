@@ -137,7 +137,7 @@ def test_set_robot_order_command_with_bound_advance_target_round_trips(tmp_path:
         player=PLAYER_ONE,
         sequence=1,
         entity_id=EntityId("robot-1"),
-        order=Advance(distance_miles=10, target_x=42),
+        order=Advance(distance_miles=10),
     )
     assert _round_trip(tmp_path, "m-set-order-bound", 1, command) == command
 
@@ -151,8 +151,6 @@ def test_robot_fire_normal_weapon_command_round_trips(tmp_path: Path) -> None:
         sequence=1,
         entity_id=EntityId("robot-1"),
         weapon=ModuleIdentity.CANNON,
-        target_x=5,
-        target_y=7,
     )
     assert _round_trip(tmp_path, "m-fire-normal", 1, command) == command
 
@@ -163,8 +161,6 @@ def test_robot_fire_nuclear_command_round_trips(tmp_path: Path) -> None:
         sequence=1,
         entity_id=EntityId("robot-1"),
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=0,
-        target_y=0,
     )
     assert _round_trip(tmp_path, "m-fire-nuclear", 1, command) == command
 
@@ -207,8 +203,6 @@ def test_every_subsystem_command_replays_through_the_real_engine(tmp_path: Path)
                 sequence=9,
                 entity_id=EntityId("no-such-robot"),
                 weapon=ModuleIdentity.CANNON,
-                target_x=5,
-                target_y=7,
             ),
         ),
         10: (
@@ -217,8 +211,6 @@ def test_every_subsystem_command_replays_through_the_real_engine(tmp_path: Path)
                 sequence=10,
                 entity_id=EntityId("no-such-robot"),
                 weapon=ModuleIdentity.NUCLEAR,
-                target_x=0,
-                target_y=0,
             ),
         ),
     }

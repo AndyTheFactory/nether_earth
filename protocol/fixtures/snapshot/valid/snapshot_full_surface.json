@@ -84,7 +84,9 @@
         "active_projectile_id": "projectile-1",
         "strength": 80,
         "last_fire_tick": 40,
-        "exit_steps_remaining": 0
+        "exit_steps_remaining": 0,
+        "facing": "south",
+        "turning": null
       }
     ],
     "structure_ownership": [

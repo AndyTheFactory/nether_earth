@@ -260,8 +260,6 @@ def _command_fields_to_json(command: Command) -> dict[str, Any]:
         return {
             "entity_id": command.entity_id.to_json(),
             "weapon": command.weapon.value,
-            "target_x": command.target_x,
-            "target_y": command.target_y,
         }
     if isinstance(command, SetRobotOrderCommand):
         return {"entity_id": command.entity_id.to_json(), "order": order_to_json(command.order)}

@@ -1101,8 +1101,22 @@ def _evaluate_capture(
 ) -> OrderEvaluation:
     """Evaluate a ``SearchCapture`` order (Spectrum ``Lb289``, CR003.2).
 
-    Keeps the stored target while it still matches the order; otherwise
-    selects a new one, skipping ``claimed``. The order is always kept:
+    Re-selects the nearest matching target on every evaluation, skipping
+    ``claimed``, so a structure that changes hands nearer to the robot than
+    its stored target pulls it in (owner decision, 2026-09-23). Before that
+    decision the stored target was held for as long as it still matched the
+    order -- Spectrum-faithful (``Lb289`` only retargets once the stored
+    target's ownership stops matching), but on a 512-cell map it meant a
+    robot could walk hundreds of cells past structures that became valid
+    targets behind it. The order itself is still never dropped or completed
+    (CR003.2 is unchanged in that respect).
+
+    The one case that keeps the stored target regardless is a capture
+    already under way: a robot standing on its target's capture footprint
+    holds it, because `capture.py` resets an interrupted capture to zero
+    (`_specs/open-questions.md` §7) and a robot that re-aimed mid-capture
+    would abandon 72 seconds of progress and could be pulled off every
+    target in turn without ever finishing one.
 
     - no matching target -> hold with the defensive intent, retry next tick
       (a player robot's ``ld c, 0; ret``);
@@ -1119,14 +1133,22 @@ def _evaluate_capture(
         for structure in _structures_of_kind(world, structure_kind):
             if structure.id == order.structure_id:
                 current = _capture_candidate(robot, order.target, structure, state, world)
-    if current is not None:
+    # A capture in progress is never abandoned for a nearer target.
+    if current is not None and (robot.x, robot.y) in current.goal_cells:
+        return _hold(robot, order, state)
+
+    selected = select_capture_target(robot, order.target, state, world, exclude=claimed)
+    if selected is None:
+        # Nothing matches now. Keep walking to the stored target if it is
+        # still valid (it is excluded from `claimed` only for *other*
+        # robots, so this is the robot's own standing choice), else hold.
+        if current is None:
+            return _hold(robot, order, state)
         goal = _nearest_cell(robot, current.goal_cells)
     else:
-        selected = select_capture_target(robot, order.target, state, world, exclude=claimed)
-        if selected is None:
-            return _hold(robot, order, state)
         structure_id, goal = selected
-        order = replace(order, structure_id=structure_id)
+        if structure_id != order.structure_id:
+            order = replace(order, structure_id=structure_id)
     if goal is None or (robot.x, robot.y) == goal:
         return _hold(robot, order, state)
     evaluation = _navigate(robot, goal, order, state, world, rules)

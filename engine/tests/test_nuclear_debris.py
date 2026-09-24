@@ -34,7 +34,7 @@ from nether_earth.movement import (
     RobotMoveStartedEvent,
     validate_robot_move,
 )
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
@@ -67,11 +67,13 @@ def _robot(
     *,
     chassis: ModuleIdentity = ModuleIdentity.BIPOD,
     weapons: tuple[ModuleIdentity, ...] = (ModuleIdentity.CANNON,),
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=chassis, weapons=weapons)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
     return Robot(
-        entity_id=EntityId(entity_id), owner=PLAYER_ONE, x=x, y=y, build=build, stack=stack, height=height
+        entity_id=EntityId(entity_id), owner=PLAYER_ONE, x=x, y=y, build=build, stack=stack, height=height,
+        facing=facing,
     )
 
 
@@ -214,8 +216,6 @@ def test_robots_cross_debris_at_rough_speed_through_engine_step(world: WorldMap)
         sequence=0,
         entity_id=carrier.entity_id,
         weapon=ModuleIdentity.NUCLEAR,
-        target_x=CARRIER_CELL[0],
-        target_y=CARRIER_CELL[1],
     )
     move_east = RobotMoveRequest(entity_id=EntityId("robot-mover"), dx=1, dy=0)
 
@@ -291,8 +291,6 @@ def test_blast_replay_is_deterministic_and_snapshotted(world: WorldMap) -> None:
             sequence=0,
             entity_id=carrier.entity_id,
             weapon=ModuleIdentity.NUCLEAR,
-            target_x=CARRIER_CELL[0],
-            target_y=CARRIER_CELL[1],
         )
         state, _ = step(state, [fire], world=world)
         for _tick in range(5):

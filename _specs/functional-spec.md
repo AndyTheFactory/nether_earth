@@ -219,11 +219,11 @@ There are six factory production categories:
 - phaser;
 - cannon.
 
-Neutral factories become owned by the first qualifying robot under the verified original behavior.
-
 A robot occupies a structure's capture cell when its **anchor** is on that cell; a body that merely covers the cell does not count.
 
-Enemy factory and war-base capture use continuous occupation by default:
+Factory and war-base capture use continuous occupation, whether the structure is enemy-owned or neutral (owner decision, 2026-09-23). A neutral structure differs only in that any player's robot qualifies as an occupier; it earns no discount on the duration. This deliberately departs from the verified original behavior, under which a neutral factory was acquired instantly by the first qualifying robot.
+
+Capture rules:
 
 - duration: 12 in-game hours = 1,440 ticks = 72 real seconds;
 - if qualifying occupation breaks, progress resets immediately to zero;
@@ -388,7 +388,7 @@ Supported orders:
 - **Stop & Defend** — hold position and engage valid enemies (a newly launched robot first walks out of its war base, §11);
 - **Advance N** — move East 0–50 miles, then Stop & Defend;
 - **Retreat N** — move West 0–50 miles, then Stop & Defend;
-- **Search & Capture** — target neutral factories, enemy factories, or war bases. The order never completes: the robot walks to the nearest matching structure that no other friendly robot with the same order already targets, holds its capture cell until the structure changes hands, then retargets and leaves. With no matching structure it keeps the order and holds position (still defending) until one appears (CR003.2 #217, Spectrum `Lb289`/`Lb36c`; `open-questions.md` "Capture order lifecycle");
+- **Search & Capture** — target neutral factories, enemy factories, or war bases. The order never completes: the robot walks to the nearest matching structure that no other friendly robot with the same order already targets, holds its capture cell until the structure changes hands, then retargets and leaves. Selection is re-run on every evaluation (owner decision, 2026-09-23), so a structure that changes hands nearer to the robot than its current target pulls it in — except while the robot is already standing on its target's capture cell, where the capture in progress is never abandoned. With no matching structure it keeps the order and holds position (still defending) until one appears (CR003.2 #217, Spectrum `Lb289`/`Lb36c`; `open-questions.md` "Capture order lifecycle");
 - **Search & Destroy** — target robots, factories, or war bases.
 
 Invalid/impossible orders fall back to Stop & Defend. Search & Capture never falls back (above). Search & Destroy against robots falls back only when no hostile robot remains; while one exists the robot closes on its body and engages it (CR003.4 #219).
@@ -400,6 +400,18 @@ Search & Destroy against factories or war bases requires a nuclear weapon. A rob
 ### Autonomous nuclear use
 
 An autonomous robot detonates its nuclear weapon only when it is on a Search & Destroy order against a factory or war base and arrives on its target structure's target cell (the same cell a Search & Capture order navigates to). No other order ever detonates it: Stop & Defend, Advance, Retreat, Search & Capture, and Search & Destroy against robots use normal weapons only. A player can still detonate manually under direct control. See `open-questions.md` §19.
+
+### Facing
+
+A robot faces one of the four cardinal directions. It is launched facing south — the direction it walks out of its war base's doorway — and turns to face each step it takes; a step that is rejected, or a tick in which it fires instead of moving, does not turn it.
+
+Facing selects which of the four per-piece sprites the original encodes, and it decides where a shot goes (owner decision, 2026-09-23): a projectile always travels in the firing robot's facing, matching `Lb6d6_weapon_fire`, which copies the robot's direction into the bullet's. There is no aiming — to shoot a different way a robot must turn.
+
+Turning costs time. A robot that wants to step or shoot in a direction it does not face spends one update rotating 90 degrees toward it and does not move that update (`Lb471`). A 180-degree reversal therefore takes two rotations, passing through a perpendicular direction on the way, and a robot mid-turn can neither move nor fire. The duration is centralized rule data (`robot_turn_ticks`, one Spectrum game cycle).
+
+An autonomous robot with an enemy in range but the wrong facing turns toward it first and fires once the turn lands. A robot standing on a capture cell is the exception: it never turns for combat, because an interrupted capture resets to zero.
+
+The original's facing-direction bonus to the autonomous fire-decision *scan* (10 cells ahead rather than 8) is still not adopted; see `open-questions.md` §8.
 
 ### Navigation intelligence
 
