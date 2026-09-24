@@ -79,6 +79,7 @@ export class WorldRenderer {
   private readonly sceneryTextures = new Map<string, { slice: SpriteSlice; texture: Texture }[]>();
   private lastStructureKey = '';
   private terrainBandDrawn: { x0: number; x1: number } | null = null;
+  private spritedTerrain: Set<string> | null = null;
   private lastResync = -1;
   private prevSnapshot: SnapshotState | null = null;
   private fx: Effect[] = [];
@@ -109,15 +110,43 @@ export class WorldRenderer {
     this.terrainBandDrawn = band;
     const g = this.terrain;
     g.clear();
+    const drawn = this.spritedTerrainCells();
     for (let y = 0; y < this.map.height; y++) {
       for (let x = band.x0; x <= band.x1; x++) {
-        const t = terrainAt(this.map, x, y);
+        // A cell a terrain sprite covers keeps the plain ground checker: the
+        // sprite draws the rough/mountain/ditch itself, over transparent
+        // paper, so tinting the ground under it only showed through as a
+        // block of colour around the drawing. Cells with no sprite (an
+        // unmapped element type, or no terrain manifest at all) keep the
+        // per-class tint as the fallback look.
+        const t = drawn.has(`${x},${y}`) ? 'normal' : terrainAt(this.map, x, y);
         const id = `terrain.${t}` as SemanticAsset;
         const base = colorFor(id);
         drawDiamond(g, x, y, (x + y) % 2 ? base : shade(base, 1.12));
       }
     }
     this.drawTerrainElements(band);
+  }
+
+  /**
+   * The cells covered by a terrain element that actually has a sprite to
+   * draw, keyed "x,y". Computed once: the map's elements are static.
+   */
+  private spritedTerrainCells(): Set<string> {
+    if (this.spritedTerrain) return this.spritedTerrain;
+    const out = new Set<string>();
+    const manifest = terrainManifest();
+    if (manifest) {
+      for (const e of this.map.terrain.elements) {
+        const entry = terrainElementAsset(manifest, e.type, e.y);
+        if (!entry || !SCENERY_SPRITES[entry.asset.sprite]) continue;
+        for (let dy = 0; dy > -entry.asset.footprint[1]; dy--) {
+          for (let dx = 0; dx < entry.asset.footprint[0]; dx++) out.add(`${e.x + dx},${e.y + dy}`);
+        }
+      }
+    }
+    this.spritedTerrain = out;
+    return out;
   }
 
   /**
@@ -289,7 +318,7 @@ export class WorldRenderer {
     let t = this.sceneryTextures.get(id);
     if (!t) {
       const ink = parseColor(asset.ink, PALETTE.black);
-      const paper = parseColor(asset.paper, PALETTE.yellow);
+      const paper = asset.paper === 'none' ? null : parseColor(asset.paper, PALETTE.yellow);
       t = sliceSprite(asset).map((slice) => ({ slice, texture: pixelTexture(slice.rows, ink, paper) }));
       this.sceneryTextures.set(id, t);
     }

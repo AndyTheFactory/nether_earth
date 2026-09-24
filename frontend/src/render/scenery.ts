@@ -16,7 +16,11 @@ export interface SceneryAsset {
   footprint: [number, number];
   /** Drawn height in authoritative units (the sprite's box height). */
   height: number;
-  /** Colours as '#rrggbb'; default Spectrum black ink on yellow paper. */
+  /**
+   * Colours as '#rrggbb'; default Spectrum black ink on yellow paper.
+   * `paper: "none"` leaves the sprite's '.' pixels transparent, so whatever
+   * is behind shows through (the terrain elements draw this way).
+   */
   ink?: string;
   paper?: string;
   /**

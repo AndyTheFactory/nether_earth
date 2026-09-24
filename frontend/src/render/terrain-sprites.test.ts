@@ -93,3 +93,13 @@ test('each element sits on cells of its own terrain class', () => {
     }
   }
 });
+
+// The sprite draws the rough/mountain/ditch itself; the ground checker under
+// it stays plain (renderer.spritedTerrainCells), so a paper fill would read as
+// a block of colour around the drawing.
+test('terrain sprites draw over transparent paper', () => {
+  const m = shipped();
+  for (const [id, asset] of Object.entries(m.assets)) {
+    assert.equal(asset.paper, 'none', `terrain asset ${id} would draw a paper fill`);
+  }
+});

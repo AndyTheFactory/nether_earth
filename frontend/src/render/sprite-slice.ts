@@ -72,8 +72,13 @@ export function sliceSpriteRows(rows: readonly string[], footprint: readonly [nu
   return cells.map(([dx, dy], i) => ({ dx, dy, rows: out[i]!.map((r) => r.join('')) }));
 }
 
-/** Nearest-filtered texture of a '#'/'.'/' ' pixel sprite (world units are Spectrum pixels). */
-export function pixelTexture(rows: readonly string[], ink: number, paper: number): Texture {
+/**
+ * Nearest-filtered texture of a '#'/'.'/' ' pixel sprite (world units are
+ * Spectrum pixels). A `null` paper leaves the '.' pixels transparent, which
+ * is how terrain draws: its sprites sit on the ground checker rather than
+ * carrying a fill of their own.
+ */
+export function pixelTexture(rows: readonly string[], ink: number, paper: number | null): Texture {
   const w = rows[0]?.length ?? 0;
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, w);
@@ -84,6 +89,7 @@ export function pixelTexture(rows: readonly string[], ink: number, paper: number
     for (let c = 0; c < row.length; c++) {
       if (row[c] === ' ') continue;
       const col = row[c] === '#' ? ink : paper;
+      if (col === null) continue;
       const i = (r * canvas.width + c) * 4;
       img.data.set([(col >> 16) & 0xff, (col >> 8) & 0xff, col & 0xff, 255], i);
     }
