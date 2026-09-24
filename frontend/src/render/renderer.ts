@@ -11,7 +11,7 @@ import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from '
 import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, type SemanticAsset } from './assets.ts';
-import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, type SceneryAsset, type SpriteSlice } from './scenery.ts';
+import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, wallBlocks, type SceneryAsset, type SpriteSlice, type WallBlock } from './scenery.ts';
 import { pixelTexture } from './sprite-slice.ts';
 import { textOverlays } from '../state/labels.ts';
 import { menuColumnShown } from '../ui/menus.ts';
@@ -139,14 +139,30 @@ export class WorldRenderer {
     // custom map's own heights, or a dead structure's rubble) keeps the
     // placeholder prism, exactly like an unmapped scenery kind.
     const structureBlocks: { c: MapComponent; color: number; dead: boolean }[] = [];
+    const structureWalls: WallBlock[] = [];
+    const collect = (components: MapComponent[], color: number, isDead: boolean): void => {
+      if (isDead) {
+        // A destroyed structure is rubble, drawn per cell; no wall sprites.
+        for (const c of components) structureBlocks.push({ c, color, dead: true });
+        return;
+      }
+      const { blocks: walls, loose } = wallBlocks(components);
+      for (const wall of walls) {
+        if (structureWallAsset(wall.height)) structureWalls.push(wall);
+        // A block whose height has no decoded sprite (a custom map's own
+        // heights) falls back to per-cell prisms, like an unmapped scenery kind.
+        else for (const c of wall.cells) structureBlocks.push({ c, color, dead: false });
+      }
+      for (const c of loose) structureBlocks.push({ c, color, dead: false });
+    };
     for (const wb of this.map.war_bases) {
       const col = ownerColor(owner(wb.id));
-      for (const c of wb.components) structureBlocks.push({ c, color: col, dead: destroyed(wb.id) });
+      collect(wb.components, col, destroyed(wb.id));
       if (debug) this.label(wb.id, wb.components, `WAR BASE ${owner(wb.id) ?? 'neutral'}${destroyed(wb.id) ? ' ✕' : ''}`, col);
     }
     for (const f of this.map.factories) {
       const col = shade(colorFor('structure.factory'), owner(f.id) ? 1.2 : 0.9);
-      for (const c of f.components) structureBlocks.push({ c, color: col, dead: destroyed(f.id) });
+      collect(f.components, col, destroyed(f.id));
       if (debug) this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
     }
     const blocks: { c: MapComponent; color: number; dead: boolean; debris?: boolean }[] = [];
@@ -167,39 +183,47 @@ export class WorldRenderer {
     // CR002.6: an ownership flag stands on its roof cell and is drawn with
     // that cell, so it shares the cell's place in the depth ordering.
     const flags = new Map(ownershipFlags(this.map, state?.structure_ownership ?? [], destroyedIds).map((f) => [`${f.x},${f.y}`, f.owner]));
-    for (const { c, color, dead } of structureBlocks) {
-      const wall = !dead ? structureWallAsset(c.height) : undefined;
-      if (wall) {
-        const origin = spriteOrigin(wall.asset, { x: c.x, y: c.y });
-        for (const { texture } of this.sceneryTexturesFor(wall.id, wall.asset)) {
-          const s = new Sprite(texture);
-          s.position.set(origin.x, origin.y);
-          s.zIndex = depthKey(c.x, c.y);
-          this.structureCells.push({ g: s, x: c.x });
-          this.scene.addChild(s);
-        }
-        if (pads.has(`${c.x},${c.y}`) || flags.has(`${c.x},${c.y}`)) {
-          const g = new Graphics();
-          if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
-          const flag = flags.get(`${c.x},${c.y}`);
-          if (flag) drawFlag(g, c.x, c.y, c.height, flag);
-          g.zIndex = depthKey(c.x, c.y);
-          this.structureCells.push({ g, x: c.x });
-          this.scene.addChild(g);
-        }
-      } else {
+    // One sprite per 2x2 wall block, sliced per cell like scenery so a nearer
+    // block occludes it correctly (the art is a 2x2 element -- drawing it once
+    // per 1x1 cell overlapped every neighbour and sat a cell too low).
+    for (const wall of structureWalls) {
+      const asset = structureWallAsset(wall.height)!;
+      const origin = spriteOrigin(asset.asset, wall.anchor);
+      for (const { slice, texture } of this.sceneryTexturesFor(asset.id, asset.asset)) {
+        const s = new Sprite(texture);
+        s.position.set(origin.x, origin.y);
+        s.zIndex = sliceDepth(wall.anchor, slice);
+        this.structureCells.push({ g: s, x: wall.anchor.x + slice.dx });
+        this.scene.addChild(s);
+      }
+      // Heli-pad and flag overlays are per cell, so they are drawn for each
+      // cell the block covers rather than once for the block.
+      for (const c of wall.cells) {
+        const cellKey = `${c.x},${c.y}`;
+        if (!pads.has(cellKey) && !flags.has(cellKey)) continue;
         const g = new Graphics();
-        if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
-        else {
-          drawPrism(g, c.x, c.y, 0, c.height, color);
-          if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
-          const flag = flags.get(`${c.x},${c.y}`);
-          if (flag) drawFlag(g, c.x, c.y, c.height, flag);
-        }
+        if (pads.has(cellKey)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+        const flag = flags.get(cellKey);
+        if (flag) drawFlag(g, c.x, c.y, c.height, flag);
         g.zIndex = depthKey(c.x, c.y);
         this.structureCells.push({ g, x: c.x });
         this.scene.addChild(g);
       }
+    }
+    // Placeholder prisms: a destroyed structure's rubble, and any cell that is
+    // not part of a whole 2x2 wall block (the war bases have a few).
+    for (const { c, color, dead } of structureBlocks) {
+      const g = new Graphics();
+      if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
+      else {
+        drawPrism(g, c.x, c.y, 0, c.height, color);
+        if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+        const flag = flags.get(`${c.x},${c.y}`);
+        if (flag) drawFlag(g, c.x, c.y, c.height, flag);
+      }
+      g.zIndex = depthKey(c.x, c.y);
+      this.structureCells.push({ g, x: c.x });
+      this.scene.addChild(g);
     }
     for (const { c, color, dead, debris } of blocks) {
       const g = new Graphics();

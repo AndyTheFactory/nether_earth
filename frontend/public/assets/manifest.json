@@ -21,8 +21,8 @@
       "15": "structure.wall_high"
     },
     "assets": {
-      "structure.wall_low": { "sprite": "spectrum.wall_low", "footprint": [1, 1], "height": 7 },
-      "structure.wall_high": { "sprite": "spectrum.wall_high", "footprint": [1, 1], "height": 15 }
+      "structure.wall_low": { "sprite": "spectrum.wall_low", "footprint": [2, 2], "height": 7 },
+      "structure.wall_high": { "sprite": "spectrum.wall_high", "footprint": [2, 2], "height": 15 }
     }
   }
 }

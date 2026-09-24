@@ -4,7 +4,7 @@
 // SCENERY_SPRITES plus its footprint and height. Changing a kind's asset in
 // the manifest changes the render with no code change. Presentation only:
 // collision and heights stay with the engine and the map data.
-import type { MapBlocker, MapData } from '../world/map.ts';
+import type { MapBlocker, MapComponent, MapData } from '../world/map.ts';
 import { depthKey } from './projection.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
 import { sliceSpriteRows, spriteOriginFor, type SpriteSlice } from './sprite-slice.ts';
@@ -113,4 +113,67 @@ export function sliceDepth(anchor: { x: number; y: number }, s: SpriteSlice): nu
 
 export function parseColor(hex: string | undefined, fallback: number): number {
   return hex && /^#[0-9a-f]{6}$/i.test(hex) ? parseInt(hex.slice(1), 16) : fallback;
+}
+
+/** One 2x2 wall block of a war base or factory, with its shared height. */
+export interface WallBlock {
+  /** Sprite anchor: the block's min-x, max-y cell, as `sceneryPlacements` uses. */
+  anchor: { x: number; y: number };
+  /** The height all four cells share, which selects the wall sprite. */
+  height: number;
+  /** The four cells, so per-cell overlays (heli-pads, flags) still find them. */
+  cells: MapComponent[];
+}
+
+/**
+ * Group a structure's 1x1 components into the 2x2 blocks its sprites are drawn as.
+ *
+ * A war base or factory is stored in the map as individual cells, but the
+ * Spectrum draws it from 2x2 map elements -- the same size as a scenery box,
+ * and the same artwork size (32 px against a 12 px cell). Drawing one sprite
+ * per cell therefore overlapped every neighbour and, because `spriteOriginFor`
+ * offsets by the footprint's depth, placed each one a cell too low. This
+ * recovers the blocks the cells were flattened from.
+ *
+ * A block qualifies only when all four of its cells are present and share a
+ * height, which is what makes one sprite able to stand for it. Cells that do
+ * not form such a block come back in `loose` for the caller's placeholder
+ * path -- on the built-in map every factory is wholly 2x2 (a doorway is a
+ * missing block, not a partial one) while the war bases have some half
+ * blocks.
+ *
+ * Blocks are keyed from the structure's own min-x/min-y so the parity is the
+ * structure's, not the map origin's, and returned in a deterministic order.
+ */
+export function wallBlocks(components: readonly MapComponent[]): {
+  blocks: WallBlock[];
+  loose: MapComponent[];
+} {
+  if (!components.length) return { blocks: [], loose: [] };
+  const minX = Math.min(...components.map((c) => c.x));
+  const minY = Math.min(...components.map((c) => c.y));
+  const grouped = new Map<string, MapComponent[]>();
+  for (const c of components) {
+    const key = `${Math.floor((c.x - minX) / 2)},${Math.floor((c.y - minY) / 2)}`;
+    const bucket = grouped.get(key);
+    if (bucket) bucket.push(c);
+    else grouped.set(key, [c]);
+  }
+  const blocks: WallBlock[] = [];
+  const loose: MapComponent[] = [];
+  for (const cells of grouped.values()) {
+    const heights = new Set(cells.map((c) => c.height));
+    if (cells.length === 4 && heights.size === 1) {
+      blocks.push({
+        anchor: { x: Math.min(...cells.map((c) => c.x)), y: Math.max(...cells.map((c) => c.y)) },
+        height: cells[0]!.height,
+        cells: [...cells],
+      });
+    } else {
+      loose.push(...cells);
+    }
+  }
+  blocks.sort((a, b) => a.anchor.x - b.anchor.x || a.anchor.y - b.anchor.y);
+  loose.sort((a, b) => a.x - b.x || a.y - b.y);
+  return { blocks, loose };
 }
