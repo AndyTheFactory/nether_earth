@@ -16,6 +16,8 @@ import { ConstructionScreen } from './ui/construction.ts';
 import { renderOverlay } from './ui/overlays.ts';
 import { Radar } from './ui/radar.ts';
 import { loadLabels } from './state/labels.ts';
+import { AudioEngine } from './audio/engine.ts';
+import { sfxForSnapshot } from './audio/events.ts';
 
 /**
  * Version and commit this bundle was built from, logged once at boot.
@@ -65,6 +67,23 @@ async function main(): Promise<void> {
   // Construction covers the play view full screen; lifecycle overlays stay above it.
   ui.append(hud.root, radar.root, menus.root, construction.root, overlay.root);
 
+  // Spectrum audio (#272). Browsers only allow an AudioContext to start from
+  // a user gesture, so the engine stays silent until the first click or key.
+  const audio = new AudioEngine();
+  controller.onUiSound = (name) => audio.play(name);
+  const unlock = () => audio.unlock();
+  window.addEventListener('pointerdown', unlock);
+  window.addEventListener('keydown', unlock);
+  // M mutes. It is read here rather than in the controller because muting is
+  // presentation, and KeyM reaches the controller unhandled either way.
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyM' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      store.setUi({ notice: audio.toggleMuted() ? 'sound off' : 'sound on' });
+      // Let the ticker decide again whether music should be running.
+      musicScreen = null;
+    }
+  });
+
   const keyboard = new KeyboardIntent(controller);
   bindKeyboard(window, keyboard);
 
@@ -85,6 +104,11 @@ async function main(): Promise<void> {
     });
   }
 
+  // Title music plays on the lobby screen, as it does on the Spectrum's title
+  // screen, and stops the moment the match view takes over.
+  let musicScreen: string | null = null;
+  let lastSoundTick = -1;
+
   app.ticker.add(() => {
     const now = performance.now();
     controller.pollCommanderMove(keyboard.heldIntent());
@@ -98,6 +122,16 @@ async function main(): Promise<void> {
     const cs = s.ui.screen === 'match' && s.latest ? myConstruction(s.latest, s.connection.session?.playerId ?? '') : null;
     construction.update(cs, controller.buildCursor, window.innerWidth, window.innerHeight);
     renderOverlay(overlay, s, Date.now());
+
+    if (s.ui.screen !== musicScreen) {
+      musicScreen = s.ui.screen;
+      if (s.ui.screen === 'lobby') audio.startMusic();
+      else audio.stopMusic();
+    }
+    if (s.latest && s.latest.tick !== lastSoundTick) {
+      lastSoundTick = s.latest.tick;
+      for (const name of sfxForSnapshot(s.previous, s.latest)) audio.play(name);
+    }
   });
 
   // dev hooks for the fixture harness / live checks

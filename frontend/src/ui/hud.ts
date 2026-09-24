@@ -58,6 +58,6 @@ export function renderHud(panel: Panel, s: AppState, map: MapData): void {
   for (const cp of snap.capture_progress) {
     html += `<div class="line cap">${esc(cp.capturing_player)} capturing ${esc(cp.structure_id)}: ${Math.floor((100 * cp.elapsed_ticks) / cp.required_ticks)}%</div>`;
   }
-  html += `<div class="line hint">arrows/WASD move · space rise · land on the green roof pad of your war base to build · enter menu · esc back · G grid</div>`;
+  html += `<div class="line hint">arrows/WASD move · space rise · land on the green roof pad of your war base to build · enter menu · esc back · G grid · M sound</div>`;
   panel.set(html);
 }
