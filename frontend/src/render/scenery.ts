@@ -139,15 +139,23 @@ export interface WallBlock {
  * offsets by the footprint's depth, placed each one a cell too low. This
  * recovers the blocks the cells were flattened from.
  *
+ * Columns pair up from the structure's own min-x, because
+ * `Lbd91_add_element_to_map` stamps every element two cells wide from its
+ * anchor and the structure templates step x in twos. In y they do not: the
+ * war base walks its template with mixed +/-1 offsets, so each column's
+ * stamps start wherever that column's wall starts. Pairing rows on a fixed
+ * grid from the structure's min-y therefore split a column that begins one
+ * row lower into a 2x1, a 2x2 and a 2x1. So rows are paired per column
+ * instead, upwards from the lowest y of each run of adjacent cells.
+ *
  * A block qualifies only when all four of its cells are present and share a
  * height, which is what makes one sprite able to stand for it. Cells that do
  * not form such a block come back in `loose` for the caller's placeholder
- * path -- on the built-in map every factory is wholly 2x2 (a doorway is a
- * missing block, not a partial one) while the war bases have some half
- * blocks.
+ * path. On the built-in map nothing is loose: every war base resolves to the
+ * 15 elements of `Lbfb2_warbase` and every factory to the 5 of
+ * `Lbfe2_factory` (a doorway is a missing block, not a partial one).
  *
- * Blocks are keyed from the structure's own min-x/min-y so the parity is the
- * structure's, not the map origin's, and returned in a deterministic order.
+ * Blocks are returned in a deterministic order.
  */
 export function wallBlocks(components: readonly MapComponent[]): {
   blocks: WallBlock[];
@@ -155,26 +163,41 @@ export function wallBlocks(components: readonly MapComponent[]): {
 } {
   if (!components.length) return { blocks: [], loose: [] };
   const minX = Math.min(...components.map((c) => c.x));
-  const minY = Math.min(...components.map((c) => c.y));
-  const grouped = new Map<string, MapComponent[]>();
+  // One bucket per two-cell-wide column of the structure, keyed by the cell's
+  // x within it so a pair is only made from a complete left/right couple.
+  const columns = new Map<number, Map<number, MapComponent[]>>();
   for (const c of components) {
-    const key = `${Math.floor((c.x - minX) / 2)},${Math.floor((c.y - minY) / 2)}`;
-    const bucket = grouped.get(key);
-    if (bucket) bucket.push(c);
-    else grouped.set(key, [c]);
+    const col = Math.floor((c.x - minX) / 2);
+    const rows = columns.get(col) ?? new Map<number, MapComponent[]>();
+    rows.set(c.y, [...(rows.get(c.y) ?? []), c]);
+    columns.set(col, rows);
   }
   const blocks: WallBlock[] = [];
   const loose: MapComponent[] = [];
-  for (const cells of grouped.values()) {
-    const heights = new Set(cells.map((c) => c.height));
-    if (cells.length === 4 && heights.size === 1) {
-      blocks.push({
-        anchor: { x: Math.min(...cells.map((c) => c.x)), y: Math.max(...cells.map((c) => c.y)) },
-        height: cells[0]!.height,
-        cells: [...cells],
-      });
-    } else {
-      loose.push(...cells);
+  for (const rows of columns.values()) {
+    const ys = [...rows.keys()].sort((a, b) => a - b);
+    // Pair adjacent rows, restarting at every gap so a break in the wall
+    // cannot shift the pairing of everything above it.
+    for (let i = 0; i < ys.length; ) {
+      const top = ys[i]!;
+      const bottom = ys[i + 1];
+      const pair = bottom === top + 1 ? [...rows.get(top)!, ...rows.get(bottom)!] : rows.get(top)!;
+      const heights = new Set(pair.map((c) => c.height));
+      if (pair.length === 4 && heights.size === 1) {
+        blocks.push({
+          anchor: { x: Math.min(...pair.map((c) => c.x)), y: Math.max(...pair.map((c) => c.y)) },
+          height: pair[0]!.height,
+          cells: pair,
+        });
+        i += 2;
+      } else if (bottom === top + 1 && pair.length === 4) {
+        // Adjacent rows that differ in height are two separate half blocks.
+        loose.push(...pair);
+        i += 2;
+      } else {
+        loose.push(...rows.get(top)!);
+        i += 1;
+      }
     }
   }
   blocks.sort((a, b) => a.anchor.x - b.anchor.x || a.anchor.y - b.anchor.y);
