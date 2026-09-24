@@ -115,7 +115,7 @@ from nether_earth.movement import (
     validate_robot_move,
 )
 from nether_earth.occupancy import unit_footprint_cells, unit_footprints_overlap
-from nether_earth.rng import MatchRandom
+from nether_earth.rng import MatchRandom, derive_seed
 from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
@@ -225,22 +225,6 @@ def destination_available(state: GameState, robot: Robot, dest_x: int, dest_y: i
 # Per-tick contention RNG stream
 # --------------------------------------------------------------------------
 
-_MASK64 = (1 << 64) - 1
-
-
-def _mix64(value: int) -> int:
-    """Return the splitmix64 finalizer of ``value`` (64-bit, wrapping).
-
-    Fixed integer arithmetic only: no ``hash()`` (randomized per process for
-    some types), no floats, no platform-width assumptions -- so the same
-    input yields the same output in every process, on every machine, in
-    every replay.
-    """
-    z = (value + 0x9E3779B97F4A7C15) & _MASK64
-    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _MASK64
-    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _MASK64
-    return z ^ (z >> 31)
-
 
 def derive_contention_seed(match_seed: int, tick: int) -> int:
     """Return the deterministic per-tick contention seed for a match.
@@ -251,7 +235,7 @@ def derive_contention_seed(match_seed: int, tick: int) -> int:
     different ``(match_seed, tick)`` pairs give uncorrelated streams; the
     same pair always gives the same stream.
     """
-    return _mix64((_mix64(match_seed & _MASK64) + tick) & _MASK64)
+    return derive_seed(match_seed, tick)
 
 
 def contention_rng(match_seed: int, tick: int) -> MatchRandom:

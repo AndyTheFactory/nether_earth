@@ -450,21 +450,24 @@ def test_advance_with_a_move_already_in_flight_submits_no_second_request() -> No
     assert evaluation.request is None
 
 
-def test_a_non_electronic_robot_blocked_by_a_wall_keeps_its_order() -> None:
-    """The locked 'may get stuck' behavior is not an impossible order."""
+def test_a_non_electronic_robot_walled_off_detours_and_keeps_its_order() -> None:
+    """A wall is a detour, never an impossible order (`Lb33e`)."""
     wall = _wall(((5, 4), (5, 5), (5, 6)))
     world = _empty_world(width=20, blockers=(wall,))
     robot = _robot(x=3, y=5, order=Advance(4, target_x=12))  # body (3..4, 4..5)
     state = _state((robot,))
 
     decision = next_navigation_step(robot, 12, 5, state, world)
-    assert decision.status is NavigationStatus.BLOCKED
+    assert decision.status is NavigationStatus.STEP
+    assert decision.request is not None
+    # Not into the wall: a step along it, chosen for this robot's window.
+    assert (decision.request.dx, decision.request.dy) in ((0, 1), (0, -1))
 
     evaluation = evaluate_order(robot, state, world)
     assert evaluation is not None
     assert evaluation.status is OrderStatus.ACTIVE
     assert evaluation.order == robot.order
-    assert evaluation.request is None
+    assert evaluation.request == decision.request
 
 
 def test_an_electronic_robot_with_no_route_falls_back() -> None:

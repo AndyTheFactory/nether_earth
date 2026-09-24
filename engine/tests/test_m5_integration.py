@@ -416,21 +416,26 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert bipod_moves[0].to_x == 1 and bipod_moves[0].to_y == 1  # body over NORMAL
     assert bipod_moves[1].duration_ticks == ROUGH_BIPOD_TICKS
     assert bipod_moves[1].to_x == 2 and bipod_moves[1].to_y == 1  # body over ROUGH
-    # Bipod cannot enter a body over the ditch at x=4: no further move is
-    # ever started, so it remains stuck on the rough body for the rest of
-    # the run.
-    assert len(bipod_moves) == 2
+    # The bipod cannot enter a body over the ditch at x=4, and never does:
+    # it detours along the ditch for the rest of the run instead of standing
+    # still against it (`_specs/open-questions.md` §5/§22.6, ``Lb33e``).
+    assert len(bipod_moves) > 2
+    assert all(move.to_x <= 2 for move in bipod_moves)
     bipod_robot = final.robot_for(ROBOT_BIPOD)
     assert bipod_robot is not None
-    assert (bipod_robot.x, bipod_robot.y) == (2, 1)
+    assert bipod_robot.x <= 2
 
     tracks_moves = move_started_by_robot[ROBOT_TRACKS]
     assert tracks_moves[0].duration_ticks == TRACKS_TICKS
     assert tracks_moves[1].duration_ticks == ROUGH_TRACKS_TICKS
-    assert len(tracks_moves) == 2  # tracks cannot enter the ditch either
+    # Tracks cannot enter the ditch either, but its detour finds the gap
+    # south of it, so it walks around and completes its Advance -- the dumb
+    # policy's upside, at the cost of a much longer path than a route plan.
+    assert len(tracks_moves) > miles_to_cells(3)  # longer than the straight line
     tracks_robot = final.robot_for(ROBOT_TRACKS)
     assert tracks_robot is not None
-    assert (tracks_robot.x, tracks_robot.y) == (2, 3)
+    assert tracks_robot.x == miles_to_cells(3)
+    assert tracks_robot.order == StopAndDefend()
 
     antigrav_moves = move_started_by_robot[ROBOT_ANTIGRAV]
     assert antigrav_moves[0].duration_ticks == ANTI_TICKS  # normal
@@ -457,7 +462,11 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     before_unblock = states[TICK_UNBLOCK - 1]
     still_blocked = before_unblock.robot_for(ROBOT_BLOCKED)
     assert still_blocked is not None
-    assert (still_blocked.x, still_blocked.y) == (5, 22)  # never advanced past the commander
+    # Never advanced past the commander. It no longer stands perfectly still
+    # while blocked -- the dumb policy sidesteps along the obstacle
+    # (`_specs/open-questions.md` §5/§22.6) -- but the commander's cell is
+    # impassable, so its x never moves on.
+    assert still_blocked.x == 5
     # Checked when the Advance completes: with the Spectrum piece heights
     # (CR003.3) every robot is tall enough to be hit, so later in the run
     # the enemy war-base captor's cannon destroys this robot.
@@ -468,7 +477,10 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert unblocked_tick is not None and unblocked_tick > TICK_UNBLOCK
     after_unblock = states[unblocked_tick].robot_for(ROBOT_BLOCKED)
     assert after_unblock is not None
-    assert (after_unblock.x, after_unblock.y) == (5 + miles_to_cells(1), 22)
+    # Advance is a distance along x; the detour around the commander leaves
+    # the robot a row off the one it started on, which the order does not
+    # constrain.
+    assert after_unblock.x == 5 + miles_to_cells(1)
 
     # ---------------------------------------------------------------
     # 4. Same-tick destination contention: exactly one contest, one winner.
@@ -477,10 +489,16 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert len(contentions) == 1
     contention = contentions[0]
     assert set(contention.contenders) == {ROBOT_CONTEND_WEST, ROBOT_CONTEND_EAST}
+    # Only the seeded winner started a move on the contested tick. The loser
+    # is no longer frozen for the rest of the run: it detours and moves again
+    # later (`_specs/open-questions.md` §5/§22.6), so this counts that tick.
     contend_started = [
-        e for e in move_started_events if e.entity_id in (ROBOT_CONTEND_WEST, ROBOT_CONTEND_EAST)
+        e
+        for e in move_started_events
+        if e.entity_id in (ROBOT_CONTEND_WEST, ROBOT_CONTEND_EAST)
+        and e.started_tick == contention.tick
     ]
-    assert len(contend_started) == 1  # only the seeded winner actually started a move
+    assert len(contend_started) == 1
     winner_id = contend_started[0].entity_id
     loser_id = ROBOT_CONTEND_EAST if winner_id == ROBOT_CONTEND_WEST else ROBOT_CONTEND_WEST
     # With the Spectrum piece heights (CR003.3) every robot is tall enough to
@@ -601,25 +619,34 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
         assert (attacker.x, attacker.y) == (7, 26)
 
     # ---------------------------------------------------------------
-    # 10. Navigation: non-electronic stuck vs electronic replanning.
+    # 10. Navigation: non-electronic detouring vs electronic replanning.
     # ---------------------------------------------------------------
     dumb_final = final.robot_for(ROBOT_NAV_DUMB)
     smart_final = final.robot_for(ROBOT_NAV_SMART)
     assert dumb_final is not None and smart_final is not None
-    # The dumb robot never gets past the wall's leading edge: its 2×2 body
-    # (13..14) stops against the wall at x=15. It has no detour logic even
-    # though the rows 12-13 gap is a valid, shorter-than-infinite route.
-    assert dumb_final.x == 13
-    assert dumb_final.order != StopAndDefend()  # never completes -- permanently stuck
-    # The electronic robot successfully routes around the wall and
-    # completes its Advance.
+    # Both get past the wall and complete their Advance: the dumb robot
+    # sidesteps along the wall until the rows 12-13 gap lets it through
+    # (`_specs/open-questions.md` §5/§22.6), the electronic one plans the
+    # detour up front.
+    assert dumb_final.x == 10 + miles_to_cells(8)
+    assert dumb_final.order == StopAndDefend()
     assert smart_final.x == 10 + miles_to_cells(8)
     assert smart_final.order == StopAndDefend()
-    smart_arrival_tick = _first_tick(
-        states, lambda s: (r := s.robot_for(ROBOT_NAV_SMART)) is not None and r.x == smart_final.x
-    )
-    assert smart_arrival_tick is not None
+
+    def _arrival(entity_id: EntityId) -> int | None:
+        return _first_tick(
+            states,
+            lambda s: (r := s.robot_for(entity_id)) is not None
+            and r.x == 10 + miles_to_cells(8),
+        )
+
+    smart_arrival_tick = _arrival(ROBOT_NAV_SMART)
+    dumb_arrival_tick = _arrival(ROBOT_NAV_DUMB)
+    assert smart_arrival_tick is not None and dumb_arrival_tick is not None
     assert smart_arrival_tick < TOTAL_TICKS - 40  # arrives with room to spare, not on the last tick
+    # What electronics buys is the route, not the outcome: the planned detour
+    # gets there first.
+    assert smart_arrival_tick < dumb_arrival_tick
 
 
 def test_full_milestone_scenario_replays_identically() -> None:
