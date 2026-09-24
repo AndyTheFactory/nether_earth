@@ -66,9 +66,10 @@ export function unitFill(mine: boolean): number {
 /**
  * Player ownership tints: p1 cyan, p2 magenta, neutral white.
  *
- * Still used by the enemy marker ring, the ownership flags and a unit's
- * ground shadow. Robot and commander *bodies* no longer use it -- they are
- * white or light grey by viewer relationship instead, see `unitFill`.
+ * Still used by the enemy marker ring and the ownership flags. Robot and
+ * commander *bodies* do not use it -- they are white or light grey by viewer
+ * relationship instead, see `unitFill` -- and neither does any ground shadow:
+ * a robot draws none, and the airborne commander's is plain black.
  */
 export function ownerColor(owner: string | null | undefined): number {
   if (owner === 'p1') return PALETTE.brightCyan;

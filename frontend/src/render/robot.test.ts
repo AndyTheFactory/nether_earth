@@ -59,7 +59,8 @@ test('the stack is drawn raised by the ground and its top is ground + height', (
   const { objects, getPiece } = collect();
   const top = drawRobotStack(167, 9, ['tracks', 'cannon'], 'p1', { totalHeight: 13, ground: 6 }, getPiece);
   assert.equal(top, 19);
-  // The ground shadow diamond is the first object, drawn at elevation 6.
+  // Index 0 stays a Graphics (the pool is keyed by index) even though a robot
+  // draws nothing into it.
   const shadow = objects[0] as Graphics;
   assert.ok(shadow instanceof Graphics);
 });
@@ -76,12 +77,16 @@ test('visual piece heights are the Spectrum Ld7b4 values, so the snapshot height
   assert.equal(drawRobotStack(30, 12, ['bipod', 'missile', 'phaser', 'nuclear', 'electronics'], 'p1', {}, collect().getPiece), 38);
 });
 
-test('the stack is sliced one Sprite per footprint cell per piece, plus one shadow diamond', () => {
+test('the stack is sliced one Sprite per footprint cell per piece, and draws no ground shadow', () => {
   const { objects, getPiece } = collect();
   drawRobotStack(30, 12, ['tracks', 'cannon'], 'p1', {}, getPiece);
   const sprites = objects.filter((o) => o instanceof Sprite);
   const shadows = objects.filter((o) => o instanceof Graphics);
+  // The slot is still taken, but nothing is drawn into it: a robot rests on
+  // its surface, and the owner-coloured diamond that used to sit under its
+  // feet read as part of the unit (owner request, 2026-09-25).
   assert.equal(shadows.length, 1);
+  assert.equal((shadows[0] as Graphics).context.instructions.length, 0);
   // Each piece slices into footprint[0] * footprint[1] = UNIT_SIZE^2 pieces.
   assert.equal(sprites.length, 2 * UNIT_SIZE * UNIT_SIZE);
 });

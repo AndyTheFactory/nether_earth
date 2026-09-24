@@ -17,7 +17,7 @@
 // invention and is dropped along with the prisms it decorated).
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
 import { drawDiamond } from './prism.ts';
-import { PALETTE, ownerColor, unitFill } from './assets.ts';
+import { PALETTE, unitFill } from './assets.ts';
 import { interpolateAltitude, type GridTransition } from './interpolation.ts';
 import type { SurfaceMap } from './surface.ts';
 import { depthKey } from './projection.ts';
@@ -168,14 +168,19 @@ export function drawRobotStack(
   const alpha = opts.alpha ?? 1;
   const ground = opts.ground ?? 0;
   const facing = opts.facing ?? DEFAULT_FACING;
-  // Brightness, not hue: see `unitFill`. The shadow keeps the owner's colour,
-  // which is what still separates two robots standing side by side.
+  // Brightness, not hue: see `unitFill`.
   const mine = opts.mine ?? true;
   let idx = 0;
 
+  // A robot always rests on its surface, so it gets no ground shadow -- the
+  // commander's only appears while it is airborne. This used to be an
+  // owner-coloured diamond (cyan/magenta) under every robot's feet, which
+  // read as part of the unit rather than as ground (owner request,
+  // 2026-09-25). The slot itself stays: the pool `getPiece` draws from is
+  // keyed by index, so index 0 must keep asking for a Graphics or it would
+  // flip Graphics <-> Sprite under a live key (see `drawCommander`).
   const shadow = getPiece(idx++, false) as Graphics;
   if ('clear' in shadow) shadow.clear();
-  drawDiamond(shadow, x, y, ownerColor(owner), 0.35 * alpha, undefined, ground, UNIT_SIZE);
   shadow.zIndex = depthKey(x, y, ground);
 
   let z = ground;
