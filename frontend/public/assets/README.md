@@ -98,10 +98,21 @@ scenery kind).
 **Not sourced/not wired (documented gaps, not invented):**
 
 - Robot facing: decoded but not drawn (see the "Known gap" note above).
-- Factory piece-on-top / war-base "H" decorations (`Lce56_decoration_
-  sprite_indexes`): identified and cited in open-questions.md but not
-  implemented; the flag decorations it shares a table with are already
-  shipped (`flags.ts`, CR002.6).
+- Factory piece-on-top decorations (`Lce56_decoration_sprite_indexes`
+  entries 1-6): identified and cited in open-questions.md but not
+  implemented. The other two kinds in that table are shipped: the flags
+  (`flags.ts`, CR002.6) and the war-base "H" landing pad below.
+
+The landing pad is `Lce56_decoration_sprite_indexes` entry 0, index `#2c`.
+`Lcf2d_draw_sprite_to_buffer` doubles that, which is 88 entries past
+`Ld6e8_additional_isometric_graphic_pointers` -- entry 44 of the
+`Ld740_isometric_graphic_pointers` that follow it, `L87f0_iso_graphic_44`.
+It is a 2x2 decoration drawn on top of the war-base roof at the elevation
+`Lce5f_decoration_drawing_elevations` gives it (19), which the manifest
+carries as the asset's `elevation`. The renderer draws it one footprint cell
+at a time, like the wall block under it, so a nearer block still occludes
+it. Before it was decoded the pad was a flat green marker; that marker
+remains the fallback when a manifest ships no `heli_pad` decoration.
 
 ## Terrain elements (owner request, 2026-09-24)
 

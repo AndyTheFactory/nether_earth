@@ -77,6 +77,17 @@ SPRITES = [
     ("spectrum.ditch_h_c", 14, "L98ac_iso_additional_graphic_17"),
 ]
 
+#: Decorations drawn on top of a structure rather than stamped into the map
+#: (`Lce38_draw_decoration`). `Lce56_decoration_sprite_indexes` gives the
+#: war-base "H" landing pad index #2c: doubled by `Lcf2d`'s `adc a, a` that
+#: is an offset of 88 entries from Ld6e8_additional_isometric_graphic_pointers,
+#: which is entry 44 of the Ld740_isometric_graphic_pointers that follow it.
+#: The odd entry beside it is the same drawing pre-shifted 4 px, so only the
+#: even one is decoded.
+DECORATION_SPRITES = [
+    ("spectrum.heli_pad", "L87f0_iso_graphic_44"),
+]
+
 
 def main() -> None:
     lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
@@ -89,6 +100,13 @@ def main() -> None:
     for sid, element, label in SPRITES:
         rows = decode(lines, label)
         print(f"  // map element {element}: {label} ({len(rows[0])}x{len(rows)})")
+        print(f"  '{sid}': [")
+        for row in rows:
+            print(f"    '{row}',")
+        print("  ],")
+    for sid, label in DECORATION_SPRITES:
+        rows = decode(lines, label)
+        print(f"  // decoration: {label} ({len(rows[0])}x{len(rows)})")
         print(f"  '{sid}': [")
         for row in rows:
             print(f"    '{row}',")

@@ -13,7 +13,7 @@ import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, terrainElementAsset, terrainManifest, type SemanticAsset } from './assets.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, wallBlocks, type SceneryAsset, type SpriteSlice, type WallBlock } from './scenery.ts';
-import { pixelTexture } from './sprite-slice.ts';
+import { pixelTexture, spriteOriginFor } from './sprite-slice.ts';
 import { textOverlays } from '../state/labels.ts';
 import { menuColumnShown } from '../ui/menus.ts';
 import { menuColumnPx } from '../ui/radar.ts';
@@ -240,12 +240,18 @@ export class WorldRenderer {
       const color = colorFor(debris ? 'terrain.rough' : 'structure.blocker');
       for (const c of b.components) blocks.push({ c, color, dead: false, debris });
     }
-    // Heli-pads sit on the war-base roof (open-questions §18): mark each of
-    // the 2×2 pad's cells (CR002.4) on its prism's top face so nearer blocks
-    // still occlude it.
-    const pads = new Set(
-      this.map.interaction_points.filter((ip) => ip.kind === 'heli_pad').flatMap((ip) => footprintCells(ip).map((c) => `${c.x},${c.y}`)),
-    );
+    // Heli-pads sit on the war-base roof (open-questions §18). The pad is one
+    // 2×2 sprite (the Spectrum's "H" decoration, Lce38_draw_decoration), but
+    // it is drawn a cell at a time like the walls under it so a nearer block
+    // still occludes it: each cell maps to the pad anchor it belongs to.
+    const padAsset = this.decorationAsset('heli_pad');
+    const pads = new Map<string, { x: number; y: number }>();
+    for (const ip of this.map.interaction_points) {
+      if (ip.kind !== 'heli_pad') continue;
+      const cells = footprintCells(ip);
+      const anchor = { x: Math.min(...cells.map((c) => c.x)), y: Math.max(...cells.map((c) => c.y)) };
+      for (const c of cells) pads.set(`${c.x},${c.y}`, anchor);
+    }
     // CR002.6: an ownership flag stands on its roof cell and is drawn with
     // that cell, so it shares the cell's place in the depth ordering.
     const flags = new Map(ownershipFlags(this.map, state?.structure_ownership ?? [], destroyedIds).map((f) => [`${f.x},${f.y}`, f.owner]));
@@ -266,11 +272,12 @@ export class WorldRenderer {
       // cell the block covers rather than once for the block.
       for (const c of wall.cells) {
         const cellKey = `${c.x},${c.y}`;
-        if (!pads.has(cellKey) && !flags.has(cellKey)) continue;
-        const g = new Graphics();
-        if (pads.has(cellKey)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+        const padAnchor = pads.get(cellKey);
+        if (padAnchor) this.drawPadCell(padAsset, padAnchor, c);
         const flag = flags.get(cellKey);
-        if (flag) drawFlag(g, c.x, c.y, c.height, flag);
+        if (!flag) continue;
+        const g = new Graphics();
+        drawFlag(g, c.x, c.y, c.height, flag);
         g.zIndex = depthKey(c.x, c.y);
         this.structureCells.push({ g, x: c.x });
         this.scene.addChild(g);
@@ -283,7 +290,8 @@ export class WorldRenderer {
       if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
       else {
         drawPrism(g, c.x, c.y, 0, c.height, color);
-        if (pads.has(`${c.x},${c.y}`)) drawDiamond(g, c.x, c.y, PALETTE.brightGreen, 0.9, PALETTE.white, c.height);
+        const padAnchor = pads.get(`${c.x},${c.y}`);
+        if (padAnchor) this.drawPadCell(padAsset, padAnchor, c);
         const flag = flags.get(`${c.x},${c.y}`);
         if (flag) drawFlag(g, c.x, c.y, c.height, flag);
       }
@@ -323,6 +331,45 @@ export class WorldRenderer {
       this.sceneryTextures.set(id, t);
     }
     return t;
+  }
+
+  /** A `structures.decorations` asset, when the manifest ships one with a decoded sprite. */
+  private decorationAsset(kind: string): { id: string; asset: SceneryAsset } | null {
+    const m = structureManifest();
+    const id = m?.decorations?.[kind];
+    const asset = id === undefined ? undefined : m!.assets[id];
+    if (id === undefined || !asset || !SCENERY_SPRITES[asset.sprite]) return null;
+    return { id, asset };
+  }
+
+  /**
+   * Draw one footprint cell of a structure decoration standing on `cell`'s
+   * top face. Without the asset it falls back to the flat marker the pad used
+   * before the Spectrum sprite was decoded, so a manifest without the
+   * decoration still shows where the pad is.
+   */
+  private drawPadCell(pad: { id: string; asset: SceneryAsset } | null, anchor: { x: number; y: number }, cell: { x: number; y: number; height: number }): void {
+    if (!pad) {
+      const g = new Graphics();
+      drawDiamond(g, cell.x, cell.y, PALETTE.brightGreen, 0.9, PALETTE.white, cell.height);
+      g.zIndex = depthKey(cell.x, cell.y);
+      this.structureCells.push({ g, x: cell.x });
+      this.scene.addChild(g);
+      return;
+    }
+    const rows = SCENERY_SPRITES[pad.asset.sprite]!;
+    const z = pad.asset.elevation ?? cell.height;
+    const origin = spriteOriginFor(rows, pad.asset.footprint, anchor, z, pad.asset.offset ?? [0, 0]);
+    for (const { slice, texture } of this.sceneryTexturesFor(pad.id, pad.asset)) {
+      if (anchor.x + slice.dx !== cell.x || anchor.y + slice.dy !== cell.y) continue;
+      const s = new Sprite(texture);
+      s.position.set(origin.x, origin.y);
+      // Same cell as the wall block under it, drawn after it, so it lands on
+      // the roof rather than behind it.
+      s.zIndex = depthKey(cell.x, cell.y);
+      this.structureCells.push({ g: s, x: cell.x });
+      this.scene.addChild(s);
+    }
   }
 
   /** Skip drawing structure cells far outside the view (they stay in the ordering). */
