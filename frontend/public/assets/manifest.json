@@ -21,12 +21,24 @@
       "15": "structure.wall_high"
     },
     "decorations": {
-      "heli_pad": "structure.heli_pad"
+      "heli_pad": "structure.heli_pad",
+      "factory.chassis": "structure.factory_chassis",
+      "factory.cannon": "structure.factory_cannon",
+      "factory.missile": "structure.factory_missile",
+      "factory.phaser": "structure.factory_phaser",
+      "factory.nuclear": "structure.factory_nuclear",
+      "factory.electronics": "structure.factory_electronics"
     },
     "assets": {
       "structure.wall_low": { "sprite": "spectrum.wall_low", "footprint": [2, 2], "height": 7 },
       "structure.wall_high": { "sprite": "spectrum.wall_high", "footprint": [2, 2], "height": 15 },
-      "structure.heli_pad": { "sprite": "spectrum.heli_pad", "footprint": [2, 2], "height": 0, "elevation": 19, "paper": "#ffffff" }
+      "structure.heli_pad": { "sprite": "spectrum.heli_pad", "footprint": [2, 2], "height": 0, "elevation": 19, "paper": "#ffffff" },
+      "structure.factory_chassis": { "sprite": "robot.tracks.south", "footprint": [2, 2], "height": 7, "elevation": 15 },
+      "structure.factory_cannon": { "sprite": "robot.cannon.south", "footprint": [2, 2], "height": 6, "elevation": 15 },
+      "structure.factory_missile": { "sprite": "robot.missile.south", "footprint": [2, 2], "height": 6, "elevation": 15 },
+      "structure.factory_phaser": { "sprite": "robot.phaser.south", "footprint": [2, 2], "height": 7, "elevation": 15 },
+      "structure.factory_nuclear": { "sprite": "robot.nuclear.south", "footprint": [2, 2], "height": 7, "elevation": 15 },
+      "structure.factory_electronics": { "sprite": "robot.electronics.south", "footprint": [2, 2], "height": 7, "elevation": 15 }
     }
   },
   "terrain": {

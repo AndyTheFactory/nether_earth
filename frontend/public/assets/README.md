@@ -98,10 +98,9 @@ scenery kind).
 **Not sourced/not wired (documented gaps, not invented):**
 
 - Robot facing: decoded but not drawn (see the "Known gap" note above).
-- Factory piece-on-top decorations (`Lce56_decoration_sprite_indexes`
-  entries 1-6): identified and cited in open-questions.md but not
-  implemented. The other two kinds in that table are shipped: the flags
-  (`flags.ts`, CR002.6) and the war-base "H" landing pad below.
+All three kinds of decoration in `Lce56_decoration_sprite_indexes` are
+shipped: the flags (`flags.ts`, CR002.6), the war-base "H" landing pad and
+the factory piece-on-top, both described below.
 
 The landing pad is `Lce56_decoration_sprite_indexes` entry 0, index `#2c`.
 `Lcf2d_draw_sprite_to_buffer` doubles that, which is 88 entries past
@@ -113,6 +112,30 @@ carries as the asset's `elevation`. The renderer draws it one footprint cell
 at a time, like the wall block under it, so a nearer block still occludes
 it. Before it was decoded the pad was a flat green marker; that marker
 remains the fallback when a manifest ships no `heli_pad` decoration.
+
+Entries 1-6 are the piece each factory produces, standing on its roof. The
+factory's type byte is passed straight through as the decoration type
+(`Lbcf9_add_warbases_and_factories_to_map`), and the indices resolve into
+`Ld740_isometric_graphic_pointers` at the *south-facing* sprite of each
+module, so the manifest points at the already-decoded robot pieces by name
+(`robot.<module>.<facing>`, resolved by `spriteRows`) instead of decoding
+the same bytes twice:
+
+| type | factory | index | graphic |
+| --- | --- | --- | --- |
+| 1 | electronics | `#28` | `L846c_iso_graphic_36` |
+| 2 | nuclear | `#25` | `L808a_iso_graphic_30` |
+| 3 | phaser | `#23` | `L7d80_iso_graphic_26` |
+| 4 | missile | `#20` | `L78ce_iso_graphic_20` |
+| 5 | cannon | `#1d` | `L7446_iso_graphic_14` |
+| 6 | chassis | `#17` | `L6afe_iso_graphic_2` (tracks) |
+
+`Lbcf9` adds the decoration four map rows back from the factory's anchor, and
+`Lbfe2_factory` anchors its fixed 6x4 shape at min-x + 2 / max-y, so the
+decoration stands on the tall central block at `(min-x + 2, min-y + 1)` --
+elevation 15, which is what `Lce5f_decoration_drawing_elevations` gives
+entries 1-6 (`#0f`). See `factoryDecorationAnchor`.
+
 
 ## Terrain elements (owner request, 2026-09-24)
 
