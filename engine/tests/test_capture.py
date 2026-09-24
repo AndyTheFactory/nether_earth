@@ -10,12 +10,13 @@ from nether_earth.capture import (
     advance_capture,
     effective_owner,
     effective_world,
+    outward_facing,
 )
 from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import WorldMap
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES, EngineRules
@@ -556,3 +557,46 @@ def test_sequencer_is_used_when_supplied() -> None:
     _new_state, events = advance_capture(state, world, tick=1, rules=rules, sequencer=sequencer)
 
     assert events[0].sequence == 5
+
+
+# --- Outward facing on a capture cell (owner decision, 2026-09-24) -------------
+# A capture cell sits in a doorway, so a robot that walks in to take it faces
+# the building. Since a shot travels in the robot's facing it should watch the
+# approach instead; `outward_facing` says which way that is.
+
+
+def test_outward_facing_points_away_from_the_structure_body() -> None:
+    factory = Factory(
+        id=FACTORY_ID,
+        components=(Component(x=5, y=2, height=3), Component(x=5, y=3, height=3)),
+        factory_type=FactoryType.CHASSIS,
+        owner=None,
+    )
+    # Cell south of the body -> out is south; north of it -> out is north.
+    assert outward_facing(factory, (5, 5)) is RobotFacing.SOUTH
+    assert outward_facing(factory, (5, 0)) is RobotFacing.NORTH
+    # Off to one side, the dominant axis wins.
+    assert outward_facing(factory, (9, 3)) is RobotFacing.EAST
+    assert outward_facing(factory, (1, 3)) is RobotFacing.WEST
+
+
+def test_outward_facing_breaks_an_exact_tie_toward_x() -> None:
+    factory = Factory(
+        id=FACTORY_ID,
+        components=(Component(x=0, y=0, height=3),),
+        factory_type=FactoryType.CHASSIS,
+        owner=None,
+    )
+    # |dx| == |dy|: X wins, the same total tiebreak the rest of the engine uses.
+    assert outward_facing(factory, (3, 3)) is RobotFacing.EAST
+
+
+def test_outward_facing_is_none_at_the_body_centre() -> None:
+    """No direction is outward from the centre, so the caller keeps its facing."""
+    factory = Factory(
+        id=FACTORY_ID,
+        components=(Component(x=4, y=4, height=3),),
+        factory_type=FactoryType.CHASSIS,
+        owner=None,
+    )
+    assert outward_facing(factory, (4, 4)) is None
