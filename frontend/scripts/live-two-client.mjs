@@ -143,7 +143,10 @@ async function main() {
   a.command({ kind: 'set_robot_order', entityId: robot.entity_id, order: { kind: 'advance', distanceMiles: 10 } });
   await a.wait((m) => m.type === 'snapshot' && a.latest.robots[0]?.order?.kind === 'advance' && a.latest.robots[0]?.movement, 5000, 'robot moving');
   check('robot order accepted and autonomous movement started', true, `order ${a.latest.robots[0].order.kind}`);
-  a.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon: 'cannon', targetX: out.x + 5, targetY: out.y });
+  // No target: a shot travels in the robot's own facing (owner decision,
+  // 2026-09-23). The robot is mid-advance east here, so it already faces the
+  // way this shot goes -- and a robot cannot fire while turning.
+  a.command({ kind: 'robot_fire', entityId: robot.entity_id, weapon: 'cannon' });
   await a.wait((m) => m.type === 'snapshot' && a.latest.projectiles.length === 1, 5000, 'projectile fired');
   check('direct fire produces an authoritative projectile', a.latest.projectiles[0].source_robot_id === robot.entity_id);
   // CR001 §8: a projectile moves 2 cells per advance; a cannon without electronics ranges 10 cells.

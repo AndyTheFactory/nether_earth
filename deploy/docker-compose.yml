@@ -46,6 +46,8 @@ services:
     build:
       context: ..
       dockerfile: frontend/Dockerfile
+      args:
+        GIT_COMMIT: ${NETHER_EARTH_COMMIT:-unknown}
     tmpfs: [/tmp]
     mem_limit: 64m
 
@@ -70,6 +72,8 @@ services:
     build:
       context: ..
       dockerfile: backend/Dockerfile
+      args:
+        GIT_COMMIT: ${NETHER_EARTH_COMMIT:-unknown}
     depends_on:
       replay-dir-init: { condition: service_completed_successfully }
     environment:

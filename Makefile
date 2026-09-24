@@ -1,5 +1,9 @@
 .PHONY: build down python-check engine-test backend-test frontend-check protocol-check compose-check images lock
 
+# NETHER_EARTH_COMMIT is baked into both images and logged at startup, so a
+# running container reports the commit it was built from.
+export NETHER_EARTH_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+
 build:
 	docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build --wait
 
@@ -36,8 +40,8 @@ compose-check:
 VERSION ?= dev
 
 images:
-	docker build -f backend/Dockerfile -t nether-earth-backend:$(VERSION) .
-	docker build -f frontend/Dockerfile -t nether-earth-frontend:$(VERSION) .
+	docker build -f backend/Dockerfile --build-arg GIT_COMMIT=$(NETHER_EARTH_COMMIT) -t nether-earth-backend:$(VERSION) .
+	docker build -f frontend/Dockerfile --build-arg GIT_COMMIT=$(NETHER_EARTH_COMMIT) -t nether-earth-frontend:$(VERSION) .
 
 lock:
 	docker run --rm -v "$(CURDIR)":/src:ro python:3.12-slim-bookworm sh -c '\

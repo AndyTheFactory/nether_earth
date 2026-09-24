@@ -17,7 +17,11 @@ RUN /opt/venv/bin/pip install --no-deps --require-virtualenv ./engine ./backend 
  && /opt/venv/bin/pip check
 
 FROM python:3.12-slim-bookworm AS runtime
-ENV PYTHONDONTWRITEBYTECODE=1 \
+# Which commit this image was built from, logged at startup so a running
+# container can be identified without guessing from image timestamps.
+ARG GIT_COMMIT=unknown
+ENV NETHER_EARTH_COMMIT=$GIT_COMMIT \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH=/opt/venv/bin:$PATH \
     NETHER_EARTH_ENV=production \
