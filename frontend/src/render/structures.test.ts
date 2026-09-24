@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadMap, footprintCells, DEFAULT_MAP_ID } from '../world/map.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
-import { wallBlocks } from './scenery.ts';
+import { factoryDecorationAnchor, footprintCellsOf, spriteRows, wallBlocks } from './scenery.ts';
 import type { StructureManifest } from './assets.ts';
 
 const manifestJson = readFileSync(new URL('../../public/assets/manifest.json', import.meta.url), 'utf8');
@@ -132,4 +132,44 @@ test('every heli-pad interaction point is the 2x2 the pad sprite is drawn as', (
     assert.equal(xs.size, 2);
     assert.equal(ys.size, 2);
   }
+});
+
+test('every factory type has a decoration whose sprite resolves', () => {
+  // The original puts the piece a factory produces on its roof
+  // (Lce56_decoration_sprite_indexes entries 1-6). Those entries resolve into
+  // Ld740_isometric_graphic_pointers at the south-facing sprite of each
+  // module, so the manifest points at the decoded robot pieces by name
+  // rather than decoding them a second time.
+  const m = shipped();
+  const types = new Set(map.factories.map((f) => f.factory_type));
+  assert.equal(types.size, 6, `expected all six factory types, got ${[...types]}`);
+  for (const type of types) {
+    const id = m.decorations?.[`factory.${type}`];
+    assert.ok(id, `no decoration for factory type ${type}`);
+    const asset = m.assets[id!]!;
+    assert.ok(spriteRows(asset.sprite), `sprite ${asset.sprite} does not resolve`);
+    assert.deepEqual(asset.footprint, [2, 2]);
+    // Ld7bc_map_piece_heights gives the factory decorations elevation #0f.
+    assert.equal(asset.elevation, 15);
+  }
+});
+
+test('the factory decoration stands on the tall central block of its roof', () => {
+  // Lbcf9 adds the decoration four map rows back from the factory anchor, and
+  // Lbfe2_factory anchors the 6x4 structure at min-x + 2 / max-y.
+  for (const factory of map.factories) {
+    const anchor = factoryDecorationAnchor(factory)!;
+    assert.ok(anchor, `${factory.id} has no decoration anchor`);
+    const cells = footprintCellsOf(anchor, [2, 2]);
+    const heights = new Map(factory.components.map((c) => [`${c.x},${c.y}`, c.height]));
+    for (const cell of cells) {
+      // All four cells exist and are the tall (height 15) part of the roof.
+      assert.equal(heights.get(`${cell.x},${cell.y}`), 15, `${factory.id} at ${cell.x},${cell.y}`);
+    }
+  }
+});
+
+test('a structure that is not the 6x4 factory shape gets no decoration anchor', () => {
+  assert.equal(factoryDecorationAnchor({ components: [{ x: 0, y: 0, height: 15 }] }), null);
+  assert.equal(factoryDecorationAnchor({ components: [] }), null);
 });

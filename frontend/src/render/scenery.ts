@@ -8,6 +8,8 @@ import type { MapBlocker, MapComponent, MapData } from '../world/map.ts';
 import { depthKey } from './projection.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
 import { sliceSpriteRows, spriteOriginFor, type SpriteSlice } from './sprite-slice.ts';
+import { ROBOT_SPRITES } from './robot-sprites.ts';
+import type { ModuleId, RobotFacing } from './robot.ts';
 
 export interface SceneryAsset {
   /** Key into SCENERY_SPRITES. */
@@ -81,7 +83,7 @@ export function sceneryPlacements(
     const maxY = Math.max(...ys);
     const fits =
       !!asset &&
-      !!SCENERY_SPRITES[asset.sprite] &&
+      !!spriteRows(asset.sprite) &&
       Math.max(...xs) - minX + 1 === asset.footprint[0] &&
       maxY - Math.min(...ys) + 1 === asset.footprint[1] &&
       b.components.length === asset.footprint[0] * asset.footprint[1];
@@ -89,6 +91,25 @@ export function sceneryPlacements(
     else unmapped.push(b);
   }
   return { placements, unmapped };
+}
+
+/**
+ * The pixel rows a manifest asset's `sprite` names, or `undefined`.
+ *
+ * Two namespaces, because the Spectrum draws from two pointer tables and
+ * some sprites appear in both roles. `spectrum.*` is a map element
+ * (`scenery-sprites.ts`, `Ld6e8_additional_isometric_graphic_pointers`).
+ * `robot.<module>.<facing>` is a robot piece (`robot-sprites.ts`,
+ * `Ld740_isometric_graphic_pointers`): the factory roof decorations are
+ * exactly those sprites -- `Lce56_decoration_sprite_indexes` entries 1-6
+ * resolve into the same table at the south-facing piece of each module --
+ * so they are referenced rather than decoded a second time.
+ */
+export function spriteRows(sprite: string): readonly string[] | undefined {
+  if (SCENERY_SPRITES[sprite]) return SCENERY_SPRITES[sprite];
+  const [namespace, moduleId, facing] = sprite.split('.');
+  if (namespace !== 'robot' || moduleId === undefined || facing === undefined) return undefined;
+  return ROBOT_SPRITES[moduleId as ModuleId]?.[facing as RobotFacing];
 }
 
 /**
@@ -100,7 +121,7 @@ export function sceneryPlacements(
  * the result.
  */
 export function spriteOrigin(asset: SceneryAsset, anchor: { x: number; y: number }): { x: number; y: number } {
-  return spriteOriginFor(SCENERY_SPRITES[asset.sprite]!, asset.footprint, anchor, 0, asset.offset ?? [0, 0]);
+  return spriteOriginFor(spriteRows(asset.sprite)!, asset.footprint, anchor, 0, asset.offset ?? [0, 0]);
 }
 
 export type { SpriteSlice };
@@ -114,7 +135,47 @@ export type { SpriteSlice };
  * shared with robots/commander/structure walls since #owner-2026-09-22).
  */
 export function sliceSprite(asset: SceneryAsset): SpriteSlice[] {
-  return sliceSpriteRows(SCENERY_SPRITES[asset.sprite]!, asset.footprint, asset.height);
+  return sliceSpriteRows(spriteRows(asset.sprite)!, asset.footprint, asset.height);
+}
+
+/**
+ * Where a factory's roof decoration stands: the anchor of the 2x2 element at
+ * the middle of its back wall.
+ *
+ * `Lbcf9_add_warbases_and_factories_to_map` stamps the factory from its own
+ * anchor and then adds the decoration four map rows back (`dec h` x4, and a
+ * map row is two `h` steps), i.e. at the anchor's x and two cells lower y.
+ * `Lbfe2_factory` places that anchor at the structure's max-y, min-x + 2, and
+ * the factory is a fixed 6x4, so the decoration cell is `(min-x + 2, min-y + 1)`
+ * -- the tall central block whose roof is at height 15, which is the
+ * elevation the original draws the decoration at
+ * (`Lce5f_decoration_drawing_elevations` entries 1-6 = #0f).
+ *
+ * Returns `null` for a structure that is not that 6x4 shape, so a custom map
+ * simply draws no decoration rather than putting one in the wrong place.
+ */
+export function factoryDecorationAnchor(factory: {
+  components: readonly MapComponent[];
+}): { x: number; y: number } | null {
+  if (!factory.components.length) return null;
+  const xs = factory.components.map((c) => c.x);
+  const ys = factory.components.map((c) => c.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  if (Math.max(...xs) - minX !== 5 || Math.max(...ys) - minY !== 3) return null;
+  return { x: minX + 2, y: minY + 1 };
+}
+
+/** The cells of a `footprint` anchored at its min-x / max-y cell. */
+export function footprintCellsOf(
+  anchor: { x: number; y: number },
+  footprint: readonly [number, number],
+): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+  for (let dy = 0; dy > -footprint[1]; dy--) {
+    for (let dx = 0; dx < footprint[0]; dx++) cells.push({ x: anchor.x + dx, y: anchor.y + dy });
+  }
+  return cells;
 }
 
 /** Painter's key of a slice for a blocker anchored at `anchor`. */

@@ -12,7 +12,7 @@ import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCe
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, terrainElementAsset, terrainManifest, type SemanticAsset } from './assets.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
-import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, wallBlocks, type SceneryAsset, type SpriteSlice, type WallBlock } from './scenery.ts';
+import { factoryDecorationAnchor, footprintCellsOf, parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, spriteRows, wallBlocks, type SceneryAsset, type SpriteSlice, type WallBlock } from './scenery.ts';
 import { pixelTexture, spriteOriginFor } from './sprite-slice.ts';
 import { textOverlays } from '../state/labels.ts';
 import { menuColumnShown } from '../ui/menus.ts';
@@ -283,6 +283,19 @@ export class WorldRenderer {
         this.scene.addChild(g);
       }
     }
+    // A factory carries the piece it produces on its roof (the original's
+    // decoration types 1-6, Lce56_decoration_sprite_indexes). Drawn after the
+    // walls so it lands on the block it stands on.
+    for (const factory of this.map.factories) {
+      if (destroyedIds.has(factory.id)) continue;
+      const dec = this.decorationAsset(`factory.${factory.factory_type}`);
+      if (!dec) continue;
+      const anchor = factoryDecorationAnchor(factory);
+      if (!anchor) continue;
+      for (const cell of footprintCellsOf(anchor, dec.asset.footprint)) {
+        this.drawPadCell(dec, anchor, { ...cell, height: dec.asset.elevation ?? 0 });
+      }
+    }
     // Placeholder prisms: a destroyed structure's rubble, and any cell that is
     // not part of a whole 2x2 wall block (the war bases have a few).
     for (const { c, color, dead } of structureBlocks) {
@@ -338,7 +351,7 @@ export class WorldRenderer {
     const m = structureManifest();
     const id = m?.decorations?.[kind];
     const asset = id === undefined ? undefined : m!.assets[id];
-    if (id === undefined || !asset || !SCENERY_SPRITES[asset.sprite]) return null;
+    if (id === undefined || !asset || !spriteRows(asset.sprite)) return null;
     return { id, asset };
   }
 
@@ -357,7 +370,7 @@ export class WorldRenderer {
       this.scene.addChild(g);
       return;
     }
-    const rows = SCENERY_SPRITES[pad.asset.sprite]!;
+    const rows = spriteRows(pad.asset.sprite)!;
     const z = pad.asset.elevation ?? cell.height;
     const origin = spriteOriginFor(rows, pad.asset.footprint, anchor, z, pad.asset.offset ?? [0, 0]);
     for (const { slice, texture } of this.sceneryTexturesFor(pad.id, pad.asset)) {
