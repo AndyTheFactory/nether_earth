@@ -97,6 +97,7 @@ from enum import Enum
 from heapq import heappop, heappush
 from typing import Protocol
 
+from nether_earth.ids import EntityId
 from nether_earth.map import WorldMap
 from nether_earth.movement import (
     RobotMoveRequest,
@@ -118,6 +119,7 @@ from nether_earth.reservations import (
     destination_available,
     reservations_from_state,
 )
+from nether_earth.rng import MatchRandom, derive_seed
 from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
@@ -131,8 +133,10 @@ __all__ = [
     "NavigationPolicy",
     "NavigationStatus",
     "NonElectronicNavigation",
+    "body_alignment_anchors",
     "body_contact_anchors",
     "cell_is_enterable",
+    "derive_wander_seed",
     "navigation_policy_for",
     "next_body_approach_step",
     "next_navigation_step",
@@ -527,6 +531,34 @@ def body_contact_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int],
     return tuple(sorted(anchors))
 
 
+def body_alignment_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int], ...]:
+    """Return the four anchors from which a 2x2 body is *lane-aligned* with the target.
+
+    Both cells of the hunter's leading edge face both cells of the target's:
+    the two bodies share their column pair or their row pair, touching along
+    a full edge rather than at a corner or with a one-cell stagger. Since a
+    2x2 body spans two cells, those anchors are exactly two cells away on one
+    axis and level on the other.
+
+    This is where a Search & Destroy hunter wants to end up (owner request):
+    a robot fires along its cardinal facing and the shot only connects while
+    the bodies overlap on the off axis, so a staggered stop makes hits
+    depend on the stagger rather than on the aim. A subset of
+    :func:`body_contact_anchors`, which stays the fallback for a target whose
+    aligned anchors are all blocked or unreachable.
+    """
+    return tuple(
+        sorted(
+            (
+                (target_x, target_y - 2),
+                (target_x, target_y + 2),
+                (target_x - 2, target_y),
+                (target_x + 2, target_y),
+            )
+        )
+    )
+
+
 def _reconstruct(
     came_from: dict[tuple[int, int], tuple[int, int]],
     start: tuple[int, int],
@@ -617,32 +649,45 @@ def _trivial_decision(
 class NonElectronicNavigation:
     """Deliberately limited, original-style local routing (locked behavior).
 
-    The rule, in full: the robot considers **only steps that reduce its
-    remaining distance to the target**, in exactly two candidate positions --
+    The rule, in full:
 
-    1. the **primary axis**: a step along whichever axis has the larger
-       remaining absolute delta (ties go to X, a fixed rule, not an
-       incidental ordering);
-    2. the **secondary axis**: a step along the other axis, considered only
-       when its remaining delta is nonzero.
+    1. the **primary step**: along whichever axis has the larger remaining
+       absolute delta (ties go to X, a fixed rule, not an incidental
+       ordering);
+    2. the **two perpendicular steps**, in an order drawn from this robot's
+       own seeded stream. One of them is the secondary axis, the step that
+       also closes the other delta; the draw decides whether the robot
+       detours that way or the other way;
+    3. the **reverse of the primary step**, a last resort.
 
-    The first candidate the movement executor accepts is taken; if neither is
-    accepted the robot reports :attr:`NavigationStatus.BLOCKED` and stays put.
+    The first candidate the movement executor accepts is taken. Only a robot
+    for which not one cardinal step is legal reports
+    :attr:`NavigationStatus.BLOCKED`.
 
-    That is the whole algorithm. It has no memory, no search, and no notion
-    of a detour: it will never take a sideways step (one axis already
-    aligned) and never a backwards step. So a single blocker directly on its
-    approach axis, with the target straight beyond it, stalls it
-    indefinitely even though stepping one cell aside and back would arrive
-    in two extra ticks. **This is the locked product difference electronics
-    buys** (`_specs/open-questions.md` §5, issue #65's fidelity note) -- it
-    is not a bug, and it must not be "fixed" into competence. The secondary-
-    axis fallback is the only obstacle handling it has, and it only helps
-    while the robot is still off-axis from its target.
+    Steps 2 and 3 are the Spectrum's own behavior, not an improvement on it
+    (`_specs/open-questions.md` §5/§22.6). ``Lb222_choose_direction_to_move``
+    intersects the directions that point at the target with the directions
+    the robot may actually move in (``Lb513_get_robot_movement_possibilities``)
+    and picks one at random; when that intersection is empty it falls through
+    to ``Lb33e_pick_direction_at_random``, which picks at random among every
+    possible direction. The original robot is erratic, never immobile.
 
-    Because there is no search, this policy can never return
-    :attr:`NavigationStatus.UNREACHABLE`: it does not know whether a route
-    exists, only whether its one or two greedy candidates are legal now.
+    **Coherence.** A direction redrawn every tick would jitter on the spot
+    and never clear an obstacle, so the Spectrum commits to its choice for
+    ``rand & 3 + 3`` = 3-6 game cycles
+    (``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING``, ``Lb1f5``). This
+    policy is stateless, so it derives the same coherence from the tick
+    window ``tick // rules.dumb_wander_commit_ticks``: inside one window a
+    robot's draw is fixed, so it keeps trying the same detour and walks the
+    length of a wall instead of oscillating against it. Nothing is stored on
+    the robot and nothing is threaded through ``GameState``.
+
+    What electronics still buys is unchanged and substantial: a shortest
+    legal route (:class:`ElectronicNavigation`) versus a greedy step with a
+    random detour that may walk into a pocket, retreat from it and try again.
+    This policy still has no search, no memory and no notion of a plan, and
+    so can never return :attr:`NavigationStatus.UNREACHABLE`: it does not
+    know whether a route exists, only which steps are legal now.
     """
 
     def next_step(
@@ -659,26 +704,11 @@ class NonElectronicNavigation:
         if trivial is not None:
             return trivial
 
-        delta_x = target_x - robot.x
-        delta_y = target_y - robot.y
-        step_x = (0 if delta_x == 0 else (1 if delta_x > 0 else -1), 0)
-        step_y = (0, 0 if delta_y == 0 else (1 if delta_y > 0 else -1))
-
-        if abs(delta_x) >= abs(delta_y):
-            candidates = (step_x, step_y)
-        else:
-            candidates = (step_y, step_x)
-
-        for dx, dy in candidates:
-            if dx == 0 and dy == 0:
-                continue  # that axis is already aligned: not a candidate
+        primary = _primary_step(target_x - robot.x, target_y - robot.y)
+        for dx, dy in _candidate_order(primary, robot, state, rules):
             request = _step_is_legal(robot, dx, dy, state, world, rules)
             if request is not None:
-                return NavigationDecision(
-                    status=NavigationStatus.STEP,
-                    request=request,
-                    route=((robot.x + dx, robot.y + dy),),
-                )
+                return _step_decision(robot, request, dx, dy)
 
         return NavigationDecision(status=NavigationStatus.BLOCKED)
 
@@ -691,13 +721,27 @@ class NonElectronicNavigation:
         world: WorldMap,
         rules: EngineRules = DEFAULT_RULES,
     ) -> NavigationDecision:
-        """Greedy-step toward the target unit's anchor, exactly as :meth:`next_step`.
+        """Greedy-step toward the nearest anchor lane-aligned with the target.
 
-        No special case is needed: the greedy rule never searches, so the
-        occupied anchor only makes the final step ``BLOCKED`` -- the robot
-        simply stops beside its target, which is the locked limited behavior.
+        Alignment is arrival: once ``robot`` stands on one of the target's
+        :func:`body_alignment_anchors` the two bodies face each other along a
+        full edge and the caller (a Search & Destroy hunt) takes over with
+        fire. Until then the greedy goal is the nearest of those anchors
+        rather than the target's own anchor -- stepping at the occupied body
+        would be refused every tick, and the detour fallback would then walk
+        the hunter off its target instead of alongside it.
         """
-        return self.next_step(robot, target_x, target_y, state, world, rules)
+        if robot.movement is not None:
+            return NavigationDecision(status=NavigationStatus.MOVE_IN_PROGRESS)
+        if robot.turning is not None:
+            return NavigationDecision(status=NavigationStatus.TURN_IN_PROGRESS)
+        anchors = body_alignment_anchors(target_x, target_y)
+        if (robot.x, robot.y) in anchors:
+            return NavigationDecision(status=NavigationStatus.ARRIVED)
+        goal = min(
+            anchors, key=lambda cell: (_distance(robot, cell), cell)
+        )
+        return self.next_step(robot, goal[0], goal[1], state, world, rules)
 
 
 @dataclass(frozen=True, slots=True)
@@ -750,21 +794,96 @@ class ElectronicNavigation:
         world: WorldMap,
         rules: EngineRules = DEFAULT_RULES,
     ) -> NavigationDecision:
-        """Replan to any anchor touching the target unit's body (CR003.4).
+        """Replan to an anchor lane-aligned with the target unit's body (CR003.4).
 
-        The goal set is :func:`body_contact_anchors` of the target's anchor,
-        so the (necessarily occupied) target body itself is never the goal
-        and never makes the target ``UNREACHABLE``. Standing on any contact
-        anchor is ``ARRIVED``; the caller decides what arrival means.
+        The goal set is :func:`body_alignment_anchors` of the target's
+        anchor: the four positions where the two bodies face each other
+        along a full edge, which is where a hunter's cardinal shot connects
+        (owner request). Those are never the target's own (occupied) anchor,
+        so an occupied body can never make the target ``UNREACHABLE``.
+
+        When no aligned anchor is reachable -- a target backed into a corner,
+        or every lane blocked -- the goal set falls back to the wider
+        :func:`body_contact_anchors`, so the hunt still closes as far as it
+        can instead of abandoning the order. Standing on a goal of whichever
+        set applies is ``ARRIVED``; the caller decides what arrival means.
         """
         if robot.movement is not None:
             return NavigationDecision(status=NavigationStatus.MOVE_IN_PROGRESS)
+        if robot.turning is not None:
+            return NavigationDecision(status=NavigationStatus.TURN_IN_PROGRESS)
         route = plan_route_to_any(
-            robot, body_contact_anchors(target_x, target_y), state, world, rules
+            robot, body_alignment_anchors(target_x, target_y), state, world, rules
         )
+        if route is None:
+            route = plan_route_to_any(
+                robot, body_contact_anchors(target_x, target_y), state, world, rules
+            )
         if route == ():
             return NavigationDecision(status=NavigationStatus.ARRIVED)
         return _first_step_decision(robot, route, state, world, rules)
+
+
+def _step_decision(
+    robot: Robot, request: RobotMoveRequest, dx: int, dy: int
+) -> NavigationDecision:
+    """Return the one-cell ``STEP`` decision for an already-validated request."""
+    return NavigationDecision(
+        status=NavigationStatus.STEP,
+        request=request,
+        route=((robot.x + dx, robot.y + dy),),
+    )
+
+
+def derive_wander_seed(match_seed: int, tick: int, entity_id: EntityId, commit_ticks: int) -> int:
+    """Return the seed of ``entity_id``'s wander stream for the tick's window.
+
+    The window is ``tick // commit_ticks``, so the draw is constant for
+    ``commit_ticks`` ticks and a detour holds its direction long enough to
+    clear an obstacle (see :class:`NonElectronicNavigation`). Mixing the
+    robot's id in gives every robot its own stream, so two robots blocked by
+    the same wall in the same window do not fall into lockstep.
+    """
+    return derive_seed(match_seed, tick // commit_ticks, entity_id.value)
+
+
+def _distance(robot: Robot, cell: tuple[int, int]) -> int:
+    """Return the Manhattan distance from ``robot``'s anchor to ``cell``."""
+    return abs(cell[0] - robot.x) + abs(cell[1] - robot.y)
+
+
+def _primary_step(delta_x: int, delta_y: int) -> tuple[int, int]:
+    """Return the one cardinal step down the larger remaining delta (ties to X)."""
+    if abs(delta_x) >= abs(delta_y):
+        return (1 if delta_x > 0 else -1, 0) if delta_x else (0, 1 if delta_y > 0 else -1)
+    return (0, 1 if delta_y > 0 else -1)
+
+
+def _candidate_order(
+    primary: tuple[int, int],
+    robot: Robot,
+    state: GameState,
+    rules: EngineRules,
+) -> tuple[tuple[int, int], ...]:
+    """Return this robot's candidate steps for the tick, best first.
+
+    The primary step, then the two steps perpendicular to it in this
+    window's drawn order, then the reverse of the primary. See
+    :class:`NonElectronicNavigation` for why the perpendicular pair is drawn
+    once per window rather than once per tick, and why its order is drawn at
+    all rather than always preferring the one that also closes the other
+    axis.
+    """
+    perpendicular = (
+        [(0, -1), (0, 1)] if primary[1] == 0 else [(-1, 0), (1, 0)]
+    )
+    rng = MatchRandom(
+        seed=derive_wander_seed(
+            state.seed, state.tick, robot.entity_id, rules.dumb_wander_commit_ticks
+        )
+    )
+    rng.shuffle(perpendicular)
+    return (primary, *perpendicular, (-primary[0], -primary[1]))
 
 
 def _first_step_decision(

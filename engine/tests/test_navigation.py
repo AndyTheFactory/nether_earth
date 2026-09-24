@@ -21,6 +21,7 @@ from nether_earth.navigation import (
     NavigationDecision,
     NavigationStatus,
     NonElectronicNavigation,
+    body_alignment_anchors,
     body_contact_anchors,
     cell_is_enterable,
     navigation_policy_for,
@@ -353,8 +354,8 @@ def test_non_electronic_breaks_an_equal_axis_delta_in_favor_of_x() -> None:
     assert (decision.request.dx, decision.request.dy) == (1, 0)
 
 
-def test_non_electronic_falls_back_to_the_secondary_axis_when_primary_is_blocked() -> None:
-    """Its only obstacle handling: usable solely while still off-axis."""
+def test_non_electronic_detours_perpendicular_when_the_primary_axis_is_blocked() -> None:
+    """Its obstacle handling: a perpendicular step drawn for this window."""
     # The robot's 2×2 body is (2..3, 4..5); the wall is just east of it.
     world = _world(blockers=(_wall(((4, 5),)),))
     robot = _robot(x=2, y=5)
@@ -363,21 +364,54 @@ def test_non_electronic_falls_back_to_the_secondary_axis_when_primary_is_blocked
     )
 
     assert decision.request is not None
-    assert (decision.request.dx, decision.request.dy) == (0, 1)
+    assert (decision.request.dx, decision.request.dy) in ((0, 1), (0, -1))
 
 
-def test_non_electronic_gets_stuck_although_a_longer_valid_route_exists() -> None:
-    """Locked product behavior (`_specs/open-questions.md` §5) -- not a bug."""
+def test_non_electronic_keeps_its_detour_direction_for_the_whole_window() -> None:
+    """The stand-in for the Spectrum's per-robot "keep walking" counter."""
+    world = _world(blockers=(_wall(((4, 5),)),))
+    robot = _robot(x=2, y=5)
+    commit = DEFAULT_RULES.dumb_wander_commit_ticks
+
+    def detour(tick: int) -> tuple[int, int]:
+        decision = NON_ELECTRONIC_NAVIGATION.next_step(
+            robot, 8, 5, _state((robot,), tick=tick), world
+        )
+        assert decision.request is not None
+        return decision.request.dx, decision.request.dy
+
+    # Constant inside one window...
+    assert {detour(tick) for tick in range(commit)} == {detour(0)}
+    # ...and drawn again in the next one, so a robot that walked into a pocket
+    # is not committed to it for ever.
+    assert {detour(tick) for tick in range(20 * commit)} == {(0, 1), (0, -1)}
+
+
+def test_non_electronic_detours_are_per_robot_not_in_lockstep() -> None:
+    world = _world(blockers=(_wall(((4, 5),)),))
+    robots = tuple(
+        _robot(entity_id=f"robot-{index}", x=2, y=5) for index in range(12)
+    )
+    detours = set()
+    for robot in robots:
+        decision = NON_ELECTRONIC_NAVIGATION.next_step(
+            robot, 8, 5, _state((robot,)), world
+        )
+        assert decision.request is not None
+        detours.add((decision.request.dx, decision.request.dy))
+
+    assert detours == {(0, 1), (0, -1)}
+
+
+def test_non_electronic_detours_around_a_wall_instead_of_stalling_against_it() -> None:
+    """`_specs/open-questions.md` §5/§22.6: erratic, not immobile (``Lb33e``)."""
     world = _walled_world()
     robot = _navigating_robot(electronics=None)
 
     status, cell, _tick = _run_to_target(robot, world, _TARGET)
 
-    assert status is NavigationStatus.BLOCKED
-    # Nose against the wall: the 2×2 body (3..4, 4..5) ends one cell short of it.
-    assert cell == (3, 5)
-    # ...while a valid chassis-compatible route around the wall does exist.
-    assert plan_route(_robot(x=3, y=5), _TARGET[0], _TARGET[1], _state(), world)
+    assert status is NavigationStatus.ARRIVED
+    assert cell == _TARGET
 
 
 def test_non_electronic_never_reports_unreachable_because_it_searches_nothing() -> None:
@@ -387,11 +421,36 @@ def test_non_electronic_never_reports_unreachable_because_it_searches_nothing() 
         robot, 8, 5, _state((robot,)), world
     )
 
+    # It cannot know the wall is impassable, so it keeps trying: a detour step
+    # here, never the electronic policy's proof of unreachability.
+    assert decision.status is NavigationStatus.STEP
+
+
+def test_non_electronic_is_blocked_only_when_no_direction_at_all_is_legal() -> None:
+    # Boxed in on all four sides: the 2×2 body at (2..3, 4..5) has a wall
+    # against each face, so not one of the four cardinal steps is legal.
+    world = _world(
+        blockers=(
+            _wall(
+                (
+                    (1, 4), (1, 5),
+                    (4, 4), (4, 5),
+                    (2, 3), (3, 3),
+                    (2, 6), (3, 6),
+                )
+            ),
+        )
+    )
+    robot = _robot(x=2, y=5)
+    decision = NON_ELECTRONIC_NAVIGATION.next_step(
+        robot, 8, 5, _state((robot,)), world
+    )
+
     assert decision.status is NavigationStatus.BLOCKED
 
 
-def test_non_electronic_stalls_on_another_robots_reservation() -> None:
-    """A dynamic blocker stalls it exactly as a static one does."""
+def test_non_electronic_detours_around_another_robots_reservation() -> None:
+    """A dynamic blocker detours it exactly as a static one does."""
     reserver = _robot(
         entity_id="robot-b",
         owner=PLAYER_TWO,
@@ -411,7 +470,9 @@ def test_non_electronic_stalls_on_another_robots_reservation() -> None:
     state = _state((mover, reserver))
     decision = NON_ELECTRONIC_NAVIGATION.next_step(mover, 8, 5, state, _world())
 
-    assert decision.status is NavigationStatus.BLOCKED
+    assert decision.status is NavigationStatus.STEP
+    assert decision.request is not None
+    assert (decision.request.dx, decision.request.dy) in ((0, 1), (0, -1))
 
 
 # --- Electronic: deterministic pathfinding and replanning ----------------------
@@ -431,17 +492,21 @@ def test_obstacle_routing_contrast_same_fixture_divergent_outcomes() -> None:
     """The locked behavioral contrast, both policies, one identical fixture."""
     world = _walled_world()
 
-    dumb_status, dumb_cell, _dumb_tick = _run_to_target(
+    dumb_status, dumb_cell, dumb_tick = _run_to_target(
         _navigating_robot(electronics=None), world, _TARGET
     )
-    smart_status, smart_cell, _smart_tick = _run_to_target(
+    smart_status, smart_cell, smart_tick = _run_to_target(
         _navigating_robot(electronics=ModuleIdentity.ELECTRONICS), world, _TARGET
     )
 
-    assert dumb_status is NavigationStatus.BLOCKED
-    assert dumb_cell != _TARGET
+    # Both arrive: the dumb policy detours (`Lb33e`) rather than standing
+    # still. What electronics buys is the *route*, not the outcome -- it
+    # plans the way around and walks it, while the dumb robot discovers it.
+    assert dumb_status is NavigationStatus.ARRIVED
+    assert dumb_cell == _TARGET
     assert smart_status is NavigationStatus.ARRIVED
     assert smart_cell == _TARGET
+    assert smart_tick < dumb_tick
 
 
 def test_electronic_route_avoids_every_blocked_cell() -> None:
@@ -644,7 +709,12 @@ def test_a_step_into_a_ditch_stays_rejected_by_the_executor_for_both_policies() 
             is MovementRejectionReason.TERRAIN_IMPASSABLE
         )
         decision = next_navigation_step(robot, 3, 5, state, world)
-        assert decision.status is not NavigationStatus.STEP
+        # Neither policy proposes the rejected step: the electronic one finds
+        # no route to a cell its chassis cannot enter, and the dumb one
+        # detours around the ditch rather than into it.
+        if decision.status is NavigationStatus.STEP:
+            assert decision.request is not None
+            assert (decision.request.dx, decision.request.dy) != (1, 0)
 
 
 # --- Shared traversability query ------------------------------------------------
@@ -827,7 +897,7 @@ def test_electronic_body_approach_does_not_stop_on_a_diagonal_corner_anchor() ->
     assert not (abs(end_x - 20) == 2 and abs(end_y - 5) == 2)
 
 
-def test_body_approach_is_arrived_once_touching_and_greedy_robots_stay_greedy() -> None:
+def test_body_approach_is_arrived_once_lane_aligned_for_both_policies() -> None:
     world = _world(width=30, height=12)
     target = _robot("robot-z", PLAYER_TWO, x=20, y=5, chassis=ModuleIdentity.TRACKS)
     electronic = _robot(
@@ -835,18 +905,33 @@ def test_body_approach_is_arrived_once_touching_and_greedy_robots_stay_greedy() 
     )
     greedy = _robot(x=18, y=5, chassis=ModuleIdentity.TRACKS)
 
-    assert next_body_approach_step(
-        electronic, 20, 5, _state((electronic, target)), world
-    ).status is NavigationStatus.ARRIVED
-    # The non-electronic policy is unchanged: it greedily steps at the anchor
-    # and is refused the overlapping step, which is BLOCKED, never UNREACHABLE.
-    state = _state((greedy, target))
-    assert next_body_approach_step(greedy, 20, 5, state, world) == (
-        NON_ELECTRONIC_NAVIGATION.next_step(greedy, 20, 5, state, world)
-    )
-    assert next_body_approach_step(greedy, 20, 5, state, world).status is (
-        NavigationStatus.BLOCKED
-    )
+    # (18, 5) is lane-aligned with (20, 5): both bodies span rows 4..5.
+    for hunter in (electronic, greedy):
+        assert next_body_approach_step(
+            hunter, 20, 5, _state((hunter, target)), world
+        ).status is NavigationStatus.ARRIVED
+
+
+def test_body_approach_closes_the_stagger_instead_of_stopping_on_it() -> None:
+    """A hunter one cell off the target's lane keeps closing (owner request)."""
+    world = _world(width=30, height=12)
+    target = _robot("robot-z", PLAYER_TWO, x=20, y=5, chassis=ModuleIdentity.TRACKS)
+    # (18, 6) touches the target body along one cell only: the bodies are
+    # staggered, so a cardinal shot from here would pass it by.
+    for electronics in (None, ModuleIdentity.ELECTRONICS):
+        hunter = _robot(x=18, y=6, chassis=ModuleIdentity.TRACKS, electronics=electronics)
+        state = _state((hunter, target))
+        decision = next_body_approach_step(hunter, 20, 5, state, world)
+
+        assert decision.status is NavigationStatus.STEP
+        assert decision.request is not None
+        assert (decision.request.dx, decision.request.dy) == (0, -1)
+
+
+def test_body_alignment_anchors_are_the_four_full_edge_positions() -> None:
+    assert body_alignment_anchors(20, 5) == ((18, 5), (20, 3), (20, 7), (22, 5))
+    # Every one of them is also a contact anchor, and none is a corner one.
+    assert set(body_alignment_anchors(20, 5)) <= set(body_contact_anchors(20, 5))
 
 
 def test_plan_route_to_any_ignores_unenterable_goals_and_is_order_independent() -> None:

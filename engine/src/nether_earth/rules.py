@@ -417,6 +417,16 @@ class EngineRules:
       (1 game cycle). On the Spectrum an AI robot fires only inside its
       update in ``Lb0ca_update_robots_bullets_and_ai`` and a combat-mode
       shot uses up one time step, so neither fires twice in a cycle.
+    - ``dumb_wander_commit_ticks``: how long, in ticks, a non-electronic
+      robot keeps trying the same detour direction when its greedy step
+      toward the target is blocked (`_specs/open-questions.md` §5/§22.6).
+      The Spectrum's dumb AI commits to a randomly chosen direction for
+      ``rand & 3 + 3`` = 3-6 game cycles
+      (``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING``, ``Lb1f5``) before
+      reconsidering; the engine derives the same coherence from the tick
+      window ``tick // dumb_wander_commit_ticks`` instead of storing a
+      counter per robot. Default ``16`` ticks = 4 game cycles, the middle of
+      the Spectrum's range. Must be a positive integer.
     - ``robot_launch_exit_steps``: how many steps south a newly launched
       robot walks out of its war base before settling into Stop & Defend
       (CR002.3, owner decision 2026-09-21, `_specs/open-questions.md` §21).
@@ -488,8 +498,13 @@ class EngineRules:
     robot_turn_ticks: int = 4
     robot_fire_cycle_ticks: int = 4
     robot_launch_exit_steps: int = 5
+    #: See the class docstring: the detour-coherence window that stands in
+    #: for the Spectrum's per-robot "keep walking" counter.
+    dumb_wander_commit_ticks: int = 16
 
     def __post_init__(self) -> None:
+        if self.dumb_wander_commit_ticks <= 0:
+            raise ValueError("dumb_wander_commit_ticks must be a positive integer")
         if self.commander_min_altitude < 0:
             raise ValueError("commander_min_altitude must be non-negative")
         if self.commander_max_altitude <= self.commander_min_altitude:

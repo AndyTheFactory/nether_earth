@@ -391,7 +391,7 @@ Supported orders:
 - **Search & Capture** — target neutral factories, enemy factories, or war bases. The war-base target takes **any war base not already the ordering player's**, neutral ones included, since there is no separate neutral-war-base target and the two interior war bases start neutral (owner decision, 2026-09-25). This is a deliberate deviation from the Spectrum, whose `Lb3d5_prepare_robot_order_building_target_search` builds one exact ownership-flag value to match on and so takes enemy-owned war bases only; the factory targets keep the original's split. The order never completes: the robot walks to the nearest matching structure that no other friendly robot with the same order already targets, holds its capture cell until the structure changes hands, then retargets and leaves. Selection is re-run on every evaluation (owner decision, 2026-09-23), so a structure that changes hands nearer to the robot than its current target pulls it in — except while the robot is already standing on its target's capture cell, where the capture in progress is never abandoned. With no matching structure it keeps the order and holds position (still defending) until one appears (CR003.2 #217, Spectrum `Lb289`/`Lb36c`; `open-questions.md` "Capture order lifecycle");
 - **Search & Destroy** — target robots, factories, or war bases.
 
-Invalid/impossible orders fall back to Stop & Defend. Search & Capture never falls back (above). Search & Destroy against robots falls back only when no hostile robot remains; while one exists the robot closes on its body and engages it (CR003.4 #219).
+Invalid/impossible orders fall back to Stop & Defend. Search & Capture never falls back (above). Search & Destroy against robots falls back only when no hostile robot remains; while one exists the robot closes on its body and engages it (CR003.4 #219). It closes to a *lane-aligned* position — the two 2×2 bodies facing each other along a full edge, never corner to corner or one cell off the lane — because a shot travels along the firing robot's cardinal facing and would otherwise pass its target by (owner request 2026-09-25; see `open-questions.md` "Search & Destroy approach position").
 
 An order-driven robot acts only on its own **robot update**, as in the Spectrum (`Lb154_robot_ai_update`, CR002.19 #197). Its update period is its move duration for the terrain under its body (§13). On an update it fires when it has a shot, and otherwise moves; a firing update does not move. Direct fire (§17.1) is not tied to the robot update.
 
@@ -419,8 +419,12 @@ The original's facing-direction bonus to the autonomous fire-decision *scan* (10
 
 Without electronics:
 
-- limited/original-style local routing;
-- may fail to route around obstacles and become blocked/stuck.
+- limited/original-style local routing: the step that closes the larger
+  remaining axis, else a detour along the obstacle in a direction drawn for
+  the robot and held for a few game cycles, else a step back
+  (`open-questions.md` §5 "Detour fallback", the original's `Lb326`/`Lb33e`);
+- erratic and slow around obstacles, and prone to walking into pockets, but
+  immobile only where no legal step at all exists.
 
 With electronics:
 

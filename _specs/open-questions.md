@@ -176,6 +176,31 @@ in each field's own docstring entry) and consumed by
 
 Exact historical quirks of the dumb algorithm remain research detail, not a product decision.
 
+**Detour fallback (owner request 2026-09-25, adopted from the disassembly).**
+"Blocked" above means "has no legal step at all", not "its preferred step is
+refused". The original's dumb robot is erratic, never immobile:
+`Lb222_choose_direction_to_move` intersects the directions that point at the
+target with the directions it may actually move in
+(`Lb513_get_robot_movement_possibilities`) and picks one at random, and when
+that intersection is empty `Lb326`/`Lb33e_pick_direction_at_random` pick at
+random among *every* possible direction — sideways and backwards included. It
+then commits to that direction for `rand & 3 + 3` = 3–6 game cycles
+(`ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING`, `Lb1f5`) before reconsidering,
+which is what carries it along an obstacle instead of oscillating against it.
+
+The engine implements this as: the primary-axis step, then the two steps
+perpendicular to it in an order drawn once per *window*
+(`EngineRules.dumb_wander_commit_ticks`, default 16 ticks = 4 game cycles),
+then the reverse of the primary. The draw is derived from
+`(match seed, tick // commit window, entity id)`, so it is replay-safe and
+per-robot without storing a counter on the robot; the policy stays pure and
+stateless. `BLOCKED` now means every cardinal step is illegal.
+
+What electronics buys is unchanged in kind and still substantial: a planned
+shortest route versus a greedy step with a random detour that can walk into a
+pocket and back out of it. The engine's own M5 scenario shows the difference —
+both robots clear the wall, the electronic one much sooner.
+
 ## 6. War-base capture mechanics — RESOLVED
 
 - Enemy robots can capture war bases.
@@ -855,6 +880,23 @@ Items resolved during CR002, kept for their history:
 - **Robot altitude on terrain (found in CR002.21)**: resolved by CR002.25 (#214, owner decision 2026-09-21: match the original); see "Robots on terrain height" below.
 - The two owner decisions found during CR001 (scenery blockers §4, first projectile move §8) were decided on 2026-09-21 and implemented by CR002 (`_specs/milestones/cr002-spectrum-fidelity-ui.md`).
 
+## Search & Destroy approach position — RESOLVED (owner request 2026-09-25)
+
+A Search & Destroy hunt closes on a position **lane-aligned** with its target:
+the two 2×2 bodies face each other along a full edge, i.e. the hunter's anchor
+is exactly two cells from the target's on one axis and level with it on the
+other (`navigation.body_alignment_anchors`). A robot fires along its cardinal
+facing and a bullet connects only while the two bodies overlap on the off axis
+(`occupancy.unit_footprints_overlap`), so any staggered stop — one cell off the
+lane, or corner-to-corner — leaves the hunter shooting past its target for
+ever. That was the reported playtest bug.
+
+When no aligned anchor is reachable (a target backed into a corner, every lane
+blocked) the goal set falls back to the wider "touching" set, so the hunt
+closes as far as it can rather than abandoning the order. Non-electronic
+hunters use the same rule: their greedy goal is the nearest aligned anchor, and
+arrival means alignment.
+
 ## Documented deviations
 
 Deliberate differences from the original that the owner decided to keep. They are not open questions.
@@ -864,7 +906,7 @@ Deliberate differences from the original that the owner decided to keep. They ar
 3. **Construction modality (owner decision 2026-09-21).** Only the building player's commander is frozen; the match keeps running (§22).
 4. **Lift shortened by up/down (owner decision 2026-09-21).** Ignored; moves never shorten the automatic exit lift (§13).
 5. **Robot update phase.** A stationary robot that has not fired since it last moved counts as being at an update on every tick, so its first shot can come up to one period earlier than in the Spectrum (§8, CR002.19).
-6. **Doorway fallback and Stop & Defend turning.** A non-electronic robot ordered to Advance/Retreat from the war-base doorway cannot step sideways under the §5 greedy policy, where the original's `Lb326` falls back to a random possible direction; the engine's Stop & Defend does not turn toward enemies as `Lb1d7` does. Both are part of the §5 "historical quirks of the dumb algorithm", not product decisions.
+6. **Stop & Defend turning.** The engine's Stop & Defend does not turn toward enemies as `Lb1d7` does; this is part of the §5 "historical quirks of the dumb algorithm", not a product decision. The other half of this item — a non-electronic robot that could not step sideways where the original's `Lb326`/`Lb33e` falls back to a random possible direction — was adopted on 2026-09-25 and is no longer a deviation; see §5 "Detour fallback".
 7. **Radar shows only the viewer's own commander (owner decision 2026-09-21),** as in the single-player original; enemy robots are shown. Marks are white only (the original flickers cyan/yellow on blue).
 8. **Debris variant.** The Spectrum picks debris type 6 or 7 at random; both behave the same, so the engine consumes no RNG for it and the renderer always uses one sprite.
 9. **Fence post centred on its footprint (owner decision 2026-09-22, CR003.7 #222).** The renderer draws the map-end fence sprite centred on its 2×2 footprint, not where the Spectrum draws it. Presentation only; see "Map-end fence placement" below.
