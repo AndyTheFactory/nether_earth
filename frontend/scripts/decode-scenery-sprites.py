@@ -34,15 +34,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _netherearth_gfx import decode  # noqa: E402
 
 SPRITES = [
-    ("spectrum.element_17", 17, "La0e2_iso_additional_graphic_27"),
-    ("spectrum.element_18", 18, "La2e6_iso_additional_graphic_29"),
-    ("spectrum.element_21", 21, "La050_iso_additional_graphic_26"),
-    ("spectrum.element_6", 6, "L9d9c_iso_additional_graphic_22"),
-    ("spectrum.element_7", 7, "L9ef6_iso_additional_graphic_24"),
+    ("spectrum.box_low", 17, "La0e2_iso_additional_graphic_27"),
+    ("spectrum.box_high", 18, "La2e6_iso_additional_graphic_29"),
+    ("spectrum.fence", 21, "La050_iso_additional_graphic_26"),
+    ("spectrum.debris_a", 6, "L9d9c_iso_additional_graphic_22"),
+    ("spectrum.debris_b", 7, "L9ef6_iso_additional_graphic_24"),
     # CR-robots: the two wall-segment graphics war bases and factories are
     # built from (see decode-unit-sprites.py / warbase-sprites.ts docstring).
-    ("spectrum.element_15", 15, "L9914_iso_additional_graphic_18"),
-    ("spectrum.element_16", 16, "L9b18_iso_additional_graphic_20"),
+    ("spectrum.wall_low", 15, "L9914_iso_additional_graphic_18"),
+    ("spectrum.wall_high", 16, "L9b18_iso_additional_graphic_20"),
 ]
 
 

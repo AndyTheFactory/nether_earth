@@ -8,11 +8,11 @@
       "debris": "scenery.debris_a"
     },
     "assets": {
-      "scenery.box_low": { "sprite": "spectrum.element_17", "footprint": [2, 2], "height": 7 },
-      "scenery.box_high": { "sprite": "spectrum.element_18", "footprint": [2, 2], "height": 15 },
-      "scenery.fence": { "sprite": "spectrum.element_21", "footprint": [2, 2], "height": 99, "offset": [2, -3] },
-      "scenery.debris_a": { "sprite": "spectrum.element_6", "footprint": [2, 2], "height": 3 },
-      "scenery.debris_b": { "sprite": "spectrum.element_7", "footprint": [2, 2], "height": 3 }
+      "scenery.box_low": { "sprite": "spectrum.box_low", "footprint": [2, 2], "height": 7 },
+      "scenery.box_high": { "sprite": "spectrum.box_high", "footprint": [2, 2], "height": 15 },
+      "scenery.fence": { "sprite": "spectrum.fence", "footprint": [2, 2], "height": 99, "offset": [2, -3] },
+      "scenery.debris_a": { "sprite": "spectrum.debris_a", "footprint": [2, 2], "height": 3 },
+      "scenery.debris_b": { "sprite": "spectrum.debris_b", "footprint": [2, 2], "height": 3 }
     }
   },
   "structures": {
@@ -21,8 +21,8 @@
       "15": "structure.wall_high"
     },
     "assets": {
-      "structure.wall_low": { "sprite": "spectrum.element_15", "footprint": [1, 1], "height": 7 },
-      "structure.wall_high": { "sprite": "spectrum.element_16", "footprint": [1, 1], "height": 15 }
+      "structure.wall_low": { "sprite": "spectrum.wall_low", "footprint": [1, 1], "height": 7 },
+      "structure.wall_high": { "sprite": "spectrum.wall_high", "footprint": [1, 1], "height": 15 }
     }
   }
 }

@@ -14,7 +14,7 @@ test('every decoded blocker resolves to its Spectrum element sprite through the 
   const { placements, unmapped } = sceneryPlacements(map, shipped());
   assert.equal(unmapped.length, 0);
   assert.equal(placements.length, map.blockers.length);
-  const expected: Record<string, string> = { box_low: 'spectrum.element_17', box_high: 'spectrum.element_18', fence: 'spectrum.element_21' };
+  const expected: Record<string, string> = { box_low: 'spectrum.box_low', box_high: 'spectrum.box_high', fence: 'spectrum.fence' };
   const kinds = new Map(map.blockers.map((b) => [b.id, b.kind!]));
   for (const p of placements) assert.equal(p.asset.sprite, expected[kinds.get(p.blockerId)!]);
 });
@@ -32,13 +32,13 @@ test('the kind -> asset mapping is data: editing the manifest changes the sprite
   m.kinds['box_low'] = 'scenery.box_high';
   const lows = new Set(map.blockers.filter((b) => b.kind === 'box_low').map((b) => b.id));
   const { placements } = sceneryPlacements(map, m);
-  for (const p of placements.filter((q) => lows.has(q.blockerId))) assert.equal(p.asset.sprite, 'spectrum.element_18');
+  for (const p of placements.filter((q) => lows.has(q.blockerId))) assert.equal(p.asset.sprite, 'spectrum.box_high');
 
   const n = shipped();
-  n.assets['scenery.box_low']!.sprite = 'spectrum.element_6';
+  n.assets['scenery.box_low']!.sprite = 'spectrum.debris_a';
   const again = sceneryPlacements(map, n).placements.filter((q) => lows.has(q.blockerId));
   assert.ok(again.length > 0);
-  for (const p of again) assert.equal(p.asset.sprite, 'spectrum.element_6');
+  for (const p of again) assert.equal(p.asset.sprite, 'spectrum.debris_a');
 });
 
 test('unmapped kinds, unknown sprites and footprint mismatches fall back to placeholders', () => {
@@ -58,12 +58,12 @@ test('nuclear debris resolves through the manifest debris kind (CR002.18)', () =
   assert.equal(unmapped.length, 0);
   const p = placements.find((q) => q.blockerId === 'blocker-9')!;
   assert.equal(p.assetId, 'scenery.debris_a');
-  assert.equal(p.asset.sprite, 'spectrum.element_6');
+  assert.equal(p.asset.sprite, 'spectrum.debris_a');
   assert.deepEqual(p.anchor, { x: 16, y: 14 });
   // Data-driven: remapping the kind switches the sprite; no mapping falls back to a prism.
   const m = shipped();
   m.kinds['debris'] = 'scenery.debris_b';
-  assert.equal(sceneryPlacements(map, m, debris).placements.find((q) => q.blockerId === 'blocker-9')!.asset.sprite, 'spectrum.element_7');
+  assert.equal(sceneryPlacements(map, m, debris).placements.find((q) => q.blockerId === 'blocker-9')!.asset.sprite, 'spectrum.debris_b');
   delete m.kinds['debris'];
   assert.deepEqual(sceneryPlacements(map, m, debris).unmapped.map((b) => b.id), ['blocker-9']);
 });
