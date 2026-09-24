@@ -490,24 +490,40 @@ def plan_route_to_any(
     return None
 
 
-def body_contact_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int], ...]:
-    """Return every anchor from which a 2×2 body touches or overlaps the target body.
+#: The five cell offsets that count as "in contact" for :func:`body_contact_anchors`:
+#: the cell itself and its four cardinal neighbours. Corner-only (diagonal)
+#: contact is deliberately absent -- see that function.
+_CONTACT_NEIGHBOURS: tuple[tuple[int, int], ...] = ((0, 0), *CARDINAL_DIRECTIONS)
 
-    ``(target_x, target_y)`` is the target unit's 2×2 body anchor (CR002.3).
-    An anchor qualifies when some cell of the body anchored there is equal
-    or 8-neighbour adjacent to some cell of the target's body, which is the
-    CR003.4 "touches or overlaps" rule. Derived from
-    :data:`~nether_earth.occupancy.UNIT_FOOTPRINT_OFFSETS` rather than a
-    hard-coded box, and returned sorted so callers never depend on set order.
-    Overlapping anchors are included for completeness; they are never
-    enterable while the target stands there, so a route always ends beside it.
+
+def body_contact_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int], ...]:
+    """Return every anchor from which a 2x2 body can engage the target body.
+
+    ``(target_x, target_y)`` is the target unit's 2x2 body anchor (CR002.3).
+    An anchor qualifies when some cell of the body anchored there is equal or
+    *cardinally* adjacent to some cell of the target's body, which is the
+    CR003.4 "touches or overlaps" rule restricted to edge contact.
+
+    Corner-only contact (anchors two cells away on *both* axes) is excluded
+    on purpose. A robot fires along its cardinal facing and a bullet hits
+    when the two bodies overlap (``unit_footprints_overlap``, i.e. anchors
+    within one cell on each axis), so from a diagonal corner anchor the
+    bullet lane misses the target body by one cell on the off axis: the
+    hunter would arrive, stop and fire for ever without ever hitting.
+    Excluding those four anchors makes every goal of a Search & Destroy
+    approach a position the hunter can actually shoot from.
+
+    Derived from :data:`~nether_earth.occupancy.UNIT_FOOTPRINT_OFFSETS` and
+    :data:`CARDINAL_DIRECTIONS` rather than a hard-coded box, and returned
+    sorted so callers never depend on set order. Overlapping anchors are
+    included for completeness; they are never enterable while the target
+    stands there, so a route always ends beside it.
     """
     anchors: set[tuple[int, int]] = set()
     for cell_x, cell_y in unit_footprint_cells(target_x, target_y):
         for off_x, off_y in UNIT_FOOTPRINT_OFFSETS:
-            for near_x in (-1, 0, 1):
-                for near_y in (-1, 0, 1):
-                    anchors.add((cell_x + near_x - off_x, cell_y + near_y - off_y))
+            for near_x, near_y in _CONTACT_NEIGHBOURS:
+                anchors.add((cell_x + near_x - off_x, cell_y + near_y - off_y))
     return tuple(sorted(anchors))
 
 
