@@ -4,7 +4,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
+import { loadMap, footprintCells, DEFAULT_MAP_ID } from '../world/map.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
 import { wallBlocks } from './scenery.ts';
 import type { StructureManifest } from './assets.ts';
@@ -107,4 +107,29 @@ test('cells of differing heights never merge into one block', () => {
   ]);
   assert.deepEqual(blocks, []);
   assert.equal(loose.length, 4);
+});
+
+test('the war-base landing pad is a decoded 2x2 decoration at the Spectrum elevation', () => {
+  // Lce56_decoration_sprite_indexes entry 0 (the war-base "H") and
+  // Lce5f_decoration_drawing_elevations entry 0 (19).
+  const m = shipped();
+  const id = m.decorations?.heli_pad;
+  assert.ok(id, 'no heli_pad decoration in the manifest');
+  const asset = m.assets[id!]!;
+  assert.ok(SCENERY_SPRITES[asset.sprite], `sprite ${asset.sprite} missing from SCENERY_SPRITES`);
+  assert.deepEqual(asset.footprint, [2, 2]);
+  assert.equal(asset.elevation, 19);
+});
+
+test('every heli-pad interaction point is the 2x2 the pad sprite is drawn as', () => {
+  const pads = map.interaction_points.filter((ip) => ip.kind === 'heli_pad');
+  assert.ok(pads.length > 0, 'map has no heli-pads');
+  for (const pad of pads) {
+    const cells = footprintCells(pad);
+    assert.equal(cells.length, 4, `${pad.id} is not a 2x2`);
+    const xs = new Set(cells.map((c) => c.x));
+    const ys = new Set(cells.map((c) => c.y));
+    assert.equal(xs.size, 2);
+    assert.equal(ys.size, 2);
+  }
 });

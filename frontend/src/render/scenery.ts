@@ -17,6 +17,13 @@ export interface SceneryAsset {
   /** Drawn height in authoritative units (the sprite's box height). */
   height: number;
   /**
+   * Elevation to draw at, in authoritative units, for a sprite that sits on
+   * top of something rather than standing on the ground. The war-base landing
+   * pad uses the Spectrum's own number for it
+   * (`Lce5f_decoration_drawing_elevations`, entry 0 = 19).
+   */
+  elevation?: number;
+  /**
    * Colours as '#rrggbb'; default Spectrum black ink on yellow paper.
    * `paper: "none"` leaves the sprite's '.' pixels transparent, so whatever
    * is behind shows through (the terrain elements draw this way).

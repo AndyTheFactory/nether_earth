@@ -111,6 +111,8 @@ const textures = new Map<SemanticAsset, Texture>();
  */
 export interface StructureManifest {
   walls: Record<string, string>;
+  /** Sprites drawn on top of a structure rather than as part of its walls. */
+  decorations?: Record<string, string>;
   assets: Record<string, SceneryAsset>;
 }
 
