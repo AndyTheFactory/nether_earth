@@ -114,10 +114,33 @@ export interface StructureManifest {
   assets: Record<string, SceneryAsset>;
 }
 
-/** Terrain element index -> asset, from the manifest's `terrain` section. */
+/**
+ * Terrain element index -> asset, from the manifest's `terrain` section.
+ *
+ * A pair is `[even, odd]`, chosen by the element's y parity. That is the
+ * Spectrum's own indexing: `Ld6e8_additional_isometric_graphic_pointers`
+ * holds two entries per element type and `Lcf2d_draw_sprite_to_buffer`
+ * picks between them with the y bit. Only the ditches make the two entries
+ * different drawings (a run along y vs a run along x); every other type
+ * repeats one drawing, so it stays a plain string here.
+ */
+export type TerrainElementAsset = string | readonly [string, string];
+
 export interface TerrainManifest {
-  elements: Record<string, string>;
+  elements: Record<string, TerrainElementAsset>;
   assets: Record<string, SceneryAsset>;
+}
+
+/**
+ * The asset a terrain element of `type` at row `y` draws with: the y-parity
+ * entry when the manifest gives a pair. The id comes back with it because
+ * the renderer caches sliced textures per asset id.
+ */
+export function terrainElementAsset(m: TerrainManifest, type: number, y: number): { id: string; asset: SceneryAsset } | undefined {
+  const entry = m.elements[String(type)];
+  const id = typeof entry === 'string' ? entry : entry?.[Math.abs(y) % 2];
+  const asset = id === undefined ? undefined : m.assets[id];
+  return id === undefined || asset === undefined ? undefined : { id, asset };
 }
 
 export interface AssetManifest {

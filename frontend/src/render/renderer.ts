@@ -10,7 +10,7 @@ import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
 import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
-import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, terrainManifest, type SemanticAsset } from './assets.ts';
+import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, terrainElementAsset, terrainManifest, type SemanticAsset } from './assets.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, wallBlocks, type SceneryAsset, type SpriteSlice, type WallBlock } from './scenery.ts';
 import { pixelTexture } from './sprite-slice.ts';
@@ -137,11 +137,13 @@ export class WorldRenderer {
     if (!manifest) return;
     for (const element of this.map.terrain.elements) {
       if (element.x + 1 < band.x0 || element.x > band.x1) continue;
-      const assetId = manifest.elements[String(element.type)];
-      const asset = assetId === undefined ? undefined : manifest.assets[assetId];
-      if (!asset || !SCENERY_SPRITES[asset.sprite]) continue;
+      // The y parity picks between a type's two graphics, as on the Spectrum:
+      // for ditches that is the run-along-y piece vs the run-along-x one.
+      const entry = terrainElementAsset(manifest, element.type, element.y);
+      if (!entry || !SCENERY_SPRITES[entry.asset.sprite]) continue;
+      const { id: assetId, asset } = entry;
       const origin = spriteOrigin(asset, { x: element.x, y: element.y });
-      for (const { texture } of this.sceneryTexturesFor(assetId!, asset)) {
+      for (const { texture } of this.sceneryTexturesFor(assetId, asset)) {
         const s = new Sprite(texture);
         s.position.set(origin.x, origin.y);
         this.terrainSprites.addChild(s);

@@ -37,9 +37,9 @@
       "9": "terrain.mountain_b",
       "10": "terrain.mountain_c",
       "11": "terrain.mountain_d",
-      "12": "terrain.ditch_a",
-      "13": "terrain.ditch_b",
-      "14": "terrain.ditch_c"
+      "12": ["terrain.ditch_v_a", "terrain.ditch_h_a"],
+      "13": ["terrain.ditch_v_b", "terrain.ditch_h_b"],
+      "14": ["terrain.ditch_v_c", "terrain.ditch_h_c"]
     },
     "assets": {
       "terrain.rough_a": { "sprite": "spectrum.rough_a", "footprint": [2, 2], "height": 2 },
@@ -52,9 +52,12 @@
       "terrain.mountain_b": { "sprite": "spectrum.mountain_b", "footprint": [2, 2], "height": 6 },
       "terrain.mountain_c": { "sprite": "spectrum.mountain_c", "footprint": [2, 2], "height": 6 },
       "terrain.mountain_d": { "sprite": "spectrum.mountain_d", "footprint": [2, 2], "height": 6 },
-      "terrain.ditch_a": { "sprite": "spectrum.ditch_a", "footprint": [2, 2], "height": 0 },
-      "terrain.ditch_b": { "sprite": "spectrum.ditch_b", "footprint": [2, 2], "height": 0 },
-      "terrain.ditch_c": { "sprite": "spectrum.ditch_c", "footprint": [2, 2], "height": 0 }
+      "terrain.ditch_v_a": { "sprite": "spectrum.ditch_v_a", "footprint": [2, 2], "height": 0 },
+      "terrain.ditch_v_b": { "sprite": "spectrum.ditch_v_b", "footprint": [2, 2], "height": 0 },
+      "terrain.ditch_v_c": { "sprite": "spectrum.ditch_v_c", "footprint": [2, 2], "height": 0 },
+      "terrain.ditch_h_a": { "sprite": "spectrum.ditch_h_a", "footprint": [2, 2], "height": 0, "offset": [-4, 0] },
+      "terrain.ditch_h_b": { "sprite": "spectrum.ditch_h_b", "footprint": [2, 2], "height": 0, "offset": [-4, 0] },
+      "terrain.ditch_h_c": { "sprite": "spectrum.ditch_h_c", "footprint": [2, 2], "height": 0, "offset": [-4, 0] }
     }
   }
 }

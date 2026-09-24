@@ -103,6 +103,40 @@ scenery kind).
   implemented; the flag decorations it shares a table with are already
   shipped (`flags.ts`, CR002.6).
 
+## Terrain elements (owner request, 2026-09-24)
+
+Rough, mountain and ditch ground is stamped from the same 2x2 map elements as
+everything else, so `frontend/scripts/decode-scenery-sprites.py` decodes it
+through the same path and `manifest.json`'s `terrain` section maps each
+element type to an asset.
+
+`Ld6e8_additional_isometric_graphic_pointers` holds **two** entries per element
+type. `Lcf2d_draw_sprite_to_buffer` picks between them with the low bit of the
+sprite's screen x in nibbles (`l = e*2 + d - 24`; `sra l`; `adc a, a`), which
+with `d = y` is the element's y parity. For most types both entries are the
+same pointer (rough, mountain) or the second is the first pre-shifted 4 px
+(the war-base/factory walls, verified by decoding both).
+
+The ditches are the exception: their two entries are different drawings.
+
+| element | y even (run along y) | y odd (run along x) |
+| --- | --- | --- |
+| 12 | `L95c6_iso_additional_graphic_12` | `L9640_iso_additional_graphic_13` |
+| 13 | `L96ea_iso_additional_graphic_14` | `L9776_iso_additional_graphic_15` |
+| 14 | `L9820_iso_additional_graphic_16` | `L98ac_iso_additional_graphic_17` |
+
+In the original map every ditch run that goes along x sits on an odd y and
+every run that goes along y on an even y -- all 51 ditch elements, checked in
+`src/render/terrain-sprites.test.ts` -- so the parity the Spectrum indexes with
+is also the run's orientation. The manifest therefore gives these three types a
+`[even, odd]` pair instead of a single asset, and `terrainElementAsset()`
+resolves it.
+
+The odd entry of a pair is authored 4 px further right inside its canvas,
+because the Spectrum draws it at the byte boundary below a half-byte x. The
+renderer positions sprites at their true pixel x, so the horizontal ditch
+assets carry `"offset": [-4, 0]` to undo that built-in shift.
+
 ## Construction-screen module icons (CR002.9)
 
 The eight module icons of the ROBOT CONSTRUCTION screen (and the robot

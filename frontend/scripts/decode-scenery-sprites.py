@@ -45,11 +45,15 @@ SPRITES = [
     ("spectrum.wall_high", 16, "L9b18_iso_additional_graphic_20"),
     # Terrain (owner request, 2026-09-24). Terrain is stamped from the same
     # 2x2 map elements as everything else, so it decodes through this one
-    # path too. Ld6e8_additional_isometric_graphic_pointers is indexed
-    # 2 * type + (x & 1); the labels below are the even (unshifted) entry of
-    # each type. Classes follow decode_zx_terrain.py's TERRAIN_CLASS --
-    # rough 2-7, mountain 8-11, ditch 12-14. Types 6 and 7 are also the
-    # nuclear blast's debris, decoded above, so they are not repeated.
+    # path too. Ld6e8_additional_isometric_graphic_pointers holds two entries
+    # per type, and Lcf2d_draw_sprite_to_buffer picks between them with the
+    # low bit of the sprite's screen x in nibbles, which works out to the
+    # element's y parity (`l = e*2 + d - 24`, `sra l`, `adc a, a`, with d = y).
+    # For most types both entries are the same pointer, or the second is the
+    # first pre-shifted 4 px; the labels below are the even (y even) entry.
+    # Classes follow decode_zx_terrain.py's TERRAIN_CLASS -- rough 2-7,
+    # mountain 8-11, ditch 12-14. Types 6 and 7 are also the nuclear blast's
+    # debris, decoded above, so they are not repeated.
     ("spectrum.rough_a", 2, "L9172_iso_additional_graphic_4"),
     ("spectrum.rough_b", 3, "L91f2_iso_additional_graphic_5"),
     ("spectrum.rough_c", 4, "L9278_iso_additional_graphic_6"),
@@ -58,9 +62,19 @@ SPRITES = [
     ("spectrum.mountain_b", 9, "L940a_iso_additional_graphic_9"),
     ("spectrum.mountain_c", 10, "L94a8_iso_additional_graphic_10"),
     ("spectrum.mountain_d", 11, "L9534_iso_additional_graphic_11"),
-    ("spectrum.ditch_a", 12, "L95c6_iso_additional_graphic_12"),
-    ("spectrum.ditch_b", 13, "L96ea_iso_additional_graphic_14"),
-    ("spectrum.ditch_c", 14, "L9820_iso_additional_graphic_16"),
+    # Ditches are the one class whose two entries are different drawings
+    # rather than the same drawing pre-shifted: the even entry is the piece
+    # for a ditch running along y (drawn "vertically" on screen) and the odd
+    # entry the piece for one running along x. The original map places every
+    # vertical ditch run on an even y and every horizontal run on an odd y
+    # (all 51 ditch elements), so the y parity the Spectrum indexes with is
+    # also the run's orientation.
+    ("spectrum.ditch_v_a", 12, "L95c6_iso_additional_graphic_12"),
+    ("spectrum.ditch_v_b", 13, "L96ea_iso_additional_graphic_14"),
+    ("spectrum.ditch_v_c", 14, "L9820_iso_additional_graphic_16"),
+    ("spectrum.ditch_h_a", 12, "L9640_iso_additional_graphic_13"),
+    ("spectrum.ditch_h_b", 13, "L9776_iso_additional_graphic_15"),
+    ("spectrum.ditch_h_c", 14, "L98ac_iso_additional_graphic_17"),
 ]
 
 

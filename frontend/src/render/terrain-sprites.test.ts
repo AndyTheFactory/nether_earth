@@ -6,23 +6,59 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
-import type { TerrainManifest } from './assets.ts';
+import { terrainElementAsset, type TerrainManifest } from './assets.ts';
 
 const manifestJson = readFileSync(new URL('../../public/assets/manifest.json', import.meta.url), 'utf8');
 const shipped = (): TerrainManifest => JSON.parse(manifestJson).terrain as TerrainManifest;
 const map = loadMap(DEFAULT_MAP_ID);
 
-test('every terrain element the map uses has a decoded sprite', () => {
+test('every terrain element the map uses has a decoded sprite, at either y parity', () => {
   const m = shipped();
   const used = new Set(map.terrain.elements.map((e) => e.type));
   assert.ok(used.size > 0, 'map carries no terrain elements');
   for (const type of used) {
-    const id = m.elements[String(type)];
-    assert.ok(id, `no terrain asset mapped for element type ${type}`);
-    const asset = m.assets[id!]!;
-    assert.ok(SCENERY_SPRITES[asset.sprite], `sprite ${asset.sprite} missing from SCENERY_SPRITES`);
-    // Every map element is a 2x2 stamp, terrain included.
-    assert.deepEqual(asset.footprint, [2, 2]);
+    for (const y of [0, 1]) {
+      const entry = terrainElementAsset(m, type, y);
+      assert.ok(entry, `no terrain asset mapped for element type ${type} at y parity ${y}`);
+      assert.ok(SCENERY_SPRITES[entry!.asset.sprite], `sprite ${entry!.asset.sprite} missing from SCENERY_SPRITES`);
+      // Every map element is a 2x2 stamp, terrain included.
+      assert.deepEqual(entry!.asset.footprint, [2, 2]);
+    }
+  }
+});
+
+// The Spectrum holds two graphics per element type and picks between them with
+// the drawn row's parity (`Lcf2d_draw_sprite_to_buffer`). For the ditches the
+// two are different drawings rather than one pre-shifted copy, and the original
+// map puts every ditch run that goes along x on an odd y and every run that
+// goes along y on an even y -- so the parity is the run's orientation.
+test('a ditch draws the along-x piece on odd rows and the along-y piece on even rows', () => {
+  const m = shipped();
+  const ditches = map.terrain.elements.filter((e) => e.type >= 12 && e.type <= 14);
+  assert.ok(ditches.length > 0, 'map carries no ditch elements');
+  const at = new Set(ditches.map((e) => `${e.x},${e.y}`));
+  let horizontal = 0;
+  let vertical = 0;
+  for (const e of ditches) {
+    // Elements are 2x2 stamps, so a run steps by two cells.
+    const alongX = at.has(`${e.x + 2},${e.y}`) || at.has(`${e.x - 2},${e.y}`);
+    const alongY = at.has(`${e.x},${e.y + 2}`) || at.has(`${e.x},${e.y - 2}`);
+    assert.ok(alongX !== alongY, `ditch at ${e.x},${e.y} is not part of a single-direction run`);
+    assert.equal(alongX, e.y % 2 === 1, `ditch run direction at ${e.x},${e.y} disagrees with its y parity`);
+    const sprite = terrainElementAsset(m, e.type, e.y)!.asset.sprite;
+    assert.match(sprite, alongX ? /^spectrum\.ditch_h_/ : /^spectrum\.ditch_v_/);
+    if (alongX) horizontal++;
+    else vertical++;
+  }
+  assert.ok(horizontal > 0 && vertical > 0, `expected both orientations, got ${horizontal}/${vertical}`);
+});
+
+test('the two ditch orientations are different artwork', () => {
+  for (const suffix of ['a', 'b', 'c']) {
+    const v = SCENERY_SPRITES[`spectrum.ditch_v_${suffix}`]!;
+    const h = SCENERY_SPRITES[`spectrum.ditch_h_${suffix}`]!;
+    assert.ok(v && h, `missing a ditch sprite for ${suffix}`);
+    assert.notDeepEqual(v, h);
   }
 });
 
