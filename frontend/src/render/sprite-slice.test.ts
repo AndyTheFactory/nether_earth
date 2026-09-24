@@ -25,8 +25,8 @@ test('every decoded sprite is rectangular (every row the same width)', () => {
 });
 
 test('war-base/factory wall segments (element 15/16) decoded alongside scenery', () => {
-  assert.ok(SCENERY_SPRITES['spectrum.element_15']!.length > 0);
-  assert.ok(SCENERY_SPRITES['spectrum.element_16']!.length > 0);
+  assert.ok(SCENERY_SPRITES['spectrum.wall_low']!.length > 0);
+  assert.ok(SCENERY_SPRITES['spectrum.wall_high']!.length > 0);
 });
 
 test('slices of a 2x2-footprint robot piece partition the sprite exactly once per pixel', () => {
@@ -43,7 +43,7 @@ test('slices of a 2x2-footprint robot piece partition the sprite exactly once pe
 });
 
 test('a 1x1 footprint (structure wall) slices to exactly one, unfiltered copy of the sprite', () => {
-  const rows = SCENERY_SPRITES['spectrum.element_15']!;
+  const rows = SCENERY_SPRITES['spectrum.wall_low']!;
   const slices = sliceSpriteRows(rows, [1, 1], 7);
   assert.equal(slices.length, 1);
   assert.deepEqual(slices[0]!.rows, rows);

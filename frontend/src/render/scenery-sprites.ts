@@ -5,7 +5,7 @@
 
 export const SCENERY_SPRITES: Record<string, readonly string[]> = {
   // map element 17: La0e2_iso_additional_graphic_27 (32x32)
-  'spectrum.element_17': [
+  'spectrum.box_low': [
     '                #               ',
     '              ###               ',
     '            ##...#              ',
@@ -40,7 +40,7 @@ export const SCENERY_SPRITES: Record<string, readonly string[]> = {
     '        ##                      ',
   ],
   // map element 18: La2e6_iso_additional_graphic_29 (32x40)
-  'spectrum.element_18': [
+  'spectrum.box_high': [
     '                #               ',
     '              ###               ',
     '            ##...#              ',
@@ -83,7 +83,7 @@ export const SCENERY_SPRITES: Record<string, readonly string[]> = {
     '        ##                      ',
   ],
   // map element 21: La050_iso_additional_graphic_26 (16x36)
-  'spectrum.element_21': [
+  'spectrum.fence': [
     '          #     ',
     '          #     ',
     '          #     ',
@@ -122,7 +122,7 @@ export const SCENERY_SPRITES: Record<string, readonly string[]> = {
     '                ',
   ],
   // map element 6: L9d9c_iso_additional_graphic_22 (24x25)
-  'spectrum.element_6': [
+  'spectrum.debris_a': [
     '            ##          ',
     '           #..#         ',
     '          #.##.#  #     ',
@@ -150,7 +150,7 @@ export const SCENERY_SPRITES: Record<string, readonly string[]> = {
     '        ##              ',
   ],
   // map element 7: L9ef6_iso_additional_graphic_24 (24x25)
-  'spectrum.element_7': [
+  'spectrum.debris_b': [
     '                #       ',
     '              ##.#      ',
     '          #   #..#      ',
@@ -178,7 +178,7 @@ export const SCENERY_SPRITES: Record<string, readonly string[]> = {
     '                        ',
   ],
   // map element 15: L9914_iso_additional_graphic_18 (32x32)
-  'spectrum.element_15': [
+  'spectrum.wall_low': [
     '                #               ',
     '              ###               ',
     '            ##...#              ',
@@ -213,7 +213,7 @@ export const SCENERY_SPRITES: Record<string, readonly string[]> = {
     '        ##                      ',
   ],
   // map element 16: L9b18_iso_additional_graphic_20 (32x40)
-  'spectrum.element_16': [
+  'spectrum.wall_high': [
     '                #               ',
     '              ###               ',
     '            ##...#              ',
