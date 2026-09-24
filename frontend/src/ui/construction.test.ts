@@ -7,6 +7,7 @@ import { findFixture } from '../fixtures/index.ts';
 import { runFixtureMessage } from '../fixtures/harness.ts';
 import { Store } from '../state/store.ts';
 import { ICON_SIZE, moduleIcon } from './construction-icons.ts';
+import { ROBOT_SPRITES } from '../render/robot-sprites.ts';
 import { COL_EXIT, COL_PIECES, COL_START, MODULE_COSTS, PIECES, constructionView, cursorFor, cursorTarget, moveCursor, previewBitmap, screenScale, SCREEN_W, SCREEN_H } from './construction.ts';
 
 function session() {
@@ -72,13 +73,21 @@ test('cursor: Lcb00 bounds and column rules', () => {
   assert.deepEqual(cursorFor(c, 6), { entryTick: 6, column: COL_PIECES, piece: 0 }, 'a new session starts fresh');
 });
 
-test('icons: one distinct, non-empty 24x24 Spectrum-style sprite per module', () => {
+test('icons: each module icon is its own decoded robot piece sprite, facing west', () => {
+  // The icons are the robot's real pieces (owner request, 2026-09-24), not
+  // hand-drawn stand-ins, so the construction screen and the battlefield
+  // agree on what a piece looks like. Heights differ per piece, unlike the
+  // old fixed square, so only the width is uniform.
   const seen = new Set<string>();
   for (const m of PIECES) {
     const bm = moduleIcon(m);
+    const rows = ROBOT_SPRITES[m].west;
     assert.equal(bm.w, ICON_SIZE);
-    assert.equal(bm.h, ICON_SIZE);
+    assert.equal(bm.h, rows.length);
     assert.ok(ink(bm).n > 60, m);
+    // The bitmap carries the sprite's paper, so the ink lines read as gaps.
+    const paper = rows.join('').split('.').length - 1;
+    assert.equal(ink(bm).n, paper, m);
     seen.add(Array.from(bm.px).join(''));
   }
   assert.equal(seen.size, PIECES.length);

@@ -184,12 +184,12 @@ export function previewBitmap(stack: readonly ModuleName[]): Bitmap {
   let base = PREVIEW.h; // y just below the next piece
   for (const m of stack) {
     const icon = moduleIcon(m);
-    const top = base - ICON_SIZE;
-    const dx = Math.floor((PREVIEW.w - ICON_SIZE) / 2);
-    for (let y = 0; y < ICON_SIZE; y++) {
+    const top = base - icon.h;
+    const dx = Math.floor((PREVIEW.w - icon.w) / 2);
+    for (let y = 0; y < icon.h; y++) {
       let min = -1;
       let max = -1;
-      for (let x = 0; x < ICON_SIZE; x++) {
+      for (let x = 0; x < icon.w; x++) {
         if (!icon.get(x, y)) continue;
         if (min < 0) min = x;
         max = x;
@@ -245,7 +245,11 @@ export class ConstructionScreen {
       const hit = this.box('cs-piece', PIECE_ICON_X, row(3 * i), col(PIECE_NAME_COL) + 8 * 11 - PIECE_ICON_X, 24);
       hit.dataset.module = m;
       hit.addEventListener('click', () => onPick(COL_PIECES, PIECES.indexOf(m)));
-      const icon = this.canvas(ICON_SIZE, ICON_SIZE, PIECE_ICON_X, row(3 * i));
+      // Pieces are 23..30 rows tall, so the canvas is sized from the sprite
+      // and bottom-aligned on the row's baseline; a taller piece reaches up
+      // into the gap above rather than being cropped.
+      const sprite = moduleIcon(m);
+      const icon = this.canvas(sprite.w, sprite.h, PIECE_ICON_X, row(3 * i) + 24 - sprite.h);
       const name = this.text(PIECE_LABEL[m], col(PIECE_NAME_COL), row(3 * i + 1), 'cs-name');
       this.text(String(MODULE_COSTS[m]), col(PIECE_NAME_COL + 1), row(3 * i + 2), 'cs-cost');
       this.rows.push({ name, icon, ink: '' });
