@@ -49,15 +49,39 @@ test('every factory decomposes into whole 2x2 wall blocks', () => {
   }
 });
 
-test('war-base half blocks fall back rather than being forced into a sprite', () => {
-  // The war bases are not wholly 2x2; those cells must come back in `loose`
-  // so the caller draws them as prisms instead of a wall sprite standing for
-  // cells that are not there.
-  const looseCounts = map.war_bases.map((b) => wallBlocks(b.components).loose.length);
-  assert.ok(looseCounts.some((n) => n > 0), 'expected some war-base cells outside a 2x2 block');
+// `Lbfb2_warbase` walks its template with mixed +/-1 y offsets, so each
+// two-cell-wide column's stamps start wherever that column's wall starts.
+// These are the 15 elements it stamps, as (x, y, type) offsets from the walk's
+// first element, with the anchor being the min-x / max-y cell of the 2x2 and
+// type 16 the tall piece (`Ld7bc_map_piece_heights`: 15 -> 7, 16 -> 15).
+const WARBASE_TEMPLATE: readonly [number, number, number][] = [
+  [0, 0, 16], [0, 2, 16],
+  [2, -1, 16], [2, 1, 15], [2, 3, 15], [2, 5, 15],
+  [4, 0, 16], [4, 2, 16], [4, 4, 15],
+  [6, -1, 16], [6, 1, 15], [6, 3, 15], [6, 5, 15],
+  [8, 0, 16], [8, 2, 16],
+];
+
+test('a war base decomposes into exactly the 15 blocks its template stamps', () => {
+  // Pairing rows on a fixed grid from the structure's min-y split any column
+  // whose wall starts one row lower into a 2x1, a 2x2 and a 2x1 -- visible in
+  // game as two slivers beside the front corners of every war base.
+  const heightOf = (type: number) => (type === 16 ? 15 : 7);
   for (const base of map.war_bases) {
     const { blocks, loose } = wallBlocks(base.components);
-    assert.equal(blocks.length * 4 + loose.length, base.components.length);
+    assert.deepEqual(loose, [], `${base.id} has cells outside a 2x2 block`);
+    assert.equal(blocks.length, 15);
+    assert.equal(blocks.length * 4, base.components.length);
+    // Anchor the template on the block nearest the map origin and compare.
+    const x0 = Math.min(...blocks.map((b) => b.anchor.x));
+    const y0 = Math.min(...blocks.filter((b) => b.anchor.x === x0).map((b) => b.anchor.y));
+    const got = blocks.map((b) => [b.anchor.x - x0, b.anchor.y - y0, b.height] as const);
+    const want = WARBASE_TEMPLATE.map(([dx, dy, type]) => [dx, dy, heightOf(type)] as const);
+    assert.deepEqual(
+      [...got].sort((a, b) => a[0] - b[0] || a[1] - b[1]),
+      [...want].sort((a, b) => a[0] - b[0] || a[1] - b[1]),
+      base.id,
+    );
   }
 });
 
