@@ -54,6 +54,9 @@ It is acceptable to build interfaces, data structures, fixtures, or placeholders
 
 ## Task workflow
 
+If not specified otherwise use git worktrees for task branches.
+Clean up your worktree after finishing a task to avoid clutter and potential conflicts.
+
 Milestone specifications are planning documents. When implementation of a milestone begins, its candidate tasks are turned into GitHub issues.
 
 If milestone tasks are created, try to implement them in a parallel (if possible) and incremental manner, ensuring that each task can be independently verified and integrated.
@@ -64,6 +67,8 @@ Implement the issue on a dedicated branch/worktree where practical.
 Create commits after relevant changes have been made and tested.
 
 When finishing a task open a pull request that references the issue and explains how the acceptance criteria were satisfied. Merge the PR only when the task is verified and no blocking findings remain.
+
+Always create PR and if there are no blocking findings, merge it after your review.
 
 ## Human review and autonomous execution
 
