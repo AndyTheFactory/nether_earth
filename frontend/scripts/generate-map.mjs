@@ -23,6 +23,10 @@ for (const id of MAP_IDS) {
       default: raw.terrain?.default ?? 'normal',
       debris_height: raw.terrain?.debris_height ?? 0,
       cells: raw.terrain?.cells ?? [],
+      // Presentation only: the 2x2 elements the cells were stamped from, so
+      // the renderer can draw the original Spectrum terrain sprite. `cells`
+      // stays the gameplay truth; the engine ignores this.
+      elements: raw.terrain?.elements ?? [],
     },
     war_bases: raw.war_bases ?? [],
     factories: raw.factories ?? [],

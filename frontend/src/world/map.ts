@@ -64,6 +64,15 @@ export interface MapData {
     debris_height: number;
     /** `height`: the cell's terrain piece height (`Ld7bc_map_piece_heights`, CR002.21); absent = 0. */
     cells: { x: number; y: number; type: TerrainType; height?: number }[];
+    /**
+     * The 2x2 map elements `cells` were stamped from, in stamping order so a
+     * later element drawn over an earlier one reproduces the original.
+     * `type` is the raw Spectrum element index, which picks the sprite: it is
+     * finer than the terrain class, since rough is elements 2-7 and mountain
+     * 8-11, each its own graphic. Presentation only -- `cells` stays the
+     * class and height that gameplay reads.
+     */
+    elements: { x: number; y: number; type: number }[];
   };
   war_bases: MapWarBase[];
   factories: MapFactory[];

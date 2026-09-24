@@ -10,7 +10,8 @@ import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
 import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, type ModuleId } from './robot.ts';
 import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
-import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, type SemanticAsset } from './assets.ts';
+import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, terrainManifest, type SemanticAsset } from './assets.ts';
+import { SCENERY_SPRITES } from './scenery-sprites.ts';
 import { parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, wallBlocks, type SceneryAsset, type SpriteSlice, type WallBlock } from './scenery.ts';
 import { pixelTexture } from './sprite-slice.ts';
 import { textOverlays } from '../state/labels.ts';
@@ -48,6 +49,10 @@ interface Effect {
 export class WorldRenderer {
   readonly world = new Container();
   private terrain = new Graphics();
+  // Terrain element sprites sit above the flat colour and below everything
+  // else. Child order is draw order (no `sortableChildren`): the map lists
+  // elements in stamping order, which is what resolves one overlapping another.
+  private terrainSprites = new Container();
   // CR002.14: structures, scenery, robots, commanders and projectiles share
   // one painter's ordering (zIndex = depthKey), so nearer geometry covers
   // whatever stands behind it. Structure cells are cached; the rest is
@@ -83,7 +88,7 @@ export class WorldRenderer {
     private readonly map: MapData,
   ) {
     this.surface = new SurfaceMap(map);
-    this.world.addChild(this.terrain, this.scene, this.effects, this.overlay);
+    this.world.addChild(this.terrain, this.terrainSprites, this.scene, this.effects, this.overlay);
     this.labels.addChild(this.structureLabels, this.overlayLabels);
     app.stage.addChild(this.world, this.labels);
   }
@@ -110,6 +115,36 @@ export class WorldRenderer {
         const id = `terrain.${t}` as SemanticAsset;
         const base = colorFor(id);
         drawDiamond(g, x, y, (x + y) % 2 ? base : shade(base, 1.12));
+      }
+    }
+    this.drawTerrainElements(band);
+  }
+
+  /**
+   * Draw the Spectrum terrain sprites for the elements inside `band`.
+   *
+   * Rough, mountain and ditch are 2x2 map elements with their own graphics
+   * (owner request, 2026-09-24); the flat checker drawn above stays as the
+   * ground underneath them, so an unmapped element or a missing manifest
+   * simply leaves the old look. Elements are added in the map's stamping
+   * order into a plain container, so a later element covers an earlier one
+   * exactly as it does on the Spectrum -- child order is draw order, which
+   * is why this container is deliberately not `sortableChildren`.
+   */
+  private drawTerrainElements(band: { x0: number; x1: number }): void {
+    this.terrainSprites.removeChildren().forEach((c) => c.destroy());
+    const manifest = terrainManifest();
+    if (!manifest) return;
+    for (const element of this.map.terrain.elements) {
+      if (element.x + 1 < band.x0 || element.x > band.x1) continue;
+      const assetId = manifest.elements[String(element.type)];
+      const asset = assetId === undefined ? undefined : manifest.assets[assetId];
+      if (!asset || !SCENERY_SPRITES[asset.sprite]) continue;
+      const origin = spriteOrigin(asset, { x: element.x, y: element.y });
+      for (const { texture } of this.sceneryTexturesFor(assetId!, asset)) {
+        const s = new Sprite(texture);
+        s.position.set(origin.x, origin.y);
+        this.terrainSprites.addChild(s);
       }
     }
   }

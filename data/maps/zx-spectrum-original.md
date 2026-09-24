@@ -398,3 +398,18 @@ argument `blockers`. Both must be regenerated, not edited by hand. Running eithe
 on the same disassembly bytes always gives the same file.
 `engine/tests/test_original_map.py` asserts that loading it twice produces
 canonical-equal `WorldMap` values.
+
+### Terrain element sprites (owner request, 2026-09-24)
+
+`terrain.elements` lists the 2x2 map elements the `cells` above were stamped
+from: `{x, y, type}` where `type` is the raw element index and `(x, y)` is the
+stamp's min-x / max-y cell, matching `Lbd91_add_element_to_map` (`x..x+1`,
+`y-1..y`). It is emitted in stamping order, because that is what resolves one
+element overlapping another, and an element buried completely is dropped (none
+are on this map: 246 elements x 4 cells = the 984 non-normal cells exactly).
+
+It exists because the class and height in `cells` cannot pick a sprite: rough
+is element types 2-7 and mountain 8-11, each a different graphic, and the
+piece heights collapse them (types 2-5 all have height 2). The section is
+presentation only -- the engine reads `cells` and ignores this -- so gameplay
+is unchanged; re-running the decoder reproduces `cells` byte for byte.

@@ -191,7 +191,7 @@ def main() -> None:
         return
     piece_heights = _piece_heights(asm)
     (debris_height,) = {piece_heights[t] for t in DEBRIS_TYPES}
-    grid = decode(asm)
+    grid, owner, elements = _decode(asm)
     per_type = Counter(t for row in grid for t in row)
     per_class = Counter(TERRAIN_CLASS.get(t, "structure/scenery") for row in grid for t in row)
     print(f"# element type index counts: {dict(sorted(per_type.items()))}", file=sys.stderr)
@@ -204,6 +204,31 @@ def main() -> None:
             if cls not in (None, "normal"):
                 height = piece_heights[grid[y][x]]
                 print(f"    - {{x: {x}, y: {y}, type: {cls}, height: {height}}}")
+    # Presentation-only (owner request, 2026-09-24): the 2x2 elements the
+    # cells above were stamped from, so a renderer can draw the original
+    # terrain sprite instead of a flat colour. `cells` stays the gameplay
+    # truth -- class and height per cell -- and the engine ignores this
+    # section entirely.
+    #
+    # Emitted in stamping order, because that is what resolves overlaps:
+    # `Lbd91_add_element_to_map` lets a later element overwrite an earlier
+    # one, and `owner` records which element a cell ended up belonging to.
+    # An element no longer owning any of its four cells was completely
+    # buried and is dropped; one that owns some is kept, and drawing them in
+    # order reproduces what the Spectrum shows.
+    #
+    # `type` is the raw element index, which selects the sprite. It is finer
+    # than the terrain class: rough is types 2-7 and mountain 8-11, each a
+    # different graphic, and the class/height alone cannot tell them apart.
+    print("  elements:")
+    for index, (element_type, cells) in enumerate(elements):
+        if TERRAIN_CLASS.get(element_type) in (None, "normal"):
+            continue
+        if not any(owner.get(cell) == index for cell in cells):
+            continue
+        anchor_x = min(cx for cx, _ in cells)
+        anchor_y = max(cy for _, cy in cells)
+        print(f"    - {{x: {anchor_x}, y: {anchor_y}, type: {element_type}}}")
 
 
 if __name__ == "__main__":

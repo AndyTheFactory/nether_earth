@@ -43,6 +43,24 @@ SPRITES = [
     # built from (see decode-unit-sprites.py / warbase-sprites.ts docstring).
     ("spectrum.wall_low", 15, "L9914_iso_additional_graphic_18"),
     ("spectrum.wall_high", 16, "L9b18_iso_additional_graphic_20"),
+    # Terrain (owner request, 2026-09-24). Terrain is stamped from the same
+    # 2x2 map elements as everything else, so it decodes through this one
+    # path too. Ld6e8_additional_isometric_graphic_pointers is indexed
+    # 2 * type + (x & 1); the labels below are the even (unshifted) entry of
+    # each type. Classes follow decode_zx_terrain.py's TERRAIN_CLASS --
+    # rough 2-7, mountain 8-11, ditch 12-14. Types 6 and 7 are also the
+    # nuclear blast's debris, decoded above, so they are not repeated.
+    ("spectrum.rough_a", 2, "L9172_iso_additional_graphic_4"),
+    ("spectrum.rough_b", 3, "L91f2_iso_additional_graphic_5"),
+    ("spectrum.rough_c", 4, "L9278_iso_additional_graphic_6"),
+    ("spectrum.rough_d", 5, "L92f8_iso_additional_graphic_7"),
+    ("spectrum.mountain_a", 8, "L9372_iso_additional_graphic_8"),
+    ("spectrum.mountain_b", 9, "L940a_iso_additional_graphic_9"),
+    ("spectrum.mountain_c", 10, "L94a8_iso_additional_graphic_10"),
+    ("spectrum.mountain_d", 11, "L9534_iso_additional_graphic_11"),
+    ("spectrum.ditch_a", 12, "L95c6_iso_additional_graphic_12"),
+    ("spectrum.ditch_b", 13, "L96ea_iso_additional_graphic_14"),
+    ("spectrum.ditch_c", 14, "L9820_iso_additional_graphic_16"),
 ]
 
 
