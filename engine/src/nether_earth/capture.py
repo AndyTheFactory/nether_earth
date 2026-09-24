@@ -112,7 +112,7 @@ from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
 from nether_earth.map_overlay import ScenarioOverlay, apply_overlay
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotFacing
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
 from nether_earth.structures import Factory, WarBase
@@ -126,6 +126,7 @@ __all__ = [
     "capture_footprint",
     "effective_owner",
     "effective_world",
+    "outward_facing",
 ]
 
 
@@ -316,6 +317,45 @@ def capture_footprint(
         _FOOTPRINT_MEMO.clear()
     _FOOTPRINT_MEMO[key] = (world, result)
     return result
+
+
+def outward_facing(structure: WarBase | Factory, cell: tuple[int, int]) -> RobotFacing | None:
+    """Return the cardinal direction pointing from ``structure`` out through ``cell``.
+
+    A capture cell sits in the structure's doorway, so a robot that walks in
+    to take it ends up facing the building it is standing against. It should
+    watch the approach instead (owner decision, 2026-09-24): "out" is the
+    direction from the structure's body toward the capture cell.
+
+    Derived from the structure's own components rather than from the path
+    the robot happened to take, so the answer is a property of the map and
+    is the same however the robot arrived. The dominant axis wins, with X
+    taking an exact tie -- the same total, deterministic tiebreak the rest of
+    this engine uses for cardinal choices. Compared as integers (component
+    sums against ``cell`` scaled by the component count) rather than via a
+    floating-point centroid, per `AGENTS.md`'s "avoid floating-point
+    gameplay state when integer values express the rule".
+
+    Returns ``None`` for the degenerate case of a cell exactly at the body's
+    centre, where no direction is outward; the caller then leaves the
+    robot's facing alone.
+
+    The original has no such rule -- ``Ladb7_building_loop`` never touches
+    ``ROBOT_STRUCT_DIRECTION`` -- so this is a deliberate departure, recorded
+    in `_specs/functional-spec.md` §9.
+    """
+    count = len(structure.components)
+    if not count:
+        return None
+    # dx/dy are (cell - centroid) * count: the sign and relative magnitude of
+    # the real offsets, with no division and so no float.
+    dx = cell[0] * count - sum(component.x for component in structure.components)
+    dy = cell[1] * count - sum(component.y for component in structure.components)
+    if dx == 0 and dy == 0:
+        return None
+    if abs(dx) >= abs(dy):
+        return RobotFacing.EAST if dx > 0 else RobotFacing.WEST
+    return RobotFacing.SOUTH if dy > 0 else RobotFacing.NORTH
 
 
 def _qualifying_robot(

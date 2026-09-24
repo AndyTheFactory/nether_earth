@@ -411,6 +411,8 @@ Turning costs time. A robot that wants to step or shoot in a direction it does n
 
 An autonomous robot with an enemy in range but the wrong facing turns toward it first and fires once the turn lands. A robot standing on a capture cell is the exception: it never turns for combat, because an interrupted capture resets to zero.
 
+A robot that takes a capture cell turns to face **out** of the structure — away from the building's body — rather than staying pointed at the wall it walked into (owner decision, 2026-09-24). "Out" is derived from the structure's own components, so it is a property of the map rather than of the route the robot took. The original has no such rule (`Ladb7_building_loop` never touches the robot's direction); it follows from shots travelling in the robot's facing, which makes a robot facing a wall defenceless. Turning does not move the robot, so the capture keeps counting.
+
 The original's facing-direction bonus to the autonomous fire-decision *scan* (10 cells ahead rather than 8) is still not adopted; see `open-questions.md` §8.
 
 ### Navigation intelligence

@@ -1014,6 +1014,18 @@ An autonomous robot turns toward its target before firing; a robot standing
 on a capture cell never turns for combat, since an interrupted capture
 resets to zero (§7).
 
+**Extended (owner decision, 2026-09-24):** a robot holding a capture cell
+turns to face *out* of the structure, away from its body
+(`capture.outward_facing`), instead of staying pointed at the wall it walked
+into. The direction comes from the structure's own components, so it does
+not depend on the route taken, and is compared as integers rather than via a
+floating-point centroid. The original has no equivalent --
+`Ladb7_building_loop` never touches `ROBOT_STRUCT_DIRECTION` -- so this is a
+deliberate departure, made necessary by shots travelling in the robot's
+facing. The turn is requested as a move outward, which `Lb471` spends on a
+rotation; because it is only requested while the facing is wrong, the step
+that would carry the robot off the cell is never issued.
+
 The facing-direction bonus to the fire-decision *scan* (10 cells ahead
 rather than 8) is still unadopted — that remains the open research item in
 §8, and the rules above do not decide it.

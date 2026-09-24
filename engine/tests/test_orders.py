@@ -35,7 +35,7 @@ from nether_earth.orders import (
     select_capture_target,
     select_destroy_target,
 )
-from nether_earth.robot import Robot, RobotMoveTransition
+from nether_earth.robot import Robot, RobotFacing, RobotMoveTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import CELLS_PER_MILE, DEFAULT_RULES, miles_to_cells
@@ -168,6 +168,7 @@ def _robot(
     electronics: ModuleIdentity | None = None,
     order: object = None,
     movement: RobotMoveTransition | None = None,
+    facing: RobotFacing = RobotFacing.EAST,
 ) -> Robot:
     build = RobotBuild(chassis=chassis, weapons=weapons, electronics=electronics)
     stack, height = derive_stack_and_height(build, DEFAULT_RULES)
@@ -180,7 +181,8 @@ def _robot(
         stack=stack,
         height=height,
         movement=movement,
-        order=order,  # type: ignore[arg-type]
+        order=order,  # type: ignore[arg-type],
+        facing=facing,
     )
 
 
@@ -640,8 +642,14 @@ def test_search_capture_holds_on_the_footprint_of_an_uncaptured_target() -> None
     """CR003.2: the order stays ACTIVE and the robot holds so capture.py keeps counting."""
     world = _world()
     order = SearchCapture(SearchCaptureTarget.ENEMY_WAR_BASE, structure_id=ENEMY_WAR_BASE)
+    # Already facing out of the war base's doorway (west, for this fixture's
+    # geometry), so this test sees the hold rather than the outward turn that
+    # otherwise comes first -- that turn has its own tests below.
     robot = _robot(
-        x=ENEMY_WAR_BASE_CAPTURE_CELL[0], y=ENEMY_WAR_BASE_CAPTURE_CELL[1], order=order
+        x=ENEMY_WAR_BASE_CAPTURE_CELL[0],
+        y=ENEMY_WAR_BASE_CAPTURE_CELL[1],
+        order=order,
+        facing=RobotFacing.WEST,
     )
     enemy = _robot("robot-enemy", PLAYER_TWO, x=12, y=5)
     evaluation = evaluate_order(robot, _state((robot, enemy)), world)
@@ -677,6 +685,44 @@ def test_search_capture_switches_to_a_nearer_target_that_just_changed_hands() ->
     assert (evaluation.request.dx, evaluation.request.dy) == (0, -1)
 
 
+def test_a_robot_on_the_capture_cell_turns_to_face_away_from_the_structure() -> None:
+    """Owner decision, 2026-09-24: watch the approach, not the wall.
+
+    ENEMY_FACTORY's body is at (8, 9) and its capture cell is (8, 8), so
+    "out" is north. A robot that walked in facing south is asked to step
+    north, which `Lb471` spends on a rotation rather than a move -- the
+    request is only made while the facing is wrong, so the robot never
+    actually leaves the cell.
+    """
+    world = _world()
+    order = SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, structure_id=ENEMY_FACTORY)
+    robot = _robot(
+        x=ENEMY_FACTORY_CAPTURE_CELL[0],
+        y=ENEMY_FACTORY_CAPTURE_CELL[1],
+        order=order,
+        facing=RobotFacing.SOUTH,
+    )
+    evaluation = evaluate_order(robot, _state((robot,)), world)
+    assert evaluation is not None
+    assert evaluation.order == order
+    assert evaluation.request is not None
+    assert (evaluation.request.dx, evaluation.request.dy) == (0, -1)
+
+
+def test_a_robot_already_facing_out_of_the_capture_cell_just_holds() -> None:
+    world = _world()
+    order = SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, structure_id=ENEMY_FACTORY)
+    robot = _robot(
+        x=ENEMY_FACTORY_CAPTURE_CELL[0],
+        y=ENEMY_FACTORY_CAPTURE_CELL[1],
+        order=order,
+        facing=RobotFacing.NORTH,
+    )
+    evaluation = evaluate_order(robot, _state((robot,)), world)
+    assert evaluation is not None
+    assert evaluation.request is None
+
+
 def test_search_capture_does_not_abandon_a_capture_already_under_way() -> None:
     """A robot standing on its target's capture cell keeps it, nearer target or not.
 
@@ -686,7 +732,14 @@ def test_search_capture_does_not_abandon_a_capture_already_under_way() -> None:
     """
     world = _world()
     order = SearchCapture(SearchCaptureTarget.ENEMY_FACTORY, structure_id=ENEMY_FACTORY)
-    robot = _robot(x=ENEMY_FACTORY_CAPTURE_CELL[0], y=ENEMY_FACTORY_CAPTURE_CELL[1], order=order)
+    # Already facing out (north, for this fixture), so the assertion is about
+    # not abandoning the capture rather than about the outward turn.
+    robot = _robot(
+        x=ENEMY_FACTORY_CAPTURE_CELL[0],
+        y=ENEMY_FACTORY_CAPTURE_CELL[1],
+        order=order,
+        facing=RobotFacing.NORTH,
+    )
     state = _state(
         (robot,), ownership=(StructureOwnership(structure_id=NEUTRAL_FACTORY, owner=PLAYER_TWO),)
     )

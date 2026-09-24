@@ -151,7 +151,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 
-from nether_earth.capture import capture_footprint, effective_owner
+from nether_earth.capture import capture_footprint, effective_owner, outward_facing
 from nether_earth.commander import CommanderMode
 from nether_earth.commands import Command
 from nether_earth.events import Event, EventSequencer
@@ -1091,6 +1091,48 @@ def _hold(robot: Robot, order: Order, state: GameState) -> OrderEvaluation:
     )
 
 
+def _face_out_or_hold(
+    robot: Robot,
+    order: SearchCapture,
+    state: GameState,
+    world: WorldMap,
+    structure_id: EntityId,
+) -> OrderEvaluation:
+    """Hold the capture cell, turned to watch the approach rather than the wall.
+
+    A robot walks into a doorway to reach a capture cell, so it arrives
+    facing the building it is capturing -- useless, since a shot travels in
+    the robot's facing. It turns outward instead (owner decision,
+    2026-09-24; see :func:`~nether_earth.capture.outward_facing`).
+
+    The turn is requested as a move in the outward direction, which is how
+    turning happens everywhere: `Lb471` rotates and returns without
+    advancing whenever the robot is not already facing the way it was asked
+    to go. Because the request is only made *while* the facing is wrong, the
+    step that would actually carry the robot off the capture cell is never
+    issued -- a 180-degree reversal simply takes two evaluations. The
+    capture itself is unaffected: turning does not move the robot, and
+    `capture.py` counts occupation by cell.
+    """
+    structure_kind, _interaction = _capture_structure_kinds(order.target)
+    for structure in _structures_of_kind(world, structure_kind):
+        if structure.id != structure_id:
+            continue
+        wanted = outward_facing(structure, (robot.x, robot.y))
+        if wanted is not None and wanted is not robot.facing:
+            dx, dy = wanted.step
+            return OrderEvaluation(
+                robot_id=robot.entity_id,
+                order=order,
+                previous=robot.order,
+                status=OrderStatus.ACTIVE,
+                request=RobotMoveRequest(entity_id=robot.entity_id, dx=dx, dy=dy),
+                intent=_defensive_intent(robot, state),
+            )
+        break
+    return _hold(robot, order, state)
+
+
 def _evaluate_capture(
     robot: Robot,
     order: SearchCapture,
@@ -1135,7 +1177,7 @@ def _evaluate_capture(
                 current = _capture_candidate(robot, order.target, structure, state, world)
     # A capture in progress is never abandoned for a nearer target.
     if current is not None and (robot.x, robot.y) in current.goal_cells:
-        return _hold(robot, order, state)
+        return _face_out_or_hold(robot, order, state, world, current.structure_id)
 
     selected = select_capture_target(robot, order.target, state, world, exclude=claimed)
     if selected is None:
