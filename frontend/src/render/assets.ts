@@ -48,7 +48,28 @@ export const PALETTE = {
   brightRed: 0xff0000,
 } as const;
 
-/** Player ownership tints: p1 cyan, p2 magenta, neutral white (documented in README). */
+/**
+ * Fill for a robot or commander sprite: bright white for the viewing
+ * player's own units, plain white -- the Spectrum's non-bright white, which
+ * reads as light grey -- for the enemy's (owner request, 2026-09-24).
+ *
+ * Unit sprites are drawn with black ink and white paper, and Pixi `tint`
+ * multiplies, so black lines survive any tint and the paper takes exactly
+ * this colour. Ownership is therefore carried by brightness rather than by
+ * hue; the enemy marker ring and the structure flags still use
+ * `ownerColor`, so per-player colour has not disappeared from the screen.
+ */
+export function unitFill(mine: boolean): number {
+  return mine ? PALETTE.brightWhite : PALETTE.white;
+}
+
+/**
+ * Player ownership tints: p1 cyan, p2 magenta, neutral white.
+ *
+ * Still used by the enemy marker ring, the ownership flags and a unit's
+ * ground shadow. Robot and commander *bodies* no longer use it -- they are
+ * white or light grey by viewer relationship instead, see `unitFill`.
+ */
 export function ownerColor(owner: string | null | undefined): number {
   if (owner === 'p1') return PALETTE.brightCyan;
   if (owner === 'p2') return PALETTE.brightMagenta;
