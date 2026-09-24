@@ -7,14 +7,17 @@
 // with the decoded Spectrum sprites (robot-sprites.ts / commander-sprites.ts,
 // see frontend/scripts/decode-unit-sprites.py) instead of procedural prisms,
 // sliced per footprint cell the same way scenery is (sprite-slice.ts). Each
-// sprite's silhouette is ink=white/paper=mid-grey so PixiJS `tint` recolors
-// the whole piece to the owner's colour in one draw call, matching the
+// sprite's silhouette is ink=black/paper=white (owner request, 2026-09-24):
+// PixiJS `tint` multiplies, so the black lines survive any tint and only the
+// paper takes the unit's colour, in one draw call. That colour is brightness,
+// not hue -- bright white for the viewing player's units, the Spectrum's
+// plain (non-bright) white for the enemy's, see `unitFill` -- matching the
 // Spectrum's single per-player screen attribute (it has no per-module
 // colour; the previous placeholder's per-module rainbow was our own
 // invention and is dropped along with the prisms it decorated).
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
 import { drawDiamond } from './prism.ts';
-import { ownerColor } from './assets.ts';
+import { PALETTE, ownerColor, unitFill } from './assets.ts';
 import { interpolateAltitude, type GridTransition } from './interpolation.ts';
 import type { SurfaceMap } from './surface.ts';
 import { depthKey } from './projection.ts';
@@ -78,8 +81,8 @@ export const MODULE_VISUAL_HEIGHT: Record<ModuleId, number> = {
   electronics: 7,
 };
 
-const SPRITE_INK = 0xffffff;
-const SPRITE_PAPER = 0xaaaaaa;
+const SPRITE_INK = PALETTE.black;
+const SPRITE_PAPER = PALETTE.brightWhite;
 const FOOTPRINT: readonly [number, number] = [UNIT_SIZE, UNIT_SIZE];
 
 interface UnitSliceTexture {
@@ -159,12 +162,15 @@ export function drawRobotStack(
   y: number,
   stack: readonly ModuleId[],
   owner: string | null,
-  opts: { alpha?: number; totalHeight?: number; ground?: number; facing?: RobotFacing } = {},
+  opts: { alpha?: number; totalHeight?: number; ground?: number; facing?: RobotFacing; mine?: boolean } = {},
   getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
 ): number {
   const alpha = opts.alpha ?? 1;
   const ground = opts.ground ?? 0;
   const facing = opts.facing ?? DEFAULT_FACING;
+  // Brightness, not hue: see `unitFill`. The shadow keeps the owner's colour,
+  // which is what still separates two robots standing side by side.
+  const mine = opts.mine ?? true;
   let idx = 0;
 
   const shadow = getPiece(idx++, false) as Graphics;
@@ -179,7 +185,7 @@ export function drawRobotStack(
   // only the elevation each piece stacks at is rescaled.
   const visualSum = stack.reduce((h, m) => h + MODULE_VISUAL_HEIGHT[m], 0) || 1;
   const scale = opts.totalHeight !== undefined ? opts.totalHeight / visualSum : 1;
-  const tint = ownerColor(owner);
+  const tint = unitFill(mine);
   for (const m of stack) {
     const h = MODULE_VISUAL_HEIGHT[m] * scale;
     const origin = spriteOriginFor(ROBOT_SPRITES[m][facing], FOOTPRINT, { x, y }, z);
@@ -211,6 +217,7 @@ export function drawCommander(
   surfaceZ = 0,
   zBias = 0,
   getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
+  mine = true,
 ): void {
   // The body slices take the leading indices and the (airborne-only) shadow
   // the trailing one, so a given index always asks for the same kind of
@@ -221,7 +228,7 @@ export function drawCommander(
   let idx = 0;
   const rows = COMMANDER_SPRITES[COMMANDER_SPRITE_ID]!;
   const origin = spriteOriginFor(rows, FOOTPRINT, { x, y }, altitude);
-  const tint = ownerColor(owner);
+  const tint = unitFill(mine);
   for (const { slice, texture } of commanderSlices()) {
     const s = getPiece(idx++, true) as Sprite;
     s.texture = texture;

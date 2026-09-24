@@ -349,7 +349,7 @@ export class WorldRenderer {
       // (slice.dx/dy), a finer-grained version of the per-footprint-cell
       // occlusion #242/#244 introduced, so one call per robot (pooled per
       // piece index, #256) replaces the outer per-cell loop.
-      drawRobotStack(p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground, facing: r.facing }, (i, textured) =>
+      drawRobotStack(p.x, p.y, r.stack as ModuleId[], r.owner, { totalHeight: r.height, ground, facing: r.facing, mine: r.owner === me }, (i, textured) =>
         this.pooledPiece(`robot:${r.entity_id}`, i, textured, usedDynamicKeys),
       );
       if (r.owner !== me) {
@@ -408,8 +408,15 @@ export class WorldRenderer {
       // low enough to sort strictly under a co-located structure's base.
       // Sliced sprite piece (owner extension, 2026-09-22), same reasoning
       // as the robot body above: one call per commander, pooled per piece.
-      drawCommander(x, y, alt, c.player_id, surfaceZ, CO_LOCATED_TIE_BIAS, (i, textured) =>
-        this.pooledPiece(`commander:${c.player_id}`, i, textured, usedDynamicKeys),
+      drawCommander(
+        x,
+        y,
+        alt,
+        c.player_id,
+        surfaceZ,
+        CO_LOCATED_TIE_BIAS,
+        (i, textured) => this.pooledPiece(`commander:${c.player_id}`, i, textured, usedDynamicKeys),
+        c.player_id === me,
       );
       if (c.player_id === me) {
         // Locked to the interpolated position (CR003.5): no lag, no overshoot.

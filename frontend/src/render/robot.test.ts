@@ -12,6 +12,7 @@ import { test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { Graphics, Sprite, Texture } from 'pixi.js';
 import { SurfaceMap } from './surface.ts';
+import { PALETTE } from './assets.ts';
 import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
 
 vi.mock('./sprite-slice.ts', async (importOriginal) => ({
@@ -116,4 +117,51 @@ test('a commander piece index keeps its kind across take-off and landing', () =>
   const grounded = kinds(0);
   const airborne = kinds(8);
   for (let i = 0; i < grounded.length; i++) assert.equal(airborne[i], grounded[i]);
+});
+
+
+// Unit sprites are black-lined with a white paper, tinted by *brightness*
+// rather than hue (owner request, 2026-09-24): bright white for the viewing
+// player's own units, the Spectrum's plain non-bright white -- light grey --
+// for the enemy's. Pixi `tint` multiplies, so the black lines are unaffected
+// by whichever tint is applied.
+
+test('own units are tinted bright white and enemy units light grey', () => {
+  const tintsOf = (mine: boolean) => {
+    const sprites: Sprite[] = [];
+    drawRobotStack(30, 12, ['tracks', 'cannon'], 'p2', { ground: 0, mine }, (_i, textured) => {
+      if (!textured) return new Graphics();
+      const s = new Sprite(Texture.EMPTY);
+      sprites.push(s);
+      return s;
+    });
+    return new Set(sprites.map((s) => s.tint));
+  };
+  assert.deepEqual(tintsOf(true), new Set([PALETTE.brightWhite]));
+  assert.deepEqual(tintsOf(false), new Set([PALETTE.white]));
+  assert.notEqual(PALETTE.brightWhite, PALETTE.white);
+});
+
+test('the commander follows the same own/enemy brightness rule', () => {
+  const tintOf = (mine: boolean) => {
+    const sprites: Sprite[] = [];
+    drawCommander(
+      30,
+      12,
+      0,
+      'p1',
+      0,
+      0,
+      (_i, textured) => {
+        if (!textured) return new Graphics();
+        const s = new Sprite(Texture.EMPTY);
+        sprites.push(s);
+        return s;
+      },
+      mine,
+    );
+    return new Set(sprites.map((s) => s.tint));
+  };
+  assert.deepEqual(tintOf(true), new Set([PALETTE.brightWhite]));
+  assert.deepEqual(tintOf(false), new Set([PALETTE.white]));
 });
