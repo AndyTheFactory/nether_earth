@@ -14,6 +14,7 @@ import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifes
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
 import { factoryDecorationAnchor, footprintCellsOf, parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, spriteRows, wallBlocks, type SceneryAsset, type SpriteSlice, type WallBlock } from './scenery.ts';
 import { pixelTexture, spriteOriginFor } from './sprite-slice.ts';
+import { BULLET_FOOTPRINT, bulletAxis, bulletRows, bulletTexture } from './bullets.ts';
 import { textOverlays } from '../state/labels.ts';
 import { menuColumnShown } from '../ui/menus.ts';
 import { menuColumnPx } from '../ui/radar.ts';
@@ -583,12 +584,28 @@ export class WorldRenderer {
       // body centre, shadowed on the highest piece under the body.
       const { x, y } = interpolateProjectile(pr, snap.tick, tick);
       const centre = unitCentre(x, y);
-      const p = project(centre.x, centre.y, pr.z);
-      const col = colorFor(`projectile.${pr.weapon}` as SemanticAsset);
       const sh = project(centre.x, centre.y, Math.min(pr.z, this.surface.underUnit(x, y, destroyed)));
-      const g = this.pooledDynamic(`projectile:${pr.id}`, depthKey(x, y, pr.z), usedDynamicKeys);
+      const key = `projectile:${pr.id}`;
+      const depth = depthKey(x, y, pr.z);
+      const g = this.pooledPiece(key, 0, false, usedDynamicKeys) as Graphics;
+      g.zIndex = depth;
       g.circle(sh.x, sh.y, 1).fill({ color: 0x000000, alpha: 0.4 });
-      g.circle(p.x, p.y, pr.weapon === 'nuclear' ? 2.5 : 1.5).fill(col);
+      // The Spectrum draws a bullet from its own art, one sprite per weapon
+      // per travel axis (`Lcec3_draw_robot_or_bullet_internal`). A weapon with
+      // no bullet art there -- the nuke, which detonates where it stands --
+      // keeps the plain marker.
+      const axis = bulletAxis(pr.dy);
+      const texture = bulletTexture(pr.weapon, axis);
+      if (texture) {
+        const sprite = this.pooledPiece(key, 1, true, usedDynamicKeys) as Sprite;
+        sprite.texture = texture;
+        const origin = spriteOriginFor(bulletRows(pr.weapon, axis)!, BULLET_FOOTPRINT, { x, y }, pr.z);
+        sprite.position.set(origin.x, origin.y);
+        sprite.zIndex = depth;
+      } else {
+        const p = project(centre.x, centre.y, pr.z);
+        g.circle(p.x, p.y, 2.5).fill(colorFor(`projectile.${pr.weapon}` as SemanticAsset));
+      }
     }
 
     this.drawEffects(nowMs);
