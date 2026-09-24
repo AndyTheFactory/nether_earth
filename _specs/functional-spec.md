@@ -507,6 +507,7 @@ The browser client reproduces the look of the ZX Spectrum original (CR002; refer
 - **Occlusion:** structures, scenery, robots, commanders and projectiles are depth-sorted, so a unit behind a structure is hidden.
 - **Shadows:** the commander's and projectiles' shadows fall on the highest surface under them: building roofs, the heli-pad, scenery and terrain tops.
 - **Labels:** structure names and robot strength numbers are optional and **off by default**. The player can toggle them.
+- **Sound:** the Spectrum's beeper audio, decoded from the disassembly (owner decision 2026-09-25, #272). The title music plays on the lobby/title screen and stops when the match view opens. The game sounds are the original's: a robot firing, a shot hitting, a robot destroyed, a shot expiring, and the nuclear blast. Menu and construction-cursor actions beep as they do in the original. Sound is presentation only, derived from the snapshots the client already renders; it never decides or reports a gameplay outcome, and a missed or repeated sound has no effect on the match. The player can mute, and the choice is remembered per viewer. Browsers only start audio inside a user gesture, so the client stays silent until the first click or key press.
 
 The flag and scenery sprites are original artwork decoded from the game. They may be used only while the repository and deployments are private, and must be licensed or replaced before any public release or deployment (#201, release checklist).
 

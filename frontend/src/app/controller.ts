@@ -20,6 +20,13 @@ export const CURSOR_REPEAT_MS = 200;
 
 export class GameController implements InputSink {
   sender: CommandSender;
+  /**
+   * Optional UI sound sink (#272). The controller is where clicks and keys
+   * converge, so it is the one place that can beep for both. It stays a
+   * callback rather than a dependency: audio is presentation and the
+   * controller must keep working (and testing) without it.
+   */
+  onUiSound: ((name: 'cursor' | 'select' | 'built') => void) | null = null;
   weaponIndex = 0;
   /** Construction-screen cursor (UI-only; resets on every new session). */
   buildCursor: BuildCursor | null = null;
@@ -205,7 +212,10 @@ export class GameController implements InputSink {
       if (now - this.lastCursorMoveMs < CURSOR_REPEAT_MS) return;
       const before = cursorFor(this.buildCursor, cs.entry_tick);
       this.buildCursor = moveCursor(before, intent.dx, intent.dy);
-      if (this.buildCursor !== before) this.lastCursorMoveMs = now;
+      if (this.buildCursor !== before) {
+        this.lastCursorMoveMs = now;
+        this.onUiSound?.('cursor');
+      }
       return;
     }
     switch (s.ui.menu) {
@@ -404,6 +414,7 @@ export class GameController implements InputSink {
   // ---- panel actions (buttons and keys converge here) ----
 
   menuAction(action: string, arg: string): void {
+    this.onUiSound?.(action === 'launch' ? 'built' : 'select');
     const s = this.store.get();
     const me = s.connection.session?.playerId ?? '';
     const snap = s.latest;
