@@ -114,6 +114,12 @@ export interface StructureManifest {
   assets: Record<string, SceneryAsset>;
 }
 
+/** Terrain element index -> asset, from the manifest's `terrain` section. */
+export interface TerrainManifest {
+  elements: Record<string, string>;
+  assets: Record<string, SceneryAsset>;
+}
+
 export interface AssetManifest {
   /** semantic id → image path under public/ (e.g. "assets/module.bipod.png") */
   images: Partial<Record<SemanticAsset, string>>;
@@ -121,10 +127,13 @@ export interface AssetManifest {
   scenery?: SceneryManifest;
   /** War-base/factory wall segments (owner-directed extension, 2026-09-22). */
   structures?: StructureManifest;
+  /** Spectrum terrain element sprites (owner request, 2026-09-24). */
+  terrain?: TerrainManifest;
 }
 
 let scenery: SceneryManifest | null = null;
 let structures: StructureManifest | null = null;
+let terrain: TerrainManifest | null = null;
 
 /** Scenery mapping from the loaded manifest; null (placeholder prisms) if absent. */
 export function sceneryManifest(): SceneryManifest | null {
@@ -134,6 +143,11 @@ export function sceneryManifest(): SceneryManifest | null {
 /** War-base/factory wall-segment mapping from the loaded manifest; null (placeholder prisms) if absent. */
 export function structureManifest(): StructureManifest | null {
   return structures;
+}
+
+/** Terrain element sprites from the loaded manifest; null (flat colour) if absent. */
+export function terrainManifest(): TerrainManifest | null {
+  return terrain;
 }
 
 /**
@@ -152,6 +166,7 @@ export async function loadAssets(manifestUrl = '/assets/manifest.json'): Promise
   }
   scenery = manifest.scenery ?? null;
   structures = manifest.structures ?? null;
+  terrain = manifest.terrain ?? null;
   const missing: SemanticAsset[] = [];
   await Promise.all(
     ids.map(async (id) => {

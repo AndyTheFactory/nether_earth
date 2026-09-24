@@ -24,5 +24,37 @@
       "structure.wall_low": { "sprite": "spectrum.wall_low", "footprint": [2, 2], "height": 7 },
       "structure.wall_high": { "sprite": "spectrum.wall_high", "footprint": [2, 2], "height": 15 }
     }
+  },
+  "terrain": {
+    "elements": {
+      "2": "terrain.rough_a",
+      "3": "terrain.rough_b",
+      "4": "terrain.rough_c",
+      "5": "terrain.rough_d",
+      "6": "terrain.debris_a",
+      "7": "terrain.debris_b",
+      "8": "terrain.mountain_a",
+      "9": "terrain.mountain_b",
+      "10": "terrain.mountain_c",
+      "11": "terrain.mountain_d",
+      "12": "terrain.ditch_a",
+      "13": "terrain.ditch_b",
+      "14": "terrain.ditch_c"
+    },
+    "assets": {
+      "terrain.rough_a": { "sprite": "spectrum.rough_a", "footprint": [2, 2], "height": 2 },
+      "terrain.rough_b": { "sprite": "spectrum.rough_b", "footprint": [2, 2], "height": 2 },
+      "terrain.rough_c": { "sprite": "spectrum.rough_c", "footprint": [2, 2], "height": 2 },
+      "terrain.rough_d": { "sprite": "spectrum.rough_d", "footprint": [2, 2], "height": 2 },
+      "terrain.debris_a": { "sprite": "spectrum.debris_a", "footprint": [2, 2], "height": 3 },
+      "terrain.debris_b": { "sprite": "spectrum.debris_b", "footprint": [2, 2], "height": 3 },
+      "terrain.mountain_a": { "sprite": "spectrum.mountain_a", "footprint": [2, 2], "height": 6 },
+      "terrain.mountain_b": { "sprite": "spectrum.mountain_b", "footprint": [2, 2], "height": 6 },
+      "terrain.mountain_c": { "sprite": "spectrum.mountain_c", "footprint": [2, 2], "height": 6 },
+      "terrain.mountain_d": { "sprite": "spectrum.mountain_d", "footprint": [2, 2], "height": 6 },
+      "terrain.ditch_a": { "sprite": "spectrum.ditch_a", "footprint": [2, 2], "height": 0 },
+      "terrain.ditch_b": { "sprite": "spectrum.ditch_b", "footprint": [2, 2], "height": 0 },
+      "terrain.ditch_c": { "sprite": "spectrum.ditch_c", "footprint": [2, 2], "height": 0 }
+    }
   }
 }
