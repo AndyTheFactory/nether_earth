@@ -42,7 +42,26 @@ b { color: var(--yellow); }
 .err { color: var(--red); }
 .notice { color: var(--green); }
 .panel { position: absolute; background: rgba(0, 0, 0, 0.75); border: 2px solid #333; padding: 6px 10px; }
-#hud { top: 8px; left: 8px; right: 8px; color: var(--cyan); }
+/* The HUD retracts to a thin tab so it stops covering the battlefield, and
+   slides down on hover (or on keyboard focus inside it). The bottom 16 px of
+   padding is the tab strip; the retracted transform leaves that strip plus the
+   panel's 2 px bottom border on screen. */
+#hud {
+  top: 8px; left: 8px; right: 8px; color: var(--cyan);
+  padding-bottom: 16px;
+  transform: translateY(calc(-100% + 18px));
+  transition: transform 140ms ease-out;
+}
+#hud:hover, #hud:focus-within { transform: translateY(0); }
+#hud::after {
+  content: '\25be  INFO'; position: absolute; left: -10px; right: -10px; bottom: 0;
+  height: 16px; line-height: 16px; text-align: center; letter-spacing: 2px;
+  background: #000; color: var(--yellow); font-size: 11px;
+}
+#hud:hover::after, #hud:focus-within::after { content: '\25b4  INFO'; }
+/* Touch devices have no hover: leave the HUD down rather than unreachable. */
+@media (hover: none) { #hud { transform: none; } }
+@media (prefers-reduced-motion: reduce) { #hud { transition: none; } }
 #hud .clock { color: var(--white); }
 #hud .phase.active { color: var(--green); }
 #hud .phase.paused, #hud .phase.waiting { color: var(--red); }
