@@ -77,6 +77,9 @@ async function main(): Promise<void> {
   // M mutes. It is read here rather than in the controller because muting is
   // presentation, and KeyM reaches the controller unhandled either way.
   window.addEventListener('keydown', (e) => {
+    // Not while the lobby's nickname or join-code field has focus: typing an
+    // "m" there must stay an "m" (bindKeyboard guards its own keys the same way).
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (e.code === 'KeyM' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       store.setUi({ notice: audio.toggleMuted() ? 'sound off' : 'sound on' });
       // Let the ticker decide again whether music should be running.
