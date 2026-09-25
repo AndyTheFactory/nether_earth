@@ -105,7 +105,7 @@ from nether_earth.combat import Projectile
 from nether_earth.commander import Commander, GridTransition, VerticalTransition
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
-from nether_earth.ids import PlayerId
+from nether_earth.ids import EntityId, PlayerId
 from nether_earth.orders import (
     Advance,
     Order,
@@ -117,7 +117,14 @@ from nether_earth.orders import (
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot import Robot, RobotMoveTransition, RobotTurnTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
-from nether_earth.state import AiConstructionMemory, AiMemory, AiOrderMemory, GameState
+from nether_earth.state import (
+    AiConstructionMemory,
+    AiDefenceAssignment,
+    AiMemory,
+    AiOrderMemory,
+    AiSighting,
+    GameState,
+)
 from nether_earth.structures import FactoryType
 
 __all__ = [
@@ -463,15 +470,39 @@ def _ai_construction_memory_from_snapshot(data: dict[str, Any]) -> AiConstructio
 
 
 def _ai_order_memory_snapshot(memory: AiOrderMemory) -> dict[str, Any]:
-    """Return the robot-order sub-planner's memory as JSON-safe data (CR004.5 fills it)."""
-    del memory
-    return {}
+    """Return the robot-order sub-planner's memory as JSON-safe data (CR004.5)."""
+    return {
+        "defences": [
+            {
+                "defender_id": entry.defender_id.to_json(),
+                "intruder_id": entry.intruder_id.to_json(),
+                "structure_id": entry.structure_id.to_json(),
+            }
+            for entry in memory.defences
+        ],
+        "sightings": [
+            {"robot_id": entry.robot_id.to_json(), "distance": entry.distance}
+            for entry in memory.sightings
+        ],
+    }
 
 
 def _ai_order_memory_from_snapshot(data: dict[str, Any]) -> AiOrderMemory:
     """Inverse of :func:`_ai_order_memory_snapshot`."""
-    del data
-    return AiOrderMemory()
+    return AiOrderMemory(
+        defences=tuple(
+            AiDefenceAssignment(
+                defender_id=EntityId.from_json(entry["defender_id"]),
+                intruder_id=EntityId.from_json(entry["intruder_id"]),
+                structure_id=EntityId.from_json(entry["structure_id"]),
+            )
+            for entry in data.get("defences", [])
+        ),
+        sightings=tuple(
+            AiSighting(robot_id=EntityId.from_json(entry["robot_id"]), distance=entry["distance"])
+            for entry in data.get("sightings", [])
+        ),
+    )
 
 
 def _ai_memory_snapshot(memory: AiMemory) -> dict[str, Any]:
