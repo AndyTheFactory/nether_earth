@@ -27,6 +27,8 @@ models and the actual JSON Schema files.
 
 from __future__ import annotations
 
+import json
+
 from pydantic import ValidationError
 
 from app.protocol.envelope import (
@@ -71,18 +73,28 @@ def serialize_server_message(message: OutboundMessage) -> str:
     `ProtocolModel` in `common.py`. `exclude_none=True` drops optional
     fields left unset (e.g. `ServerError.match_id`, `ErrorInfo.details`)
     rather than emitting them as JSON `null`, since most *lifecycle*
-    schemas' properties do not accept a `null` type. Three messages are the
-    exception, serialized without `exclude_none`: the snapshot state
+    schemas' properties do not accept a `null` type. The snapshot state
     (`common.schema.json#/$defs/snapshotState`, carried by `snapshot` and
-    `resync`), whose nullable fields (`docked_robot_id`,
-    `horizontal_transition`, `order`, ...) are *required* and must be
-    emitted as `null` (M9.1 audit / M9.6: a real-match snapshot otherwise
-    fails the protocol schema on the wire); and `ServerCreated.join_code`
-    (CR004.8, issue #289), required-but-nullable so a solo match's `created`
-    still states "no join code" as an explicit `null` rather than omitting
-    the key the schema requires.
+    `resync`) is one exception, serialized without `exclude_none`: its
+    nullable fields (`docked_robot_id`, `horizontal_transition`, `order`,
+    ...) are *required* and must be emitted as `null` (M9.1 audit / M9.6: a
+    real-match snapshot otherwise fails the protocol schema on the wire).
+
+    `ServerCreated` (CR004.8, issue #289) needs different treatment *per
+    field*, so it cannot just join that exemption list: `join_code` is
+    required-but-nullable (a solo match's `null` must be emitted), while
+    `opponent` is optional-and-`None`-on-every-PvP-path and must be *dropped*
+    so an existing PvP `created` reply carries no new key on the wire (byte
+    compatibility with clients that predate CR004.8). This dumps with
+    `exclude_none=True` like the common case (dropping `opponent` when
+    unset) and then puts `join_code` back explicitly under its wire alias,
+    since dumping may have dropped it too when it is `None`.
     """
-    exclude_none = not isinstance(message, (SnapshotMessage, ServerResync, ServerCreated))
+    if isinstance(message, ServerCreated):
+        payload = message.model_dump(mode="json", by_alias=True, exclude_none=True)
+        payload["joinCode"] = message.join_code
+        return json.dumps(payload)
+    exclude_none = not isinstance(message, (SnapshotMessage, ServerResync))
     return OutboundMessageAdapter.dump_json(
         message, by_alias=True, exclude_none=exclude_none
     ).decode("utf-8")

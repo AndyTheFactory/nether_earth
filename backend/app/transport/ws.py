@@ -295,7 +295,12 @@ def create_websocket_router(
                                 join_code=join_code,
                                 player_id=bound.player_id,
                                 session_token=bound.session_token,
-                                opponent="computer" if solo else "human",
+                                # `None` on the PvP path: `opponent` is
+                                # dropped from the wire for a plain `create`
+                                # (see `ServerCreated`'s docstring), keeping
+                                # it byte-compatible with pre-CR004.8
+                                # clients. Only a solo create states it.
+                                opponent="computer" if solo else None,
                             )
                         )
                     )
