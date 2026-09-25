@@ -110,10 +110,17 @@ class Match:
     ``result`` is ``None`` until the match ends: forfeit/no-contest are set
     by ``ReconnectCoordinator``, a normal engine victory by
     ``app.transport.victory`` (see :class:`MatchResult`).
+
+    A solo match (CR004.7, issue #288) has one human ``PlayerSlot`` and an
+    AI seat named by ``ai_player_id``. The AI seat is not a ``PlayerSlot``:
+    it has no nickname, session token or socket, so nothing that iterates
+    ``players`` (broadcasts, tokens, replay nicknames) can mistake it for a
+    connection. It counts toward ``is_full`` and is always ready. A solo
+    match has no ``join_code``: it is never indexed for joining.
     """
 
     match_id: str
-    join_code: str
+    join_code: str | None
     seed: int
     state: MatchRuntimeState = MatchRuntimeState.WAITING
     players: dict[PlayerId, PlayerSlot] = field(default_factory=dict)
@@ -123,10 +130,22 @@ class Match:
     #: transition; drive disposal of abandoned and finished matches (M10.6).
     created_at: float = 0.0
     finished_at: float | None = None
+    #: The engine-driven seat of a solo match; ``None`` for PvP.
+    ai_player_id: PlayerId | None = None
+
+    @property
+    def is_solo(self) -> bool:
+        return self.ai_player_id is not None
+
+    @property
+    def seat_ids(self) -> tuple[PlayerId, ...]:
+        """Every seat in the match: the human slots plus the AI seat, if any."""
+        seats = tuple(self.players)
+        return seats if self.ai_player_id is None else (*seats, self.ai_player_id)
 
     @property
     def is_full(self) -> bool:
-        return len(self.players) >= 2
+        return len(self.seat_ids) >= 2
 
     def slot_for_token(self, session_token: str) -> PlayerSlot | None:
         for slot in self.players.values():
@@ -136,6 +155,7 @@ class Match:
 
     @property
     def all_ready(self) -> bool:
+        # The AI seat has no slot and is always ready.
         return self.is_full and all(slot.ready for slot in self.players.values())
 
 

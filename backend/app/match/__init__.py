@@ -8,7 +8,13 @@ layer. No WebSocket/transport code lives here -- see ``AGENTS.md``/the M7
 plan for how later tasks layer transport on top.
 """
 
-from app.match.manager import CreateMatchResult, JoinMatchResult, MatchManager
+from app.match.manager import (
+    SOLO_AI_SEAT,
+    CreateMatchResult,
+    CreateSoloMatchResult,
+    JoinMatchResult,
+    MatchManager,
+)
 from app.match.models import (
     InvalidNicknameError,
     InvalidSessionTokenError,
@@ -28,9 +34,11 @@ from app.match.runtime import (
 )
 
 __all__ = [
+    "SOLO_AI_SEAT",
     "TICK_INTERVAL_S",
     "TICK_RATE_HZ",
     "CreateMatchResult",
+    "CreateSoloMatchResult",
     "InvalidNicknameError",
     "InvalidSessionTokenError",
     "JoinMatchResult",

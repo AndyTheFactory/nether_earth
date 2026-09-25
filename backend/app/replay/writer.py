@@ -79,6 +79,7 @@ from nether_earth.construction_commands import (
 )
 from nether_earth.direct_control import DirectRobotMoveCommand
 from nether_earth.events import Event
+from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
 from nether_earth.map import BootstrapMap
 from nether_earth.orders import SetRobotOrderCommand
 from nether_earth.rules import RULES_VERSION, rules_content_hash
@@ -290,6 +291,18 @@ def _meta_players(match: Match) -> dict[str, str]:
     return {player_id.to_json(): slot.nickname for player_id, slot in match.players.items()}
 
 
+def meta_seat_controllers(scenario: Scenario) -> dict[str, str]:
+    """Return ``{player_id: "human" | "ai"}`` -- who drives each seat (CR004.7).
+
+    Only human commands are recorded; replay re-derives an AI seat's
+    commands by stepping the engine, so the verifier must rebuild the
+    scenario with the same seat controllers.
+    """
+    return {
+        player.to_json(): scenario.controller_for(player) for player in (PLAYER_ONE, PLAYER_TWO)
+    }
+
+
 def _result_to_json(match: Match) -> dict[str, Any] | None:
     """Return ``match.result`` (forfeit/no-contest) as JSON, or ``None`` for a normal engine finish.
 
@@ -390,6 +403,7 @@ class ReplayWriter:
             "map_height": map_data.height,
             "seed": match.seed,
             "players": _meta_players(match),
+            "seat_controllers": meta_seat_controllers(scenario),
             "created_at_epoch_ms": _epoch_ms(),
             "status": "in_progress",
             "finished_at_epoch_ms": None,
