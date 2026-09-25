@@ -230,10 +230,12 @@ class MatchManager:
     def create_match(self, nickname: str, *, seed: int | None = None) -> CreateMatchResult:
         """Create a new ``WAITING`` match with ``nickname`` as its first (PLAYER_ONE) slot."""
         match, session_token = self._create(nickname, seed=seed, solo=False)
-        assert match.join_code is not None  # a PvP match is always joinable
+        join_code = match.join_code
+        if join_code is None:
+            raise RuntimeError("a PvP match must always be created with a join code")
         return CreateMatchResult(
             match_id=match.match_id,
-            join_code=match.join_code,
+            join_code=join_code,
             session_token=session_token,
             player_id=PLAYER_ONE,
         )
@@ -254,12 +256,14 @@ class MatchManager:
         if self._world is None:
             raise ValueError("a solo match needs a MatchManager constructed with a world")
         match, session_token = self._create(nickname, seed=seed, solo=True)
-        assert match.ai_player_id is not None
+        ai_player_id = match.ai_player_id
+        if ai_player_id is None:
+            raise RuntimeError("a solo match must always be created with an AI seat")
         return CreateSoloMatchResult(
             match_id=match.match_id,
             session_token=session_token,
             player_id=PLAYER_ONE,
-            ai_player_id=match.ai_player_id,
+            ai_player_id=ai_player_id,
         )
 
     def _create(self, nickname: str, *, seed: int | None, solo: bool) -> tuple[Match, str]:
