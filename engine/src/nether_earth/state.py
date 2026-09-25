@@ -173,7 +173,14 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class AiConstructionMemory:
-    """Carry-over state of the AI construction sub-planner (CR004.4 fills it)."""
+    """Carry-over state of the AI construction sub-planner (CR004.4).
+
+    ``last_war_base_id`` is the war base the planner last built at, so the
+    next build goes to the next owned war base in map order (round robin).
+    ``None`` before the first build.
+    """
+
+    last_war_base_id: EntityId | None = None
 
 
 @dataclass(frozen=True, slots=True)

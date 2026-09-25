@@ -86,6 +86,7 @@ from nether_earth.construction_commands import (
     ConstructionCancelledEvent,
     ConstructionEnteredEvent,
     DeselectModuleCommand,
+    EnterConstructionRemotelyCommand,
     LaunchRobotCommand,
     ModuleDeselectedEvent,
     ModuleSelectedEvent,
@@ -95,6 +96,7 @@ from nether_earth.construction_commands import (
 from nether_earth.construction_session import (
     deselect_module,
     enter_construction,
+    enter_construction_remotely,
     exit_construction,
     select_module,
 )
@@ -601,6 +603,17 @@ def step(
         (``ValueError`` otherwise); a state with no AI seat skips this step
         entirely, so all-human matches are unaffected.
 
+    Extended by CR004.4 (#285):
+
+    18. Step 8 also applies
+        :class:`~nether_earth.construction_commands.EnterConstructionRemotelyCommand`,
+        the commanderless AI seat's entry into construction
+        (:func:`~nether_earth.construction_session.enter_construction_remotely`:
+        AI seat only, keyed on owning the war base in the effective world).
+        In canonical command order, so an AI's entry, selections and launch
+        issued in one batch apply in that order within the tick. Needs a real
+        ``world``; a gameplay no-op otherwise, like ``LaunchRobotCommand``.
+
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
     always produces an identical ``(new_state, events)`` pair.
     """
@@ -1025,7 +1038,24 @@ def step(
         if not result.accepted:
             continue
         command = result.command
-        if isinstance(command, SelectModuleCommand):
+        if isinstance(command, EnterConstructionRemotelyCommand):
+            if world_for_step is None:
+                continue
+            remote_entry = enter_construction_remotely(
+                state, world_for_step, command.player, command.war_base_id, tick
+            )
+            if remote_entry.accepted:
+                assert remote_entry.state is not None
+                state = remote_entry.state
+                events.append(
+                    ConstructionEnteredEvent(
+                        sequence=sequencer.next_sequence(),
+                        player=command.player,
+                        war_base_id=command.war_base_id,
+                        tick=tick,
+                    )
+                )
+        elif isinstance(command, SelectModuleCommand):
             select_result = select_module(state, command.player, command.module, rules)
             # A chassis swap removes the fitted chassis first, even when the
             # new one then turns out unaffordable (Spectrum Lca0f, CR002.20).

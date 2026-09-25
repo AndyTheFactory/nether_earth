@@ -130,6 +130,7 @@ from nether_earth.construction_economy import (
 )
 from nether_earth.heli_pad import CommanderConstructionEntryEligible
 from nether_earth.ids import EntityId, PlayerId
+from nether_earth.map import WorldMap
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot_build import (
     CHASSIS_MODULES,
@@ -154,6 +155,7 @@ __all__ = [
     "cancel_construction",
     "deselect_module",
     "enter_construction",
+    "enter_construction_remotely",
     "exit_construction",
     "select_module",
 ]
@@ -287,6 +289,7 @@ class ConstructionEntryRejectionReason(str, Enum):
     NOT_OWN_WAR_BASE = "not_own_war_base"
     ALREADY_IN_SESSION = "already_in_session"
     UNKNOWN_PLAYER = "unknown_player"
+    NOT_AI_SEAT = "not_ai_seat"
 
 
 @dataclass(frozen=True, slots=True)
@@ -363,23 +366,66 @@ def enter_construction(
     if state.construction_session_for(for_player) is not None:
         return ConstructionEntryResult.reject(ConstructionEntryRejectionReason.ALREADY_IN_SESSION)
 
-    actual_pool = state.resource_pool_for(for_player)
+    return ConstructionEntryResult.accept(_open_session(state, for_player, event.war_base_id, event.tick))
+
+
+def enter_construction_remotely(
+    state: GameState,
+    world: WorldMap,
+    for_player: PlayerId,
+    war_base_id: EntityId,
+    tick: int,
+) -> ConstructionEntryResult:
+    """Open a construction session at ``war_base_id`` for an AI seat, with no commander (CR004.4).
+
+    The AI seat has no commander (CR004 owner decision 2026-09-25), so it can
+    never raise :class:`~nether_earth.heli_pad.CommanderConstructionEntryEligible`.
+    This is its entry instead, keyed on *owning* the war base rather than
+    landing on it. It opens exactly the session :func:`enter_construction`
+    opens, so select/deselect/cancel/launch, costs and legality are shared.
+
+    ``world`` must be the effective world (captures and destruction applied),
+    so a captured or destroyed war base is not the seat's. Rejects (no state
+    change) if:
+
+    - ``for_player`` is not a participant
+      (:data:`ConstructionEntryRejectionReason.UNKNOWN_PLAYER`);
+    - ``for_player`` is a human seat -- a human still has to land
+      (:data:`ConstructionEntryRejectionReason.NOT_AI_SEAT`);
+    - ``for_player`` does not own ``war_base_id`` in ``world``
+      (:data:`ConstructionEntryRejectionReason.NOT_OWN_WAR_BASE`);
+    - ``for_player`` already has an active session
+      (:data:`ConstructionEntryRejectionReason.ALREADY_IN_SESSION`).
+    """
+    if for_player not in state.players:
+        return ConstructionEntryResult.reject(ConstructionEntryRejectionReason.UNKNOWN_PLAYER)
+    if state.ai_memory_for(for_player) is None:
+        return ConstructionEntryResult.reject(ConstructionEntryRejectionReason.NOT_AI_SEAT)
+    if not any(base.id == war_base_id and base.owner == for_player for base in world.war_bases):
+        return ConstructionEntryResult.reject(ConstructionEntryRejectionReason.NOT_OWN_WAR_BASE)
+    if state.construction_session_for(for_player) is not None:
+        return ConstructionEntryResult.reject(ConstructionEntryRejectionReason.ALREADY_IN_SESSION)
+    return ConstructionEntryResult.accept(_open_session(state, for_player, war_base_id, tick))
+
+
+def _open_session(state: GameState, player_id: PlayerId, war_base_id: EntityId, tick: int) -> GameState:
+    """Return ``state`` with a fresh session for ``player_id``; callers have validated entry."""
+    actual_pool = state.resource_pool_for(player_id)
     snapshot = (
         actual_pool.to_resource_pool()
         if actual_pool is not None
-        else PlayerResourcePool(player_id=for_player).to_resource_pool()
+        else PlayerResourcePool(player_id=player_id).to_resource_pool()
     )
 
     session = ConstructionSession(
-        player_id=for_player,
-        war_base_id=event.war_base_id,
-        entry_tick=event.tick,
+        player_id=player_id,
+        war_base_id=war_base_id,
+        entry_tick=tick,
         build=BuildInProgress(),
         buffer=snapshot,
         entry_snapshot=snapshot,
     )
-    new_sessions = (*state.construction_sessions, session)
-    return ConstructionEntryResult.accept(state.with_construction_sessions(new_sessions))
+    return state.with_construction_sessions((*state.construction_sessions, session))
 
 
 class SelectModuleRejectionReason(str, Enum):

@@ -171,6 +171,7 @@ __all__ = [
     "LaunchRejectionReason",
     "LaunchResult",
     "launch_robot",
+    "resolve_launch_exit",
 ]
 
 
@@ -230,6 +231,45 @@ def _folded_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
     this module's call site reads unchanged.
     """
     return folded_robot_occupancy(world, state)
+
+
+def resolve_launch_exit(
+    world: WorldMap, state: GameState, war_base_id: EntityId
+) -> tuple[int, int] | LaunchRejectionReason:
+    """Return the exit cell a robot launched from ``war_base_id`` would take, or why it cannot.
+
+    The exit half of :func:`launch_robot`'s validation (conditions 4 and 5
+    in the module docstring): :data:`LaunchRejectionReason.NO_EXIT_DEFINED`
+    or :data:`LaunchRejectionReason.EXIT_BLOCKED`, else the resolved anchor
+    cell. Public so the AI construction planner (CR004.4) can skip a war base
+    whose exit is blocked using the launch rule itself rather than a copy.
+    """
+    exit_cell = _resolve_exit_cell(world, war_base_id)
+    if exit_cell is None:
+        return LaunchRejectionReason.NO_EXIT_DEFINED
+
+    exit_x, exit_y = exit_cell
+    if not unit_footprint_in_bounds(exit_x, exit_y, world.width, world.height):
+        return LaunchRejectionReason.EXIT_BLOCKED
+    occupancy = _folded_occupancy(world, state)
+    if occupancy.blocks_unit(exit_x, exit_y):
+        return LaunchRejectionReason.EXIT_BLOCKED
+
+    # A robot with a move in flight authoritatively occupies its *origin*
+    # cell, so the fold above cannot see the destination it is about to
+    # land on -- that claim lives in M5.3's reservation contract (see
+    # `movement.folded_robot_occupancy`'s docstring, which says exactly
+    # this). Launching onto a reserved exit cell would therefore look legal
+    # here and then stack two robots on one cell the moment that move
+    # completes, since `movement.advance_robot_transition` writes the mover
+    # onto its reserved destination unconditionally. A reservation blocks
+    # the exit for the same reason a standing robot does, so it reuses
+    # EXIT_BLOCKED rather than introducing a second "cell is taken" code
+    # that callers would have to branch on identically.
+    reservations = reservations_from_state(state)
+    if any(reservations.is_reserved(x, y) for x, y in unit_footprint_cells(exit_x, exit_y)):
+        return LaunchRejectionReason.EXIT_BLOCKED
+    return exit_x, exit_y
 
 
 def _resolve_exit_cell(world: WorldMap, war_base_id: EntityId) -> tuple[int, int] | None:
@@ -298,31 +338,10 @@ def launch_robot(
     if existing_robot_count >= rules.max_robots_per_player:
         return LaunchResult.reject(LaunchRejectionReason.ROBOT_CAP_REACHED)
 
-    exit_cell = _resolve_exit_cell(world, session.war_base_id)
-    if exit_cell is None:
-        return LaunchResult.reject(LaunchRejectionReason.NO_EXIT_DEFINED)
-
-    exit_x, exit_y = exit_cell
-    if not unit_footprint_in_bounds(exit_x, exit_y, world.width, world.height):
-        return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
-    occupancy = _folded_occupancy(world, state)
-    if occupancy.blocks_unit(exit_x, exit_y):
-        return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
-
-    # A robot with a move in flight authoritatively occupies its *origin*
-    # cell, so the fold above cannot see the destination it is about to
-    # land on -- that claim lives in M5.3's reservation contract (see
-    # `movement.folded_robot_occupancy`'s docstring, which says exactly
-    # this). Launching onto a reserved exit cell would therefore look legal
-    # here and then stack two robots on one cell the moment that move
-    # completes, since `movement.advance_robot_transition` writes the mover
-    # onto its reserved destination unconditionally. A reservation blocks
-    # the exit for the same reason a standing robot does, so it reuses
-    # EXIT_BLOCKED rather than introducing a second "cell is taken" code
-    # that callers would have to branch on identically.
-    reservations = reservations_from_state(state)
-    if any(reservations.is_reserved(x, y) for x, y in unit_footprint_cells(exit_x, exit_y)):
-        return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
+    exit_check = resolve_launch_exit(world, state, session.war_base_id)
+    if isinstance(exit_check, LaunchRejectionReason):
+        return LaunchResult.reject(exit_check)
+    exit_x, exit_y = exit_check
 
     stack, height = derive_stack_and_height(robot_build, rules)
     entity_id = _next_robot_id(state, player_id)

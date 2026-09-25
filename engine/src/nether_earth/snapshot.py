@@ -105,7 +105,7 @@ from nether_earth.combat import Projectile
 from nether_earth.commander import Commander, GridTransition, VerticalTransition
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
-from nether_earth.ids import PlayerId
+from nether_earth.ids import EntityId, PlayerId
 from nether_earth.orders import (
     Advance,
     Order,
@@ -451,15 +451,15 @@ def _projectile_snapshot(projectile: Projectile) -> dict[str, Any]:
 
 
 def _ai_construction_memory_snapshot(memory: AiConstructionMemory) -> dict[str, Any]:
-    """Return the construction sub-planner's memory as JSON-safe data (CR004.4 fills it)."""
-    del memory
-    return {}
+    """Return the construction sub-planner's memory as JSON-safe data (CR004.4)."""
+    last = memory.last_war_base_id
+    return {"last_war_base_id": None if last is None else last.to_json()}
 
 
 def _ai_construction_memory_from_snapshot(data: dict[str, Any]) -> AiConstructionMemory:
     """Inverse of :func:`_ai_construction_memory_snapshot`."""
-    del data
-    return AiConstructionMemory()
+    last = data["last_war_base_id"]
+    return AiConstructionMemory(last_war_base_id=None if last is None else EntityId.from_json(last))
 
 
 def _ai_order_memory_snapshot(memory: AiOrderMemory) -> dict[str, Any]:
