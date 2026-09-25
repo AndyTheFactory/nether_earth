@@ -32,8 +32,25 @@
     "ai_memories": [
       {
         "player_id": "p2",
-        "construction": {},
-        "orders": {}
+        "construction": {
+          "last_war_base_id": "warbase-4"
+        },
+        "orders": {
+          "defences": [
+            {
+              "defender_id": "robot-p2-1",
+              "intruder_id": "robot-p1-3",
+              "structure_id": "warbase-4",
+              "approached": true
+            }
+          ],
+          "sightings": [
+            {
+              "robot_id": "robot-p1-3",
+              "distance": 12
+            }
+          ]
+        }
       }
     ]
   }

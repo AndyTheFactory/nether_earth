@@ -127,7 +127,7 @@ test('nuclear debris and destroyed structures are not marked (debris is below el
 test('CR004.6: an AI seat with no commander renders no mark for it, and the map still renders', () => {
   // The AI seat's snapshot has one `commanders` entry (the human's) plus an
   // `ai_memories` entry for the computer seat -- never a second commander.
-  const humanOnly = { ...snapshotOf('world-static'), ai_memories: [{ player_id: 'p2', construction: {}, orders: {} }] };
+  const humanOnly = { ...snapshotOf('world-static'), ai_memories: [{ player_id: 'p2', construction: { last_war_base_id: null }, orders: { defences: [], sightings: [] } }] };
   const aiSeat = { ...humanOnly, commanders: humanOnly.commanders.filter((c) => c.player_id === 'p1') };
   assert.equal(aiSeat.commanders.length, 1);
   // The viewer's own (human) commander still marks normally.

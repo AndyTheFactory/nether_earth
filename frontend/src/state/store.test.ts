@@ -92,7 +92,7 @@ test('dockedRobot resolves via authoritative docked_robot_id only', () => {
 test('read-model helpers tolerate an AI seat with no commander', () => {
   const state = snap(4, {
     commanders: [{ player_id: 'p1', mode: 'free', x: 1, y: 1, altitude: 1, docked_robot_id: null, rising: false, horizontal_transition: null, vertical_transition: null, elevate_updates_remaining: 0 }],
-    ai_memories: [{ player_id: 'p2', construction: {}, orders: {} }],
+    ai_memories: [{ player_id: 'p2', construction: { last_war_base_id: null }, orders: { defences: [], sightings: [] } }],
   }).state;
   assert.equal(myCommander(state, 'p1')?.player_id, 'p1');
   assert.equal(myCommander(state, 'p2'), null);

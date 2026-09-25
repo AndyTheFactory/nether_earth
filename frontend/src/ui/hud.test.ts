@@ -40,7 +40,7 @@ function aiSeatSnapshot(tick: number): SnapshotMessage {
       projectiles: [],
       structure_destruction: [],
       scenery_debris: [],
-      ai_memories: [{ player_id: 'p2', construction: {}, orders: {} }],
+      ai_memories: [{ player_id: 'p2', construction: { last_war_base_id: null }, orders: { defences: [], sightings: [] } }],
     },
   };
 }
