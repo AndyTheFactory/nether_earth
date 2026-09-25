@@ -23,11 +23,11 @@ through the same validation path, so it gains no rule it does not share with a p
 | Placement | The AI lives **in the engine**, as a pure deterministic planner. It is not a backend bot session. |
 | Configurability | One difficulty level. No difficulty selector, no tuning UI. |
 | Entry point | A single "Play vs computer" entry point that creates a match already filled with the AI in the second seat. |
+| Embodiment | The AI has **no commander**. It issues robot orders and construction without being physically present anywhere on the map. This is a deliberate asymmetry with the human seat, not a simplification to be revisited: the original's enemy has no ship the player ever meets either. |
 
-Deliberately **not** decided here, and therefore carried as open questions rather than guessed
-(see CR004.1): whether the AI drives a commander around the map, and how a solo match behaves on
-the human's disconnect. CR004.6 and CR004.7 state the proposed defaults and are blocked on the
-owner confirming them.
+Deliberately **not** decided here, and therefore carried as an open question rather than guessed
+(see CR004.1): how a solo match behaves on the human's disconnect. CR004.7 states the proposed
+default and is blocked on the owner confirming it.
 
 ## Design
 
@@ -46,6 +46,36 @@ deterministic. Both hold here, and they point the same way:
 
 A backend bot session was rejected for the opposite reason: its decisions would depend on task
 scheduling and would have to be logged into every replay to stay reproducible.
+
+### The AI has no commander
+
+The AI seat owns war bases, factories, resources and robots. It owns no commander and occupies no
+cell on the map. It gives orders and builds remotely.
+
+Two consequences, and they are not symmetrical:
+
+- **Orders need no change.** The engine already does not gate order issuance on a commander being
+  anywhere in particular; docking only *suppresses* a robot's autonomous order while a commander
+  is driving it (`orders.py`, `_under_direct_control`). An AI with no commander simply never
+  suppresses anything. Nothing is relaxed for the AI here — the rule as written never required
+  presence.
+- **Construction does need a change.** `construction_session.py` opens a session off
+  `heli_pad.CommanderConstructionEntryEligible`, i.e. a commander landing on its own war base's
+  heli-pad. A commanderless seat can never raise that event. CR004.4 therefore adds a second,
+  explicit entry into the same session layer for AI seats, keyed on owning the war base rather
+  than standing on it. The session, cost, legality and launch rules behind it are unchanged and
+  shared; only the entry condition differs.
+
+The resulting asymmetry is intentional and must be written down as such (CR004.9), because it
+reads like a missing rule otherwise: the human pays a positioning cost to build and to drive a
+robot directly, and the AI does not. In exchange the AI gives up everything a commander can do —
+it cannot capture on foot, cannot take direct control of a robot, cannot fight in person, and has
+no unit that can be destroyed. The construction freeze (`open-questions.md`, owner decision
+2026-09-21) freezes a commander; with no commander to freeze, an AI build costs it no tempo.
+Whether that balance is right is a playtest question for CR004.11, not a design question here.
+
+Nothing in the victory rule depends on a commander (`victory.py` counts war bases), so a
+commanderless seat wins and loses normally.
 
 ### Determinism
 
@@ -98,14 +128,18 @@ to require a rule change, that is a blocker to surface, not to implement.
 - The construction planner drives the existing `construction_session.py` /
   `construction_commands.py` flow. Note the locked PvP adaptation in `open-questions.md`
   (owner decision 2026-09-21): during construction only the building player's commander is frozen.
-  The AI is subject to the same freeze.
+  The AI has no commander, so the freeze has nothing to act on for it (see *The AI has no
+  commander*).
 
 ## Risks
 
-- **The AI commander is the hard part.** Construction requires a commander on a war-base heli-pad
-  (`heli_pad.py`, `docking.py`). Giving the AI a roaming commander means giving it commander
-  pathfinding, collision and vertical physics decisions — a much larger surface than robot orders.
-  CR004.6 proposes the smallest viable answer and flags it for the owner.
+- **A seat with no commander is a shape the code has not seen.** `state.commanders` has so far
+  held one commander per player. Every site that looks one up for the AI seat must tolerate
+  `None`; `commander_for` already returns `None`, but callers that assume otherwise will fail at
+  the worst time. CR004.6 is an audit task for exactly this, and it is not optional.
+- **The build asymmetry is a balance risk, not a correctness one.** The AI builds without paying
+  the positioning and freeze cost a human pays. That may make it too strong or simply feel unfair;
+  CR004.10's measured win rate and the CR004.11 playtest are where that is caught.
 - **Strength is not testable by assertion.** "Plays better" cannot be a unit test. CR004.10 builds
   a headless harness so strength claims rest on measured win rates against fixed baselines.
 - **Per-tick cost.** The planner runs inside the authoritative loop. A planner that scans the map
@@ -123,7 +157,7 @@ Tracker: to be opened.
 | CR004.3 | Engine AI seat: scenario flag, planner hook, `AiMemory` in state/snapshot/replay | CR004.1 |
 | CR004.4 | Economy and construction planner | CR004.3, CR004.2 |
 | CR004.5 | Robot order planner: capture valuation, defence, composition response | CR004.3, CR004.2 |
-| CR004.6 | AI commander behaviour | CR004.3, owner decision |
+| CR004.6 | Commanderless seat: audit every commander assumption | CR004.3 |
 | CR004.7 | Backend: solo match lifecycle | CR004.3, owner decision |
 | CR004.8 | Protocol and frontend: "Play vs computer" | CR004.7 |
 | CR004.9 | Rules version bump, spec updates, fixture regeneration | CR004.3–CR004.6 |
@@ -141,10 +175,11 @@ but does not block them; it must land before CR004.9 writes the deviations down.
   describing the seat at product level.
 - `technical-spec.md`: record that the AI is an engine-side deterministic planner, and that its
   memory is part of the authoritative snapshot.
-- `open-questions.md`: add entries for the two undecided items — **AI commander behaviour**
-  (CR004.6) and **solo-match disconnect/pause semantics** (CR004.7) — each stating the proposed
-  default and what depends on it. Add a third entry recording that the Spectrum enemy AI is a
-  reference rather than a contract, so later fidelity passes do not read the difference as a bug.
+- `open-questions.md`: add an entry for the one undecided item — **solo-match disconnect/pause
+  semantics** (CR004.7) — stating the proposed default and what depends on it. Add a second entry
+  recording that the Spectrum enemy AI is a reference rather than a contract, so later fidelity
+  passes do not read the difference as a bug. Add a third recording the commanderless AI seat and
+  its asymmetry, so the AI building without a heli-pad landing is not later read as a bug.
 - No code in this task.
 
 ### CR004.2 — Research: the Spectrum enemy computer player
@@ -186,11 +221,19 @@ but does not block them; it must land before CR004.9 writes the deviations down.
 - Decide: when to open a construction session, which chassis/weapons/electronics to pick within
   the current pool (`resource_pool.py`, `resource_production.py`), when to launch, and when to
   hold resources back for a defensive build.
-- Respect the construction freeze: while its session is open the AI's own commander is frozen and
-  the rest of the match keeps running.
+- **Commanderless entry.** Add an explicit AI-seat entry into the construction session layer,
+  keyed on the seat owning the war base, alongside the existing
+  `heli_pad.CommanderConstructionEntryEligible` path. It opens the same session type and goes
+  through the same cost, legality and launch rules; do not duplicate the session logic. The
+  entry is available to AI seats only — a human seat still has to land, and a test pins that.
+- The session exit must not assume a commander: today it lifts the player's commander
+  (`commander_exit_elevate_updates`) and already returns early when `commander_for` is `None`.
+  Keep that path covered by a test for the AI seat.
+- One open session per war base, as for a human. The AI may build at every war base it owns.
 - Tests: with a fixed seed and no opponent, the AI builds and launches a legal robot within a
   bounded number of ticks; it never opens a session it cannot afford to finish; a session
-  interrupted by destruction of the war base leaves consistent state.
+  interrupted by destruction of the war base leaves consistent state; a human seat cannot use the
+  commanderless entry; an AI seat builds at a war base it owns and cannot at one it does not.
 
 ### CR004.5 — Robot order planner
 
@@ -205,20 +248,23 @@ but does not block them; it must land before CR004.9 writes the deviations down.
   the intended way; an enemy robot closing on the AI war base produces a defensive response; ties
   break deterministically.
 
-### CR004.6 — AI commander behaviour — **blocked on owner decision**
+### CR004.6 — Commanderless seat: audit every commander assumption
 
-Construction needs a commander on a heli-pad, so the AI needs *some* commander behaviour. Two
-answers, and the owner picks:
+Owner decision (2026-09-25): the AI has no commander and acts without being anywhere on the map.
+CR004.3 creates the seat without one; this task makes the rest of the stack agree.
 
-- **Proposed default (smallest viable).** The AI commander stays on its war-base heli-pad and
-  only builds. It does not roam, capture on foot, or fight. Closest to the original, where the
-  enemy has no ship the player ever meets. Documented as an intentional asymmetry: the human can
-  do things with a commander that the AI does not attempt.
-- **Full commander.** The AI drives its commander like a player — moves, docks into robots,
-  captures. Requires commander path planning over `commander_movement.py` / `collision.py`, and it
-  is a much larger task; it would likely become its own CR.
-
-Implement the default only once the owner confirms it; do not pick one by writing code.
+- Scenario init (`scenario.py`) creates no commander for an AI seat. No placeholder commander,
+  parked or hidden — an entity that exists but never acts would still collide, occupy cells and
+  appear in snapshots.
+- Audit every read of `state.commanders` / `commander_for` in the engine, snapshot, backend and
+  frontend. Each site either already tolerates `None` or gets fixed and a test. Known sites to
+  check first: construction exit, collision (commander-vs-commander), radar and camera (frontend
+  follows *the viewer's* commander, which still exists), HUD, snapshot schema (a player with no
+  commander must validate).
+- Protocol: `protocol/schemas/snapshot.schema.json` must allow a player without a commander.
+  Regenerate types; backend validation and frontend types stay aligned.
+- Tests: a full AI-seat match runs to a result with no commander for that seat; the snapshot of
+  such a match validates against the schema and renders in the frontend without errors.
 
 ### CR004.7 — Backend: solo match lifecycle — **blocked on owner decision**
 
@@ -257,7 +303,8 @@ Implement the default only once the owner confirms it; do not pick one by writin
 - Fold CR004.2's verdicts into `open-questions.md` as documented deviations, each with its
   evidence, so a later fidelity pass does not read "the AI does not behave like the Spectrum's"
   as a defect.
-- Resolve the CR004.1 open questions with whatever the owner decided for CR004.6 and CR004.7.
+- Record the commanderless AI seat and its build asymmetry as an intentional deviation, and
+  resolve the CR004.7 open question with whatever the owner decided.
 - Update `functional-spec.md` and `technical-spec.md` to describe what actually shipped.
 
 ### CR004.10 — Strength and determinism harness
