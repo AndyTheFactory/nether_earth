@@ -47,7 +47,7 @@ from nether_earth.scenario import Scenario, create_initial_state
 from nether_earth.snapshot import to_snapshot
 
 from app.replay.orders_json import order_from_json
-from app.replay.writer import match_dir
+from app.replay.writer import match_dir, meta_seat_controllers
 
 __all__ = [
     "ReplayRulesMismatchError",
@@ -242,6 +242,15 @@ def verify_replay(
     """
     meta = load_meta(base_dir, match_id)
     check_rules_identity(meta)
+    # Only human commands are persisted; an AI seat's are re-derived by the
+    # engine, so the scenario must name the same AI seats (CR004.7). An
+    # artifact from before seat controllers were recorded is all-human.
+    recorded_controllers = meta.get("seat_controllers") or {"p1": "human", "p2": "human"}
+    if meta_seat_controllers(scenario) != recorded_controllers:
+        raise ValueError(
+            f"scenario seat controllers {meta_seat_controllers(scenario)} do not match "
+            f"artifact {recorded_controllers}"
+        )
     commands_by_tick = load_commands_by_tick(base_dir, match_id)
     tick_count = meta["final_tick"]
     if tick_count is None:
