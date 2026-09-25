@@ -62,6 +62,14 @@ second seat; no second human joins it.
 - **Disconnect.** Unchanged from PvP: if the human disconnects, the match pauses with the usual
   grace window (§18).
 - Human-vs-human PvP is unaffected; everything above applies to the AI seat only.
+- **What it does (shipped).** The AI builds an affordable, purposeful robot design rather than a
+  random one, keeps a defence reserve once its army reaches a minimum size, and rotates its
+  builds over every war base it owns. It sends robots after whichever neutral or enemy structure
+  is worth the most (production value, distance, how contested it already is) rather than
+  simply the nearest one, keeps a nuclear robot in its army once it is established, and diverts
+  or holds a defender when an enemy robot closes on one of its own war bases or factories. See
+  `technical-spec.md` §28 for the implementation and `open-questions.md` "Documented deviations"
+  for each place this departs from the Spectrum's own enemy AI.
 
 ## 4. PvP scenario and victory
 

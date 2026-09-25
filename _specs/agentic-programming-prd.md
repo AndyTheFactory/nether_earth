@@ -154,7 +154,7 @@ The flow does not autonomously:
 - weaken tests to make a change pass;
 - update functional gameplay behavior without updating the authoritative specs;
 - deploy production changes without an explicit deployment instruction;
-- implement the future AI game opponent, which remains outside v1 scope.
+- redefine v1 scope beyond the AI opponent already locked in by CR004 (`functional-spec.md` §3.1) without an owner decision.
 
 ---
 
