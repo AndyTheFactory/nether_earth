@@ -27,7 +27,7 @@ from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.snapshot import snapshot_to_json_string, to_snapshot
-from nether_earth.state import GameState, create_game_state
+from nether_earth.state import AiMemory, GameState, create_game_state
 
 
 def test_dataclass_equal_states_serialize_identically() -> None:
@@ -546,6 +546,13 @@ def test_snapshot_covers_every_game_state_field() -> None:
     this check enforces by construction: it compares against
     ``GameState``'s own fields, so only real stored state can be missed.
     """
-    state = create_game_state(0, [PLAYER_ONE], seed=0)
+    state = create_game_state(0, [PLAYER_ONE], seed=0, ai_memories=(AiMemory(PLAYER_ONE),))
 
     assert set(to_snapshot(state)) == {field.name for field in fields(state)}
+
+
+def test_snapshot_elides_ai_memories_only_for_an_all_human_state() -> None:
+    """CR004.3: an all-human snapshot keeps its pre-CR004 shape exactly."""
+    human = create_game_state(0, [PLAYER_ONE, PLAYER_TWO], seed=0)
+
+    assert set(to_snapshot(human)) == {field.name for field in fields(human)} - {"ai_memories"}

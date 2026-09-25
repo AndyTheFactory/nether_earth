@@ -42,6 +42,7 @@ import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from nether_earth.ai.seat import issue_ai_commands
 from nether_earth.autonomous_combat import (
     consume_engagement_intents,
     gate_order_requests,
@@ -136,7 +137,7 @@ from nether_earth.resource_production import apply_daily_production
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.robot_launch import launch_robot
 from nether_earth.rules import DEFAULT_RULES
-from nether_earth.scenario import Scenario, initialize_players
+from nether_earth.scenario import Scenario, initial_ai_memories, initialize_players
 from nether_earth.state import GameState, create_game_state
 from nether_earth.victory import evaluate_victory
 
@@ -192,6 +193,8 @@ def new_game(
     :func:`nether_earth.state.create_game_state`'s own ``commanders``
     parameter (which validates ownership/uniqueness -- see ``state.py``).
     Defaults to ``()``, reproducing every prior call site's behavior exactly.
+    An AI seat of ``scenario`` (CR004.3) gets a fresh ``AiMemory`` and must not
+    be given a commander.
     This is intentionally *not* commander-spawning logic (it does not derive
     a starting position from ``map_data.spawn_positions`` or similar) -- that
     remains out of scope; callers wanting spawn-derived commanders must
@@ -222,7 +225,13 @@ def new_game(
         )
 
     resolved_players = tuple(initialize_players(scenario)) if players is None else tuple(players)
-    return create_game_state(0, resolved_players, seed=seed, commanders=commanders)
+    return create_game_state(
+        0,
+        resolved_players,
+        seed=seed,
+        commanders=commanders,
+        ai_memories=initial_ai_memories(scenario, resolved_players),
+    )
 
 
 def _robot_fixtures(
@@ -578,10 +587,38 @@ def step(
         this function, guards all three appends rather than each site
         reasoning about the others.
 
+    Extended by CR004.3 (#284) with Step 0, the AI seats:
+
+    17. Before anything else -- in particular before the batch is validated
+        and ordered -- every AI seat's planner runs on AI decision ticks
+        (:func:`~nether_earth.ai.seat.issue_ai_commands`, cadence
+        ``rules.ai_decision_interval_ticks``). Its commands are appended to
+        ``commands`` with deterministically assigned sequence numbers, so
+        they are validated, ordered and applied by exactly the same code as a
+        human's; its updated memory is written to ``state.ai_memories``. The
+        planner reads the destruction-effective world as of the start of the
+        tick. A state with an AI seat must be stepped with a real ``world``
+        (``ValueError`` otherwise); a state with no AI seat skips this step
+        entirely, so all-human matches are unaffected.
+
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
     always produces an identical ``(new_state, events)`` pair.
     """
-    results = validate_command_batch(commands, state)
+    rules = DEFAULT_RULES
+
+    # --- Step 0: AI seats plan and join this tick's command batch ----------
+    command_batch = tuple(commands)
+    if state.ai_memories and world is None:
+        # An AI seat cannot plan without a map; silently skipping it would
+        # leave the seat idle while the match runs on.
+        raise ValueError("a state with an AI seat must be stepped with a world")
+    if world is not None and state.ai_memories:
+        state, ai_commands = issue_ai_commands(
+            state, destruction_effective_world(world, state), command_batch, rules
+        )
+        command_batch = (*command_batch, *ai_commands)
+
+    results = validate_command_batch(command_batch, state)
 
     sequencer = EventSequencer()
     events: list[Event] = []
@@ -600,7 +637,6 @@ def step(
 
     starting_tick = state.tick
     tick = state.tick + 1
-    rules = DEFAULT_RULES
 
     # At most ONE VictoryEvent may be appended per `step` call, per issue
     # #79's locked acceptance criteria ("repeated/redundant evaluation does
