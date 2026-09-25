@@ -724,7 +724,8 @@ Snapshot minimum:
 - projectiles (including `first_advance_tick`);
 - scenery debris (`scenery_debris`);
 - map/scenario/rules versions;
-- match result.
+- match result;
+- AI planner memory (`AiMemory`), when a seat is computer-controlled (§28).
 
 Replay/debug log minimum:
 
@@ -866,6 +867,24 @@ Do not add unless scope explicitly changes:
 - multiple backend replicas;
 - account system;
 - persistent matchmaking;
-- AI player implementation;
 - client-authoritative movement;
-- generic ECS migration without a concrete need.
+- generic ECS migration without a concrete need;
+- a backend-hosted or difficulty-configurable AI (§28 is the only AI in scope).
+
+## 28. AI opponent (CR004)
+
+The computer-controlled seat is an engine-side deterministic planner, not a backend bot session.
+
+- It runs inside `engine.step` and emits ordinary `Command`s for its `PlayerId`, through the same
+  `validate_command`/`order_commands` path a human's commands take. No privileged path, no direct
+  state mutation, no new rule.
+- Its carry-over state (`AiMemory`: build intent, per-robot assignments, threat bookkeeping) lives
+  in `GameState` and round-trips through `snapshot.py` and `replay.py` (§22), so a replay stays
+  reproducible from scenario + map version + seed + the human's command stream alone.
+- It is a pure function of `(GameState, AiMemory, EngineRules)`. Randomness, if any, comes only
+  from `MatchRandom` seeded via `rng.derive_seed(match_seed, "ai", player_id)`; iteration order is
+  canonical, never set/dict order.
+- It decides on a fixed cadence, `ai_decision_interval_ticks` (default 4), a centralized rules
+  constant rather than an emergent property of loop speed.
+- It has no commander: `state.commanders` may hold `None` for this seat, and every site that looks
+  up a commander must tolerate that.
