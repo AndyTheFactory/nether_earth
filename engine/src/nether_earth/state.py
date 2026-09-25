@@ -184,8 +184,44 @@ class AiConstructionMemory:
 
 
 @dataclass(frozen=True, slots=True)
+class AiDefenceAssignment:
+    """One AI robot sent to meet one enemy robot threatening an owned structure (CR004.5)."""
+
+    defender_id: EntityId
+    intruder_id: EntityId
+    structure_id: EntityId
+    #: An approach (Advance/Retreat) was already issued for this assignment;
+    #: the planner does not issue it again (no churn after a fallback).
+    approached: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AiSighting:
+    """An enemy robot's distance to the AI's nearest owned structure at the last decision."""
+
+    robot_id: EntityId
+    distance: int
+
+
+@dataclass(frozen=True, slots=True)
 class AiOrderMemory:
-    """Carry-over state of the AI robot-order sub-planner (CR004.5 fills it)."""
+    """Carry-over state of the AI robot-order sub-planner (CR004.5).
+
+    ``defences`` are the standing defender assignments, sorted by defender
+    id; ``sightings`` are last decision's enemy distances, sorted by robot
+    id, which tell a closing enemy from one holding or leaving.
+    """
+
+    defences: tuple[AiDefenceAssignment, ...] = ()
+    sightings: tuple[AiSighting, ...] = ()
+
+    def __post_init__(self) -> None:
+        defenders = [entry.defender_id.value for entry in self.defences]
+        if defenders != sorted(set(defenders)):
+            raise ValueError("defences must be sorted by defender id, one per defender")
+        sighted = [entry.robot_id.value for entry in self.sightings]
+        if sighted != sorted(set(sighted)):
+            raise ValueError("sightings must be sorted by robot id, one per robot")
 
 
 @dataclass(frozen=True, slots=True)
