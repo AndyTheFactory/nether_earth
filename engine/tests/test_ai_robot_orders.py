@@ -464,7 +464,7 @@ def test_a_defender_that_would_chase_another_robot_moves_to_the_site_instead() -
     defender = _robot("r1", 340, weapons=(C,))
     issued, memory = _plan(_state(defender, intruder, decoy), world)
     assert issued["r1"] == Retreat(20)
-    assert [entry.intruder_id.value for entry in memory.orders.defences] == ["h1"]
+    assert [(e.intruder_id.value, e.approached) for e in memory.orders.defences] == [("h1", True)]
 
 
 def test_an_enemy_holding_off_is_not_a_threat_but_one_approaching_is() -> None:
@@ -589,6 +589,7 @@ def test_order_memory_round_trips_through_the_snapshot() -> None:
     )
     state = _state(memory=memory)
     entry = to_snapshot(state)["ai_memories"][0]
+    assert entry["orders"]["defences"][0]["approached"] is False
     assert entry["orders"]["sightings"] == [
         {"robot_id": "h1", "distance": 12},
         {"robot_id": "h2", "distance": 30},
@@ -652,3 +653,62 @@ def test_engine_run_is_deterministic() -> None:
         return snapshots
 
     assert run() == run()
+
+
+# --------------------------------------------------------------------------
+# Fix round 1: no defence churn
+# --------------------------------------------------------------------------
+
+
+def test_an_unreachable_approach_is_not_reissued_every_decision() -> None:
+    """Regression: an approach goal the engine proves unreachable falls back to
+    Stop & Defend at once; the planner must not re-issue it every decision tick.
+
+    The electronic defender r1's Retreat goal is (300, 1), beside the war base
+    component at (300, 0). The decoy h2 is its nearest enemy, so Search &
+    Destroy would chase the decoy and the planner approaches instead.
+    """
+    world = _defence_world()
+    state = _state(
+        _robot("r1", 340, 1, weapons=(C,), electronics=ModuleIdentity.ELECTRONICS),
+        _robot("h1", 290, 8, owner=HUMAN, weapons=(C,)),
+        _robot("h2", 336, 4, owner=HUMAN, weapons=(C,)),
+    )
+    issued: list[Command] = []
+    for _ in range(80):
+        state, events = engine.step(state, (), world=world)
+        issued.extend(_ai_orders(events))
+    to_r1 = [c for c in issued if c.entity_id.value == "r1"]  # type: ignore[attr-defined]
+    assert len(to_r1) <= 2, [c.order for c in to_r1]  # type: ignore[attr-defined]
+    memory = state.ai_memory_for(AI)
+    assert memory is not None
+    assert [entry.approached for entry in memory.orders.defences] == [True]
+
+
+def test_a_standing_hunter_keeps_hunting_when_the_nearest_enemy_alternates() -> None:
+    world = _defence_world()
+    defender = _robot("r1", 340, weapons=(C,), order=SearchDestroy(SearchDestroyTarget.ROBOT))
+    assignment = AiDefenceAssignment(EntityId("r1"), EntityId("h1"), EntityId("wb-ai"))
+    intruder = _robot("h1", 290, owner=HUMAN, weapons=(C,))
+    decoy = _robot("h2", 345, owner=HUMAN, weapons=(C,))  # now nearer to r1 than h1
+    issued, memory = _plan(
+        _state(defender, intruder, decoy, memory=AiOrderMemory(defences=(assignment,))), world
+    )
+    assert issued == {}
+    assert memory.orders.defences == (assignment,)
+
+
+def test_an_approach_is_issued_once_per_assignment() -> None:
+    world = _defence_world()
+    intruder = _robot("h1", 285, owner=HUMAN, weapons=(C,))
+    decoy = _robot("h2", 345, owner=HUMAN, weapons=(C,))
+    fallen_back = _robot("r1", 340, weapons=(C,))  # Stop & Defend after an approach
+    assignment = AiDefenceAssignment(
+        EntityId("r1"), EntityId("h1"), EntityId("wb-ai"), approached=True
+    )
+    issued, memory = _plan(
+        _state(fallen_back, intruder, decoy, memory=AiOrderMemory(defences=(assignment,))),
+        world,
+    )
+    assert issued == {}
+    assert memory.orders.defences == (assignment,)

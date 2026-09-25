@@ -183,6 +183,9 @@ class AiDefenceAssignment:
     defender_id: EntityId
     intruder_id: EntityId
     structure_id: EntityId
+    #: An approach (Advance/Retreat) was already issued for this assignment;
+    #: the planner does not issue it again (no churn after a fallback).
+    approached: bool = False
 
 
 @dataclass(frozen=True, slots=True)

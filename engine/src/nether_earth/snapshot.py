@@ -477,6 +477,7 @@ def _ai_order_memory_snapshot(memory: AiOrderMemory) -> dict[str, Any]:
                 "defender_id": entry.defender_id.to_json(),
                 "intruder_id": entry.intruder_id.to_json(),
                 "structure_id": entry.structure_id.to_json(),
+                "approached": entry.approached,
             }
             for entry in memory.defences
         ],
@@ -495,6 +496,7 @@ def _ai_order_memory_from_snapshot(data: dict[str, Any]) -> AiOrderMemory:
                 defender_id=EntityId.from_json(entry["defender_id"]),
                 intruder_id=EntityId.from_json(entry["intruder_id"]),
                 structure_id=EntityId.from_json(entry["structure_id"]),
+                approached=entry.get("approached", False),
             )
             for entry in data.get("defences", [])
         ),

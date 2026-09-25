@@ -374,14 +374,40 @@ class _Plan:
 
 
 def _defence_order(
-    defender: Robot, intruder: Robot, site: _Site, state: GameState, world: WorldMap
+    defender: Robot,
+    intruder: Robot,
+    site: _Site,
+    standing: AiDefenceAssignment | None,
+    state: GameState,
+    world: WorldMap,
 ) -> Order:
-    """Hunt the intruder when the engine would chase it, else move to the site."""
+    """Hunt the intruder when the engine would chase it, else move to the site.
+
+    Hysteresis for a ``standing`` assignment, so a defence never churns:
+
+    - a defender already hunting robots keeps hunting while it is assigned,
+      even if the nearest enemy alternates between the intruder and another;
+    - an approach is issued once per assignment (``standing.approached``). Once issued,
+      the defender keeps whatever the engine made of it: still walking,
+      arrived, or fallen back to Stop & Defend because the goal cell proved
+      unreachable. Re-issuing it would fall back again the same tick.
+    """
+    hunting = isinstance(defender.order, SearchDestroy) and (
+        defender.order.target is SearchDestroyTarget.ROBOT
+    )
+    if standing is not None and hunting and defender.order is not None:
+        return defender.order
     chased = select_destroy_target(defender, SearchDestroyTarget.ROBOT, state, world)
     if chased is not None and chased[0] == intruder.entity_id:
         return SearchDestroy(SearchDestroyTarget.ROBOT)
+    if standing is not None and standing.approached:
+        return defender.order if defender.order is not None else StopAndDefend()
     goal = min(site.cells, key=lambda cell: (_manhattan((defender.x, defender.y), cell), cell))
     return approach_order(defender.x, goal[0])
+
+
+def _is_approach(order: Order) -> bool:
+    return isinstance(order, (Advance, Retreat))
 
 
 def _pick_defender(
@@ -457,9 +483,10 @@ def _plan_defence(
             or _site_distance(intruder, site) > THREAT_RADIUS_CELLS
         ):
             continue
-        kept.append(entry)
+        order = _defence_order(defender, intruder, site, entry, state, world)
+        kept.append(replace(entry, approached=entry.approached or _is_approach(order)))
         scratch.committed.add(defender.entity_id)
-        scratch.desired[defender.entity_id] = _defence_order(defender, intruder, site, state, world)
+        scratch.desired[defender.entity_id] = order
 
     defended = {entry.intruder_id for entry in kept}
     for _key, intruder, threatened in sorted(threats, key=lambda threat: threat[0]):
@@ -476,13 +503,17 @@ def _plan_defence(
         if defender is None:
             continue
         defended.add(intruder.entity_id)
+        order = _defence_order(defender, intruder, threatened, None, state, world)
         kept.append(
-            AiDefenceAssignment(defender.entity_id, intruder.entity_id, threatened.structure.id)
+            AiDefenceAssignment(
+                defender.entity_id,
+                intruder.entity_id,
+                threatened.structure.id,
+                approached=_is_approach(order),
+            )
         )
         scratch.committed.add(defender.entity_id)
-        scratch.desired[defender.entity_id] = _defence_order(
-            defender, intruder, threatened, state, world
-        )
+        scratch.desired[defender.entity_id] = order
 
     return (
         tuple(sorted(kept, key=lambda entry: entry.defender_id.value)),
