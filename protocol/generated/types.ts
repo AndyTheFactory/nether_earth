@@ -559,7 +559,7 @@ export interface SnapshotState {
    */
   scenery_debris: string[];
   /**
-   * One entry per AI seat's AiMemory (CR004.3/#284), canonical (player-sorted) order. Omitted entirely for an all-human match -- this property is deliberately NOT in `required` below, matching to_snapshot's own elision. `player_id` is strict; `construction`/`orders` are deliberately left open objects (`additionalProperties` unset, i.e. allowed) rather than fully enumerated, because CR004.4/CR004.5 fill their fields on the engine side only (this schema is not their file ownership -- see wave-c-common.md) and this schema must accept both the CR004.3 stub shape (`{}`) and each sub-planner's real shape without another edit. Known fields are listed for documentation/tooling value, none `required`: `construction.last_war_base_id` (CR004.4, `_ai_construction_memory_snapshot`) is the war base id the construction planner last acted on, or null; `orders.defences`/`orders.sightings` (CR004.5, `_ai_order_memory_snapshot`) are the robot-order planner's per-tick defence assignments and enemy sightings.
+   * One entry per AI seat's AiMemory (CR004.3/#284), canonical (player-sorted) order. Omitted entirely for an all-human match -- this property is deliberately NOT in `required` below, matching to_snapshot's own elision. The shapes below mirror `nether_earth.snapshot._ai_construction_memory_snapshot` (CR004.4) and `_ai_order_memory_snapshot` (CR004.5) exactly, now that both sub-planners have merged and their fields are known: `construction.last_war_base_id` is the war base id the construction planner last acted on, or null; `orders.defences` are AiDefenceAssignment entries (which robot defends which structure against which intruder, and whether an approach order was already issued); `orders.sightings` are AiSighting entries (an enemy robot last seen and its distance to the nearest owned structure).
    */
   ai_memories?: {
     /**
@@ -571,45 +571,41 @@ export interface SnapshotState {
       /**
        * CR004.4: the war base id the construction planner last acted on, or null.
        */
-      last_war_base_id?: string | null;
-      [k: string]: unknown;
+      last_war_base_id: string | null;
     };
     orders: {
       /**
        * CR004.5: AiDefenceAssignment entries -- which robot is defending which structure against which intruder.
        */
-      defences?: {
+      defences: {
         /**
          * This interface was referenced by `ProtocolCommon`'s JSON-Schema
          * via the `definition` "entityId".
          */
-        defender_id?: string;
+        defender_id: string;
         /**
          * This interface was referenced by `ProtocolCommon`'s JSON-Schema
          * via the `definition` "entityId".
          */
-        intruder_id?: string;
+        intruder_id: string;
         /**
          * This interface was referenced by `ProtocolCommon`'s JSON-Schema
          * via the `definition` "entityId".
          */
-        structure_id?: string;
-        approached?: boolean;
-        [k: string]: unknown;
+        structure_id: string;
+        approached: boolean;
       }[];
       /**
        * CR004.5: AiSighting entries -- an enemy robot last seen and its distance.
        */
-      sightings?: {
+      sightings: {
         /**
          * This interface was referenced by `ProtocolCommon`'s JSON-Schema
          * via the `definition` "entityId".
          */
-        robot_id?: string;
-        distance?: number;
-        [k: string]: unknown;
+        robot_id: string;
+        distance: number;
       }[];
-      [k: string]: unknown;
     };
   }[];
 }

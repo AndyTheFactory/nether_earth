@@ -430,31 +430,50 @@ class ProjectileSnapshot(_SnapshotSubModel):
     first_advance_tick: int
 
 
+class AiConstructionMemorySnapshot(_SnapshotSubModel):
+    """Mirrors `nether_earth.snapshot._ai_construction_memory_snapshot` (CR004.4)."""
+
+    last_war_base_id: EntityId | None
+
+
+class AiDefenceAssignmentSnapshot(_SnapshotSubModel):
+    """Mirrors one entry of `AiOrderMemory.defences` (CR004.5, `AiDefenceAssignment`)."""
+
+    defender_id: EntityId
+    intruder_id: EntityId
+    structure_id: EntityId
+    approached: bool
+
+
+class AiSightingSnapshot(_SnapshotSubModel):
+    """Mirrors one entry of `AiOrderMemory.sightings` (CR004.5, `AiSighting`)."""
+
+    robot_id: EntityId
+    distance: int
+
+
+class AiOrderMemorySnapshot(_SnapshotSubModel):
+    """Mirrors `nether_earth.snapshot._ai_order_memory_snapshot` (CR004.5)."""
+
+    defences: list[AiDefenceAssignmentSnapshot]
+    sightings: list[AiSightingSnapshot]
+
+
 class AiMemorySnapshot(_SnapshotSubModel):
     """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["ai_memories"]`
     (CR004.3/#284): one AI seat's `AiMemory`.
 
-    `construction`/`orders` are loosely-typed objects (`dict[str, Any]`),
-    matching this file's existing precedent for engine sub-state this module
-    does not otherwise enumerate (`RobotSnapshot.build`/`.movement`/`.order`,
-    `ConstructionSessionSnapshot.build`/`.buffer`/`.entry_snapshot`): CR004.4
-    and CR004.5 fill these two dicts with fields on the engine side only,
-    and this protocol layer is not in their file ownership (see
-    `.superpowers/sdd/cr004-single-player-ai-opponent/wave-c-common.md`).
-    Deliberately kept as `dict[str, Any]` rather than a fully-typed
-    sub-model even for the one field CR004.4 is known to add
-    (`construction.last_war_base_id`, see `common.schema.json`'s matching
-    `ai_memories` `$def`): a strict field would either have to be optional
-    (breaking nothing today, since the CR004.3 stub emits `{}`) or required
-    (breaking today's stub), and either way byte-identical round-tripping
-    against `to_snapshot`'s exact output -- this file's own convention, see
-    `SnapshotState._serialize` -- is only trivially guaranteed by staying a
-    passthrough dict. CR004.5's `orders` fields are not yet known at all.
+    `construction`/`orders` were originally left as loosely-typed `dict[str,
+    Any]` while CR004.4/CR004.5 were still in flight on separate branches
+    (see git history). Now that both have merged, their shapes are fixed --
+    `_ai_construction_memory_snapshot`/`_ai_order_memory_snapshot` in
+    `nether_earth.snapshot` -- so they are typed as strict sub-models here,
+    matching `common.schema.json`'s `ai_memories` `$def`.
     """
 
     player_id: PlayerId
-    construction: dict[str, Any]
-    orders: dict[str, Any]
+    construction: AiConstructionMemorySnapshot
+    orders: AiOrderMemorySnapshot
 
 
 class SnapshotState(_SnapshotSubModel):
@@ -486,7 +505,7 @@ class SnapshotState(_SnapshotSubModel):
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: Any) -> dict[str, Any]:
-        data = handler(self)
+        data: dict[str, Any] = handler(self)
         if not self.ai_memories:
             data.pop("ai_memories", None)
         return data

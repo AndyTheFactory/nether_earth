@@ -496,7 +496,7 @@ Used by:
 
 - direct human control;
 - autonomous robot orders;
-- future AI controller.
+- the AI opponent's planner (§28), through the same ordinary `Command`s a human issues.
 
 Locked terrain permissions:
 
@@ -888,3 +888,48 @@ The computer-controlled seat is an engine-side deterministic planner, not a back
   constant rather than an emergent property of loop speed.
 - It has no commander: `state.commanders` may hold `None` for this seat, and every site that looks
   up a commander must tolerate that.
+
+### 28.1 Planner structure (shipped)
+
+`nether_earth.ai.planner.plan(state, memory, world, rules, seed)` chains two sub-planners, each
+owning its own slice of `AiMemory` and drawing from its own seeded `MatchRandom`
+(`derive_seed(seed, name)`, so their draws never interfere with each other):
+
+- **`ai.construction`** — economic/build policy. Picks the best design the current pool can
+  afford (`DESIGNS`, `choose_design`), keeps a weapon-count floor and a defence reserve of
+  general resources, builds a nuclear robot on a fixed army-size cadence, and rotates over every
+  owned war base (skipping one whose exit is blocked). It enters construction through
+  `EnterConstructionRemotelyCommand` — a second, commander-less entry into the shared
+  `construction_session` layer alongside the human's heli-pad entry — then issues the same
+  `SelectModule`/`LaunchRobot` commands a human's construction screen would, so cost, the spend
+  rule, and the robot cap are all enforced by the existing engine code, never duplicated.
+- **`ai.robot_orders`** — per-robot order policy. Predicts what the engine's own
+  `select_capture_target`/`select_destroy_target`/exclusivity rule (`orders.claimed_structures`,
+  CR003.2) will choose, and issues `SetRobotOrderCommand`s that value-rank capture targets
+  (production value, distance, contestation), detect an enemy robot closing on an owned war base
+  or factory and divert or hold a defender, and send nuclear carriers only at opponent-owned
+  targets. It never picks a specific building directly; the engine's own nearest-unclaimed rule
+  still does that.
+
+Both planners read only information a player's own client would render (own resources, both
+sides' structure ownership and robot positions); neither reads the opponent's resource pool,
+construction session or orders. Neither planner changes what any command does — every command it
+issues is validated exactly like a human's, so no new gameplay rule was added to support the AI.
+
+### 28.2 Match lifecycle (shipped)
+
+A solo match (`MatchManager.create_solo_match`) is created `WAITING` with one human slot and no
+join code; the AI seat (`Match.ai_player_id`) is not a `PlayerSlot` and never appears in the
+roster, ready list, or reconnect bookkeeping, so it can never itself pause the match or contribute
+to a no-contest. It is always ready, so the human's own `ClientSetReady` is the only step left
+before the match starts. Reconnect behaves exactly like PvP for the human: a disconnect pauses
+with the usual grace window, and letting it expire forfeits to the AI.
+
+Wire protocol: `createMatch.opponent: "human" | "computer"` (absent means `"human"`, so an
+existing PvP `create` is byte-for-byte unchanged); `created.joinCode` is nullable (`null` for a
+solo match, since there is no second human slot to join) but still required as a key, in its
+declared position; `created.opponent` mirrors the request only when it is `"computer"`. Only
+human-submitted commands are persisted to `commands.jsonl`; a replay artifact records which seats
+are AI-controlled (`meta.json`'s `seat_controllers`, e.g. `{"p1": "human", "p2": "ai"}`) and the
+AI's commands are re-derived by stepping the engine, never recorded. An artifact from before
+`seat_controllers` existed is treated as all-human.

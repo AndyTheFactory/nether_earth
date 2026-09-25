@@ -66,6 +66,42 @@ def test_an_ai_seat_snapshot_with_no_commander_for_that_seat_validates() -> None
     assert errors == [], errors
 
 
+def test_a_populated_ai_memory_snapshot_validates_end_to_end() -> None:
+    """CR004.9: the strict `ai_memories` sub-schema accepts real, non-empty memory.
+
+    An AI-vs-AI match run long enough that both seats' `AiOrderMemory.sightings`
+    is non-empty proves `AiConstructionMemorySnapshot`/`AiOrderMemorySnapshot`
+    (tightened from `dict[str, Any]` now that CR004.4/CR004.5 have merged) and
+    the matching `common.schema.json` `$def` both accept the planners' real
+    output, not just the CR004.3 stub/empty shape.
+    """
+    world = load_standard_world()
+    scenario = dataclasses.replace(
+        default_pvp_scenario(), player_one_controller="ai", player_two_controller="ai"
+    )
+    state = create_initial_state(scenario, world, seed=7)
+
+    for _ in range(3000):
+        state, _events = engine.step(state, (), world=world)
+
+    snapshot = to_snapshot(state)
+    assert len(snapshot["ai_memories"]) == 2
+    assert any(memory["orders"]["sightings"] for memory in snapshot["ai_memories"])
+
+    model = SnapshotState.model_validate(snapshot)
+    assert model.model_dump() == snapshot
+
+    envelope = {
+        "protocolVersion": 1,
+        "type": "snapshot",
+        "matchId": "m1",
+        "tick": snapshot["tick"],
+        "state": snapshot,
+    }
+    errors = list(validator_for("snapshot").iter_errors(envelope))
+    assert errors == [], errors
+
+
 def test_an_all_human_match_snapshot_still_elides_ai_memories() -> None:
     """Regression guard: adding the field must not touch PvP's wire shape."""
     world = load_standard_world()
