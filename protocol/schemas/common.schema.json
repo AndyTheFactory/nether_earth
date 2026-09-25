@@ -69,7 +69,7 @@
       "additionalProperties": false
     },
     "opponentMode": {
-      "description": "CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` is optional and absent means \"human\", so existing clients stay byte-compatible; `created.opponent` always states which one the server actually created.",
+      "description": "CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` and `created.opponent` are both optional; absent means \"human\" on either side, so existing PvP clients and replies stay byte-compatible. `created.opponent` is only ever present as `\"computer\"`, for a solo match.",
       "type": "string",
       "enum": ["human", "computer"]
     },

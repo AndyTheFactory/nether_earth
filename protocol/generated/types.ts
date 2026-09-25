@@ -30,7 +30,7 @@ export interface ClientCreateMatch {
    */
   nickname: string;
   /**
-   * CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` is optional and absent means "human", so existing clients stay byte-compatible; `created.opponent` always states which one the server actually created.
+   * CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` and `created.opponent` are both optional; absent means "human" on either side, so existing PvP clients and replies stay byte-compatible. `created.opponent` is only ever present as `"computer"`, for a solo match.
    *
    * This interface was referenced by `ProtocolCommon`'s JSON-Schema
    * via the `definition` "opponentMode".
@@ -682,7 +682,7 @@ export interface SnapshotMessage {
   state: SnapshotState;
 }
 /**
- * Sent to the creating player only, in response to a client create command. `joinCode` is `null` for a solo match (CR004.8, issue #289): it has no second human slot to join. `opponent` states which seat the server actually created ("human" for every existing PvP create; "computer" only when `createMatch.opponent` requested it) -- the frontend uses it to skip the waiting/ready screens and name the AI seat in the HUD, never to decide gameplay legality.
+ * Sent to the creating player only, in response to a client create command. `joinCode` is `null` for a solo match (CR004.8, issue #289): it has no second human slot to join. `opponent` states which seat the server actually created, but only when it is `"computer"` (a solo match); it is absent for every existing PvP create, so a plain `create` reply carries no new key on the wire and stays byte-compatible with clients that predate CR004.8. A missing `opponent` means "human", the same convention `createMatch.opponent` itself uses. The frontend uses it to skip the waiting/ready screens and name the AI seat in the HUD, never to decide gameplay legality.
  */
 export interface ServerCreated {
   /**
@@ -708,7 +708,7 @@ export interface ServerCreated {
    */
   sessionToken: string;
   /**
-   * CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` is optional and absent means "human", so existing clients stay byte-compatible; `created.opponent` always states which one the server actually created.
+   * CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` and `created.opponent` are both optional; absent means "human" on either side, so existing PvP clients and replies stay byte-compatible. `created.opponent` is only ever present as `"computer"`, for a solo match.
    *
    * This interface was referenced by `ProtocolCommon`'s JSON-Schema
    * via the `definition` "opponentMode".

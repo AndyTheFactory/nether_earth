@@ -107,6 +107,29 @@ def test_create_returns_schema_valid_created_message(client: TestClient) -> None
     assert created["sessionToken"]
 
 
+def test_pvp_create_reply_carries_no_opponent_key_on_the_wire(client: TestClient) -> None:
+    """CR004.8 fix round 1: adding `opponent` to `ServerCreated` must not add
+    a new key to every existing PvP `created` reply -- `opponent` is `None`
+    on that path and `serialize_server_message` drops it, exactly like any
+    other unset optional field, so a pre-CR004.8 client (or a strict-schema
+    consumer) sees byte-identical output to before this feature existed.
+    Only `join_code` is special-cased to stay present (as `null`) for a
+    solo match; this test is the PvP side of that split.
+    """
+    with client.websocket_connect("/ws") as ws:
+        created = _create(ws, "alice")
+
+    assert set(created.keys()) == {
+        "protocolVersion",
+        "type",
+        "matchId",
+        "joinCode",
+        "playerId",
+        "sessionToken",
+    }
+    assert "opponent" not in created
+
+
 def test_join_returns_joined_and_broadcasts_ready_state_to_creator(client: TestClient) -> None:
     with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
         created = _create(ws_a, "alice")
@@ -219,15 +242,18 @@ def test_solo_create_then_ready_alone_starts_the_match_with_the_ai_seat() -> Non
         started = ws.receive_json()
         assert started["type"] == "started"
         assert started["matchId"] == created["matchId"]
-        # Deliberately does not read the initial-snapshot broadcast that
-        # follows "started" (see
+
+        # The initial authoritative snapshot follows "started" (see
         # `test_match_start_broadcasts_a_real_initial_authoritative_snapshot`
-        # for the PvP case): a solo match's tick-0 state carries
-        # `GameState.ai_memories`, and `SnapshotState`
-        # (`app.protocol.common`) does not yet mirror that field --
-        # CR004.6's concern (the concurrent SnapshotState/AI-commander
-        # audit, issue #285-adjacent), not this task's. `created`/
-        # `ready_state`/`started` above are this task's whole surface.
+        # for the PvP case). CR004.6 added `ai_memories` to `SnapshotState`
+        # (`app.protocol.common`), so a solo match's tick-0 state -- which
+        # carries one `AiMemory` entry for the AI seat -- now round-trips
+        # through the wire without crashing the socket.
+        snapshot = ws.receive_json()
+        assert snapshot["type"] == "snapshot"
+        assert snapshot["state"]["tick"] == 0
+        ai_memories = snapshot["state"]["ai_memories"]
+        assert [m["player_id"] for m in ai_memories] == ["p2"]
 
 
 def test_match_start_lands_a_replay_artifact_on_disk(

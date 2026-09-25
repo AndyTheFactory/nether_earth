@@ -19,7 +19,7 @@
     "created": {
       "type": "object",
       "title": "ServerCreated",
-      "description": "Sent to the creating player only, in response to a client create command. `joinCode` is `null` for a solo match (CR004.8, issue #289): it has no second human slot to join. `opponent` states which seat the server actually created (\"human\" for every existing PvP create; \"computer\" only when `createMatch.opponent` requested it) -- the frontend uses it to skip the waiting/ready screens and name the AI seat in the HUD, never to decide gameplay legality.",
+      "description": "Sent to the creating player only, in response to a client create command. `joinCode` is `null` for a solo match (CR004.8, issue #289): it has no second human slot to join. `opponent` states which seat the server actually created, but only when it is `\"computer\"` (a solo match); it is absent for every existing PvP create, so a plain `create` reply carries no new key on the wire and stays byte-compatible with clients that predate CR004.8. A missing `opponent` means \"human\", the same convention `createMatch.opponent` itself uses. The frontend uses it to skip the waiting/ready screens and name the AI seat in the HUD, never to decide gameplay legality.",
       "properties": {
         "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
         "type": { "type": "string", "const": "created" },
