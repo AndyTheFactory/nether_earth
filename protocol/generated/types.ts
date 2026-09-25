@@ -551,6 +551,60 @@ export interface SnapshotState {
    * Ids of map blockers a nuclear blast turned into rough debris (CR002.18), canonical order. Their cells are rough terrain and no longer block.
    */
   scenery_debris: string[];
+  /**
+   * One entry per AI seat's AiMemory (CR004.3/#284), canonical (player-sorted) order. Omitted entirely for an all-human match -- this property is deliberately NOT in `required` below, matching to_snapshot's own elision. `player_id` is strict; `construction`/`orders` are deliberately left open objects (`additionalProperties` unset, i.e. allowed) rather than fully enumerated, because CR004.4/CR004.5 fill their fields on the engine side only (this schema is not their file ownership -- see wave-c-common.md) and this schema must accept both the CR004.3 stub shape (`{}`) and each sub-planner's real shape without another edit. Known fields are listed for documentation/tooling value, none `required`: `construction.last_war_base_id` (CR004.4, `_ai_construction_memory_snapshot`) is the war base id the construction planner last acted on, or null; `orders.defences`/`orders.sightings` (CR004.5, `_ai_order_memory_snapshot`) are the robot-order planner's per-tick defence assignments and enemy sightings.
+   */
+  ai_memories?: {
+    /**
+     * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+     * via the `definition` "playerId".
+     */
+    player_id: string;
+    construction: {
+      /**
+       * CR004.4: the war base id the construction planner last acted on, or null.
+       */
+      last_war_base_id?: string | null;
+      [k: string]: unknown;
+    };
+    orders: {
+      /**
+       * CR004.5: AiDefenceAssignment entries -- which robot is defending which structure against which intruder.
+       */
+      defences?: {
+        /**
+         * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+         * via the `definition` "entityId".
+         */
+        defender_id?: string;
+        /**
+         * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+         * via the `definition` "entityId".
+         */
+        intruder_id?: string;
+        /**
+         * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+         * via the `definition` "entityId".
+         */
+        structure_id?: string;
+        approached?: boolean;
+        [k: string]: unknown;
+      }[];
+      /**
+       * CR004.5: AiSighting entries -- an enemy robot last seen and its distance.
+       */
+      sightings?: {
+        /**
+         * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+         * via the `definition` "entityId".
+         */
+        robot_id?: string;
+        distance?: number;
+        [k: string]: unknown;
+      }[];
+      [k: string]: unknown;
+    };
+  }[];
 }
 /**
  * Sent by a client re-establishing a WebSocket connection to an existing match after a disconnect.

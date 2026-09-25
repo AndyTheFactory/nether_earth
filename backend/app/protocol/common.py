@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 from pydantic.alias_generators import to_camel
 
 #: Mirrors common.schema.json `$defs.protocolVersion` (`const: 1`).
@@ -425,6 +425,33 @@ class ProjectileSnapshot(_SnapshotSubModel):
     first_advance_tick: int
 
 
+class AiMemorySnapshot(_SnapshotSubModel):
+    """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["ai_memories"]`
+    (CR004.3/#284): one AI seat's `AiMemory`.
+
+    `construction`/`orders` are loosely-typed objects (`dict[str, Any]`),
+    matching this file's existing precedent for engine sub-state this module
+    does not otherwise enumerate (`RobotSnapshot.build`/`.movement`/`.order`,
+    `ConstructionSessionSnapshot.build`/`.buffer`/`.entry_snapshot`): CR004.4
+    and CR004.5 fill these two dicts with fields on the engine side only,
+    and this protocol layer is not in their file ownership (see
+    `.superpowers/sdd/cr004-single-player-ai-opponent/wave-c-common.md`).
+    Deliberately kept as `dict[str, Any]` rather than a fully-typed
+    sub-model even for the one field CR004.4 is known to add
+    (`construction.last_war_base_id`, see `common.schema.json`'s matching
+    `ai_memories` `$def`): a strict field would either have to be optional
+    (breaking nothing today, since the CR004.3 stub emits `{}`) or required
+    (breaking today's stub), and either way byte-identical round-tripping
+    against `to_snapshot`'s exact output -- this file's own convention, see
+    `SnapshotState._serialize` -- is only trivially guaranteed by staying a
+    passthrough dict. CR004.5's `orders` fields are not yet known at all.
+    """
+
+    player_id: PlayerId
+    construction: dict[str, Any]
+    orders: dict[str, Any]
+
+
 class SnapshotState(_SnapshotSubModel):
     """Mirrors `nether_earth.snapshot.to_snapshot(state)`'s exact return shape.
 
@@ -445,3 +472,16 @@ class SnapshotState(_SnapshotSubModel):
     structure_destruction: list[EntityId]
     #: Blocker ids turned into rough debris by a nuclear blast (CR002.18).
     scenery_debris: list[EntityId]
+    #: One entry per AI seat (CR004.3/#284), canonical (player-sorted) order.
+    #: Defaults to empty for an all-human match; `_serialize` below then
+    #: elides the key entirely, mirroring `to_snapshot`'s own elision so a
+    #: PvP snapshot's wire shape -- and `model_dump()` -- is byte-identical
+    #: to before this field existed.
+    ai_memories: list[AiMemorySnapshot] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: Any) -> dict[str, Any]:
+        data = handler(self)
+        if not self.ai_memories:
+            data.pop("ai_memories", None)
+        return data

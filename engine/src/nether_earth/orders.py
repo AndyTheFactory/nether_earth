@@ -190,6 +190,7 @@ __all__ = [
     "StopAndDefend",
     "apply_order_evaluations",
     "apply_set_robot_order",
+    "claimed_structures",
     "engagement_intent_for",
     "evaluate_order",
     "evaluate_orders",
@@ -794,7 +795,7 @@ def select_capture_target(
     return _closest_candidate(robot, candidates)
 
 
-def _claimed_structures(
+def claimed_structures(
     robot: Robot,
     order: SearchCapture,
     state: GameState,
@@ -809,6 +810,11 @@ def _claimed_structures(
     earlier in the same tick (see :func:`evaluate_orders`), so robots that
     retarget in the same tick see each other's new choice exactly as the
     Spectrum's sequential robot update does.
+
+    Public (CR004.6, #287): the CR004.5 robot-order planner reuses this
+    exclusivity rule so two AI robots do not converge on the same capture
+    target (see the CR004 design doc's "Valued targets" heuristic) rather
+    than forking its own copy.
     """
     claimed: list[EntityId] = []
     for other in state.robots:
@@ -826,6 +832,12 @@ def _claimed_structures(
         ):
             claimed.append(other_order.structure_id)
     return frozenset(claimed)
+
+
+#: Private alias kept for existing in-module call sites and any external
+#: code still importing the old name (CR004.6, #287: made public as
+#: :func:`claimed_structures` for the CR004.5 robot-order planner to reuse).
+_claimed_structures = claimed_structures
 
 
 def select_destroy_target(

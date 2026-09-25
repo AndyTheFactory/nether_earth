@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { Store, gameClock, dockedRobot } from './store.ts';
+import { Store, gameClock, dockedRobot, myCommander, myResources, myConstruction } from './store.ts';
 import type { SnapshotMessage, SnapshotState } from '../../../protocol/generated/types';
 
 function snap(tick: number, extra: Partial<SnapshotState> = {}): SnapshotMessage {
@@ -82,4 +82,21 @@ test('dockedRobot resolves via authoritative docked_robot_id only', () => {
   }).state;
   assert.equal(dockedRobot(state, 'p1')?.entity_id, 'r1');
   assert.equal(dockedRobot(state, 'p2'), null);
+});
+
+// CR004.6: the AI seat has no commander and none is ever shown -- a snapshot
+// carries one `commanders` entry (the human's) plus an `ai_memories` entry
+// for the computer seat (CR004.3/#284). Every read-model helper must
+// tolerate `p2` never appearing in `commanders` (an engine shape the store
+// had never seen before this seat existed).
+test('read-model helpers tolerate an AI seat with no commander', () => {
+  const state = snap(4, {
+    commanders: [{ player_id: 'p1', mode: 'free', x: 1, y: 1, altitude: 1, docked_robot_id: null, rising: false, horizontal_transition: null, vertical_transition: null, elevate_updates_remaining: 0 }],
+    ai_memories: [{ player_id: 'p2', construction: {}, orders: {} }],
+  }).state;
+  assert.equal(myCommander(state, 'p1')?.player_id, 'p1');
+  assert.equal(myCommander(state, 'p2'), null);
+  assert.equal(dockedRobot(state, 'p2'), null);
+  assert.equal(myResources(state, 'p2'), null);
+  assert.equal(myConstruction(state, 'p2'), null);
 });
