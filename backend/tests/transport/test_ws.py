@@ -128,6 +128,16 @@ def test_pvp_create_reply_carries_no_opponent_key_on_the_wire(client: TestClient
         "sessionToken",
     }
     assert "opponent" not in created
+    # CR004.9: joinCode must stay in its schema-declared position on the
+    # wire, not be reinserted at the end of the payload.
+    assert list(created.keys()) == [
+        "protocolVersion",
+        "type",
+        "matchId",
+        "joinCode",
+        "playerId",
+        "sessionToken",
+    ]
 
 
 def test_join_returns_joined_and_broadcasts_ready_state_to_creator(client: TestClient) -> None:
@@ -196,6 +206,17 @@ def test_solo_create_reports_no_join_code_and_computer_opponent(client: TestClie
     assert created["opponent"] == "computer"
     assert created["playerId"] == "p1"
     assert created["sessionToken"]
+    # CR004.9: joinCode is null (not absent) but still in its declared
+    # position, ahead of playerId/sessionToken/opponent.
+    assert list(created.keys()) == [
+        "protocolVersion",
+        "type",
+        "matchId",
+        "joinCode",
+        "playerId",
+        "sessionToken",
+        "opponent",
+    ]
 
 
 def test_solo_create_then_ready_alone_starts_the_match_with_the_ai_seat() -> None:
