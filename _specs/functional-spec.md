@@ -4,7 +4,7 @@
 
 Build a browser-based multiplayer clone of the ZX Spectrum release of **Nether Earth**, preserving the original mechanics, map, visual feeling, commander behavior, robot construction, terrain interaction, economy, autonomous orders, direct control, combat, and overall gameplay character.
 
-Version 1 is **human-vs-human PvP**. AI is out of scope for v1, but the engine/match boundary must allow an AI controller to be added later without redesigning core rules.
+Version 1 is **human-vs-human PvP**, plus single-player play against a computer opponent (CR004, owner decision 2026-09-25; §3.1).
 
 ## 2. Fidelity order
 
@@ -35,16 +35,33 @@ Included:
 - projectile combat and nuclear detonation;
 - guest-only nicknames + join code/link;
 - in-memory active matches;
-- deterministic replay/debug logging.
+- deterministic replay/debug logging;
+- single-player match against a computer opponent, one difficulty (CR004; §3.1).
 
 Out of scope for v1:
 
 - accounts/profiles;
 - database/Redis/message broker;
-- AI opponent;
 - horizontal scaling/multiple backend replicas;
 - 3D rendering/models;
 - modern RTS control redesign.
+
+### 3.1 Single-player vs AI opponent (CR004, owner decision 2026-09-25)
+
+A single "Play vs computer" entry point creates a match already filled with a computer-controlled
+second seat; no second human joins it.
+
+- **One difficulty.** No difficulty selector, no tuning UI.
+- **No commander.** The AI seat has no commander, and none is shown. It orders robots and builds
+  without a commander landing on its own heli-pad or occupying any cell on the map. This is a
+  deliberate asymmetry with the human seat, not a missing rule (`open-questions.md`, "Documented
+  deviations").
+- **Fidelity.** The Spectrum's enemy computer player is a reference for this AI, not a contract it
+  must reproduce; the goal is an opponent that plays better than the original (`open-questions.md`,
+  "Documented deviations").
+- **Disconnect.** Unchanged from PvP: if the human disconnects, the match pauses with the usual
+  grace window (§18).
+- Human-vs-human PvP is unaffected; everything above applies to the AI seat only.
 
 ## 4. PvP scenario and victory
 
