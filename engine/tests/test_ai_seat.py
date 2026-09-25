@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from nether_earth import engine
-from nether_earth.ai import seat
+from nether_earth.ai import planner, seat
 from nether_earth.commander_movement import (
     CommanderMoveCommand,
     CommanderSetVerticalIntentCommand,
@@ -29,18 +29,17 @@ from nether_earth.ids import PLAYER_ONE, PLAYER_TWO
 from nether_earth.map import BootstrapMap, WorldMap, load_world_map
 from nether_earth.map_overlay import apply_overlay, default_pvp_overlay
 from nether_earth.replay import ReplayFixture, run_fixture
-from nether_earth.rng import MatchRandom
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.scenario import Scenario, create_initial_state, default_pvp_scenario
 from nether_earth.snapshot import ai_memory_from_snapshot, snapshot_to_json_string, to_snapshot
-from nether_earth.state import AiMemory, GameState
+from nether_earth.state import AiMemory, GameState, create_game_state
 
 ORIGINAL_MAP_PATH = (
     Path(__file__).resolve().parents[2] / "data" / "maps" / "zx-spectrum-original.yaml"
 )
 
 Planner = Callable[
-    [GameState, AiMemory, WorldMap, EngineRules, MatchRandom],
+    [GameState, AiMemory, WorldMap, EngineRules, int],
     tuple[tuple[Command, ...], AiMemory],
 ]
 
@@ -177,7 +176,7 @@ def test_planner_random_stream_is_seeded_from_match_seed_seat_and_tick(
             draws.append(random.randint(0, 2**31))
             return (), memory
 
-        monkeypatch.setattr(seat, "plan", spy)
+        monkeypatch.setattr(planner, "_SUB_PLANNERS", (("robot_orders", spy),))
         _run(world, 16, seed=seed)
         return draws
 
@@ -204,19 +203,72 @@ def test_updated_memory_is_written_back_and_round_trips_through_the_snapshot(
     assert ai_memory_from_snapshot(entry) == state.ai_memories[0]
 
 
-def test_replay_fixture_reproduces_an_ai_match(world: WorldMap) -> None:
+def test_sub_planner_streams_are_independent_of_each_other(
+    world: WorldMap, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Construction drawing more or fewer numbers never shifts robot orders' stream."""
+
+    def order_draws_when_construction_draws(count: int) -> list[int]:
+        draws: list[int] = []
+
+        def construction(state, memory, world, rules, random):  # type: ignore[no-untyped-def]
+            for _ in range(count):
+                random.random()
+            return (), memory
+
+        def robot_orders(state, memory, world, rules, random):  # type: ignore[no-untyped-def]
+            draws.append(random.randint(0, 2**31))
+            return (), memory
+
+        monkeypatch.setattr(
+            planner,
+            "_SUB_PLANNERS",
+            (("construction", construction), ("robot_orders", robot_orders)),
+        )
+        _run(world, 12, seed=3)
+        return draws
+
+    baseline = order_draws_when_construction_draws(0)
+    assert len(baseline) == 3
+    assert order_draws_when_construction_draws(5) == baseline
+    assert order_draws_when_construction_draws(17) == baseline
+
+
+def _ai_accepted(events: list[Event] | tuple[Event, ...]) -> list[Command]:
+    return [
+        event.command
+        for event in events
+        if isinstance(event, CommandAccepted) and event.command.player == PLAYER_TWO
+    ]
+
+
+def test_replay_fixture_reproduces_an_ai_match(
+    world: WorldMap, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A planner with a visible effect: one accepted command per decision tick.
+    monkeypatch.setattr(
+        seat, "plan", _issuing((LaunchRobotCommand(player=PLAYER_TWO, sequence=0),), [])
+    )
     scenario = _vs_ai()
     map_data = BootstrapMap(map_id=scenario.map_id, version=scenario.map_version, width=1, height=1)
+
+    live_state = engine.new_game(map_data, scenario, seed=5)
+    live_events: list[Event] = []
+    for _ in range(12):
+        live_state, tick_events = engine.step(live_state, (), world=world)
+        live_events.extend(tick_events)
+
     fixture = ReplayFixture(
         scenario=scenario, map_data=map_data, seed=5, tick_count=12, world=world
     )
+    replay_state, replay_events = run_fixture(fixture)
 
-    first_state, first_events = run_fixture(fixture)
-    second_state, second_events = run_fixture(fixture)
-
-    assert first_state.ai_memories == (AiMemory(PLAYER_TWO),)
-    assert to_snapshot(first_state) == to_snapshot(second_state)
-    assert first_events == second_events
+    expected = [LaunchRobotCommand(player=PLAYER_TWO, sequence=0)] * 3  # ticks 4, 8, 12
+    assert _ai_accepted(live_events) == expected
+    assert _ai_accepted(replay_events) == expected
+    assert replay_state.ai_memories == (AiMemory(PLAYER_TWO),)
+    assert to_snapshot(replay_state) == to_snapshot(live_state)
+    assert list(replay_events) == live_events
 
 
 # --- the AI's commands go through the normal batch ---------------------------------
@@ -299,3 +351,59 @@ def test_a_planner_issuing_for_another_seat_is_a_programming_error(
 
     with pytest.raises(ValueError, match="issued a command for 'p1'"):
         _run(world, 4)
+
+
+def test_a_negative_external_sequence_does_not_make_ai_sequences_negative(
+    world: WorldMap, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    planned = (LaunchRobotCommand(player=PLAYER_TWO, sequence=0),)
+    monkeypatch.setattr(seat, "plan", _issuing(planned, []))
+    external = (LaunchRobotCommand(player=PLAYER_TWO, sequence=-3),)
+
+    _snapshots, events, _state = _run(world, 4, commands_by_tick={4: external})
+
+    # The invalid external command is rejected on its own; the AI's is not.
+    assert _accepted(events) == [dataclasses.replace(planned[0], sequence=0)]
+
+
+def test_stepping_an_ai_match_without_a_world_raises(world: WorldMap) -> None:
+    state = create_initial_state(_vs_ai(), world, seed=1)
+
+    with pytest.raises(ValueError, match="AI seat must be stepped with a world"):
+        engine.step(state, ())
+
+
+def test_stepping_an_all_human_state_without_a_world_still_works() -> None:
+    state = create_game_state(0, [PLAYER_ONE, PLAYER_TWO])
+
+    new_state, _events = engine.step(state, ())
+
+    assert new_state.tick == 1
+
+
+# --- guards ---------------------------------------------------------------------
+
+
+def test_with_ai_memory_rejects_a_human_seat(world: WorldMap) -> None:
+    state = create_initial_state(_vs_ai(), world, seed=1)
+
+    with pytest.raises(ValueError, match="'p1' is not an AI seat"):
+        state.with_ai_memory(AiMemory(PLAYER_ONE))
+
+
+def test_create_game_state_rejects_duplicate_ai_memories() -> None:
+    with pytest.raises(ValueError, match="duplicate AI memory"):
+        create_game_state(
+            0, [PLAYER_ONE, PLAYER_TWO], ai_memories=(AiMemory(PLAYER_TWO), AiMemory(PLAYER_TWO))
+        )
+
+
+def test_create_game_state_rejects_ai_memory_for_a_non_participant() -> None:
+    with pytest.raises(ValueError, match="not a participant"):
+        create_game_state(0, [PLAYER_ONE], ai_memories=(AiMemory(PLAYER_TWO),))
+
+
+@pytest.mark.parametrize("interval", [0, -4])
+def test_non_positive_ai_decision_interval_is_rejected(interval: int) -> None:
+    with pytest.raises(ValueError, match="ai_decision_interval_ticks"):
+        EngineRules(ai_decision_interval_ticks=interval)

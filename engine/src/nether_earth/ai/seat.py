@@ -3,14 +3,16 @@
 Cadence: the planner runs only when the tick being simulated
 (``state.tick + 1``) is a multiple of ``rules.ai_decision_interval_ticks``.
 
-Seeding: each seat gets a fresh
-``MatchRandom(derive_seed(state.seed, "ai", player, tick))`` per decision, so
-no RNG state has to be carried and each decision draws its own stream.
+Seeding: each seat's planner gets the seed
+``derive_seed(state.seed, "ai", player, tick)`` per decision (the planner
+derives one stream per sub-planner from it), so no RNG state has to be
+carried and each decision draws its own streams.
 
 Sequence numbers: the AI's commands join the tick's batch after any command
 already submitted for that seat, numbered ``max(existing) + 1`` onwards in
-the order the planner returned them. Planners never choose sequence numbers,
-so a collision with an externally submitted command cannot happen.
+the order the planner returned them, and never below 0. Planners never choose
+sequence numbers, so a collision with an externally submitted command cannot
+happen.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from dataclasses import replace
 from nether_earth.ai.planner import plan
 from nether_earth.commands import Command
 from nether_earth.map import WorldMap
-from nether_earth.rng import MatchRandom, derive_seed
+from nether_earth.rng import derive_seed
 from nether_earth.rules import EngineRules
 from nether_earth.state import GameState
 
@@ -54,12 +56,18 @@ def issue_ai_commands(
     issued: list[Command] = []
     for memory in state.ai_memories:
         player = memory.player_id
-        random = MatchRandom(derive_seed(state.seed, "ai", player.value, tick))
-        planned, updated = plan(state, memory, world, rules, random)
+        seed = derive_seed(state.seed, "ai", player.value, tick)
+        planned, updated = plan(state, memory, world, rules, seed)
         if updated.player_id != player:
             raise ValueError(f"AI planner for {player.value!r} returned another seat's memory")
-        next_sequence = 1 + max(
-            (command.sequence for command in commands if command.player == player), default=-1
+        # Clamped at 0: a (structurally invalid) negative external sequence
+        # must not drag the AI's own commands into rejection with it.
+        next_sequence = max(
+            0,
+            1 + max(
+                (command.sequence for command in commands if command.player == player),
+                default=-1,
+            ),
         )
         for offset, command in enumerate(planned):
             if command.player != player:

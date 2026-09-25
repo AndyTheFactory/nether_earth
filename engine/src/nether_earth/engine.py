@@ -597,7 +597,8 @@ def step(
         they are validated, ordered and applied by exactly the same code as a
         human's; its updated memory is written to ``state.ai_memories``. The
         planner reads the destruction-effective world as of the start of the
-        tick. Needs a real ``world``; a state with no AI seat skips it
+        tick. A state with an AI seat must be stepped with a real ``world``
+        (``ValueError`` otherwise); a state with no AI seat skips this step
         entirely, so all-human matches are unaffected.
 
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
@@ -607,6 +608,10 @@ def step(
 
     # --- Step 0: AI seats plan and join this tick's command batch ----------
     command_batch = tuple(commands)
+    if state.ai_memories and world is None:
+        # An AI seat cannot plan without a map; silently skipping it would
+        # leave the seat idle while the match runs on.
+        raise ValueError("a state with an AI seat must be stepped with a world")
     if world is not None and state.ai_memories:
         state, ai_commands = issue_ai_commands(
             state, destruction_effective_world(world, state), command_batch, rules
