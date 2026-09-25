@@ -85,14 +85,16 @@ def serialize_server_message(message: OutboundMessage) -> str:
     required-but-nullable (a solo match's `null` must be emitted), while
     `opponent` is optional-and-`None`-on-every-PvP-path and must be *dropped*
     so an existing PvP `created` reply carries no new key on the wire (byte
-    compatibility with clients that predate CR004.8). This dumps with
-    `exclude_none=True` like the common case (dropping `opponent` when
-    unset) and then puts `join_code` back explicitly under its wire alias,
-    since dumping may have dropped it too when it is `None`.
+    compatibility with clients that predate CR004.8). Dumping with
+    `exclude_none=False` keeps every field, in the model's declared
+    (schema) order -- `join_code` where the schema puts it -- and then only
+    `opponent` is popped when unset, which never disturbs `join_code`'s
+    position.
     """
     if isinstance(message, ServerCreated):
-        payload = message.model_dump(mode="json", by_alias=True, exclude_none=True)
-        payload["joinCode"] = message.join_code
+        payload = message.model_dump(mode="json", by_alias=True, exclude_none=False)
+        if payload.get("opponent") is None:
+            del payload["opponent"]
         return json.dumps(payload)
     exclude_none = not isinstance(message, (SnapshotMessage, ServerResync))
     return OutboundMessageAdapter.dump_json(
