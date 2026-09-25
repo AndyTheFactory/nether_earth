@@ -23,11 +23,9 @@ through the same validation path, so it gains no rule it does not share with a p
 | Placement | The AI lives **in the engine**, as a pure deterministic planner. It is not a backend bot session. |
 | Configurability | One difficulty level. No difficulty selector, no tuning UI. |
 | Entry point | A single "Play vs computer" entry point that creates a match already filled with the AI in the second seat. |
-| Embodiment | The AI has **no commander**. It issues robot orders and construction without being physically present anywhere on the map. This is a deliberate asymmetry with the human seat, not a simplification to be revisited: the original's enemy has no ship the player ever meets either. |
-
-Deliberately **not** decided here, and therefore carried as an open question rather than guessed
-(see CR004.1): how a solo match behaves on the human's disconnect. CR004.7 states the proposed
-default and is blocked on the owner confirming it.
+| Unchanged | Human players and PvP multiplayer behave **exactly as today**. Everything below applies to the AI seat only. |
+| Embodiment | The AI has **no commander**, and none is shown. It issues robot orders and construction without being physically present anywhere on the map. This is a deliberate asymmetry with the human seat, not a simplification to be revisited: the original's enemy has no ship the player ever meets either. |
+| Solo disconnect | Same as multiplayer: if the human disconnects, the match pauses with the usual grace window. |
 
 ## Design
 
@@ -158,7 +156,7 @@ Tracker: to be opened.
 | CR004.4 | Economy and construction planner | CR004.3, CR004.2 |
 | CR004.5 | Robot order planner: capture valuation, defence, composition response | CR004.3, CR004.2 |
 | CR004.6 | Commanderless seat: audit every commander assumption | CR004.3 |
-| CR004.7 | Backend: solo match lifecycle | CR004.3, owner decision |
+| CR004.7 | Backend: solo match lifecycle | CR004.3 |
 | CR004.8 | Protocol and frontend: "Play vs computer" | CR004.7 |
 | CR004.9 | Rules version bump, spec updates, fixture regeneration | CR004.3–CR004.6 |
 | CR004.10 | Strength and determinism harness | CR004.4, CR004.5 |
@@ -175,11 +173,10 @@ but does not block them; it must land before CR004.9 writes the deviations down.
   describing the seat at product level.
 - `technical-spec.md`: record that the AI is an engine-side deterministic planner, and that its
   memory is part of the authoritative snapshot.
-- `open-questions.md`: add an entry for the one undecided item — **solo-match disconnect/pause
-  semantics** (CR004.7) — stating the proposed default and what depends on it. Add a second entry
+- `open-questions.md`: add an entry
   recording that the Spectrum enemy AI is a reference rather than a contract, so later fidelity
-  passes do not read the difference as a bug. Add a third recording the commanderless AI seat and
-  its asymmetry, so the AI building without a heli-pad landing is not later read as a bug.
+  passes do not read the difference as a bug. Add a second recording the commanderless AI seat, so
+  the AI building without a heli-pad landing is not later read as a bug.
 - No code in this task.
 
 ### CR004.2 — Research: the Spectrum enemy computer player
@@ -266,7 +263,7 @@ CR004.3 creates the seat without one; this task makes the rest of the stack agre
 - Tests: a full AI-seat match runs to a result with no commander for that seat; the snapshot of
   such a match validates against the schema and renders in the frontend without errors.
 
-### CR004.7 — Backend: solo match lifecycle — **blocked on owner decision**
+### CR004.7 — Backend: solo match lifecycle
 
 - `MatchManager.create_match` (`backend/app/match/manager.py`) gains a solo path: the second slot
   is created already occupied by the AI and already ready, so `is_full` and `all_ready` are
@@ -276,10 +273,8 @@ CR004.3 creates the seat without one; this task makes the rest of the stack agre
 - The AI seat is never "disconnected": the reconnect coordinator must not pause a solo match for
   it, and must not count it toward a both-disconnected resolution
   (`backend/app/match/reconnect.py`).
-- **Owner decision needed:** what happens when the human disconnects from a solo match — pause and
-  hold a grace window as PvP does, or end the match at once (nobody is waiting). Proposed default:
-  pause with the same grace window, so a dropped connection does not throw away a match in
-  progress.
+- The human disconnecting pauses the match with the same grace window as PvP (owner decision
+  2026-09-25).
 - No join code is exposed for a solo match; it cannot be joined by a second player.
 - Tests: a solo match reaches `ACTIVE` with one connection; the AI seat never triggers a pause;
   a solo match is swept and finished like any other.
@@ -303,8 +298,7 @@ CR004.3 creates the seat without one; this task makes the rest of the stack agre
 - Fold CR004.2's verdicts into `open-questions.md` as documented deviations, each with its
   evidence, so a later fidelity pass does not read "the AI does not behave like the Spectrum's"
   as a defect.
-- Record the commanderless AI seat and its build asymmetry as an intentional deviation, and
-  resolve the CR004.7 open question with whatever the owner decided.
+- Record the commanderless AI seat as an intentional AI-only rule; human and PvP rules are unchanged.
 - Update `functional-spec.md` and `technical-spec.md` to describe what actually shipped.
 
 ### CR004.10 — Strength and determinism harness
