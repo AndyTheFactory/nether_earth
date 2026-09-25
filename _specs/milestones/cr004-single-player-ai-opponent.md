@@ -146,21 +146,21 @@ to require a rule change, that is a blocker to surface, not to implement.
 
 ## Tasks
 
-Tracker: to be opened.
+Tracker: #293.
 
 | ID | Task | Depends on |
 |---|---|---|
-| CR004.1 | Scope change: specs record the AI opponent decision and its open questions | — |
-| CR004.2 | Research: the Spectrum enemy computer player, and what is worth taking | — |
-| CR004.3 | Engine AI seat: scenario flag, planner hook, `AiMemory` in state/snapshot/replay | CR004.1 |
-| CR004.4 | Economy and construction planner | CR004.3, CR004.2 |
-| CR004.5 | Robot order planner: capture valuation, defence, composition response | CR004.3, CR004.2 |
-| CR004.6 | Commanderless seat: audit every commander assumption | CR004.3 |
-| CR004.7 | Backend: solo match lifecycle | CR004.3 |
-| CR004.8 | Protocol and frontend: "Play vs computer" | CR004.7 |
-| CR004.9 | Rules version bump, spec updates, fixture regeneration | CR004.3–CR004.6 |
-| CR004.10 | Strength and determinism harness | CR004.4, CR004.5 |
-| CR004.11 | CR004 acceptance gate | all |
+| CR004.1 (#282) | Scope change: specs record the AI opponent decision and its open questions | — |
+| CR004.2 (#283) | Research: the Spectrum enemy computer player, and what is worth taking | — |
+| CR004.3 (#284) | Engine AI seat: scenario flag, planner hook, `AiMemory` in state/snapshot/replay | CR004.1 |
+| CR004.4 (#285) | Economy and construction planner | CR004.3, CR004.2 |
+| CR004.5 (#286) | Robot order planner: capture valuation, defence, composition response | CR004.3, CR004.2 |
+| CR004.6 (#287) | Commanderless seat: audit every commander assumption | CR004.3 |
+| CR004.7 (#288) | Backend: solo match lifecycle | CR004.3 |
+| CR004.8 (#289) | Protocol and frontend: "Play vs computer" | CR004.7 |
+| CR004.9 (#290) | Rules version bump, spec updates, fixture regeneration | CR004.3–CR004.6 |
+| CR004.10 (#291) | Strength and determinism harness | CR004.4, CR004.5 |
+| CR004.11 (#292) | CR004 acceptance gate | all |
 
 Parallel groups: engine (CR004.3 → CR004.4, CR004.5, CR004.6 in parallel) and the session path
 (CR004.7 → CR004.8), which only needs CR004.3's scenario flag. CR004.2 informs CR004.4–CR004.6
