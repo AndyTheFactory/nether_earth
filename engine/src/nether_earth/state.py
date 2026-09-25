@@ -144,6 +144,15 @@ of map blockers a nuclear blast has turned into rough debris
 writer; :func:`~nether_earth.destruction.effective_world` is the sole reader
 that drops those blockers and makes their cells rough terrain. The base
 ``WorldMap`` is never mutated.
+
+AI memories field (CR004.3, issue #284): ``ai_memories`` holds one
+:class:`AiMemory` per AI-controlled seat -- the planner's carry-over state,
+which must live here (not in a Python object beside the loop) so it
+round-trips through snapshots and replays. Presence of a player's memory *is*
+what makes that seat an AI seat; a human seat has none, so an all-human match
+keeps ``ai_memories == ()``. Canonical sorted-by-player tuple, like
+``commanders``. An AI seat has no commander (owner decision 2026-09-25), which
+:func:`create_game_state`/:meth:`GameState.with_commanders` enforce.
 """
 
 from __future__ import annotations
@@ -160,6 +169,48 @@ if TYPE_CHECKING:
     from nether_earth.combat import Projectile
     from nether_earth.construction_session import ConstructionSession
     from nether_earth.robot import Robot
+
+
+@dataclass(frozen=True, slots=True)
+class AiConstructionMemory:
+    """Carry-over state of the AI construction sub-planner (CR004.4 fills it)."""
+
+
+@dataclass(frozen=True, slots=True)
+class AiOrderMemory:
+    """Carry-over state of the AI robot-order sub-planner (CR004.5 fills it)."""
+
+
+@dataclass(frozen=True, slots=True)
+class AiMemory:
+    """One AI seat's planner carry-over state (CR004.3).
+
+    Each sub-planner owns one sub-record, so the construction and order
+    planners evolve their own state without touching each other's fields.
+    """
+
+    player_id: PlayerId
+    construction: AiConstructionMemory = AiConstructionMemory()
+    orders: AiOrderMemory = AiOrderMemory()
+
+
+def _canonical_ai_memories(ai_memories: tuple[AiMemory, ...]) -> tuple[AiMemory, ...]:
+    """Return ``ai_memories`` sorted by ``player_id.value``; at most one per player."""
+    if len({memory.player_id for memory in ai_memories}) != len(ai_memories):
+        raise ValueError("duplicate AI memory: a seat has at most one AI memory")
+    return tuple(sorted(ai_memories, key=lambda memory: memory.player_id.value))
+
+
+def _check_ai_seats_have_no_commander(
+    commanders: tuple[Commander, ...], ai_memories: tuple[AiMemory, ...]
+) -> None:
+    """Raise if any AI seat has a commander (owner decision 2026-09-25)."""
+    ai_players = {memory.player_id for memory in ai_memories}
+    for commander in commanders:
+        if commander.player_id in ai_players:
+            raise ValueError(
+                f"AI seat {commander.player_id.value!r} must not have a commander"
+            )
 
 
 def _canonical_commanders(commanders: tuple[Commander, ...]) -> tuple[Commander, ...]:
@@ -432,6 +483,7 @@ class GameState:
     projectiles: tuple[Projectile, ...] = ()
     structure_destruction: tuple[EntityId, ...] = ()
     scenery_debris: tuple[EntityId, ...] = ()
+    ai_memories: tuple[AiMemory, ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -456,6 +508,7 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -477,6 +530,7 @@ class GameState:
                     "participant in this GameState's players"
                 )
         canonical_commanders = _canonical_commanders(tuple(commanders))
+        _check_ai_seats_have_no_commander(canonical_commanders, self.ai_memories)
         return GameState(
             tick=self.tick,
             players=self.players,
@@ -490,6 +544,7 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -533,6 +588,7 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -578,6 +634,7 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -619,6 +676,7 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def robot_for(self, entity_id: EntityId) -> Robot | None:
@@ -667,6 +725,7 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def structure_ownership_for(self, structure_id: EntityId) -> StructureOwnership | None:
@@ -701,6 +760,7 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def capture_progress_for(self, structure_id: EntityId) -> CaptureProgress | None:
@@ -737,6 +797,7 @@ class GameState:
             projectiles=canonical_projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def projectile_for(self, entity_id: EntityId) -> Projectile | None:
@@ -774,6 +835,7 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=canonical_structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
         )
 
     def structure_destroyed(self, structure_id: EntityId) -> bool:
@@ -787,6 +849,29 @@ class GameState:
         other field is carried over unchanged.
         """
         return replace(self, scenery_debris=_canonical_scenery_debris(tuple(scenery_debris)))
+
+    def ai_memory_for(self, player_id: PlayerId) -> AiMemory | None:
+        """Return ``player_id``'s AI memory, or ``None`` for a human seat."""
+        for memory in self.ai_memories:
+            if memory.player_id == player_id:
+                return memory
+        return None
+
+    def with_ai_memory(self, memory: AiMemory) -> GameState:
+        """Return a new ``GameState`` with ``memory`` replacing its seat's AI memory.
+
+        The seat must already be an AI seat: a match's seat controllers are
+        fixed at creation, so this cannot turn a human seat into an AI one.
+        """
+        if self.ai_memory_for(memory.player_id) is None:
+            raise ValueError(f"{memory.player_id.value!r} is not an AI seat")
+        return replace(
+            self,
+            ai_memories=tuple(
+                memory if existing.player_id == memory.player_id else existing
+                for existing in self.ai_memories
+            ),
+        )
 
 
 def create_game_state(
@@ -802,6 +887,7 @@ def create_game_state(
     projectiles: tuple[Projectile, ...] | list[Projectile] | None = None,
     structure_destruction: tuple[EntityId, ...] | list[EntityId] | None = None,
     scenery_debris: tuple[EntityId, ...] | list[EntityId] | None = None,
+    ai_memories: tuple[AiMemory, ...] | list[AiMemory] | None = None,
 ) -> GameState:
     """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress``/``projectiles``/``structure_destruction`` normalized.
 
@@ -856,6 +942,10 @@ def create_game_state(
     ``structure_destruction`` defaults to no destroyed structures (``()``);
     no id may appear twice (see the module docstring). The resulting
     ``GameState.structure_destruction`` is always sorted by ``id.value``.
+
+    ``ai_memories`` defaults to none (every seat human); each memory's
+    ``player_id`` must be a participant, at most one per player, and an AI
+    seat may not also be given a commander.
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -917,6 +1007,16 @@ def create_game_state(
         resolved_structure_destruction
     )
 
+    canonical_ai_memories = _canonical_ai_memories(
+        () if ai_memories is None else tuple(ai_memories)
+    )
+    for memory in canonical_ai_memories:
+        if memory.player_id not in canonical_players:
+            raise ValueError(
+                f"AI memory player_id {memory.player_id.value!r} is not a participant in players"
+            )
+    _check_ai_seats_have_no_commander(canonical_commanders, canonical_ai_memories)
+
     return GameState(
         tick=tick,
         players=canonical_players,
@@ -932,4 +1032,5 @@ def create_game_state(
         scenery_debris=_canonical_scenery_debris(
             () if scenery_debris is None else tuple(scenery_debris)
         ),
+        ai_memories=canonical_ai_memories,
     )
