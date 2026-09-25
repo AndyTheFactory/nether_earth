@@ -18,6 +18,7 @@ from app.protocol.common import (
     JoinCode,
     MatchId,
     Nickname,
+    OpponentMode,
     PlayerId,
     ProtocolModel,
     ProtocolVersion,
@@ -27,13 +28,22 @@ from app.protocol.common import (
 
 
 class ClientCreateMatch(ProtocolModel):
-    """Mirrors client_messages.schema.json `$defs.createMatch`."""
+    """Mirrors client_messages.schema.json `$defs.createMatch`.
+
+    `opponent` is optional (CR004.8, issue #289) and defaults to `"human"`
+    -- absent, it is today's unchanged PvP create. `"computer"` requests a
+    solo match against the engine's AI seat; `app.transport.ws` is the only
+    place that reads this field to choose
+    `MatchManager.create_match`/`create_solo_match`, so no gameplay
+    legality decision lives here.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     protocol_version: ProtocolVersion
     type: Literal["create"]
     nickname: Nickname
+    opponent: OpponentMode = "human"
 
 
 class ClientJoinMatch(ProtocolModel):

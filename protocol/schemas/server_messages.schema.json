@@ -19,14 +19,20 @@
     "created": {
       "type": "object",
       "title": "ServerCreated",
-      "description": "Sent to the creating player only, in response to a client create command.",
+      "description": "Sent to the creating player only, in response to a client create command. `joinCode` is `null` for a solo match (CR004.8, issue #289): it has no second human slot to join. `opponent` states which seat the server actually created (\"human\" for every existing PvP create; \"computer\" only when `createMatch.opponent` requested it) -- the frontend uses it to skip the waiting/ready screens and name the AI seat in the HUD, never to decide gameplay legality.",
       "properties": {
         "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
         "type": { "type": "string", "const": "created" },
         "matchId": { "$ref": "common.schema.json#/$defs/matchId" },
-        "joinCode": { "$ref": "common.schema.json#/$defs/joinCode" },
+        "joinCode": {
+          "anyOf": [
+            { "$ref": "common.schema.json#/$defs/joinCode" },
+            { "type": "null" }
+          ]
+        },
         "playerId": { "$ref": "common.schema.json#/$defs/playerId" },
-        "sessionToken": { "$ref": "common.schema.json#/$defs/sessionToken" }
+        "sessionToken": { "$ref": "common.schema.json#/$defs/sessionToken" },
+        "opponent": { "$ref": "common.schema.json#/$defs/opponentMode" }
       },
       "required": ["protocolVersion", "type", "matchId", "joinCode", "playerId", "sessionToken"],
       "additionalProperties": false

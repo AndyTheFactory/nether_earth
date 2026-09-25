@@ -93,13 +93,26 @@ export class GameController implements InputSink {
     return this.client instanceof RecordingClient ? this.client : null;
   }
 
-  private handleInbound(msg: InboundMessage): void {
+  /**
+   * Routes one inbound server message into the store, plus the controller's
+   * own session bookkeeping. Public (not just `private`) so it doubles as
+   * the test seam for driving the live-mode message flow without a real
+   * socket -- see `controller.test.ts`'s solo-create round trip.
+   */
+  handleInbound(msg: InboundMessage): void {
     runFixtureMessage(this.store, msg, this.now());
     if (msg.type === 'resync') this.store.setConnection({ status: 'connected' });
     if (msg.type === 'created' || msg.type === 'joined') {
       const session = this.store.get().connection.session;
       if (session && this.pendingNickname) this.store.setConnection({ session: { ...session, nickname: this.pendingNickname } });
       this.persistSession();
+    }
+    if (msg.type === 'created' && msg.opponent === 'computer') {
+      // Solo match (CR004.8): the AI seat is always ready, so the human's
+      // own `setReady` is all that is left before the match starts. Send it
+      // immediately so the player never sees a waiting screen or has to
+      // click ready -- there is no second human to wait on or ready up.
+      this.sender.ready(true);
     }
     if (msg.type === 'error' && (msg.error.code === 'invalid_session' || msg.error.code === 'session_mismatch')) {
       this.clearSession();
@@ -168,6 +181,14 @@ export class GameController implements InputSink {
     this.startLive();
     this.pendingNickname = nickname;
     this.whenOpen(() => this.sender.create(nickname));
+  }
+
+  /** "Play vs computer" (CR004.8): a solo match filled with the engine's AI seat. */
+  playVsComputer(nickname: string): void {
+    this.store.setConnection({ session: null });
+    this.startLive();
+    this.pendingNickname = nickname;
+    this.whenOpen(() => this.sender.create(nickname, 'computer'));
   }
 
   join(code: string, nickname: string): void {

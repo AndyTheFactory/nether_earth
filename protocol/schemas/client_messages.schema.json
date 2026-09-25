@@ -14,10 +14,12 @@
     "createMatch": {
       "type": "object",
       "title": "ClientCreateMatch",
+      "description": "`opponent` is optional (CR004.8, issue #289): absent means \"human\", i.e. today's PvP create -- unchanged. `\"computer\"` requests a solo match filled with the engine's AI seat (`MatchManager.create_solo_match`); it has no join code.",
       "properties": {
         "protocolVersion": { "$ref": "common.schema.json#/$defs/protocolVersion" },
         "type": { "type": "string", "const": "create" },
-        "nickname": { "$ref": "common.schema.json#/$defs/nickname" }
+        "nickname": { "$ref": "common.schema.json#/$defs/nickname" },
+        "opponent": { "$ref": "common.schema.json#/$defs/opponentMode" }
       },
       "required": ["protocolVersion", "type", "nickname"],
       "additionalProperties": false

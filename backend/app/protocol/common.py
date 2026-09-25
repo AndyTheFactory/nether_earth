@@ -66,6 +66,11 @@ SearchCaptureTargetWire = Literal["neutral_factory", "enemy_factory", "enemy_war
 #: (`nether_earth.orders.SearchDestroyTarget`).
 SearchDestroyTargetWire = Literal["robot", "factory", "war_base"]
 
+#: Mirrors common.schema.json `$defs.opponentMode` (CR004.8, issue #289):
+#: the second seat of a match, either a second human player (default,
+#: today's PvP behaviour) or the engine's AI seat.
+OpponentMode = Literal["human", "computer"]
+
 
 class ProtocolModel(BaseModel):
     """Shared base for every protocol model.

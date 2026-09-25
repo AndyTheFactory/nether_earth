@@ -29,6 +29,13 @@ export interface ClientCreateMatch {
    * via the `definition` "nickname".
    */
   nickname: string;
+  /**
+   * CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` is optional and absent means "human", so existing clients stay byte-compatible; `created.opponent` always states which one the server actually created.
+   *
+   * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+   * via the `definition` "opponentMode".
+   */
+  opponent?: "human" | "computer";
 }
 export interface ClientJoinMatch {
   /**
@@ -675,7 +682,7 @@ export interface SnapshotMessage {
   state: SnapshotState;
 }
 /**
- * Sent to the creating player only, in response to a client create command.
+ * Sent to the creating player only, in response to a client create command. `joinCode` is `null` for a solo match (CR004.8, issue #289): it has no second human slot to join. `opponent` states which seat the server actually created ("human" for every existing PvP create; "computer" only when `createMatch.opponent` requested it) -- the frontend uses it to skip the waiting/ready screens and name the AI seat in the HUD, never to decide gameplay legality.
  */
 export interface ServerCreated {
   /**
@@ -689,11 +696,7 @@ export interface ServerCreated {
    * via the `definition` "matchId".
    */
   matchId: string;
-  /**
-   * This interface was referenced by `ProtocolCommon`'s JSON-Schema
-   * via the `definition` "joinCode".
-   */
-  joinCode: string;
+  joinCode: string | null;
   /**
    * This interface was referenced by `ProtocolCommon`'s JSON-Schema
    * via the `definition` "playerId".
@@ -704,6 +707,13 @@ export interface ServerCreated {
    * via the `definition` "sessionToken".
    */
   sessionToken: string;
+  /**
+   * CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` is optional and absent means "human", so existing clients stay byte-compatible; `created.opponent` always states which one the server actually created.
+   *
+   * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+   * via the `definition` "opponentMode".
+   */
+  opponent?: "human" | "computer";
 }
 /**
  * Sent to the joining player only, acknowledging their own identity/session. Roster/readiness for both players is broadcast separately via readyState.

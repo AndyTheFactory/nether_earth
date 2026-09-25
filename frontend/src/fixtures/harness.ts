@@ -19,7 +19,7 @@ export function playFixture(store: Store, fixture: Fixture, stepMs = 50, now: ()
   store.reset();
   store.setConnection({
     status: 'fixture',
-    session: { matchId: 'fixture-match', playerId: fixture.playerId, sessionToken: 'fixture-token', joinCode: 'FIXT', nickname: 'Alpha' },
+    session: { matchId: 'fixture-match', playerId: fixture.playerId, sessionToken: 'fixture-token', joinCode: 'FIXT', nickname: 'Alpha', vsComputer: false },
   });
   let i = 0;
   const timer = setInterval(() => {
