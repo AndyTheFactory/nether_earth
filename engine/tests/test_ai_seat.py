@@ -325,7 +325,8 @@ def test_ai_commands_join_the_tick_batch_with_deterministic_sequence_numbers(
 def test_an_illegal_ai_command_is_rejected_like_a_humans_and_does_not_stall_the_planner(
     illegal: Command, world: WorldMap, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Baseline: the stub planner, which issues nothing.
+    # Baseline: a planner that issues nothing.
+    monkeypatch.setattr(seat, "plan", _issuing((), []))
     baseline_snapshots, baseline_events, _ = _run(world, 40)
 
     calls: list[int] = []

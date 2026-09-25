@@ -58,6 +58,7 @@ __all__ = [
     "ConstructionCancelledEvent",
     "ConstructionEnteredEvent",
     "DeselectModuleCommand",
+    "EnterConstructionRemotelyCommand",
     "LaunchRobotCommand",
     "ModuleDeselectedEvent",
     "ModuleSelectedEvent",
@@ -88,6 +89,20 @@ class DeselectModuleCommand(Command):
 @dataclass(frozen=True, slots=True)
 class CancelConstructionCommand(Command):
     """Request to discard the issuing player's active construction session, if any."""
+
+
+@dataclass(frozen=True, slots=True)
+class EnterConstructionRemotelyCommand(Command):
+    """Request to open a construction session at ``war_base_id`` without landing (CR004.4).
+
+    The AI seat's entry into construction: it has no commander, so it cannot
+    land on a heli-pad (see the module docstring). Applied by
+    :func:`~nether_earth.construction_session.enter_construction_remotely`,
+    which accepts it only from an AI seat that owns ``war_base_id``; from a
+    human seat it is a gameplay no-op. It is not part of the client protocol.
+    """
+
+    war_base_id: EntityId
 
 
 @dataclass(frozen=True, slots=True)
