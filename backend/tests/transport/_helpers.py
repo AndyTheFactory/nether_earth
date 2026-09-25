@@ -24,8 +24,13 @@ def _match_manager(client: TestClient) -> MatchManager:
     return manager
 
 
-def _create(ws: WebSocketTestSession, nickname: str = "alice") -> dict[str, Any]:
-    ws.send_text(json.dumps({"protocolVersion": 1, "type": "create", "nickname": nickname}))
+def _create(
+    ws: WebSocketTestSession, nickname: str = "alice", *, opponent: str | None = None
+) -> dict[str, Any]:
+    message: dict[str, Any] = {"protocolVersion": 1, "type": "create", "nickname": nickname}
+    if opponent is not None:
+        message["opponent"] = opponent
+    ws.send_text(json.dumps(message))
     return dict(ws.receive_json())
 
 

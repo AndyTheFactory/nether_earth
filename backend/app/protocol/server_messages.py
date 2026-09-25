@@ -18,6 +18,7 @@ from app.protocol.common import (
     ErrorInfo,
     JoinCode,
     MatchId,
+    OpponentMode,
     PlayerId,
     PlayerSummary,
     ProtocolModel,
@@ -32,7 +33,11 @@ class ServerCreated(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.created`.
 
     Sent to the creating player only, in response to a client create
-    command.
+    command. `join_code` is `None` for a solo match (CR004.8, issue #289):
+    there is no second human slot to join. `opponent` names which seat the
+    server actually created ("computer" only for a solo match) so the
+    frontend can skip the waiting/ready screens and name the AI seat in the
+    HUD without inferring it from the absence of a join code.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -40,9 +45,10 @@ class ServerCreated(ProtocolModel):
     protocol_version: ProtocolVersion
     type: Literal["created"]
     match_id: MatchId
-    join_code: JoinCode
+    join_code: JoinCode | None
     player_id: PlayerId
     session_token: SessionToken
+    opponent: OpponentMode = "human"
 
 
 class ServerJoined(ProtocolModel):

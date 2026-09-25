@@ -36,6 +36,7 @@ from app.protocol.envelope import (
     OutboundMessageAdapter,
 )
 from app.protocol.reconnect import ServerResync
+from app.protocol.server_messages import ServerCreated
 from app.protocol.snapshot import SnapshotMessage
 
 __all__ = [
@@ -69,16 +70,19 @@ def serialize_server_message(message: OutboundMessage) -> str:
     rather than its Python (snake_case) attribute name -- see
     `ProtocolModel` in `common.py`. `exclude_none=True` drops optional
     fields left unset (e.g. `ServerError.match_id`, `ErrorInfo.details`)
-    rather than emitting them as JSON `null`, since none of the *lifecycle*
-    schemas' properties accept a `null` type. The snapshot state
+    rather than emitting them as JSON `null`, since most *lifecycle*
+    schemas' properties do not accept a `null` type. Three messages are the
+    exception, serialized without `exclude_none`: the snapshot state
     (`common.schema.json#/$defs/snapshotState`, carried by `snapshot` and
-    `resync`) is the exception: its nullable fields (`docked_robot_id`,
+    `resync`), whose nullable fields (`docked_robot_id`,
     `horizontal_transition`, `order`, ...) are *required* and must be
-    emitted as `null`, so those two messages are serialized without
-    `exclude_none` (M9.1 audit / M9.6: a real-match snapshot otherwise
-    fails the protocol schema on the wire).
+    emitted as `null` (M9.1 audit / M9.6: a real-match snapshot otherwise
+    fails the protocol schema on the wire); and `ServerCreated.join_code`
+    (CR004.8, issue #289), required-but-nullable so a solo match's `created`
+    still states "no join code" as an explicit `null` rather than omitting
+    the key the schema requires.
     """
-    exclude_none = not isinstance(message, (SnapshotMessage, ServerResync))
+    exclude_none = not isinstance(message, (SnapshotMessage, ServerResync, ServerCreated))
     return OutboundMessageAdapter.dump_json(
         message, by_alias=True, exclude_none=exclude_none
     ).decode("utf-8")

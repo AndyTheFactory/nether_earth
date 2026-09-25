@@ -276,3 +276,63 @@ test('plain Q and other Alt combos do not leave the match', () => {
   assert.equal(store.get().ui.screen, 'match');
   assert.deepEqual(controller.recorded!.sent, []);
 });
+
+// -- CR004.8: solo ("Play vs computer") lifecycle -----------------------------------
+
+test('solo create (opponent: computer) auto-sends ready; no manual ready step needed', () => {
+  const store = new Store();
+  const controller = new GameController(store, () => 0);
+  controller.handleInbound({
+    protocolVersion: 1,
+    type: 'created',
+    matchId: 'm1',
+    joinCode: null,
+    playerId: 'p1',
+    sessionToken: 'tok',
+    opponent: 'computer',
+  });
+  // The controller itself sent `ready` -- the player never clicked a ready button.
+  assert.deepEqual(controller.recorded!.sent.map((m) => m.type), ['ready']);
+  assert.equal(store.get().connection.session?.vsComputer, true);
+});
+
+test('solo path: created -> ready_state (human alone) -> started reaches "active" without a waiting/ready screen', () => {
+  const store = new Store();
+  const controller = new GameController(store, () => 0);
+  controller.handleInbound({
+    protocolVersion: 1,
+    type: 'created',
+    matchId: 'm1',
+    joinCode: null,
+    playerId: 'p1',
+    sessionToken: 'tok',
+    opponent: 'computer',
+  });
+  assert.equal(store.get().lifecycle.phase, 'waiting'); // transient; no user action is required to leave it
+  // The AI seat has no nickname/session: `ready_state` lists only the human (owner ruling).
+  controller.handleInbound({
+    protocolVersion: 1,
+    type: 'ready_state',
+    matchId: 'm1',
+    players: [{ playerId: 'p1', nickname: 'Alice', ready: true }],
+  });
+  assert.deepEqual(store.get().lifecycle.players, [{ playerId: 'p1', nickname: 'Alice', ready: true }]);
+  controller.handleInbound({ protocolVersion: 1, type: 'started', matchId: 'm1', tick: 0 });
+  assert.equal(store.get().ui.screen, 'match');
+  assert.equal(store.get().lifecycle.phase, 'active');
+});
+
+test('PvP create (no opponent field) never auto-sends ready', () => {
+  const store = new Store();
+  const controller = new GameController(store, () => 0);
+  controller.handleInbound({
+    protocolVersion: 1,
+    type: 'created',
+    matchId: 'm1',
+    joinCode: 'ABCD12',
+    playerId: 'p1',
+    sessionToken: 'tok',
+  });
+  assert.deepEqual(controller.recorded!.sent, []);
+  assert.equal(store.get().connection.session?.vsComputer, false);
+});

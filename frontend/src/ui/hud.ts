@@ -43,7 +43,11 @@ export function renderHud(panel: Panel, s: AppState, map: MapData): void {
   }
   const owned = (p: string, kind: 'war' | 'fac') =>
     snap.structure_ownership.filter((o) => o.owner === p && (kind === 'war' ? map.war_bases.some((w) => w.id === o.structure_id) : map.factories.some((f) => f.id === o.structure_id)) && !snap.structure_destruction.includes(o.structure_id)).length;
-  html += `<div class="line own"><span class="p1">p1: ${owned('p1', 'war')} bases / ${owned('p1', 'fac')} factories</span> · <span class="p2">p2: ${owned('p2', 'war')} bases / ${owned('p2', 'fac')} factories</span> · robots ${snap.robots.filter((r) => r.owner === me).length}</div>`;
+  // The AI seat has no nickname/session to read (CR004.8: it has no commander
+  // and is never a connected player), so it is named "Computer" here rather
+  // than falling back to its bare player id like a disconnected guest would.
+  const opponentLabel = (p: string) => (s.connection.session?.vsComputer && p !== me ? 'Computer' : p);
+  html += `<div class="line own"><span class="p1">${esc(opponentLabel('p1'))}: ${owned('p1', 'war')} bases / ${owned('p1', 'fac')} factories</span> · <span class="p2">${esc(opponentLabel('p2'))}: ${owned('p2', 'war')} bases / ${owned('p2', 'fac')} factories</span> · robots ${snap.robots.filter((r) => r.owner === me).length}</div>`;
   const cmd = myCommander(snap, me);
   if (cmd) {
     html += `<div class="line">commander (${cmd.x},${cmd.y}) alt ${cmd.altitude} ${cmd.mode.toUpperCase()}${cmd.rising ? ' ↑' : ''}`;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { CommandSender } from './commands.ts';
 import { RecordingClient } from './client.ts';
 
-const session = { matchId: 'm', playerId: 'p1', sessionToken: 'tok', joinCode: null, nickname: 'a' };
+const session = { matchId: 'm', playerId: 'p1', sessionToken: 'tok', joinCode: null, nickname: 'a', vsComputer: false };
 
 test('commands carry generated envelope and monotonic clientSequence', () => {
   const c = new RecordingClient();

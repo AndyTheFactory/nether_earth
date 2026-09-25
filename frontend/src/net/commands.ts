@@ -39,8 +39,13 @@ export class CommandSender {
     return msg;
   }
 
-  create(nickname: string): void {
-    this.client.send({ protocolVersion: PROTOCOL_VERSION, type: 'create', nickname });
+  create(nickname: string, opponent?: 'human' | 'computer'): void {
+    this.client.send({
+      protocolVersion: PROTOCOL_VERSION,
+      type: 'create',
+      nickname,
+      ...(opponent ? { opponent } : {}),
+    });
   }
 
   join(joinCode: string, nickname: string): void {

@@ -68,6 +68,11 @@
       "required": ["playerId", "nickname", "ready"],
       "additionalProperties": false
     },
+    "opponentMode": {
+      "description": "CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` is optional and absent means \"human\", so existing clients stay byte-compatible; `created.opponent` always states which one the server actually created.",
+      "type": "string",
+      "enum": ["human", "computer"]
+    },
     "cellDelta": {
       "description": "A single classic 4-directional grid step: exactly one of dx/dy is nonzero, each restricted to {-1,0,1}. Mirrors nether_earth's CommanderMoveCommand/DirectRobotMoveCommand `__post_init__` shape check -- structural, not a legality decision.",
       "type": "integer",

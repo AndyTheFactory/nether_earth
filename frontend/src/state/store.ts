@@ -36,6 +36,8 @@ export interface Session {
   sessionToken: string;
   joinCode: string | null;
   nickname: string;
+  /** True for a solo match created with `opponent: 'computer'` (CR004.8): the second seat is the engine's AI, not a human. */
+  vsComputer: boolean;
 }
 
 export interface LifecycleState {
@@ -202,6 +204,7 @@ export class Store {
               sessionToken: msg.sessionToken,
               joinCode: msg.joinCode,
               nickname: s.connection.session?.nickname ?? '',
+              vsComputer: msg.opponent === 'computer',
             },
           },
           lifecycle: { ...s.lifecycle, phase: 'waiting' },
@@ -220,6 +223,7 @@ export class Store {
               sessionToken: msg.sessionToken,
               joinCode: s.connection.session?.joinCode ?? null,
               nickname: s.connection.session?.nickname ?? '',
+              vsComputer: false,
             },
           },
           lifecycle: { ...s.lifecycle, phase: 'waiting' },

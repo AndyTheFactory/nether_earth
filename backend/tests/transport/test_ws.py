@@ -32,6 +32,7 @@ from app.main import create_app
 from app.match.manager import MatchManager
 from app.match.models import MatchOutcome, MatchResult, MatchRuntimeState
 from app.match.runtime import MatchRuntimeRegistry
+from app.match.world import load_standard_world
 from app.transport import ConnectionRegistry, create_websocket_router
 from tests.transport._helpers import (
     _create,
@@ -155,6 +156,78 @@ def test_ready_from_both_players_starts_the_match(client: TestClient) -> None:
         # broadcast to every connection.
         assert ws_a.receive_json()["type"] == "started"
         assert ws_b.receive_json()["type"] == "started"
+
+
+def test_solo_create_reports_no_join_code_and_computer_opponent(client: TestClient) -> None:
+    """CR004.8 (issue #289): ``create`` with ``opponent: "computer"`` wires
+    to ``MatchManager.create_solo_match`` -- no join code is issued (there
+    is no second human slot to join), and ``created.opponent`` states which
+    seat the server actually created so the frontend never has to infer it
+    from the absence of a join code.
+    """
+    with client.websocket_connect("/ws") as ws:
+        created = _create(ws, "alice", opponent="computer")
+
+    assert created["type"] == "created"
+    assert created["joinCode"] is None
+    assert created["opponent"] == "computer"
+    assert created["playerId"] == "p1"
+    assert created["sessionToken"]
+
+
+def test_solo_create_then_ready_alone_starts_the_match_with_the_ai_seat() -> None:
+    """The AI seat is always ready (CR004.7): the human's own ``setReady`` --
+    exactly what the frontend's solo flow sends automatically right after
+    ``created``, with no waiting screen or ready-button step -- is
+    sufficient to reach ``started``, with no second connection ever
+    involved.
+
+    Builds its own app (rather than reusing ``no_tick_client``) because
+    ``create_solo_match`` needs a real ``world`` (``MatchManager(world=...)``
+    ) while still wiring no live ``MatchRuntime``/ticking, so the single
+    connection's message order stays deterministic.
+    """
+    match_manager = MatchManager(world=load_standard_world())
+    runtime_registry = MatchRuntimeRegistry()
+    connection_registry = ConnectionRegistry()
+    app = FastAPI()
+    app.state.match_manager = match_manager
+    app.state.runtime_registry = runtime_registry
+    app.state.connection_registry = connection_registry
+    app.include_router(create_websocket_router(match_manager, runtime_registry, connection_registry))
+
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        created = _create(ws, "alice", opponent="computer")
+        assert created["joinCode"] is None
+        assert created["opponent"] == "computer"
+
+        _ready(
+            ws,
+            match_id=created["matchId"],
+            player_id=created["playerId"],
+            session_token=created["sessionToken"],
+        )
+
+        # The human alone readying up is enough: the AI seat contributes no
+        # PlayerSlot, so ready_state lists only the human, then the match
+        # starts immediately -- no second player's readiness is awaited.
+        ready_state = ws.receive_json()
+        assert ready_state["type"] == "ready_state"
+        assert [p["playerId"] for p in ready_state["players"]] == ["p1"]
+        assert ready_state["players"][0]["ready"] is True
+
+        started = ws.receive_json()
+        assert started["type"] == "started"
+        assert started["matchId"] == created["matchId"]
+        # Deliberately does not read the initial-snapshot broadcast that
+        # follows "started" (see
+        # `test_match_start_broadcasts_a_real_initial_authoritative_snapshot`
+        # for the PvP case): a solo match's tick-0 state carries
+        # `GameState.ai_memories`, and `SnapshotState`
+        # (`app.protocol.common`) does not yet mirror that field --
+        # CR004.6's concern (the concurrent SnapshotState/AI-commander
+        # audit, issue #285-adjacent), not this task's. `created`/
+        # `ready_state`/`started` above are this task's whole surface.
 
 
 def test_match_start_lands_a_replay_artifact_on_disk(
