@@ -12,11 +12,13 @@ structure and unusable for a "free exit" scenario.
 from __future__ import annotations
 
 import copy
+import dataclasses
 
 import pytest
 
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
+from nether_earth.destruction import destroy_robot
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import WorldMap
@@ -33,7 +35,7 @@ from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_launch import LaunchRejectionReason, launch_robot
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES, EngineRules
-from nether_earth.state import GameState, create_game_state
+from nether_earth.state import GameState, RobotLaunchCount, create_game_state
 from nether_earth.structures import Component, Footprint, WarBase
 from nether_earth.terrain import TerrainGrid
 
@@ -130,6 +132,7 @@ def _state(
     robots: tuple[Robot, ...] = (),
     resource_pools: tuple[PlayerResourcePool, ...] | None = None,
 ) -> GameState:
+    """Build a state; hand-placed robots count as already launched by their owner."""
     players = (PLAYER_ONE, PLAYER_TWO)
     if resource_pools is None:
         resource_pools = (
@@ -143,6 +146,11 @@ def _state(
         resource_pools=resource_pools,
         construction_sessions=sessions,
         robots=robots,
+        robot_launches=tuple(
+            RobotLaunchCount(player, len([r for r in robots if r.owner == player]))
+            for player in players
+            if any(r.owner == player for r in robots)
+        ),
     )
 
 
@@ -206,6 +214,41 @@ def test_launch_assigns_second_robot_next_ordinal() -> None:
         EntityId("robot-p1-1"),
         EntityId("robot-p1-2"),
     }
+
+
+def _launch_and_walk_away(
+    state: GameState, world: WorldMap, parking_x: int
+) -> tuple[GameState, EntityId]:
+    """Launch one p1 robot, then park it off the exit so the next launch is not blocked."""
+    state = state.with_construction_sessions((_session(),))
+    result = launch_robot(state, world, PLAYER_ONE)
+    assert result.accepted and result.state is not None and result.robot is not None
+    parked = dataclasses.replace(result.robot, x=parking_x, y=15)
+    others = tuple(r for r in result.state.robots if r.entity_id != parked.entity_id)
+    return result.state.with_robots((*others, parked)), parked.entity_id
+
+
+def test_launch_never_reuses_a_robot_id_after_a_robot_dies() -> None:
+    # Regression for #295: the ordinal was ``1 + robots alive``, so after a
+    # death the next launch took a living robot's id (or a dead one's).
+    world = _world()
+    state = _state()
+    issued: list[EntityId] = []
+    for parking_x in (8, 11, 14):
+        state, robot_id = _launch_and_walk_away(state, world, parking_x)
+        issued.append(robot_id)
+    assert issued == [EntityId(f"robot-p1-{n}") for n in (1, 2, 3)]
+
+    state, _ = destroy_robot(state, EntityId("robot-p1-2"), tick=0)
+    state, robot_id = _launch_and_walk_away(state, world, 11)
+    issued.append(robot_id)
+
+    state, _ = destroy_robot(state, robot_id, tick=0)  # the newest robot dies too
+    state, robot_id = _launch_and_walk_away(state, world, 17)
+    issued.append(robot_id)
+
+    assert issued == [EntityId(f"robot-p1-{n}") for n in (1, 2, 3, 4, 5)]
+    assert len({r.entity_id for r in state.robots}) == len(state.robots)
 
 
 # --- No active session ---------------------------------------------------------

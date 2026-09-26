@@ -93,6 +93,14 @@ every replay fixture recorded from one) is byte-identical to before.
 :func:`ai_memory_from_snapshot` is the inverse of one entry, the planner
 state a reconnect or replay tool would restore. Each sub-planner's memory
 has its own serializer pair, so CR004.4/CR004.5 extend them independently.
+
+Robot launch counts (CR004.12, #295): ``GameState.robot_launches`` is
+serialized as ``"robot_launches"``, appended last, **only once some player
+has launched a robot** (an empty list is elided, so absent means ``[]``).
+Each entry is ``{"player_id", "launched"}``; the count only grows, so robot
+ids are never reused after a robot dies. Snapshots from before the first
+launch are byte-identical to before. :func:`robot_launch_count_from_snapshot`
+is the inverse of one entry.
 """
 
 from __future__ import annotations
@@ -124,11 +132,13 @@ from nether_earth.state import (
     AiOrderMemory,
     AiSighting,
     GameState,
+    RobotLaunchCount,
 )
 from nether_earth.structures import FactoryType
 
 __all__ = [
     "ai_memory_from_snapshot",
+    "robot_launch_count_from_snapshot",
     "snapshot_to_json_string",
     "to_snapshot",
 ]
@@ -525,6 +535,17 @@ def ai_memory_from_snapshot(data: dict[str, Any]) -> AiMemory:
     )
 
 
+def _robot_launch_count_snapshot(count: RobotLaunchCount) -> dict[str, Any]:
+    return {"player_id": count.player_id.to_json(), "launched": count.launched}
+
+
+def robot_launch_count_from_snapshot(data: dict[str, Any]) -> RobotLaunchCount:
+    """Rebuild one ``"robot_launches"`` entry of :func:`to_snapshot`."""
+    return RobotLaunchCount(
+        player_id=PlayerId.from_json(data["player_id"]), launched=data["launched"]
+    )
+
+
 def to_snapshot(state: GameState) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of ``state``.
 
@@ -559,6 +580,9 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     ``ai_memories`` (CR004.3): appended last, and only when the state has an
     AI seat (see the module docstring).
 
+    ``robot_launches`` (CR004.12): appended last, and only once a robot has
+    been launched (see the module docstring).
+
     Every field of ``GameState`` is now serialized; see the module docstring
     for why reservations and engagement intent, which M5 also introduced,
     correctly have no keys of their own.
@@ -590,6 +614,11 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     if state.ai_memories:
         # Elided for an all-human match: see the module docstring.
         snapshot["ai_memories"] = [_ai_memory_snapshot(memory) for memory in state.ai_memories]
+    if state.robot_launches:
+        # Elided until the first launch: see the module docstring.
+        snapshot["robot_launches"] = [
+            _robot_launch_count_snapshot(count) for count in state.robot_launches
+        ]
     return snapshot
 
 

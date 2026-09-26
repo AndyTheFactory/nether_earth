@@ -22,16 +22,9 @@ Baseline (deliberately naive, deterministic, draws no random numbers):
 Everything the baseline issues is an ordinary command that goes through the
 engine's validation, exactly like the real planner's.
 
-Engine defect workaround (``unique_robot_ids``): the engine numbers a new
-robot ``1 + <robots the owner has now>`` (``robot_launch._next_robot_id``),
-so once a robot has been destroyed the next launch can reuse a living
-robot's id and ``engine.step`` raises ``ValueError: duplicate robot
-entity_id``. Full matches hit this routinely. It is an engine bug outside
-CR004.10's scope (reported, not fixed here); ``run_match`` can swap in a
-collision-free numbering (``1 + <highest ordinal the owner has now>``) so the
-strength run measures play rather than the crash. The swap only renames
-robots: it changes no rule, but ids do break ranking ties, so a patched run
-is not bit-identical to an unpatched one.
+Matches run on the engine's own robot numbering: the robot-id collision
+after a robot's death that CR004.10 worked around here is fixed in the
+engine (CR004.12, #295).
 """
 
 from __future__ import annotations
@@ -39,11 +32,11 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from nether_earth import engine, robot_launch
+from nether_earth import engine
 from nether_earth.ai import planner, seat
 from nether_earth.ai.construction import DESIGNS, design_cost, owned_war_bases, pool_after
 from nether_earth.capture import effective_world
@@ -80,7 +73,6 @@ __all__ = [
     "load_world",
     "run_match",
     "seat_planners",
-    "unique_robot_ids",
 ]
 
 #: A seat planner, as ``nether_earth.ai.seat`` calls it.
@@ -192,27 +184,6 @@ def seat_planners(overrides: Mapping[PlayerId, Planner] | None = None) -> Iterat
         setattr(seat, _SEAT_HOOK, real)
 
 
-def _collision_free_robot_id(state: GameState, owner: PlayerId) -> EntityId:
-    prefix = f"robot-{owner.value}-"
-    ordinals = [
-        int(robot.entity_id.value.removeprefix(prefix))
-        for robot in state.robots_for(owner)
-        if robot.entity_id.value.startswith(prefix)
-    ]
-    return EntityId(f"{prefix}{max(ordinals, default=0) + 1}")
-
-
-@contextmanager
-def unique_robot_ids() -> Iterator[None]:
-    """Swap in collision-free robot numbering (see the module docstring)."""
-    real = robot_launch._next_robot_id
-    robot_launch._next_robot_id = _collision_free_robot_id
-    try:
-        yield
-    finally:
-        robot_launch._next_robot_id = real
-
-
 # --- running a match -----------------------------------------------------------------
 
 
@@ -261,15 +232,13 @@ def run_match(
     baseline: PlayerId | None = None,
     world: WorldMap | None = None,
     record: bool = False,
-    patch_robot_ids: bool = False,
 ) -> MatchResult:
     """Run one AI match from the default PvP scenario until victory or ``tick_cap``.
 
     ``baseline`` names the seat played by :func:`baseline_plan` (``None``:
     AI vs AI). With ``record``, every tick's snapshot is folded into
-    :attr:`MatchResult.digest`. With ``patch_robot_ids``, the engine's
-    colliding robot numbering is worked around (:func:`unique_robot_ids`);
-    without it, a collision ends the match with :attr:`MatchResult.error`.
+    :attr:`MatchResult.digest`. An engine exception ends the match
+    with :attr:`MatchResult.error`.
     """
     world = world if world is not None else load_world()
     overrides: dict[PlayerId, Planner] = {baseline: baseline_plan} if baseline is not None else {}
@@ -277,7 +246,7 @@ def run_match(
     digest = hashlib.sha256() if record else None
     winner: PlayerId | None = None
     error: str | None = None
-    with seat_planners(overrides), unique_robot_ids() if patch_robot_ids else nullcontext():
+    with seat_planners(overrides):
         while state.tick < tick_cap and winner is None:
             try:
                 state, events = engine.step(state, (), world=world)

@@ -476,6 +476,15 @@ class AiMemorySnapshot(_SnapshotSubModel):
     orders: AiOrderMemorySnapshot
 
 
+class RobotLaunchCountSnapshot(_SnapshotSubModel):
+    """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["robot_launches"]`
+    (CR004.12/#295): how many robots a player has ever launched.
+    """
+
+    player_id: PlayerId
+    launched: int = Field(ge=1)
+
+
 class SnapshotState(_SnapshotSubModel):
     """Mirrors `nether_earth.snapshot.to_snapshot(state)`'s exact return shape.
 
@@ -502,10 +511,16 @@ class SnapshotState(_SnapshotSubModel):
     #: PvP snapshot's wire shape -- and `model_dump()` -- is byte-identical
     #: to before this field existed.
     ai_memories: list[AiMemorySnapshot] = Field(default_factory=list)
+    #: Robots each player has ever launched (CR004.12/#295), canonical order.
+    #: Empty until the first launch; `_serialize` then elides the key,
+    #: mirroring `to_snapshot`.
+    robot_launches: list[RobotLaunchCountSnapshot] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: Any) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
         if not self.ai_memories:
             data.pop("ai_memories", None)
+        if not self.robot_launches:
+            data.pop("robot_launches", None)
         return data

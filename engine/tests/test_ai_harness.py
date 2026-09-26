@@ -175,7 +175,7 @@ SMOKE_TICKS = 4100
 
 def test_ai_out_expands_the_scripted_baseline_on_war_bases(world: WorldMap) -> None:
     # The AI takes the second seat, the one it measured weaker in.
-    result = run_match(SEED, SMOKE_TICKS, baseline=PLAYER_ONE, world=world, patch_robot_ids=True)
+    result = run_match(SEED, SMOKE_TICKS, baseline=PLAYER_ONE, world=world)
 
     assert result.error is None
     ai, baseline = result.scores[PLAYER_TWO.value], result.scores[PLAYER_ONE.value]

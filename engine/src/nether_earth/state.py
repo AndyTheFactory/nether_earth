@@ -237,6 +237,32 @@ class AiMemory:
     orders: AiOrderMemory = AiOrderMemory()
 
 
+@dataclass(frozen=True, slots=True)
+class RobotLaunchCount:
+    """How many robots ``player_id`` has ever launched (CR004.12, #295).
+
+    It is also the ordinal of that player's newest robot id
+    (``robot-<player>-<launched>``). It only ever grows: a robot's death
+    does not lower it, so an id is never issued twice in a match.
+    """
+
+    player_id: PlayerId
+    launched: int
+
+    def __post_init__(self) -> None:
+        if self.launched < 1:
+            raise ValueError(f"robot launch count must be >= 1, got {self.launched}")
+
+
+def _canonical_robot_launches(
+    robot_launches: tuple[RobotLaunchCount, ...],
+) -> tuple[RobotLaunchCount, ...]:
+    """Return ``robot_launches`` sorted by ``player_id.value``; at most one per player."""
+    if len({count.player_id for count in robot_launches}) != len(robot_launches):
+        raise ValueError("duplicate robot launch count: a player has at most one")
+    return tuple(sorted(robot_launches, key=lambda count: count.player_id.value))
+
+
 def _canonical_ai_memories(ai_memories: tuple[AiMemory, ...]) -> tuple[AiMemory, ...]:
     """Return ``ai_memories`` sorted by ``player_id.value``; at most one per player."""
     if len({memory.player_id for memory in ai_memories}) != len(ai_memories):
@@ -512,6 +538,11 @@ class GameState:
     record who owns it). It is always stored in canonical (sorted by
     ``EntityId.value``) order, at most once per structure id; it defaults
     to ``()`` so existing callers keep working unchanged.
+
+    ``robot_launches`` (CR004.12, #295) counts the robots each player has
+    ever launched (:class:`RobotLaunchCount`), the source of new robot ids
+    (``robot_launch.py``). Canonical (sorted by player), at most one entry
+    per player, none for a player who has not launched; defaults to ``()``.
     """
 
     tick: int
@@ -527,6 +558,7 @@ class GameState:
     structure_destruction: tuple[EntityId, ...] = ()
     scenery_debris: tuple[EntityId, ...] = ()
     ai_memories: tuple[AiMemory, ...] = ()
+    robot_launches: tuple[RobotLaunchCount, ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -552,6 +584,7 @@ class GameState:
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -588,6 +621,7 @@ class GameState:
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -632,6 +666,7 @@ class GameState:
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -678,6 +713,7 @@ class GameState:
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -720,6 +756,7 @@ class GameState:
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def robot_for(self, entity_id: EntityId) -> Robot | None:
@@ -769,6 +806,7 @@ class GameState:
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def structure_ownership_for(self, structure_id: EntityId) -> StructureOwnership | None:
@@ -804,6 +842,7 @@ class GameState:
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def capture_progress_for(self, structure_id: EntityId) -> CaptureProgress | None:
@@ -841,6 +880,7 @@ class GameState:
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def projectile_for(self, entity_id: EntityId) -> Projectile | None:
@@ -879,6 +919,7 @@ class GameState:
             structure_destruction=canonical_structure_destruction,
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def structure_destroyed(self, structure_id: EntityId) -> bool:
@@ -892,6 +933,30 @@ class GameState:
         other field is carried over unchanged.
         """
         return replace(self, scenery_debris=_canonical_scenery_debris(tuple(scenery_debris)))
+
+    def robots_launched_by(self, player_id: PlayerId) -> int:
+        """Return how many robots ``player_id`` has ever launched (``0`` if none)."""
+        for count in self.robot_launches:
+            if count.player_id == player_id:
+                return count.launched
+        return 0
+
+    def with_robots_launched(self, player_id: PlayerId, launched: int) -> GameState:
+        """Return a new ``GameState`` recording ``launched`` robots ever launched by ``player_id``.
+
+        The count never goes down (ids are never reused, #295).
+        """
+        if player_id not in self.players:
+            raise ValueError(f"{player_id.value!r} is not a participant in players")
+        if launched < self.robots_launched_by(player_id):
+            raise ValueError("a robot launch count never decreases")
+        others = tuple(count for count in self.robot_launches if count.player_id != player_id)
+        return replace(
+            self,
+            robot_launches=_canonical_robot_launches(
+                (*others, RobotLaunchCount(player_id=player_id, launched=launched))
+            ),
+        )
 
     def ai_memory_for(self, player_id: PlayerId) -> AiMemory | None:
         """Return ``player_id``'s AI memory, or ``None`` for a human seat."""
@@ -931,6 +996,7 @@ def create_game_state(
     structure_destruction: tuple[EntityId, ...] | list[EntityId] | None = None,
     scenery_debris: tuple[EntityId, ...] | list[EntityId] | None = None,
     ai_memories: tuple[AiMemory, ...] | list[AiMemory] | None = None,
+    robot_launches: tuple[RobotLaunchCount, ...] | list[RobotLaunchCount] | None = None,
 ) -> GameState:
     """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress``/``projectiles``/``structure_destruction`` normalized.
 
@@ -1060,6 +1126,16 @@ def create_game_state(
             )
     _check_ai_seats_have_no_commander(canonical_commanders, canonical_ai_memories)
 
+    canonical_robot_launches = _canonical_robot_launches(
+        () if robot_launches is None else tuple(robot_launches)
+    )
+    for count in canonical_robot_launches:
+        if count.player_id not in canonical_players:
+            raise ValueError(
+                f"robot launch count player_id {count.player_id.value!r} "
+                "is not a participant in players"
+            )
+
     return GameState(
         tick=tick,
         players=canonical_players,
@@ -1076,4 +1152,5 @@ def create_game_state(
             () if scenery_debris is None else tuple(scenery_debris)
         ),
         ai_memories=canonical_ai_memories,
+        robot_launches=canonical_robot_launches,
     )

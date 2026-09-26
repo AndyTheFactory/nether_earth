@@ -608,6 +608,17 @@ export interface SnapshotState {
       }[];
     };
   }[];
+  /**
+   * How many robots each player has ever launched (CR004.12/#295), canonical (player-sorted) order; a player with no launches has no entry. The count only grows, so robot ids (robot-<player>-<n>) are never reused after a robot dies. Omitted entirely until the first launch -- deliberately NOT in `required` below, matching to_snapshot's own elision.
+   */
+  robot_launches?: {
+    /**
+     * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+     * via the `definition` "playerId".
+     */
+    player_id: string;
+    launched: number;
+  }[];
 }
 /**
  * Sent by a client re-establishing a WebSocket connection to an existing match after a disconnect.

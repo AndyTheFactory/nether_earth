@@ -8,8 +8,7 @@ Usage (from the repo root):
 
     PYTHONPATH=engine/src python scripts/ai_strength.py --seeds 1-10 --cap 30000 --jobs 20
 
-``--mirror`` plays AI vs AI instead. ``--unpatched`` runs on the engine's own
-robot numbering, which crashes most full matches (see ``ai_harness``).
+``--mirror`` plays AI vs AI instead.
 ``--set construction.NAME=INT`` overrides an AI tuning constant, for
 experiments. Prints one line per match and a summary. Too slow for the normal
 suite (a match takes minutes); the suite runs a bounded smoke version
@@ -50,13 +49,13 @@ def _apply_overrides(overrides: list[str]) -> None:
         setattr(module, attribute, int(value))
 
 
-def _play(job: tuple[int, str, int, bool, bool]) -> tuple[int, str, MatchResult, float]:
-    seed, ai_seat, cap, mirror, patch = job
+def _play(job: tuple[int, str, int, bool]) -> tuple[int, str, MatchResult, float]:
+    seed, ai_seat, cap, mirror = job
     started = time.perf_counter()
     baseline = (
         None if mirror else (PLAYER_TWO if ai_seat == PLAYER_ONE.value else PLAYER_ONE)
     )
-    result = run_match(seed, cap, baseline=baseline, patch_robot_ids=patch)
+    result = run_match(seed, cap, baseline=baseline)
     return seed, ai_seat, result, time.perf_counter() - started
 
 
@@ -84,11 +83,6 @@ def main() -> int:
         "--mirror", action="store_true", help="AI vs AI instead of AI vs baseline"
     )
     parser.add_argument(
-        "--unpatched",
-        action="store_true",
-        help="do not work around the engine's robot-id collision (see ai_harness)",
-    )
-    parser.add_argument(
         "--set",
         action="append",
         default=[],
@@ -102,7 +96,7 @@ def main() -> int:
         (PLAYER_ONE,) if args.mirror else (PLAYER_ONE, PLAYER_TWO)
     )
     jobs = [
-        (seed, seat.value, args.cap, args.mirror, not args.unpatched)
+        (seed, seat.value, args.cap, args.mirror)
         for seed in _seeds(args.seeds)
         for seat in seats
     ]
