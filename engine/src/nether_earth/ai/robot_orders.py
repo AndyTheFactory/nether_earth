@@ -117,7 +117,12 @@ RECALL_RADIUS_CELLS = 80
 #: the target contested.
 CONTEST_RADIUS_CELLS = 16
 #: Extra value of a war base for the victory rule (`victory.py` counts them).
-VICTORY_VALUE = 10
+#: Large enough that the opponent's war bases outrank its factories. At 10 the
+#: AI out-built the scripted baseline but often never took its last war base
+#: (CR004.10 harness, seeds 1-10 x both seats, 30000-tick cap: 11/20 wins,
+#: 9 capped with the AI ahead); at 50 it won 17/20, 3 capped, 0 losses, and
+#: 100 played the same games.
+VICTORY_VALUE = 50
 #: General resources pay for any module (`construction_economy.py`), while a
 #: factory's resource pays only for its own category.
 GENERAL_RESOURCE_WEIGHT = 2
