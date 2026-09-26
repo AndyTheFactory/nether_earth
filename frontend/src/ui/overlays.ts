@@ -1,4 +1,5 @@
 import type { AppState } from '../state/store.ts';
+import { playerLabel } from '../state/store.ts';
 import { Panel, esc, btn } from './dom.ts';
 
 export function renderOverlay(panel: Panel, s: AppState, nowEpochMs: number): void {
@@ -19,9 +20,11 @@ export function renderOverlay(panel: Panel, s: AppState, nowEpochMs: number): vo
       panel.set(`<div class="box"><h2>PAUSED</h2><p>${esc(lc.pausedBy)} disconnected. Simulation is frozen.</p>${remaining !== null ? `<p>Forfeit in about ${remaining}s unless they return.</p>` : ''}</div>`);
       return;
     }
-    case 'finished':
-      panel.set(`<div class="box result"><h2>${lc.winnerPlayerId === me ? 'VICTORY' : 'DEFEAT'}</h2><p>Winner: ${esc(lc.winnerPlayerId)} at tick ${lc.resultTick}</p>${btn('leave', 'Back to lobby')}</div>`);
+    case 'finished': {
+      const winner = lc.winnerPlayerId === null ? null : playerLabel(s.connection.session, lc.winnerPlayerId);
+      panel.set(`<div class="box result"><h2>${lc.winnerPlayerId === me ? 'VICTORY' : 'DEFEAT'}</h2><p>Winner: ${esc(winner)} at tick ${lc.resultTick}</p>${btn('leave', 'Back to lobby')}</div>`);
       return;
+    }
     case 'forfeit':
       panel.set(`<div class="box result"><h2>${lc.winnerPlayerId === me ? 'VICTORY BY FORFEIT' : 'FORFEIT'}</h2><p>${esc(lc.forfeitingPlayerId)} failed to reconnect (${esc(lc.resultReason)}).</p>${btn('leave', 'Back to lobby')}</div>`);
       return;
