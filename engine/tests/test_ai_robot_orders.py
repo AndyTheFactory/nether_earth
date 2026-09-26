@@ -321,7 +321,7 @@ def test_two_neutral_factories_are_split_one_robot_each() -> None:
     ("war_base_x", "expected"),
     [
         (100, SearchCaptureTarget.ENEMY_WAR_BASE),  # 60 cells: worth the walk
-        (5, SearchCaptureTarget.NEUTRAL_FACTORY),  # 155 cells: the near factory wins
+        (560, SearchCaptureTarget.NEUTRAL_FACTORY),  # 400 cells: the near factory wins
     ],
 )
 def test_a_neutral_war_base_outranks_a_near_factory_until_it_is_too_far(
@@ -331,6 +331,7 @@ def test_a_neutral_war_base_outranks_a_near_factory_until_it_is_too_far(
         _war_base("wb-ai", 390, AI),
         _war_base("wb-neutral", war_base_x, None),
         _factory("f-chassis", 150, FactoryType.CHASSIS),
+        width=800,
     )
     issued, _ = _plan(_state(_robot("r1", 160)), world)
     assert issued == {"r1": SearchCapture(expected)}
@@ -353,12 +354,12 @@ def test_a_target_guarded_by_a_stronger_enemy_is_devalued() -> None:
     """Contested: a missile robot beside the war base out-ranges the cannon robot."""
     world = _world(
         _war_base("wb-ai", 390, AI),
-        _war_base("wb-neutral", 100, None),
-        _factory("f-chassis", 150, FactoryType.CHASSIS),
+        _war_base("wb-neutral", 50, None),
+        _factory("f-chassis", 290, FactoryType.CHASSIS),
     )
-    guard = _robot("h1", 100, owner=HUMAN, weapons=(M,))
-    uncontested, _ = _plan(_state(_robot("r1", 160)), world)
-    contested, _ = _plan(_state(_robot("r1", 160), guard), world)
+    guard = _robot("h1", 50, owner=HUMAN, weapons=(M,))
+    uncontested, _ = _plan(_state(_robot("r1", 300)), world)
+    contested, _ = _plan(_state(_robot("r1", 300), guard), world)
     assert uncontested == {"r1": SearchCapture(SearchCaptureTarget.ENEMY_WAR_BASE)}
     assert contested == {"r1": SearchCapture(SearchCaptureTarget.NEUTRAL_FACTORY)}
 

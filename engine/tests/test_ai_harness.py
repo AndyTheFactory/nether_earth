@@ -163,3 +163,20 @@ def test_harness_uses_the_real_planner_for_seats_it_does_not_override(
 
     assert called == ["p2", "p2"]
 
+
+# --- strength smoke test ---------------------------------------------------------------
+
+#: About 1.4 game days: the AI takes a neutral war base at tick 3956 in this
+#: seed, short enough for the normal suite. The real measurement is the full
+#: win-rate run (``scripts/ai_strength.py``); this only guards against a
+#: planner change that stops the AI out-expanding the scripted baseline.
+SMOKE_TICKS = 4100
+
+
+def test_ai_out_expands_the_scripted_baseline_on_war_bases(world: WorldMap) -> None:
+    # The AI takes the second seat, the one it measured weaker in.
+    result = run_match(SEED, SMOKE_TICKS, baseline=PLAYER_ONE, world=world, patch_robot_ids=True)
+
+    assert result.error is None
+    ai, baseline = result.scores[PLAYER_TWO.value], result.scores[PLAYER_ONE.value]
+    assert ai.war_bases > baseline.war_bases
