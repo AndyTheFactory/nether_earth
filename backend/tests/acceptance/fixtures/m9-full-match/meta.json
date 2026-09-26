@@ -2,7 +2,7 @@
   "schema_version": 1,
   "rules_version": "cr004",
   "rules_hash": "235a4ec9789f432f40413321ccd824566281545506c9c1f9ee2ef614654e659f",
-  "match_id": "61ed9c6e94814546b34cc074289e480a",
+  "match_id": "d12d94f6f12d4841bcd404c8f80b7a0a",
   "scenario_id": "pvp-v1",
   "map_id": "zx-spectrum-original",
   "map_version": 1,
@@ -17,9 +17,9 @@
     "p1": "human",
     "p2": "human"
   },
-  "created_at_epoch_ms": 1790373135053,
+  "created_at_epoch_ms": 1790413446329,
   "status": "finished",
-  "finished_at_epoch_ms": 1790373190080,
+  "finished_at_epoch_ms": 1790413502061,
   "final_tick": 23177,
   "result": {
     "outcome": "victory",
@@ -138,6 +138,16 @@
     "structure_destruction": [
       "warbase-4"
     ],
-    "scenery_debris": []
+    "scenery_debris": [],
+    "robot_launches": [
+      {
+        "player_id": "p1",
+        "launched": 2
+      },
+      {
+        "player_id": "p2",
+        "launched": 1
+      }
+    ]
   }
 }

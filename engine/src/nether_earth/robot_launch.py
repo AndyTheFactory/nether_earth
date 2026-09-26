@@ -122,29 +122,17 @@ reconstructed equal copy), so ``state.resource_pools``, ``state.robots``,
 and ``state.construction_sessions`` are trivially, provably identical
 (``is``-identical, not just ``==``-equal) to their pre-call values.
 
-Robot id assignment scheme (flagged for Task 7's review)
--------------------------------------------------------------
+Robot id assignment scheme (CR004.12, #295)
+-------------------------------------------
 
-`ids.py` defines no deterministic robot-id-assignment scheme; this task
-must define one. This module assigns
-``EntityId(f"robot-{owner.value}-{ordinal}")``, where ``ordinal`` is
-``1 + (the number of robots ``owner`` already has in ``state.robots`` at
-launch time)`` -- a simple count, not a separately-tracked monotonic
-counter field on ``GameState``. This is deliberately the simpler of the
-two schemes the task brief offers as acceptable: M4's scope never removes a
-robot from ``state.robots`` (no capture/destruction mechanic is
-implemented anywhere in this milestone), so "count of this player's robots
-right now" and "count of robots this player has ever launched" are
-identical for the entire lifetime of M4, and a count-based ordinal can
-never collide with an existing id. This is explicitly flagged, per the
-task brief, for Task 7 (M4.7) to review: once M5/M6 introduce robot
-destruction/capture, a count-based ordinal *would* start colliding with
-previously issued ids (destroy robot 3 of 5, launch a new one -> new count
-is 5, new id collides with the still-alive former robot 5) and would need
-to switch to a true monotonic per-player counter (e.g. a new
-``GameState``-attached field) at that point -- this module does not
-attempt to pre-empt that future change since no removal mechanic exists
-yet to require it.
+A new robot is ``EntityId(f"robot-{owner.value}-{ordinal}")``, where
+``ordinal`` is ``1 + GameState.robots_launched_by(owner)``: a per-player
+monotonic launch counter (``GameState.robot_launches``) that each accepted
+launch bumps and that a robot's death never lowers. Ids are therefore never
+reused, not even a destroyed robot's. Until a player's first robot dies the
+counter equals the number of that player's robots, so those ids are the
+same as under the original M4.6 scheme (``1 + robots alive``), which
+collided once robots could die.
 """
 
 from __future__ import annotations
@@ -288,10 +276,9 @@ def _resolve_exit_cell(world: WorldMap, war_base_id: EntityId) -> tuple[int, int
 def _next_robot_id(state: GameState, owner: PlayerId) -> EntityId:
     """Return the next deterministic robot id for ``owner``.
 
-    See the module docstring's "robot id assignment scheme" section for the
-    full rationale and its documented limitation.
+    See the module docstring's "robot id assignment scheme" section.
     """
-    ordinal = len(state.robots_for(owner)) + 1
+    ordinal = state.robots_launched_by(owner) + 1
     return EntityId(f"robot-{owner.value}-{ordinal}")
 
 
@@ -365,6 +352,7 @@ def launch_robot(
 
     new_state = state.with_resource_pools((*other_pools, committed_pool))
     new_state = new_state.with_robots((*new_state.robots, robot))
+    new_state = new_state.with_robots_launched(player_id, state.robots_launched_by(player_id) + 1)
     new_state = exit_construction(new_state, player_id, rules)
 
     return LaunchResult.accept(new_state, robot)

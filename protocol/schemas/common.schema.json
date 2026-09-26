@@ -518,6 +518,19 @@
             "required": ["player_id", "construction", "orders"],
             "additionalProperties": false
           }
+        },
+        "robot_launches": {
+          "description": "How many robots each player has ever launched (CR004.12/#295), canonical (player-sorted) order; a player with no launches has no entry. The count only grows, so robot ids (robot-<player>-<n>) are never reused after a robot dies. Omitted entirely until the first launch -- deliberately NOT in `required` below, matching to_snapshot's own elision.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "player_id": { "$ref": "#/$defs/playerId" },
+              "launched": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["player_id", "launched"],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
