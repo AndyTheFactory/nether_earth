@@ -27,8 +27,6 @@ models and the actual JSON Schema files.
 
 from __future__ import annotations
 
-import json
-
 from pydantic import ValidationError
 
 from app.protocol.envelope import (
@@ -85,17 +83,19 @@ def serialize_server_message(message: OutboundMessage) -> str:
     required-but-nullable (a solo match's `null` must be emitted), while
     `opponent` is optional-and-`None`-on-every-PvP-path and must be *dropped*
     so an existing PvP `created` reply carries no new key on the wire (byte
-    compatibility with clients that predate CR004.8). Dumping with
-    `exclude_none=False` keeps every field, in the model's declared
-    (schema) order -- `join_code` where the schema puts it -- and then only
-    `opponent` is popped when unset, which never disturbs `join_code`'s
-    position.
+    compatibility with clients that predate CR004.8). `model_dump_json` with
+    `exclude_none=False` keeps every field, in the model's declared (schema)
+    order -- `join_code` where the schema puts it -- and `exclude={"opponent"}`
+    drops that key entirely when unset, which never disturbs `join_code`'s
+    position. Crucially this emits Pydantic's compact JSON (no `", "` / `": "`
+    separators), the same as every other message on the wire -- going
+    through `json.dumps` on a dict (as an earlier fix did) would reintroduce
+    those separators and make a PvP `created` reply byte-different from the
+    pre-CR004 `OutboundMessageAdapter.dump_json` output.
     """
     if isinstance(message, ServerCreated):
-        payload = message.model_dump(mode="json", by_alias=True, exclude_none=False)
-        if payload.get("opponent") is None:
-            del payload["opponent"]
-        return json.dumps(payload)
+        exclude = {"opponent"} if message.opponent is None else None
+        return message.model_dump_json(by_alias=True, exclude_none=False, exclude=exclude)
     exclude_none = not isinstance(message, (SnapshotMessage, ServerResync))
     return OutboundMessageAdapter.dump_json(
         message, by_alias=True, exclude_none=exclude_none
