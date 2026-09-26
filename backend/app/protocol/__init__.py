@@ -36,6 +36,7 @@ from app.protocol.envelope import (
     OutboundMessageAdapter,
 )
 from app.protocol.reconnect import ServerResync
+from app.protocol.server_messages import ServerCreated
 from app.protocol.snapshot import SnapshotMessage
 
 __all__ = [
@@ -69,15 +70,32 @@ def serialize_server_message(message: OutboundMessage) -> str:
     rather than its Python (snake_case) attribute name -- see
     `ProtocolModel` in `common.py`. `exclude_none=True` drops optional
     fields left unset (e.g. `ServerError.match_id`, `ErrorInfo.details`)
-    rather than emitting them as JSON `null`, since none of the *lifecycle*
-    schemas' properties accept a `null` type. The snapshot state
+    rather than emitting them as JSON `null`, since most *lifecycle*
+    schemas' properties do not accept a `null` type. The snapshot state
     (`common.schema.json#/$defs/snapshotState`, carried by `snapshot` and
-    `resync`) is the exception: its nullable fields (`docked_robot_id`,
-    `horizontal_transition`, `order`, ...) are *required* and must be
-    emitted as `null`, so those two messages are serialized without
-    `exclude_none` (M9.1 audit / M9.6: a real-match snapshot otherwise
-    fails the protocol schema on the wire).
+    `resync`) is one exception, serialized without `exclude_none`: its
+    nullable fields (`docked_robot_id`, `horizontal_transition`, `order`,
+    ...) are *required* and must be emitted as `null` (M9.1 audit / M9.6: a
+    real-match snapshot otherwise fails the protocol schema on the wire).
+
+    `ServerCreated` (CR004.8, issue #289) needs different treatment *per
+    field*, so it cannot just join that exemption list: `join_code` is
+    required-but-nullable (a solo match's `null` must be emitted), while
+    `opponent` is optional-and-`None`-on-every-PvP-path and must be *dropped*
+    so an existing PvP `created` reply carries no new key on the wire (byte
+    compatibility with clients that predate CR004.8). `model_dump_json` with
+    `exclude_none=False` keeps every field, in the model's declared (schema)
+    order -- `join_code` where the schema puts it -- and `exclude={"opponent"}`
+    drops that key entirely when unset, which never disturbs `join_code`'s
+    position. Crucially this emits Pydantic's compact JSON (no `", "` / `": "`
+    separators), the same as every other message on the wire -- going
+    through `json.dumps` on a dict (as an earlier fix did) would reintroduce
+    those separators and make a PvP `created` reply byte-different from the
+    pre-CR004 `OutboundMessageAdapter.dump_json` output.
     """
+    if isinstance(message, ServerCreated):
+        exclude = {"opponent"} if message.opponent is None else None
+        return message.model_dump_json(by_alias=True, exclude_none=False, exclude=exclude)
     exclude_none = not isinstance(message, (SnapshotMessage, ServerResync))
     return OutboundMessageAdapter.dump_json(
         message, by_alias=True, exclude_none=exclude_none

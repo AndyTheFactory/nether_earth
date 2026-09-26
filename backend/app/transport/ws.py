@@ -260,8 +260,20 @@ def create_websocket_router(
                     if bound is not None:
                         await _reject_and_close(websocket, bound.match_id, "already_bound")
                         return
+                    solo = message.opponent == "computer"
                     try:
-                        result = match_manager.create_match(message.nickname)
+                        if solo:
+                            solo_result = match_manager.create_solo_match(message.nickname)
+                            join_code: str | None = None
+                            create_player_id = solo_result.player_id
+                            create_session_token = solo_result.session_token
+                            create_match_id = solo_result.match_id
+                        else:
+                            result = match_manager.create_match(message.nickname)
+                            join_code = result.join_code
+                            create_player_id = result.player_id
+                            create_session_token = result.session_token
+                            create_match_id = result.match_id
                     except InvalidNicknameError as exc:
                         await _send_error(websocket, None, "invalid_nickname", str(exc))
                         continue
@@ -269,9 +281,9 @@ def create_websocket_router(
                         await _send_error(websocket, None, "server_busy", str(exc))
                         continue
                     bound = _BoundSession(
-                        match_id=result.match_id,
-                        player_id=result.player_id.value,
-                        session_token=result.session_token,
+                        match_id=create_match_id,
+                        player_id=create_player_id.value,
+                        session_token=create_session_token,
                     )
                     connection_registry.register(bound.match_id, bound.player_id, websocket)
                     await websocket.send_text(
@@ -279,10 +291,16 @@ def create_websocket_router(
                             ServerCreated(
                                 protocol_version=PROTOCOL_VERSION,
                                 type="created",
-                                match_id=result.match_id,
-                                join_code=result.join_code,
+                                match_id=bound.match_id,
+                                join_code=join_code,
                                 player_id=bound.player_id,
                                 session_token=bound.session_token,
+                                # `None` on the PvP path: `opponent` is
+                                # dropped from the wire for a plain `create`
+                                # (see `ServerCreated`'s docstring), keeping
+                                # it byte-compatible with pre-CR004.8
+                                # clients. Only a solo create states it.
+                                opponent="computer" if solo else None,
                             )
                         )
                     )

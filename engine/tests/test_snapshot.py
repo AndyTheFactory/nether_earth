@@ -26,8 +26,12 @@ from nether_earth.robot import Robot
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
-from nether_earth.snapshot import snapshot_to_json_string, to_snapshot
-from nether_earth.state import GameState, create_game_state
+from nether_earth.snapshot import (
+    robot_launch_count_from_snapshot,
+    snapshot_to_json_string,
+    to_snapshot,
+)
+from nether_earth.state import AiMemory, GameState, RobotLaunchCount, create_game_state
 
 
 def test_dataclass_equal_states_serialize_identically() -> None:
@@ -546,6 +550,35 @@ def test_snapshot_covers_every_game_state_field() -> None:
     this check enforces by construction: it compares against
     ``GameState``'s own fields, so only real stored state can be missed.
     """
-    state = create_game_state(0, [PLAYER_ONE], seed=0)
+    state = create_game_state(
+        0,
+        [PLAYER_ONE],
+        seed=0,
+        ai_memories=(AiMemory(PLAYER_ONE),),
+        robot_launches=(RobotLaunchCount(PLAYER_ONE, 1),),
+    )
 
     assert set(to_snapshot(state)) == {field.name for field in fields(state)}
+
+
+def test_snapshot_elides_ai_memories_only_for_an_all_human_state() -> None:
+    """CR004.3: an all-human snapshot keeps its pre-CR004 shape exactly."""
+    human = create_game_state(0, [PLAYER_ONE, PLAYER_TWO], seed=0)
+
+    assert set(to_snapshot(human)) == {field.name for field in fields(human)} - {
+        "ai_memories",
+        "robot_launches",
+    }
+
+
+def test_snapshot_robot_launches_elided_until_first_launch_and_round_trip() -> None:
+    """CR004.12 (#295): counts appear once a robot has launched and read back intact."""
+    before = create_game_state(0, [PLAYER_ONE, PLAYER_TWO], seed=0)
+    after = before.with_robots_launched(PLAYER_TWO, 7).with_robots_launched(PLAYER_ONE, 2)
+
+    assert "robot_launches" not in to_snapshot(before)
+    entries = to_snapshot(after)["robot_launches"]
+    assert entries == [{"player_id": "p1", "launched": 2}, {"player_id": "p2", "launched": 7}]
+    assert tuple(robot_launch_count_from_snapshot(entry) for entry in entries) == (
+        after.robot_launches
+    )

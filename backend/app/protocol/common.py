@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 from pydantic.alias_generators import to_camel
 
 #: Mirrors common.schema.json `$defs.protocolVersion` (`const: 1`).
@@ -65,6 +65,11 @@ SearchCaptureTargetWire = Literal["neutral_factory", "enemy_factory", "enemy_war
 #: Mirrors common.schema.json `$defs.searchDestroyTarget`
 #: (`nether_earth.orders.SearchDestroyTarget`).
 SearchDestroyTargetWire = Literal["robot", "factory", "war_base"]
+
+#: Mirrors common.schema.json `$defs.opponentMode` (CR004.8, issue #289):
+#: the second seat of a match, either a second human player (default,
+#: today's PvP behaviour) or the engine's AI seat.
+OpponentMode = Literal["human", "computer"]
 
 
 class ProtocolModel(BaseModel):
@@ -425,6 +430,61 @@ class ProjectileSnapshot(_SnapshotSubModel):
     first_advance_tick: int
 
 
+class AiConstructionMemorySnapshot(_SnapshotSubModel):
+    """Mirrors `nether_earth.snapshot._ai_construction_memory_snapshot` (CR004.4)."""
+
+    last_war_base_id: EntityId | None
+
+
+class AiDefenceAssignmentSnapshot(_SnapshotSubModel):
+    """Mirrors one entry of `AiOrderMemory.defences` (CR004.5, `AiDefenceAssignment`)."""
+
+    defender_id: EntityId
+    intruder_id: EntityId
+    structure_id: EntityId
+    approached: bool
+
+
+class AiSightingSnapshot(_SnapshotSubModel):
+    """Mirrors one entry of `AiOrderMemory.sightings` (CR004.5, `AiSighting`)."""
+
+    robot_id: EntityId
+    distance: int
+
+
+class AiOrderMemorySnapshot(_SnapshotSubModel):
+    """Mirrors `nether_earth.snapshot._ai_order_memory_snapshot` (CR004.5)."""
+
+    defences: list[AiDefenceAssignmentSnapshot]
+    sightings: list[AiSightingSnapshot]
+
+
+class AiMemorySnapshot(_SnapshotSubModel):
+    """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["ai_memories"]`
+    (CR004.3/#284): one AI seat's `AiMemory`.
+
+    `construction`/`orders` were originally left as loosely-typed `dict[str,
+    Any]` while CR004.4/CR004.5 were still in flight on separate branches
+    (see git history). Now that both have merged, their shapes are fixed --
+    `_ai_construction_memory_snapshot`/`_ai_order_memory_snapshot` in
+    `nether_earth.snapshot` -- so they are typed as strict sub-models here,
+    matching `common.schema.json`'s `ai_memories` `$def`.
+    """
+
+    player_id: PlayerId
+    construction: AiConstructionMemorySnapshot
+    orders: AiOrderMemorySnapshot
+
+
+class RobotLaunchCountSnapshot(_SnapshotSubModel):
+    """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["robot_launches"]`
+    (CR004.12/#295): how many robots a player has ever launched.
+    """
+
+    player_id: PlayerId
+    launched: int = Field(ge=1)
+
+
 class SnapshotState(_SnapshotSubModel):
     """Mirrors `nether_earth.snapshot.to_snapshot(state)`'s exact return shape.
 
@@ -445,3 +505,22 @@ class SnapshotState(_SnapshotSubModel):
     structure_destruction: list[EntityId]
     #: Blocker ids turned into rough debris by a nuclear blast (CR002.18).
     scenery_debris: list[EntityId]
+    #: One entry per AI seat (CR004.3/#284), canonical (player-sorted) order.
+    #: Defaults to empty for an all-human match; `_serialize` below then
+    #: elides the key entirely, mirroring `to_snapshot`'s own elision so a
+    #: PvP snapshot's wire shape -- and `model_dump()` -- is byte-identical
+    #: to before this field existed.
+    ai_memories: list[AiMemorySnapshot] = Field(default_factory=list)
+    #: Robots each player has ever launched (CR004.12/#295), canonical order.
+    #: Empty until the first launch; `_serialize` then elides the key,
+    #: mirroring `to_snapshot`.
+    robot_launches: list[RobotLaunchCountSnapshot] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: Any) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.ai_memories:
+            data.pop("ai_memories", None)
+        if not self.robot_launches:
+            data.pop("robot_launches", None)
+        return data

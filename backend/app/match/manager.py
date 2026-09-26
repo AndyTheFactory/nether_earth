@@ -24,7 +24,7 @@ import time
 import unicodedata
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from nether_earth import engine as engine_module
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, PlayerId
@@ -50,6 +50,11 @@ from app.match.runtime import MatchRuntimeRegistry, TickCommandObserver, TickObs
 #: so the resulting player set matches exactly what `engine.new_game` would
 #: derive on its own.
 _SEAT_ORDER: tuple[PlayerId, ...] = (PLAYER_ONE, PLAYER_TWO)
+
+#: The seat the engine's AI drives in a solo match (CR004.7, issue #288):
+#: the human creator takes PLAYER_ONE exactly as in PvP, the AI the seat a
+#: joining guest would otherwise take.
+SOLO_AI_SEAT: PlayerId = PLAYER_TWO
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,16 @@ class CreateMatchResult:
     join_code: str
     session_token: str
     player_id: PlayerId
+
+
+@dataclass(frozen=True, slots=True)
+class CreateSoloMatchResult:
+    """A solo match's human credentials. No join code: a solo match cannot be joined."""
+
+    match_id: str
+    session_token: str
+    player_id: PlayerId
+    ai_player_id: PlayerId
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,36 +229,87 @@ class MatchManager:
 
     def create_match(self, nickname: str, *, seed: int | None = None) -> CreateMatchResult:
         """Create a new ``WAITING`` match with ``nickname`` as its first (PLAYER_ONE) slot."""
+        match, session_token = self._create(nickname, seed=seed, solo=False)
+        join_code = match.join_code
+        if join_code is None:
+            raise RuntimeError("a PvP match must always be created with a join code")
+        return CreateMatchResult(
+            match_id=match.match_id,
+            join_code=join_code,
+            session_token=session_token,
+            player_id=PLAYER_ONE,
+        )
+
+    def create_solo_match(self, nickname: str, *, seed: int | None = None) -> CreateSoloMatchResult:
+        """Create a solo ``WAITING`` match: ``nickname`` in PLAYER_ONE, the AI in :data:`SOLO_AI_SEAT`.
+
+        The AI seat is occupied and ready from creation, so the human's own
+        ``set_ready`` is all that is left before the match starts -- the same
+        WAITING -> ACTIVE transition (and the same transport "started"
+        announcement) as PvP, without a second connection. No join code is
+        issued or indexed, so no second player can join.
+
+        Requires a real ``world`` (``MatchManager(world=...)``): the engine
+        cannot step a state with an AI seat without one, so a solo match on
+        the placeholder map would crash on its first tick.
+        """
+        if self._world is None:
+            raise ValueError("a solo match needs a MatchManager constructed with a world")
+        match, session_token = self._create(nickname, seed=seed, solo=True)
+        ai_player_id = match.ai_player_id
+        if ai_player_id is None:
+            raise RuntimeError("a solo match must always be created with an AI seat")
+        return CreateSoloMatchResult(
+            match_id=match.match_id,
+            session_token=session_token,
+            player_id=PLAYER_ONE,
+            ai_player_id=ai_player_id,
+        )
+
+    def _create(self, nickname: str, *, seed: int | None, solo: bool) -> tuple[Match, str]:
         nickname = _validate_nickname(nickname)
         with self._lock:
             if self._max_matches is not None and len(self._matches) >= self._max_matches:
                 raise ServerBusyError("server is at match capacity; try again later")
             match_id = uuid.uuid4().hex
-            join_code = self._generate_unique_join_code()
+            join_code = None if solo else self._generate_unique_join_code()
             match_seed = seed if seed is not None else secrets.randbits(63)
             session_token = _generate_session_token()
 
             match = Match(
-                match_id=match_id, join_code=join_code, seed=match_seed, created_at=self._clock()
+                match_id=match_id,
+                join_code=join_code,
+                seed=match_seed,
+                created_at=self._clock(),
+                ai_player_id=SOLO_AI_SEAT if solo else None,
             )
             match.players[PLAYER_ONE] = PlayerSlot(
                 player_id=PLAYER_ONE, nickname=nickname, session_token=session_token
             )
 
             self._matches[match_id] = match
-            self._match_id_by_join_code[join_code] = match_id
+            if join_code is not None:
+                self._match_id_by_join_code[join_code] = match_id
             self._match_id_by_session_token[session_token] = match_id
 
         logger.info(
             "match created",
-            extra={"event": "match_created", "match_id": match_id, "player_id": PLAYER_ONE.value},
+            extra={
+                "event": "match_created",
+                "match_id": match_id,
+                "player_id": PLAYER_ONE.value,
+                "solo": solo,
+            },
         )
-        return CreateMatchResult(
-            match_id=match_id,
-            join_code=join_code,
-            session_token=session_token,
-            player_id=PLAYER_ONE,
-        )
+        return match, session_token
+
+    def _scenario_for(self, match: Match) -> Scenario:
+        """The scenario ``match`` plays: the configured one, with its AI seat (if any) set to ``"ai"``."""
+        if match.ai_player_id is None:
+            return self._scenario
+        if match.ai_player_id == PLAYER_ONE:
+            return replace(self._scenario, player_one_controller="ai")
+        return replace(self._scenario, player_two_controller="ai")
 
     def join_match(self, join_code: str, nickname: str) -> JoinMatchResult:
         """Join the second (PLAYER_TWO) slot of the match identified by ``join_code``.
@@ -306,22 +372,28 @@ class MatchManager:
         caller checks ``match.state is WAITING`` before invoking this.
         """
         players = tuple(_SEAT_ORDER)
+        scenario = self._scenario_for(match)
         if self._world is not None:
-            match.game_state = create_initial_state(self._scenario, self._world, seed=match.seed)
+            match.game_state = create_initial_state(scenario, self._world, seed=match.seed)
         else:
             match.game_state = engine_module.new_game(
-                self._map_data, self._scenario, players=players, seed=match.seed
+                self._map_data, scenario, players=players, seed=match.seed
             )
         match.state = MatchRuntimeState.ACTIVE
         logger.info(
             "match started",
-            extra={"event": "match_started", "match_id": match.match_id, "seed": match.seed},
+            extra={
+                "event": "match_started",
+                "match_id": match.match_id,
+                "seed": match.seed,
+                "solo": match.is_solo,
+            },
         )
         if self._on_match_start is not None:
             # Before the runtime starts (see below) -- a replay writer must
             # see the match's identity/seed/scenario before any tick it
             # will ever be asked to append (M7 Task 8, issue #97).
-            self._on_match_start(match, self._scenario, self._map_data)
+            self._on_match_start(match, scenario, self._map_data)
         if self._runtime is not None:
             # Whenever `on_tick_factory` actually produced an observer,
             # require an explicit `announce_started()` (see `runtime.py`)
@@ -401,7 +473,8 @@ class MatchManager:
         with self._lock:
             match = self._get_match_locked(match_id)
             del self._matches[match_id]
-            self._match_id_by_join_code.pop(match.join_code, None)
+            if match.join_code is not None:
+                self._match_id_by_join_code.pop(match.join_code, None)
             for slot in match.players.values():
                 self._match_id_by_session_token.pop(slot.session_token, None)
             if self._runtime is not None:

@@ -23,6 +23,9 @@ Locked policy (see the M7 Task 7 brief / issue #96 -- non-negotiable):
   Never invented as a winner.
 - No manual pause exists in v1 -- the only path into `PAUSED_DISCONNECTED`
   is a disconnect notification.
+- Solo matches (CR004.7): the AI seat is never disconnected, so only the
+  human can pause the match; the AI is always an eligible opponent, so a
+  human's expiry is a forfeit to the AI and never a no-contest.
 
 Design: one :class:`ReconnectCoordinator` is shared across every match (like
 `MatchRuntimeRegistry`), keyed internally by `match_id`. For each
@@ -117,8 +120,12 @@ DisconnectNotifier = Callable[[DisconnectEvent], Coroutine[Any, Any, None]]
 
 
 def _other_player(match: Match, player_id: PlayerId) -> PlayerId:
-    """Return ``match``'s other player id (v1 is fixed at exactly two seats)."""
-    for candidate in match.players:
+    """Return ``match``'s other seat (v1 is fixed at exactly two seats).
+
+    Includes a solo match's AI seat, so a human who forfeits a solo match
+    loses to the AI exactly as they would to a human opponent.
+    """
+    for candidate in match.seat_ids:
         if candidate != player_id:
             return candidate
     raise KeyError(f"match {match.match_id!r} has no opponent seat for {player_id!r}")
@@ -204,7 +211,15 @@ class ReconnectCoordinator:
         the *first* currently-disconnected player for this match -- a
         second disconnect while already paused starts that second player's
         own independent deadline without re-pausing or re-notifying.
+
+        A solo match's AI seat has no connection and is never disconnected
+        (CR004.7): a notification naming it is ignored, so it can neither
+        pause the match nor take part in a both-disconnected no-contest. The
+        human disconnecting pauses a solo match with the same grace window
+        as PvP.
         """
+        if player_id == match.ai_player_id:
+            return
         if match.state not in (MatchRuntimeState.ACTIVE, MatchRuntimeState.PAUSED_DISCONNECTED):
             return
 

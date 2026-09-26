@@ -29,6 +29,13 @@ export interface ClientCreateMatch {
    * via the `definition` "nickname".
    */
   nickname: string;
+  /**
+   * CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` and `created.opponent` are both optional; absent means "human" on either side, so existing PvP clients and replies stay byte-compatible. `created.opponent` is only ever present as `"computer"`, for a solo match.
+   *
+   * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+   * via the `definition` "opponentMode".
+   */
+  opponent?: "human" | "computer";
 }
 export interface ClientJoinMatch {
   /**
@@ -551,6 +558,67 @@ export interface SnapshotState {
    * Ids of map blockers a nuclear blast turned into rough debris (CR002.18), canonical order. Their cells are rough terrain and no longer block.
    */
   scenery_debris: string[];
+  /**
+   * One entry per AI seat's AiMemory (CR004.3/#284), canonical (player-sorted) order. Omitted entirely for an all-human match -- this property is deliberately NOT in `required` below, matching to_snapshot's own elision. The shapes below mirror `nether_earth.snapshot._ai_construction_memory_snapshot` (CR004.4) and `_ai_order_memory_snapshot` (CR004.5) exactly, now that both sub-planners have merged and their fields are known: `construction.last_war_base_id` is the war base id the construction planner last acted on, or null; `orders.defences` are AiDefenceAssignment entries (which robot defends which structure against which intruder, and whether an approach order was already issued); `orders.sightings` are AiSighting entries (an enemy robot last seen and its distance to the nearest owned structure).
+   */
+  ai_memories?: {
+    /**
+     * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+     * via the `definition` "playerId".
+     */
+    player_id: string;
+    construction: {
+      /**
+       * CR004.4: the war base id the construction planner last acted on, or null.
+       */
+      last_war_base_id: string | null;
+    };
+    orders: {
+      /**
+       * CR004.5: AiDefenceAssignment entries -- which robot is defending which structure against which intruder.
+       */
+      defences: {
+        /**
+         * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+         * via the `definition` "entityId".
+         */
+        defender_id: string;
+        /**
+         * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+         * via the `definition` "entityId".
+         */
+        intruder_id: string;
+        /**
+         * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+         * via the `definition` "entityId".
+         */
+        structure_id: string;
+        approached: boolean;
+      }[];
+      /**
+       * CR004.5: AiSighting entries -- an enemy robot last seen and its distance.
+       */
+      sightings: {
+        /**
+         * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+         * via the `definition` "entityId".
+         */
+        robot_id: string;
+        distance: number;
+      }[];
+    };
+  }[];
+  /**
+   * How many robots each player has ever launched (CR004.12/#295), canonical (player-sorted) order; a player with no launches has no entry. The count only grows, so robot ids (robot-<player>-<n>) are never reused after a robot dies. Omitted entirely until the first launch -- deliberately NOT in `required` below, matching to_snapshot's own elision.
+   */
+  robot_launches?: {
+    /**
+     * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+     * via the `definition` "playerId".
+     */
+    player_id: string;
+    launched: number;
+  }[];
 }
 /**
  * Sent by a client re-establishing a WebSocket connection to an existing match after a disconnect.
@@ -621,7 +689,7 @@ export interface SnapshotMessage {
   state: SnapshotState;
 }
 /**
- * Sent to the creating player only, in response to a client create command.
+ * Sent to the creating player only, in response to a client create command. `joinCode` is `null` for a solo match (CR004.8, issue #289): it has no second human slot to join. `opponent` states which seat the server actually created, but only when it is `"computer"` (a solo match); it is absent for every existing PvP create, so a plain `create` reply carries no new key on the wire and stays byte-compatible with clients that predate CR004.8. A missing `opponent` means "human", the same convention `createMatch.opponent` itself uses. The frontend uses it to skip the waiting/ready screens and name the AI seat in the HUD, never to decide gameplay legality.
  */
 export interface ServerCreated {
   /**
@@ -635,11 +703,7 @@ export interface ServerCreated {
    * via the `definition` "matchId".
    */
   matchId: string;
-  /**
-   * This interface was referenced by `ProtocolCommon`'s JSON-Schema
-   * via the `definition` "joinCode".
-   */
-  joinCode: string;
+  joinCode: string | null;
   /**
    * This interface was referenced by `ProtocolCommon`'s JSON-Schema
    * via the `definition` "playerId".
@@ -650,6 +714,13 @@ export interface ServerCreated {
    * via the `definition` "sessionToken".
    */
   sessionToken: string;
+  /**
+   * CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` and `created.opponent` are both optional; absent means "human" on either side, so existing PvP clients and replies stay byte-compatible. `created.opponent` is only ever present as `"computer"`, for a solo match.
+   *
+   * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+   * via the `definition` "opponentMode".
+   */
+  opponent?: "human" | "computer";
 }
 /**
  * Sent to the joining player only, acknowledging their own identity/session. Roster/readiness for both players is broadcast separately via readyState.

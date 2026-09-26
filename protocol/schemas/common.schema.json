@@ -68,6 +68,11 @@
       "required": ["playerId", "nickname", "ready"],
       "additionalProperties": false
     },
+    "opponentMode": {
+      "description": "CR004.8: the second seat of a match -- a second human player (default, today's PvP behaviour) or the engine's AI seat. `createMatch.opponent` and `created.opponent` are both optional; absent means \"human\" on either side, so existing PvP clients and replies stay byte-compatible. `created.opponent` is only ever present as `\"computer\"`, for a solo match.",
+      "type": "string",
+      "enum": ["human", "computer"]
+    },
     "cellDelta": {
       "description": "A single classic 4-directional grid step: exactly one of dx/dy is nonzero, each restricted to {-1,0,1}. Mirrors nether_earth's CommanderMoveCommand/DirectRobotMoveCommand `__post_init__` shape check -- structural, not a legality decision.",
       "type": "integer",
@@ -455,6 +460,77 @@
           "description": "Ids of map blockers a nuclear blast turned into rough debris (CR002.18), canonical order. Their cells are rough terrain and no longer block.",
           "type": "array",
           "items": { "$ref": "#/$defs/entityId" }
+        },
+        "ai_memories": {
+          "description": "One entry per AI seat's AiMemory (CR004.3/#284), canonical (player-sorted) order. Omitted entirely for an all-human match -- this property is deliberately NOT in `required` below, matching to_snapshot's own elision. The shapes below mirror `nether_earth.snapshot._ai_construction_memory_snapshot` (CR004.4) and `_ai_order_memory_snapshot` (CR004.5) exactly, now that both sub-planners have merged and their fields are known: `construction.last_war_base_id` is the war base id the construction planner last acted on, or null; `orders.defences` are AiDefenceAssignment entries (which robot defends which structure against which intruder, and whether an approach order was already issued); `orders.sightings` are AiSighting entries (an enemy robot last seen and its distance to the nearest owned structure).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "player_id": { "$ref": "#/$defs/playerId" },
+              "construction": {
+                "type": "object",
+                "properties": {
+                  "last_war_base_id": {
+                    "description": "CR004.4: the war base id the construction planner last acted on, or null.",
+                    "anyOf": [{ "$ref": "#/$defs/entityId" }, { "type": "null" }]
+                  }
+                },
+                "required": ["last_war_base_id"],
+                "additionalProperties": false
+              },
+              "orders": {
+                "type": "object",
+                "properties": {
+                  "defences": {
+                    "description": "CR004.5: AiDefenceAssignment entries -- which robot is defending which structure against which intruder.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "defender_id": { "$ref": "#/$defs/entityId" },
+                        "intruder_id": { "$ref": "#/$defs/entityId" },
+                        "structure_id": { "$ref": "#/$defs/entityId" },
+                        "approached": { "type": "boolean" }
+                      },
+                      "required": ["defender_id", "intruder_id", "structure_id", "approached"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sightings": {
+                    "description": "CR004.5: AiSighting entries -- an enemy robot last seen and its distance.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "robot_id": { "$ref": "#/$defs/entityId" },
+                        "distance": { "type": "integer" }
+                      },
+                      "required": ["robot_id", "distance"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["defences", "sightings"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["player_id", "construction", "orders"],
+            "additionalProperties": false
+          }
+        },
+        "robot_launches": {
+          "description": "How many robots each player has ever launched (CR004.12/#295), canonical (player-sorted) order; a player with no launches has no entry. The count only grows, so robot ids (robot-<player>-<n>) are never reused after a robot dies. Omitted entirely until the first launch -- deliberately NOT in `required` below, matching to_snapshot's own elision.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "player_id": { "$ref": "#/$defs/playerId" },
+              "launched": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["player_id", "launched"],
+            "additionalProperties": false
+          }
         }
       },
       "required": [

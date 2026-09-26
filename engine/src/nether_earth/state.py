@@ -144,6 +144,15 @@ of map blockers a nuclear blast has turned into rough debris
 writer; :func:`~nether_earth.destruction.effective_world` is the sole reader
 that drops those blockers and makes their cells rough terrain. The base
 ``WorldMap`` is never mutated.
+
+AI memories field (CR004.3, issue #284): ``ai_memories`` holds one
+:class:`AiMemory` per AI-controlled seat -- the planner's carry-over state,
+which must live here (not in a Python object beside the loop) so it
+round-trips through snapshots and replays. Presence of a player's memory *is*
+what makes that seat an AI seat; a human seat has none, so an all-human match
+keeps ``ai_memories == ()``. Canonical sorted-by-player tuple, like
+``commanders``. An AI seat has no commander (owner decision 2026-09-25), which
+:func:`create_game_state`/:meth:`GameState.with_commanders` enforce.
 """
 
 from __future__ import annotations
@@ -160,6 +169,162 @@ if TYPE_CHECKING:
     from nether_earth.combat import Projectile
     from nether_earth.construction_session import ConstructionSession
     from nether_earth.robot import Robot
+
+
+@dataclass(frozen=True, slots=True)
+class AiConstructionMemory:
+    """Carry-over state of the AI construction sub-planner (CR004.4).
+
+    ``last_war_base_id`` is the war base the planner last built at, so the
+    next build goes to the next owned war base in map order (round robin).
+    ``None`` before the first build.
+    """
+
+    last_war_base_id: EntityId | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AiDefenceAssignment:
+    """One AI robot sent to meet one enemy robot threatening an owned structure (CR004.5)."""
+
+    defender_id: EntityId
+    intruder_id: EntityId
+    structure_id: EntityId
+    #: An approach (Advance/Retreat) was already issued for this assignment;
+    #: the planner does not issue it again (no churn after a fallback).
+    approached: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AiSighting:
+    """An enemy robot's distance to the AI's nearest owned structure at the last decision."""
+
+    robot_id: EntityId
+    distance: int
+
+
+@dataclass(frozen=True, slots=True)
+class AiOrderMemory:
+    """Carry-over state of the AI robot-order sub-planner (CR004.5).
+
+    ``defences`` are the standing defender assignments, sorted by defender
+    id; ``sightings`` are last decision's enemy distances, sorted by robot
+    id, which tell a closing enemy from one holding or leaving.
+    """
+
+    defences: tuple[AiDefenceAssignment, ...] = ()
+    sightings: tuple[AiSighting, ...] = ()
+
+    def __post_init__(self) -> None:
+        defenders = [entry.defender_id.value for entry in self.defences]
+        if defenders != sorted(set(defenders)):
+            raise ValueError("defences must be sorted by defender id, one per defender")
+        sighted = [entry.robot_id.value for entry in self.sightings]
+        if sighted != sorted(set(sighted)):
+            raise ValueError("sightings must be sorted by robot id, one per robot")
+
+
+@dataclass(frozen=True, slots=True)
+class AiMemory:
+    """One AI seat's planner carry-over state (CR004.3).
+
+    Each sub-planner owns one sub-record, so the construction and order
+    planners evolve their own state without touching each other's fields.
+    """
+
+    player_id: PlayerId
+    construction: AiConstructionMemory = AiConstructionMemory()
+    orders: AiOrderMemory = AiOrderMemory()
+
+
+@dataclass(frozen=True, slots=True)
+class RobotLaunchCount:
+    """How many robots ``player_id`` has ever launched (CR004.12, #295).
+
+    It is also the ordinal of that player's newest robot id
+    (``robot-<player>-<launched>``). It only ever grows: a robot's death
+    does not lower it, so an id is never issued twice in a match.
+    """
+
+    player_id: PlayerId
+    launched: int
+
+    def __post_init__(self) -> None:
+        if self.launched < 1:
+            raise ValueError(f"robot launch count must be >= 1, got {self.launched}")
+
+
+def _canonical_robot_launches(
+    robot_launches: tuple[RobotLaunchCount, ...],
+) -> tuple[RobotLaunchCount, ...]:
+    """Return ``robot_launches`` sorted by ``player_id.value``; at most one per player."""
+    if len({count.player_id for count in robot_launches}) != len(robot_launches):
+        raise ValueError("duplicate robot launch count: a player has at most one")
+    return tuple(sorted(robot_launches, key=lambda count: count.player_id.value))
+
+
+def _robot_launch_ordinal(entity_id: EntityId, owner: PlayerId) -> int | None:
+    """Return ``n`` if ``entity_id`` is ``robot-<owner>-<n>`` for ``owner``, else ``None``.
+
+    Ids that do not follow the ``robot-<owner>-<n>`` scheme (e.g. an older
+    test fixture's bare ``robot-1``) are not this owner's launch history and
+    are silently ignored by :func:`create_game_state`'s consistency check.
+    """
+    prefix = f"robot-{owner.value}-"
+    if not entity_id.value.startswith(prefix):
+        return None
+    ordinal = entity_id.value[len(prefix) :]
+    return int(ordinal) if ordinal.isdigit() else None
+
+
+def _check_robot_launches_cover_robot_ids(
+    robots: tuple[Robot, ...],
+    robot_launches: tuple[RobotLaunchCount, ...],
+) -> None:
+    """Fail fast (T12, final-review fix wave) if ``robot_launches`` understates a robot id.
+
+    ``robot_launches`` is the source of the *next* robot id
+    (:func:`nether_earth.robot_launch._next_robot_id`: ``robots_launched_by(owner) + 1``),
+    so a live robot with a higher ``robot-<owner>-<n>`` ordinal than its
+    owner's recorded count means the next robot launched would collide with
+    it -- a state no legitimate sequence of commands can produce. Raising
+    here, rather than silently accepting it, turns that into an immediate
+    construction-time error instead of a later, harder-to-trace id clash.
+    """
+    launched_by: dict[PlayerId, int] = {count.player_id: count.launched for count in robot_launches}
+    highest_by_owner: dict[PlayerId, int] = {}
+    for robot in robots:
+        ordinal = _robot_launch_ordinal(robot.entity_id, robot.owner)
+        if ordinal is None:
+            continue
+        if ordinal > highest_by_owner.get(robot.owner, 0):
+            highest_by_owner[robot.owner] = ordinal
+    for owner, highest in highest_by_owner.items():
+        if launched_by.get(owner, 0) < highest:
+            raise ValueError(
+                f"robot_launches for {owner.value!r} is {launched_by.get(owner, 0)}, "
+                f"but a robot with id ordinal {highest} exists; "
+                "robot_launches must be at least the highest robot id ordinal that owner has"
+            )
+
+
+def _canonical_ai_memories(ai_memories: tuple[AiMemory, ...]) -> tuple[AiMemory, ...]:
+    """Return ``ai_memories`` sorted by ``player_id.value``; at most one per player."""
+    if len({memory.player_id for memory in ai_memories}) != len(ai_memories):
+        raise ValueError("duplicate AI memory: a seat has at most one AI memory")
+    return tuple(sorted(ai_memories, key=lambda memory: memory.player_id.value))
+
+
+def _check_ai_seats_have_no_commander(
+    commanders: tuple[Commander, ...], ai_memories: tuple[AiMemory, ...]
+) -> None:
+    """Raise if any AI seat has a commander (owner decision 2026-09-25)."""
+    ai_players = {memory.player_id for memory in ai_memories}
+    for commander in commanders:
+        if commander.player_id in ai_players:
+            raise ValueError(
+                f"AI seat {commander.player_id.value!r} must not have a commander"
+            )
 
 
 def _canonical_commanders(commanders: tuple[Commander, ...]) -> tuple[Commander, ...]:
@@ -418,6 +583,11 @@ class GameState:
     record who owns it). It is always stored in canonical (sorted by
     ``EntityId.value``) order, at most once per structure id; it defaults
     to ``()`` so existing callers keep working unchanged.
+
+    ``robot_launches`` (CR004.12, #295) counts the robots each player has
+    ever launched (:class:`RobotLaunchCount`), the source of new robot ids
+    (``robot_launch.py``). Canonical (sorted by player), at most one entry
+    per player, none for a player who has not launched; defaults to ``()``.
     """
 
     tick: int
@@ -432,6 +602,8 @@ class GameState:
     projectiles: tuple[Projectile, ...] = ()
     structure_destruction: tuple[EntityId, ...] = ()
     scenery_debris: tuple[EntityId, ...] = ()
+    ai_memories: tuple[AiMemory, ...] = ()
+    robot_launches: tuple[RobotLaunchCount, ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -456,6 +628,8 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -477,6 +651,7 @@ class GameState:
                     "participant in this GameState's players"
                 )
         canonical_commanders = _canonical_commanders(tuple(commanders))
+        _check_ai_seats_have_no_commander(canonical_commanders, self.ai_memories)
         return GameState(
             tick=self.tick,
             players=self.players,
@@ -490,6 +665,8 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -533,6 +710,8 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -578,6 +757,8 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -619,6 +800,8 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def robot_for(self, entity_id: EntityId) -> Robot | None:
@@ -667,6 +850,8 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def structure_ownership_for(self, structure_id: EntityId) -> StructureOwnership | None:
@@ -701,6 +886,8 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def capture_progress_for(self, structure_id: EntityId) -> CaptureProgress | None:
@@ -737,6 +924,8 @@ class GameState:
             projectiles=canonical_projectiles,
             structure_destruction=self.structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def projectile_for(self, entity_id: EntityId) -> Projectile | None:
@@ -774,6 +963,8 @@ class GameState:
             projectiles=self.projectiles,
             structure_destruction=canonical_structure_destruction,
             scenery_debris=self.scenery_debris,
+            ai_memories=self.ai_memories,
+            robot_launches=self.robot_launches,
         )
 
     def structure_destroyed(self, structure_id: EntityId) -> bool:
@@ -787,6 +978,53 @@ class GameState:
         other field is carried over unchanged.
         """
         return replace(self, scenery_debris=_canonical_scenery_debris(tuple(scenery_debris)))
+
+    def robots_launched_by(self, player_id: PlayerId) -> int:
+        """Return how many robots ``player_id`` has ever launched (``0`` if none)."""
+        for count in self.robot_launches:
+            if count.player_id == player_id:
+                return count.launched
+        return 0
+
+    def with_robots_launched(self, player_id: PlayerId, launched: int) -> GameState:
+        """Return a new ``GameState`` recording ``launched`` robots ever launched by ``player_id``.
+
+        The count never goes down (ids are never reused, #295).
+        """
+        if player_id not in self.players:
+            raise ValueError(f"{player_id.value!r} is not a participant in players")
+        if launched < self.robots_launched_by(player_id):
+            raise ValueError("a robot launch count never decreases")
+        others = tuple(count for count in self.robot_launches if count.player_id != player_id)
+        return replace(
+            self,
+            robot_launches=_canonical_robot_launches(
+                (*others, RobotLaunchCount(player_id=player_id, launched=launched))
+            ),
+        )
+
+    def ai_memory_for(self, player_id: PlayerId) -> AiMemory | None:
+        """Return ``player_id``'s AI memory, or ``None`` for a human seat."""
+        for memory in self.ai_memories:
+            if memory.player_id == player_id:
+                return memory
+        return None
+
+    def with_ai_memory(self, memory: AiMemory) -> GameState:
+        """Return a new ``GameState`` with ``memory`` replacing its seat's AI memory.
+
+        The seat must already be an AI seat: a match's seat controllers are
+        fixed at creation, so this cannot turn a human seat into an AI one.
+        """
+        if self.ai_memory_for(memory.player_id) is None:
+            raise ValueError(f"{memory.player_id.value!r} is not an AI seat")
+        return replace(
+            self,
+            ai_memories=tuple(
+                memory if existing.player_id == memory.player_id else existing
+                for existing in self.ai_memories
+            ),
+        )
 
 
 def create_game_state(
@@ -802,6 +1040,8 @@ def create_game_state(
     projectiles: tuple[Projectile, ...] | list[Projectile] | None = None,
     structure_destruction: tuple[EntityId, ...] | list[EntityId] | None = None,
     scenery_debris: tuple[EntityId, ...] | list[EntityId] | None = None,
+    ai_memories: tuple[AiMemory, ...] | list[AiMemory] | None = None,
+    robot_launches: tuple[RobotLaunchCount, ...] | list[RobotLaunchCount] | None = None,
 ) -> GameState:
     """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress``/``projectiles``/``structure_destruction`` normalized.
 
@@ -856,6 +1096,16 @@ def create_game_state(
     ``structure_destruction`` defaults to no destroyed structures (``()``);
     no id may appear twice (see the module docstring). The resulting
     ``GameState.structure_destruction`` is always sorted by ``id.value``.
+
+    ``ai_memories`` defaults to none (every seat human); each memory's
+    ``player_id`` must be a participant, at most one per player, and an AI
+    seat may not also be given a commander.
+
+    ``robot_launches`` defaults to none (T12, final-review fix wave): each
+    owner's recorded count must be at least the highest ``robot-<owner>-<n>``
+    ordinal among that owner's ``robots``, or a ``ValueError`` is raised --
+    a lower or missing count would let the next launched robot collide with
+    an id already in use (see :func:`_check_robot_launches_cover_robot_ids`).
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -917,6 +1167,27 @@ def create_game_state(
         resolved_structure_destruction
     )
 
+    canonical_ai_memories = _canonical_ai_memories(
+        () if ai_memories is None else tuple(ai_memories)
+    )
+    for memory in canonical_ai_memories:
+        if memory.player_id not in canonical_players:
+            raise ValueError(
+                f"AI memory player_id {memory.player_id.value!r} is not a participant in players"
+            )
+    _check_ai_seats_have_no_commander(canonical_commanders, canonical_ai_memories)
+
+    canonical_robot_launches = _canonical_robot_launches(
+        () if robot_launches is None else tuple(robot_launches)
+    )
+    for count in canonical_robot_launches:
+        if count.player_id not in canonical_players:
+            raise ValueError(
+                f"robot launch count player_id {count.player_id.value!r} "
+                "is not a participant in players"
+            )
+    _check_robot_launches_cover_robot_ids(canonical_robots, canonical_robot_launches)
+
     return GameState(
         tick=tick,
         players=canonical_players,
@@ -932,4 +1203,6 @@ def create_game_state(
         scenery_debris=_canonical_scenery_debris(
             () if scenery_debris is None else tuple(scenery_debris)
         ),
+        ai_memories=canonical_ai_memories,
+        robot_launches=canonical_robot_launches,
     )

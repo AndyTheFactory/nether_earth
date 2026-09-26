@@ -1,0 +1,9 @@
+{
+  "protocolVersion": 1,
+  "type": "created",
+  "matchId": "match-1",
+  "joinCode": null,
+  "playerId": "player-1",
+  "sessionToken": "session-token-1",
+  "opponent": "computer"
+}

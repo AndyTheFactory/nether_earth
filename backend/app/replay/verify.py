@@ -43,11 +43,11 @@ from nether_earth.orders import SetRobotOrderCommand
 from nether_earth.replay import ReplayFixture, run_fixture, run_from_state
 from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import RULES_VERSION, rules_content_hash
-from nether_earth.scenario import Scenario, create_initial_state
+from nether_earth.scenario import Scenario, create_initial_state, default_pvp_scenario
 from nether_earth.snapshot import to_snapshot
 
 from app.replay.orders_json import order_from_json
-from app.replay.writer import match_dir
+from app.replay.writer import match_dir, meta_seat_controllers
 
 __all__ = [
     "ReplayRulesMismatchError",
@@ -57,6 +57,10 @@ __all__ = [
     "load_meta",
     "verify_replay",
 ]
+
+#: Seat controllers for an artifact recorded before ``seat_controllers`` was
+#: written to ``meta.json`` (CR004.7): every seat before CR004 was human.
+_ALL_HUMAN_SEAT_CONTROLLERS = meta_seat_controllers(default_pvp_scenario())
 
 
 def load_meta(base_dir: Path, match_id: str) -> dict[str, Any]:
@@ -242,6 +246,15 @@ def verify_replay(
     """
     meta = load_meta(base_dir, match_id)
     check_rules_identity(meta)
+    # Only human commands are persisted; an AI seat's are re-derived by the
+    # engine, so the scenario must name the same AI seats (CR004.7). An
+    # artifact from before seat controllers were recorded is all-human.
+    recorded_controllers = meta.get("seat_controllers") or _ALL_HUMAN_SEAT_CONTROLLERS
+    if meta_seat_controllers(scenario) != recorded_controllers:
+        raise ValueError(
+            f"scenario seat controllers {meta_seat_controllers(scenario)} do not match "
+            f"artifact {recorded_controllers}"
+        )
     commands_by_tick = load_commands_by_tick(base_dir, match_id)
     tick_count = meta["final_tick"]
     if tick_count is None:

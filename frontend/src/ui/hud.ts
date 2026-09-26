@@ -1,5 +1,5 @@
 import type { AppState } from '../state/store.ts';
-import { gameClock, myResources, dockedRobot, myConstruction, myCommander } from '../state/store.ts';
+import { gameClock, myResources, dockedRobot, myConstruction, myCommander, playerLabel } from '../state/store.ts';
 import type { MapData } from '../world/map.ts';
 import { Panel, esc } from './dom.ts';
 
@@ -43,7 +43,8 @@ export function renderHud(panel: Panel, s: AppState, map: MapData): void {
   }
   const owned = (p: string, kind: 'war' | 'fac') =>
     snap.structure_ownership.filter((o) => o.owner === p && (kind === 'war' ? map.war_bases.some((w) => w.id === o.structure_id) : map.factories.some((f) => f.id === o.structure_id)) && !snap.structure_destruction.includes(o.structure_id)).length;
-  html += `<div class="line own"><span class="p1">p1: ${owned('p1', 'war')} bases / ${owned('p1', 'fac')} factories</span> · <span class="p2">p2: ${owned('p2', 'war')} bases / ${owned('p2', 'fac')} factories</span> · robots ${snap.robots.filter((r) => r.owner === me).length}</div>`;
+  const label = (p: string) => playerLabel(s.connection.session, p);
+  html += `<div class="line own"><span class="p1">${esc(label('p1'))}: ${owned('p1', 'war')} bases / ${owned('p1', 'fac')} factories</span> · <span class="p2">${esc(label('p2'))}: ${owned('p2', 'war')} bases / ${owned('p2', 'fac')} factories</span> · robots ${snap.robots.filter((r) => r.owner === me).length}</div>`;
   const cmd = myCommander(snap, me);
   if (cmd) {
     html += `<div class="line">commander (${cmd.x},${cmd.y}) alt ${cmd.altitude} ${cmd.mode.toUpperCase()}${cmd.rising ? ' ↑' : ''}`;

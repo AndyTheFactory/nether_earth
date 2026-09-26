@@ -20,7 +20,7 @@ from nether_earth.robot import Robot, RobotFacing
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES, EngineRules
-from nether_earth.state import GameState, create_game_state
+from nether_earth.state import GameState, RobotLaunchCount, create_game_state
 from nether_earth.structures import Component, Factory, FactoryType, Footprint, WarBase
 from nether_earth.terrain import TerrainGrid, TerrainType
 
@@ -94,7 +94,24 @@ def _robot(
     return Robot(entity_id=EntityId(entity_id), owner=owner, x=x, y=y, build=build, stack=stack, height=height)
 
 
+def _robot_launches_for(robots: tuple[Robot, ...]) -> tuple[RobotLaunchCount, ...]:
+    """Seed a ``robot_launches`` counter matching each hand-placed robot's own id ordinal.
+
+    T12 (final-review fix wave): ``create_game_state`` now rejects a
+    ``robot-<owner>-<n>`` id whose owner's ``robot_launches`` count is below
+    ``n``. This test module hand-places robots with ids it chose itself
+    (``robot-p1-1``, ``robot-p2-9``, ...), so the counter must match those
+    ids exactly, not just count how many robots exist.
+    """
+    highest: dict[PlayerId, int] = {}
+    for robot in robots:
+        ordinal = int(robot.entity_id.value.rsplit("-", 1)[-1])
+        highest[robot.owner] = max(highest.get(robot.owner, 0), ordinal)
+    return tuple(RobotLaunchCount(owner, ordinal) for owner, ordinal in highest.items())
+
+
 def _state(robots: tuple[Robot, ...] = (), **kwargs: object) -> GameState:
+    kwargs.setdefault("robot_launches", _robot_launches_for(robots))
     return create_game_state(0, (PLAYER_ONE, PLAYER_TWO), robots=list(robots), **kwargs)  # type: ignore[arg-type]
 
 

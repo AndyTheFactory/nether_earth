@@ -123,3 +123,18 @@ test('nuclear debris and destroyed structures are not marked (debris is below el
   assert.ok(wbLit(snap) > 0);
   assert.equal(wbLit({ ...snap, structure_destruction: [wb.id] }), 0);
 });
+
+test('CR004.6: an AI seat with no commander renders no mark for it, and the map still renders', () => {
+  // The AI seat's snapshot has one `commanders` entry (the human's) plus an
+  // `ai_memories` entry for the computer seat -- never a second commander.
+  const humanOnly = { ...snapshotOf('world-static'), ai_memories: [{ player_id: 'p2', construction: { last_war_base_id: null }, orders: { defences: [], sightings: [] } }] };
+  const aiSeat = { ...humanOnly, commanders: humanOnly.commanders.filter((c) => c.player_id === 'p1') };
+  assert.equal(aiSeat.commanders.length, 1);
+  // The viewer's own (human) commander still marks normally.
+  assert.ok(commanderCell(aiSeat, 'p1'));
+  // Asking for the AI seat's commander is exactly the "not present" case
+  // every other radar-viewer lookup already tolerates.
+  assert.equal(commanderCell(aiSeat, 'p2'), null);
+  assert.doesNotThrow(() => radarBitmap(map, aiSeat, 0, 'p1', true));
+  assert.doesNotThrow(() => radarMarks(map, aiSeat, 0, 'p1', true));
+});

@@ -85,6 +85,22 @@ multi-field record.
 Scenery debris (CR002.18, #196): ``GameState.scenery_debris`` is serialized
 as ``"scenery_debris"``, a plain list of blocker ids in canonical order,
 appended after ``structure_destruction`` the same way.
+
+AI memories (CR004.3, #284): ``GameState.ai_memories`` is serialized as
+``"ai_memories"``, appended last, **only when the match has an AI seat**. An
+all-human state has no AI memory and no such key, so every PvP snapshot (and
+every replay fixture recorded from one) is byte-identical to before.
+:func:`ai_memory_from_snapshot` is the inverse of one entry, the planner
+state a reconnect or replay tool would restore. Each sub-planner's memory
+has its own serializer pair, so CR004.4/CR004.5 extend them independently.
+
+Robot launch counts (CR004.12, #295): ``GameState.robot_launches`` is
+serialized as ``"robot_launches"``, appended last, **only once some player
+has launched a robot** (an empty list is elided, so absent means ``[]``).
+Each entry is ``{"player_id", "launched"}``; the count only grows, so robot
+ids are never reused after a robot dies. Snapshots from before the first
+launch are byte-identical to before. :func:`robot_launch_count_from_snapshot`
+is the inverse of one entry.
 """
 
 from __future__ import annotations
@@ -97,6 +113,7 @@ from nether_earth.combat import Projectile
 from nether_earth.commander import Commander, GridTransition, VerticalTransition
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
+from nether_earth.ids import EntityId, PlayerId
 from nether_earth.orders import (
     Advance,
     Order,
@@ -108,10 +125,20 @@ from nether_earth.orders import (
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.robot import Robot, RobotMoveTransition, RobotTurnTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
-from nether_earth.state import GameState
+from nether_earth.state import (
+    AiConstructionMemory,
+    AiDefenceAssignment,
+    AiMemory,
+    AiOrderMemory,
+    AiSighting,
+    GameState,
+    RobotLaunchCount,
+)
 from nether_earth.structures import FactoryType
 
 __all__ = [
+    "ai_memory_from_snapshot",
+    "robot_launch_count_from_snapshot",
     "snapshot_to_json_string",
     "to_snapshot",
 ]
@@ -440,6 +467,85 @@ def _projectile_snapshot(projectile: Projectile) -> dict[str, Any]:
     }
 
 
+def _ai_construction_memory_snapshot(memory: AiConstructionMemory) -> dict[str, Any]:
+    """Return the construction sub-planner's memory as JSON-safe data (CR004.4)."""
+    last = memory.last_war_base_id
+    return {"last_war_base_id": None if last is None else last.to_json()}
+
+
+def _ai_construction_memory_from_snapshot(data: dict[str, Any]) -> AiConstructionMemory:
+    """Inverse of :func:`_ai_construction_memory_snapshot`."""
+    last = data["last_war_base_id"]
+    return AiConstructionMemory(last_war_base_id=None if last is None else EntityId.from_json(last))
+
+
+def _ai_order_memory_snapshot(memory: AiOrderMemory) -> dict[str, Any]:
+    """Return the robot-order sub-planner's memory as JSON-safe data (CR004.5)."""
+    return {
+        "defences": [
+            {
+                "defender_id": entry.defender_id.to_json(),
+                "intruder_id": entry.intruder_id.to_json(),
+                "structure_id": entry.structure_id.to_json(),
+                "approached": entry.approached,
+            }
+            for entry in memory.defences
+        ],
+        "sightings": [
+            {"robot_id": entry.robot_id.to_json(), "distance": entry.distance}
+            for entry in memory.sightings
+        ],
+    }
+
+
+def _ai_order_memory_from_snapshot(data: dict[str, Any]) -> AiOrderMemory:
+    """Inverse of :func:`_ai_order_memory_snapshot`."""
+    return AiOrderMemory(
+        defences=tuple(
+            AiDefenceAssignment(
+                defender_id=EntityId.from_json(entry["defender_id"]),
+                intruder_id=EntityId.from_json(entry["intruder_id"]),
+                structure_id=EntityId.from_json(entry["structure_id"]),
+                approached=entry.get("approached", False),
+            )
+            for entry in data.get("defences", [])
+        ),
+        sightings=tuple(
+            AiSighting(robot_id=EntityId.from_json(entry["robot_id"]), distance=entry["distance"])
+            for entry in data.get("sightings", [])
+        ),
+    )
+
+
+def _ai_memory_snapshot(memory: AiMemory) -> dict[str, Any]:
+    """Return a canonical, JSON-safe snapshot of one AI seat's :class:`AiMemory`."""
+    return {
+        "player_id": memory.player_id.to_json(),
+        "construction": _ai_construction_memory_snapshot(memory.construction),
+        "orders": _ai_order_memory_snapshot(memory.orders),
+    }
+
+
+def ai_memory_from_snapshot(data: dict[str, Any]) -> AiMemory:
+    """Rebuild one ``"ai_memories"`` entry of :func:`to_snapshot` into an :class:`AiMemory`."""
+    return AiMemory(
+        player_id=PlayerId.from_json(data["player_id"]),
+        construction=_ai_construction_memory_from_snapshot(data["construction"]),
+        orders=_ai_order_memory_from_snapshot(data["orders"]),
+    )
+
+
+def _robot_launch_count_snapshot(count: RobotLaunchCount) -> dict[str, Any]:
+    return {"player_id": count.player_id.to_json(), "launched": count.launched}
+
+
+def robot_launch_count_from_snapshot(data: dict[str, Any]) -> RobotLaunchCount:
+    """Rebuild one ``"robot_launches"`` entry of :func:`to_snapshot`."""
+    return RobotLaunchCount(
+        player_id=PlayerId.from_json(data["player_id"]), launched=data["launched"]
+    )
+
+
 def to_snapshot(state: GameState) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of ``state``.
 
@@ -471,11 +577,17 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     ``scenery_debris`` (CR002.18, #196): the ids of map blockers a nuclear
     blast turned into rough debris, appended last the same way.
 
+    ``ai_memories`` (CR004.3): appended last, and only when the state has an
+    AI seat (see the module docstring).
+
+    ``robot_launches`` (CR004.12): appended last, and only once a robot has
+    been launched (see the module docstring).
+
     Every field of ``GameState`` is now serialized; see the module docstring
     for why reservations and engagement intent, which M5 also introduced,
     correctly have no keys of their own.
     """
-    return {
+    snapshot: dict[str, Any] = {
         "tick": state.tick,
         "players": [player.to_json() for player in state.players],
         "seed": state.seed,
@@ -499,6 +611,15 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
         ],
         "scenery_debris": [blocker_id.to_json() for blocker_id in state.scenery_debris],
     }
+    if state.ai_memories:
+        # Elided for an all-human match: see the module docstring.
+        snapshot["ai_memories"] = [_ai_memory_snapshot(memory) for memory in state.ai_memories]
+    if state.robot_launches:
+        # Elided until the first launch: see the module docstring.
+        snapshot["robot_launches"] = [
+            _robot_launch_count_snapshot(count) for count in state.robot_launches
+        ]
+    return snapshot
 
 
 def snapshot_to_json_string(state: GameState) -> str:

@@ -1,0 +1,61 @@
+{
+  "protocolVersion": 1,
+  "type": "snapshot",
+  "matchId": "match-1",
+  "tick": 4,
+  "state": {
+    "tick": 4,
+    "players": ["p1", "p2"],
+    "seed": 0,
+    "commanders": [
+      {
+        "player_id": "p1",
+        "mode": "free",
+        "x": 1,
+        "y": 1,
+        "altitude": 1,
+        "docked_robot_id": null,
+        "rising": false,
+        "horizontal_transition": null,
+        "vertical_transition": null,
+        "elevate_updates_remaining": 0
+      }
+    ],
+    "resource_pools": [],
+    "construction_sessions": [],
+    "robots": [],
+    "structure_ownership": [],
+    "capture_progress": [],
+    "projectiles": [],
+    "structure_destruction": [],
+    "scenery_debris": [],
+    "ai_memories": [
+      {
+        "player_id": "p2",
+        "construction": {
+          "last_war_base_id": "warbase-4"
+        },
+        "orders": {
+          "defences": [
+            {
+              "defender_id": "robot-p2-1",
+              "intruder_id": "robot-p1-3",
+              "structure_id": "warbase-4",
+              "approached": true
+            }
+          ],
+          "sightings": [
+            {
+              "robot_id": "robot-p1-3",
+              "distance": 12
+            }
+          ]
+        }
+      }
+    ],
+    "robot_launches": [
+      { "player_id": "p1", "launched": 3 },
+      { "player_id": "p2", "launched": 1 }
+    ]
+  }
+}

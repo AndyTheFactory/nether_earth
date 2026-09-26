@@ -55,6 +55,7 @@ async function main(): Promise<void> {
   host.appendChild(ui);
   mountLobby(ui, store, {
     create: (n) => controller.create(n),
+    playVsComputer: (n) => controller.playVsComputer(n),
     join: (c, n) => controller.join(c, n),
     ready: (r) => controller.ready(r),
     fixture: (id) => controller.startFixture(id),

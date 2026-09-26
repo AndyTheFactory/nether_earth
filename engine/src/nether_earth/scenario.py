@@ -22,7 +22,7 @@ from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, PlayerId
 from nether_earth.map import WorldMap
 from nether_earth.resource_pool import starting_player_resource_pool
 from nether_earth.rules import DEFAULT_RULES, EngineRules
-from nether_earth.state import GameState, create_game_state
+from nether_earth.state import AiMemory, GameState, create_game_state
 from nether_earth.structures import Factory, WarBase
 
 #: Locked v1 victory-rule identifier (`_specs/technical-spec.md` §6,
@@ -43,6 +43,12 @@ FactoryOwnershipDefault = Literal["neutral"]
 #: ``Scenario`` shape.
 FactoryOwnershipOverrides = dict[str, str]
 
+#: Who drives a seat (CR004.3): a human client or the engine's AI planner.
+#: Nothing else about the player differs, so this is scenario data, not a
+#: kind of ``PlayerId``.
+SeatController = Literal["human", "ai"]
+_SEAT_CONTROLLERS: tuple[SeatController, ...] = ("human", "ai")
+
 
 @dataclass(frozen=True, slots=True)
 class Scenario:
@@ -61,6 +67,10 @@ class Scenario:
     starting_general_resources: int = 20
     factory_initial_ownership: FactoryOwnershipDefault | FactoryOwnershipOverrides = "neutral"
     victory_rule: str = VICTORY_RULE_ZERO_WAR_BASES
+    #: CR004.3: per-seat controller. Both default to ``"human"``, so every
+    #: pre-CR004 scenario (PvP) is unchanged.
+    player_one_controller: SeatController = "human"
+    player_two_controller: SeatController = "human"
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -75,6 +85,17 @@ class Scenario:
             raise ValueError("starting_general_resources must be non-negative")
         if not self.victory_rule.strip():
             raise ValueError("victory_rule must be a non-empty string")
+        for controller in (self.player_one_controller, self.player_two_controller):
+            if controller not in _SEAT_CONTROLLERS:
+                raise ValueError(f"seat controller must be one of {_SEAT_CONTROLLERS}")
+
+    def controller_for(self, player_id: PlayerId) -> SeatController:
+        """Return who drives ``player_id``'s seat."""
+        if player_id == PLAYER_ONE:
+            return self.player_one_controller
+        if player_id == PLAYER_TWO:
+            return self.player_two_controller
+        raise ValueError(f"{player_id.value!r} is not a seat of this scenario")
 
 
 def default_pvp_scenario() -> Scenario:
@@ -111,6 +132,17 @@ def initialize_players(scenario: Scenario) -> tuple[PlayerId, ...]:
     return (PLAYER_ONE, PLAYER_TWO)
 
 
+def initial_ai_memories(
+    scenario: Scenario, players: tuple[PlayerId, ...]
+) -> tuple[AiMemory, ...]:
+    """Return a fresh :class:`~nether_earth.state.AiMemory` for each AI seat among ``players``."""
+    return tuple(
+        AiMemory(player_id=seat)
+        for seat in (PLAYER_ONE, PLAYER_TWO)
+        if seat in players and scenario.controller_for(seat) == "ai"
+    )
+
+
 def commander_spawn_key(player_id: PlayerId) -> str:
     """Return the ``WorldMap.spawn_positions`` key naming ``player_id``'s commander start cell.
 
@@ -143,10 +175,12 @@ def create_initial_state(
     step 5 requires ("Server initializes map, scenario, resources,
     commanders, factories, and game clock"):
 
-    - one ``FREE`` :class:`~nether_earth.commander.Commander` per player at
+    - one ``FREE`` :class:`~nether_earth.commander.Commander` per human seat at
       ``rules.commander_min_altitude`` on the cell
       ``world.spawn_positions[commander_spawn_key(player)]`` -- a missing
-      spawn entry is a scenario-data error, not a silent default;
+      spawn entry is a scenario-data error, not a silent default. An AI
+      seat gets no commander (CR004, owner decision 2026-09-25) and a fresh
+      :class:`~nether_earth.state.AiMemory` instead;
     - one :func:`~nether_earth.resource_pool.starting_player_resource_pool`
       per player (``rules.starting_general_resources``, which
       ``Scenario.starting_general_resources`` must match -- checked here so
@@ -162,8 +196,9 @@ def create_initial_state(
     deterministic: equal inputs always yield an equal ``GameState``.
     """
     players = initialize_players(scenario)
+    ai_memories = initial_ai_memories(scenario, players)
     if world is None:
-        return create_game_state(0, players, seed=seed)
+        return create_game_state(0, players, seed=seed, ai_memories=ai_memories)
 
     if world.map_id != scenario.map_id or world.version != scenario.map_version:
         raise ValueError(
@@ -178,6 +213,8 @@ def create_initial_state(
 
     commanders: list[Commander] = []
     for player in players:
+        if scenario.controller_for(player) == "ai":
+            continue
         key = commander_spawn_key(player)
         if key not in world.spawn_positions:
             raise ValueError(
@@ -207,4 +244,5 @@ def create_initial_state(
         commanders=tuple(commanders),
         resource_pools=tuple(starting_player_resource_pool(player, rules) for player in players),
         structure_ownership=ownership,
+        ai_memories=ai_memories,
     )

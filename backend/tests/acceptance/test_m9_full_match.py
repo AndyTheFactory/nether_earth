@@ -246,6 +246,25 @@ def test_committed_fixture_verifies_against_the_running_engine_rules(world: Worl
     assert result.matches
 
 
+def test_an_artifact_without_seat_controllers_verifies_as_all_human(
+    world: WorldMap, tmp_path: Path
+) -> None:
+    """CR004.9: an artifact recorded before CR004.7 added ``seat_controllers``
+    to ``meta.json`` has no way to state its seats, so it must be treated as
+    all-human and verify against `default_pvp_scenario()` -- exactly the
+    fallback `verify_replay` derives, not a hand-maintained literal.
+    """
+    legacy = tmp_path / FIXTURE_MATCH
+    shutil.copytree(FIXTURE_DIR / FIXTURE_MATCH, legacy)
+    meta = json.loads((legacy / "meta.json").read_text(encoding="utf-8"))
+    assert meta["seat_controllers"] == {"p1": "human", "p2": "human"}
+    del meta["seat_controllers"]
+    (legacy / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    result = verify_replay(tmp_path, FIXTURE_MATCH, scenario=default_pvp_scenario(), world=world)
+    assert result.matches
+
+
 def test_pre_cr001_fixture_is_rejected_as_a_rules_mismatch(world: WorldMap, tmp_path: Path) -> None:
     """A fixture with the old backend-owned ``m7`` header fails on rules identity, not divergence."""
     legacy = tmp_path / FIXTURE_MATCH
@@ -280,4 +299,16 @@ def test_cr002_fixture_is_rejected_as_a_rules_mismatch(world: WorldMap, tmp_path
     (legacy / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
     with pytest.raises(ReplayRulesMismatchError, match="rules version 'cr002'"):
+        verify_replay(tmp_path, FIXTURE_MATCH, scenario=default_pvp_scenario(), world=world)
+
+
+def test_cr003_fixture_is_rejected_as_a_rules_mismatch(world: WorldMap, tmp_path: Path) -> None:
+    """A replay recorded before CR004 (rules version ``cr003``) fails on rules identity."""
+    legacy = tmp_path / FIXTURE_MATCH
+    shutil.copytree(FIXTURE_DIR / FIXTURE_MATCH, legacy)
+    meta = json.loads((legacy / "meta.json").read_text(encoding="utf-8"))
+    meta["rules_version"] = "cr003"
+    (legacy / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    with pytest.raises(ReplayRulesMismatchError, match="rules version 'cr003'"):
         verify_replay(tmp_path, FIXTURE_MATCH, scenario=default_pvp_scenario(), world=world)

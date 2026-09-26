@@ -202,7 +202,7 @@ __all__ = [
 #: makes older replays non-reproducible. ``rules_content_hash`` catches
 #: ``EngineRules`` value changes on its own; logic changes are caught only by
 #: this bump.
-RULES_VERSION = "cr003"
+RULES_VERSION = "cr004"
 
 
 #: How many grid cells one in-game *mile* spans.
@@ -501,8 +501,15 @@ class EngineRules:
     #: See the class docstring: the detour-coherence window that stands in
     #: for the Spectrum's per-robot "keep walking" counter.
     dumb_wander_commit_ticks: int = 16
+    #: CR004: an AI seat's planner runs only on ticks divisible by this
+    #: interval -- one Spectrum game cycle (4 ticks, `open-questions.md`
+    #: "One game cycle"), the cadence the original updates its AI at
+    #: (`Lb0ca_update_robots_bullets_and_ai`). Bounds per-tick planner cost.
+    ai_decision_interval_ticks: int = 4
 
     def __post_init__(self) -> None:
+        if self.ai_decision_interval_ticks <= 0:
+            raise ValueError("ai_decision_interval_ticks must be a positive integer")
         if self.dumb_wander_commit_ticks <= 0:
             raise ValueError("dumb_wander_commit_ticks must be a positive integer")
         if self.commander_min_altitude < 0:

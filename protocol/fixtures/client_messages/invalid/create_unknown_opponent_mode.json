@@ -1,0 +1,6 @@
+{
+  "protocolVersion": 1,
+  "type": "create",
+  "nickname": "Alice",
+  "opponent": "robot"
+}

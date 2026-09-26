@@ -4,7 +4,7 @@
 
 Build a browser-based multiplayer clone of the ZX Spectrum release of **Nether Earth**, preserving the original mechanics, map, visual feeling, commander behavior, robot construction, terrain interaction, economy, autonomous orders, direct control, combat, and overall gameplay character.
 
-Version 1 is **human-vs-human PvP**. AI is out of scope for v1, but the engine/match boundary must allow an AI controller to be added later without redesigning core rules.
+Version 1 is **human-vs-human PvP**, plus single-player play against a computer opponent (CR004, owner decision 2026-09-25; §3.1).
 
 ## 2. Fidelity order
 
@@ -35,16 +35,41 @@ Included:
 - projectile combat and nuclear detonation;
 - guest-only nicknames + join code/link;
 - in-memory active matches;
-- deterministic replay/debug logging.
+- deterministic replay/debug logging;
+- single-player match against a computer opponent, one difficulty (CR004; §3.1).
 
 Out of scope for v1:
 
 - accounts/profiles;
 - database/Redis/message broker;
-- AI opponent;
 - horizontal scaling/multiple backend replicas;
 - 3D rendering/models;
 - modern RTS control redesign.
+
+### 3.1 Single-player vs AI opponent (CR004, owner decision 2026-09-25)
+
+A single "Play vs computer" entry point creates a match already filled with a computer-controlled
+second seat; no second human joins it.
+
+- **One difficulty.** No difficulty selector, no tuning UI.
+- **No commander.** The AI seat has no commander, and none is shown. It orders robots and builds
+  without a commander landing on its own heli-pad or occupying any cell on the map. This is a
+  deliberate asymmetry with the human seat, not a missing rule (`open-questions.md`, "Documented
+  deviations").
+- **Fidelity.** The Spectrum's enemy computer player is a reference for this AI, not a contract it
+  must reproduce; the goal is an opponent that plays better than the original (`open-questions.md`,
+  "Documented deviations").
+- **Disconnect.** Unchanged from PvP: if the human disconnects, the match pauses with the usual
+  grace window (§18).
+- Human-vs-human PvP is unaffected; everything above applies to the AI seat only.
+- **What it does (shipped).** The AI builds an affordable, purposeful robot design rather than a
+  random one, keeps a defence reserve once its army reaches a minimum size, and rotates its
+  builds over every war base it owns. It sends robots after whichever neutral or enemy structure
+  is worth the most (production value, distance, how contested it already is) rather than
+  simply the nearest one, keeps a nuclear robot in its army once it is established, and diverts
+  or holds a defender when an enemy robot closes on one of its own war bases or factories. See
+  `technical-spec.md` §28 for the implementation and `open-questions.md` "Documented deviations"
+  for each place this departs from the Spectrum's own enemy AI.
 
 ## 4. PvP scenario and victory
 

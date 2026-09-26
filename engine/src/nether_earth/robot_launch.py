@@ -122,29 +122,17 @@ reconstructed equal copy), so ``state.resource_pools``, ``state.robots``,
 and ``state.construction_sessions`` are trivially, provably identical
 (``is``-identical, not just ``==``-equal) to their pre-call values.
 
-Robot id assignment scheme (flagged for Task 7's review)
--------------------------------------------------------------
+Robot id assignment scheme (CR004.12, #295)
+-------------------------------------------
 
-`ids.py` defines no deterministic robot-id-assignment scheme; this task
-must define one. This module assigns
-``EntityId(f"robot-{owner.value}-{ordinal}")``, where ``ordinal`` is
-``1 + (the number of robots ``owner`` already has in ``state.robots`` at
-launch time)`` -- a simple count, not a separately-tracked monotonic
-counter field on ``GameState``. This is deliberately the simpler of the
-two schemes the task brief offers as acceptable: M4's scope never removes a
-robot from ``state.robots`` (no capture/destruction mechanic is
-implemented anywhere in this milestone), so "count of this player's robots
-right now" and "count of robots this player has ever launched" are
-identical for the entire lifetime of M4, and a count-based ordinal can
-never collide with an existing id. This is explicitly flagged, per the
-task brief, for Task 7 (M4.7) to review: once M5/M6 introduce robot
-destruction/capture, a count-based ordinal *would* start colliding with
-previously issued ids (destroy robot 3 of 5, launch a new one -> new count
-is 5, new id collides with the still-alive former robot 5) and would need
-to switch to a true monotonic per-player counter (e.g. a new
-``GameState``-attached field) at that point -- this module does not
-attempt to pre-empt that future change since no removal mechanic exists
-yet to require it.
+A new robot is ``EntityId(f"robot-{owner.value}-{ordinal}")``, where
+``ordinal`` is ``1 + GameState.robots_launched_by(owner)``: a per-player
+monotonic launch counter (``GameState.robot_launches``) that each accepted
+launch bumps and that a robot's death never lowers. Ids are therefore never
+reused, not even a destroyed robot's. Until a player's first robot dies the
+counter equals the number of that player's robots, so those ids are the
+same as under the original M4.6 scheme (``1 + robots alive``), which
+collided once robots could die.
 """
 
 from __future__ import annotations
@@ -171,6 +159,7 @@ __all__ = [
     "LaunchRejectionReason",
     "LaunchResult",
     "launch_robot",
+    "resolve_launch_exit",
 ]
 
 
@@ -232,6 +221,45 @@ def _folded_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
     return folded_robot_occupancy(world, state)
 
 
+def resolve_launch_exit(
+    world: WorldMap, state: GameState, war_base_id: EntityId
+) -> tuple[int, int] | LaunchRejectionReason:
+    """Return the exit cell a robot launched from ``war_base_id`` would take, or why it cannot.
+
+    The exit half of :func:`launch_robot`'s validation (conditions 4 and 5
+    in the module docstring): :data:`LaunchRejectionReason.NO_EXIT_DEFINED`
+    or :data:`LaunchRejectionReason.EXIT_BLOCKED`, else the resolved anchor
+    cell. Public so the AI construction planner (CR004.4) can skip a war base
+    whose exit is blocked using the launch rule itself rather than a copy.
+    """
+    exit_cell = _resolve_exit_cell(world, war_base_id)
+    if exit_cell is None:
+        return LaunchRejectionReason.NO_EXIT_DEFINED
+
+    exit_x, exit_y = exit_cell
+    if not unit_footprint_in_bounds(exit_x, exit_y, world.width, world.height):
+        return LaunchRejectionReason.EXIT_BLOCKED
+    occupancy = _folded_occupancy(world, state)
+    if occupancy.blocks_unit(exit_x, exit_y):
+        return LaunchRejectionReason.EXIT_BLOCKED
+
+    # A robot with a move in flight authoritatively occupies its *origin*
+    # cell, so the fold above cannot see the destination it is about to
+    # land on -- that claim lives in M5.3's reservation contract (see
+    # `movement.folded_robot_occupancy`'s docstring, which says exactly
+    # this). Launching onto a reserved exit cell would therefore look legal
+    # here and then stack two robots on one cell the moment that move
+    # completes, since `movement.advance_robot_transition` writes the mover
+    # onto its reserved destination unconditionally. A reservation blocks
+    # the exit for the same reason a standing robot does, so it reuses
+    # EXIT_BLOCKED rather than introducing a second "cell is taken" code
+    # that callers would have to branch on identically.
+    reservations = reservations_from_state(state)
+    if any(reservations.is_reserved(x, y) for x, y in unit_footprint_cells(exit_x, exit_y)):
+        return LaunchRejectionReason.EXIT_BLOCKED
+    return exit_x, exit_y
+
+
 def _resolve_exit_cell(world: WorldMap, war_base_id: EntityId) -> tuple[int, int] | None:
     """Return the deterministic exit cell for ``war_base_id``, or ``None`` if undeclared.
 
@@ -248,10 +276,9 @@ def _resolve_exit_cell(world: WorldMap, war_base_id: EntityId) -> tuple[int, int
 def _next_robot_id(state: GameState, owner: PlayerId) -> EntityId:
     """Return the next deterministic robot id for ``owner``.
 
-    See the module docstring's "robot id assignment scheme" section for the
-    full rationale and its documented limitation.
+    See the module docstring's "robot id assignment scheme" section.
     """
-    ordinal = len(state.robots_for(owner)) + 1
+    ordinal = state.robots_launched_by(owner) + 1
     return EntityId(f"robot-{owner.value}-{ordinal}")
 
 
@@ -298,31 +325,10 @@ def launch_robot(
     if existing_robot_count >= rules.max_robots_per_player:
         return LaunchResult.reject(LaunchRejectionReason.ROBOT_CAP_REACHED)
 
-    exit_cell = _resolve_exit_cell(world, session.war_base_id)
-    if exit_cell is None:
-        return LaunchResult.reject(LaunchRejectionReason.NO_EXIT_DEFINED)
-
-    exit_x, exit_y = exit_cell
-    if not unit_footprint_in_bounds(exit_x, exit_y, world.width, world.height):
-        return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
-    occupancy = _folded_occupancy(world, state)
-    if occupancy.blocks_unit(exit_x, exit_y):
-        return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
-
-    # A robot with a move in flight authoritatively occupies its *origin*
-    # cell, so the fold above cannot see the destination it is about to
-    # land on -- that claim lives in M5.3's reservation contract (see
-    # `movement.folded_robot_occupancy`'s docstring, which says exactly
-    # this). Launching onto a reserved exit cell would therefore look legal
-    # here and then stack two robots on one cell the moment that move
-    # completes, since `movement.advance_robot_transition` writes the mover
-    # onto its reserved destination unconditionally. A reservation blocks
-    # the exit for the same reason a standing robot does, so it reuses
-    # EXIT_BLOCKED rather than introducing a second "cell is taken" code
-    # that callers would have to branch on identically.
-    reservations = reservations_from_state(state)
-    if any(reservations.is_reserved(x, y) for x, y in unit_footprint_cells(exit_x, exit_y)):
-        return LaunchResult.reject(LaunchRejectionReason.EXIT_BLOCKED)
+    exit_check = resolve_launch_exit(world, state, session.war_base_id)
+    if isinstance(exit_check, LaunchRejectionReason):
+        return LaunchResult.reject(exit_check)
+    exit_x, exit_y = exit_check
 
     stack, height = derive_stack_and_height(robot_build, rules)
     entity_id = _next_robot_id(state, player_id)
@@ -346,6 +352,7 @@ def launch_robot(
 
     new_state = state.with_resource_pools((*other_pools, committed_pool))
     new_state = new_state.with_robots((*new_state.robots, robot))
+    new_state = new_state.with_robots_launched(player_id, state.robots_launched_by(player_id) + 1)
     new_state = exit_construction(new_state, player_id, rules)
 
     return LaunchResult.accept(new_state, robot)

@@ -127,6 +127,7 @@ async def test_meta_records_engine_rules_version_and_hash(tmp_path: Path) -> Non
         ("rules_version", "m7"),
         ("rules_version", "cr001"),
         ("rules_version", "cr002"),
+        ("rules_version", "cr003"),
         ("rules_hash", "0" * 64),
         ("rules_hash", None),
     ],
