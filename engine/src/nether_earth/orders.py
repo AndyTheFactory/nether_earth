@@ -772,7 +772,7 @@ def select_capture_target(
     Candidates are every structure of the requested kind that currently
     matches ``target`` (see :func:`_capture_candidate`) and is not in
     ``exclude`` -- the structures other same-owner robots with the same
-    order already target (Spectrum ``Lb36c``; see :func:`_claimed_structures`).
+    order already target (Spectrum ``Lb36c``; see :func:`claimed_structures`).
     A structure the robot already owns is never a candidate.
 
     Selection is by ``(distance to nearest footprint cell, structure id)``
@@ -833,11 +833,6 @@ def claimed_structures(
             claimed.append(other_order.structure_id)
     return frozenset(claimed)
 
-
-#: Private alias kept for existing in-module call sites and any external
-#: code still importing the old name (CR004.6, #287: made public as
-#: :func:`claimed_structures` for the CR004.5 robot-order planner to reuse).
-_claimed_structures = claimed_structures
 
 
 def select_destroy_target(
@@ -1272,7 +1267,7 @@ def evaluate_order(
 
     ``claimed`` is only read by ``SearchCapture``: the structures other
     same-owner robots with the same order already target. ``None`` derives
-    it from ``state`` (:func:`_claimed_structures`);
+    it from ``state`` (:func:`claimed_structures`);
     :func:`evaluate_orders` passes it so same-tick retargets are visible.
 
     Pure: ``state`` is never mutated, no randomness is drawn, and no
@@ -1306,7 +1301,7 @@ def evaluate_order(
 
     if isinstance(order, SearchCapture):
         if claimed is None:
-            claimed = _claimed_structures(robot, order, state)
+            claimed = claimed_structures(robot, order, state)
         return _evaluate_capture(robot, order, state, world, rules, claimed)
 
     # SearchDestroy
@@ -1395,7 +1390,7 @@ def evaluate_orders(
         if robot.order is None or _under_direct_control(robot, state):
             continue
         claimed = (
-            _claimed_structures(robot, robot.order, state, evaluated_orders)
+            claimed_structures(robot, robot.order, state, evaluated_orders)
             if isinstance(robot.order, SearchCapture)
             else None
         )
