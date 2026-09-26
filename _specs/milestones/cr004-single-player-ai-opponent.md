@@ -161,6 +161,7 @@ Tracker: #293.
 | CR004.9 (#290) | Rules version bump, spec updates, fixture regeneration | CR004.3–CR004.6 |
 | CR004.10 (#291) | Strength and determinism harness | CR004.4, CR004.5 |
 | CR004.11 (#292) | CR004 acceptance gate | all |
+| CR004.12 (#295) | Robot ids: never reuse a robot id after a robot dies | CR004.3 |
 
 Parallel groups: engine (CR004.3 → CR004.4, CR004.5, CR004.6 in parallel) and the session path
 (CR004.7 → CR004.8), which only needs CR004.3's scenario flag. CR004.2 informs CR004.4–CR004.6
@@ -320,3 +321,18 @@ CR004.3 creates the seat without one; this task makes the rest of the stack agre
 - The CR004.10 harness passes, with its determinism result and win rate recorded.
 - Owner playtest: start a solo match from the lobby, play it to a conclusion, and confirm the
   opponent is a credible one.
+
+### CR004.12 (#295) — Robot ids: never reuse a robot id after a robot dies
+
+Pulled into CR004, not filed as a standalone fix, because solo matches crash without it: a
+pre-existing PvP bug (robot ids were derived from the owner's *live* robot count, so a new robot
+could collide with the id of one of that owner's robots that had already died) that CR004's AI
+finally exercises hard enough to hit reliably — an AI can rebuild its whole army several times in
+one match, something no PvP game had done before.
+
+- Give each player a monotonic launch counter (`RobotLaunchCount`, `GameState.robot_launches`)
+  that only ever grows; a robot's id is `robot-<owner>-<counter>`, so an id is never issued twice
+  in a match even after every robot a player ever launched has died.
+- `robot_launches` round-trips through the snapshot as an additive key, elided while empty, the
+  same convention as `ai_memories`.
+- Applies to both PvP and solo; it is not AI-only behaviour.

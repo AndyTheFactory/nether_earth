@@ -723,6 +723,7 @@ Snapshot minimum:
 - ownership/capture progress;
 - projectiles (including `first_advance_tick`);
 - scenery debris (`scenery_debris`);
+- robot launches (`robot_launches`, per-owner monotonic id counters, §28.2);
 - map/scenario/rules versions;
 - match result;
 - AI planner memory (`AiMemory`), when a seat is computer-controlled (§28).
@@ -924,6 +925,21 @@ roster, ready list, or reconnect bookkeeping, so it can never itself pause the m
 to a no-contest. It is always ready, so the human's own `ClientSetReady` is the only step left
 before the match starts. Reconnect behaves exactly like PvP for the human: a disconnect pauses
 with the usual grace window, and letting it expire forfeits to the AI.
+
+Robot ids (CR004.12, #295 — a pre-existing PvP bug pulled into CR004 because
+solo matches crash without it): each robot's id is `robot-<owner>-<n>`, where
+`n` comes from a monotonic per-owner counter (`RobotLaunchCount`, carried in
+`GameState.robot_launches`) rather than the owner's live robot count. The
+counter only ever grows — a robot's death never lowers it — so an id is never
+reused within a match, even after every robot a player ever launched has
+died (the AI, which can rebuild its whole army repeatedly in one match, hits
+this far more than PvP ever did). `robot_launches` is an additive snapshot
+key, appended last: it is elided from the wire while no player has launched
+a robot yet (empty), and present once one has, the same elision convention
+as `ai_memories`. Because it is additive, a replay
+recorded before CR004.12 has no `robot_launches` entries; the engine rejects
+it as incompatible via the recorded rules version (`RULES_VERSION`) rather
+than guessing a counter for it.
 
 Wire protocol: `createMatch.opponent: "human" | "computer"` (absent means `"human"`, so an
 existing PvP `create` is byte-for-byte unchanged); `created.joinCode` is nullable (`null` for a
