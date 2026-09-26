@@ -1,6 +1,16 @@
 from nether_earth.commander import Commander, CommanderMode
-from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, PlayerId
-from nether_earth.state import GameState, create_game_state
+from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
+from nether_earth.robot import Robot
+from nether_earth.robot_build import ModuleIdentity, RobotBuild
+from nether_earth.robot_stack import derive_stack_and_height
+from nether_earth.rules import DEFAULT_RULES
+from nether_earth.state import GameState, RobotLaunchCount, create_game_state
+
+
+def _robot(entity_id: str, owner: PlayerId) -> Robot:
+    build = RobotBuild(chassis=ModuleIdentity.TRACKS, weapons=(ModuleIdentity.CANNON,))
+    stack, height = derive_stack_and_height(build, DEFAULT_RULES)
+    return Robot(entity_id=EntityId(entity_id), owner=owner, x=0, y=0, build=build, stack=stack, height=height)
 
 
 def test_game_state_constructs_independently_with_authoritative_tick() -> None:
@@ -137,3 +147,57 @@ def test_with_tick_carries_commanders_over_unchanged() -> None:
     advanced = state.with_tick(1)
 
     assert advanced.commanders == (commander,)
+
+
+def test_create_game_state_rejects_a_robot_id_ahead_of_its_owners_launch_count() -> None:
+    """T12 (final-review fix wave): a robot's id ordinal must not exceed its
+    owner's recorded ``robot_launches`` count -- a lower/missing count would
+    let the next launched robot collide with this one's id (#295: ids are
+    never reused after a robot dies, so the counter is the sole source of
+    the next id).
+    """
+    robot = _robot("robot-p1-3", PLAYER_ONE)
+
+    try:
+        create_game_state(0, [PLAYER_ONE], robots=[robot])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a missing/low robot_launches count must be rejected")
+
+    try:
+        create_game_state(
+            0, [PLAYER_ONE], robots=[robot], robot_launches=[RobotLaunchCount(PLAYER_ONE, 2)]
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a robot_launches count below the robot's id ordinal must be rejected")
+
+
+def test_create_game_state_accepts_a_robot_id_covered_by_its_owners_launch_count() -> None:
+    robot = _robot("robot-p1-3", PLAYER_ONE)
+
+    state = create_game_state(
+        0, [PLAYER_ONE], robots=[robot], robot_launches=[RobotLaunchCount(PLAYER_ONE, 3)]
+    )
+
+    assert state.robots_launched_by(PLAYER_ONE) == 3
+
+    # A count strictly above the highest ordinal in use is also fine (e.g. a
+    # robot with a lower ordinal has since died).
+    higher = create_game_state(
+        0, [PLAYER_ONE], robots=[robot], robot_launches=[RobotLaunchCount(PLAYER_ONE, 5)]
+    )
+    assert higher.robots_launched_by(PLAYER_ONE) == 5
+
+
+def test_create_game_state_ignores_a_robot_id_that_does_not_match_the_launch_scheme() -> None:
+    """A hand-built fixture id like ``robot-1`` (no ``robot-<owner>-<n>`` shape,
+    predating CR004.12) is not this owner's launch history and must not be
+    forced to seed a ``robot_launches`` entry."""
+    robot = _robot("robot-1", PLAYER_ONE)
+
+    state = create_game_state(0, [PLAYER_ONE], robots=[robot])
+
+    assert state.robot_launches == ()
