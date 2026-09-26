@@ -77,10 +77,13 @@ commanderless seat wins and loses normally.
 
 ### Determinism
 
-The planner is a pure function of `(GameState, AiMemory, EngineRules)`. Any randomness comes from
-`MatchRandom` seeded via `rng.derive_seed(match_seed, "ai", player_id)`, never from a global RNG.
-Iteration over structures, robots and candidate targets uses canonical order, never set or dict
-iteration order that could vary. The planner's own carry-over state (`AiMemory`: current build
+The planner, `nether_earth.ai.planner.plan(state, memory, world, rules, seed)`, is a pure function
+of `(GameState, AiMemory, EngineRules)`. The engine derives its per-decision `seed` as
+`rng.derive_seed(match_seed, "ai", player_id, tick)`, and `plan` derives one further seed per
+sub-planner (`derive_seed(seed, name)`) so construction and robot orders each get an independent
+`MatchRandom` stream, never a global RNG. Iteration over structures, robots and candidate targets
+uses canonical order, never set or dict iteration order that could vary. The planner's own
+carry-over state (`AiMemory`: current build
 intent, per-robot assignments, threat bookkeeping) lives **in `GameState`** and round-trips
 through `snapshot.py` and `replay.py`; a planner that kept state in a Python object outside the
 snapshot would break mid-match reconnect and replay verification.

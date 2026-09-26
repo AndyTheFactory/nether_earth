@@ -880,15 +880,19 @@ The computer-controlled seat is an engine-side deterministic planner, not a back
   `validate_command`/`order_commands` path a human's commands take. No privileged path, no direct
   state mutation, no new rule.
 - Its carry-over state (`AiMemory`: build intent, per-robot assignments, threat bookkeeping) lives
-  in `GameState` and round-trips through `snapshot.py` and `replay.py` (§22), so a replay stays
-  reproducible from scenario + map version + seed + the human's command stream alone.
-- It is a pure function of `(GameState, AiMemory, EngineRules)`. Randomness, if any, comes only
-  from `MatchRandom` seeded via `rng.derive_seed(match_seed, "ai", player_id)`; iteration order is
-  canonical, never set/dict order.
+  in `GameState` and round-trips through `snapshot.py` and `replay.py` (§22); a replay never
+  records the AI's commands, it re-derives them by re-simulating from scenario + map version +
+  seed + the human's command stream alone.
+- `nether_earth.ai.planner.plan(state, memory, world, rules, seed)` is a pure function of
+  `(GameState, AiMemory, EngineRules)`. The engine derives its per-decision `seed` as
+  `rng.derive_seed(match_seed, "ai", player_id, tick)`; `plan` derives one further seed per
+  sub-planner (`derive_seed(seed, name)`) from it, so each sub-planner's `MatchRandom` stream is
+  independent. Iteration order is canonical, never set/dict order.
 - It decides on a fixed cadence, `ai_decision_interval_ticks` (default 4), a centralized rules
   constant rather than an emergent property of loop speed.
-- It has no commander: `state.commanders` may hold `None` for this seat, and every site that looks
-  up a commander must tolerate that.
+- It has no commander: the AI seat simply has no entry in `state.commanders` (a tuple of the
+  commanders that exist), not a `None` placeholder standing in for one. Every site that looks up a
+  commander for a given seat must tolerate there being none.
 
 ### 28.1 Planner structure (shipped)
 
