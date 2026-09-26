@@ -66,7 +66,7 @@ from nether_earth.orders import (
     SearchDestroyTarget,
     SetRobotOrderCommand,
     StopAndDefend,
-    _claimed_structures,
+    claimed_structures,
     select_capture_target,
     select_destroy_target,
 )
@@ -599,7 +599,7 @@ def _plan_captures(
 
     A capture order is productive while the engine still finds it a target.
     Its claim counts toward that type's exclusivity, as in the engine
-    (`orders._claimed_structures`).
+    (`orders.claimed_structures`).
     """
     claimed: dict[SearchCaptureTarget, set[EntityId]] = {kind: set() for kind in _CAPTURE_TYPES}
     free: list[Robot] = []
@@ -608,7 +608,7 @@ def _plan_captures(
             continue
         order = robot.order
         if isinstance(order, SearchCapture):
-            exclude = _claimed_structures(robot, order, state)
+            exclude = claimed_structures(robot, order, state)
             chosen = select_capture_target(robot, order.target, state, world, exclude=exclude)
             if chosen is not None or _mid_capture(robot, state, world):
                 scratch.committed.add(robot.entity_id)

@@ -113,3 +113,35 @@ def test_an_all_human_match_snapshot_still_elides_ai_memories() -> None:
     model = SnapshotState.model_validate(snapshot)
     assert "ai_memories" not in model.model_dump()
     assert model.model_dump() == snapshot
+
+
+def test_snapshot_state_elides_robot_launches_when_empty_and_keeps_it_when_present() -> None:
+    """Final-review fix wave, M7 (#295): mirrors the ``ai_memories`` elision
+    test above for `robot_launches` (CR004.12) -- `SnapshotState` must drop
+    the key entirely while no player has launched a robot (matching
+    `to_snapshot`'s own elision, so a fresh/PvP match keeps its pre-CR004.12
+    wire shape) and must keep it, with its entries intact, once a player
+    has.
+    """
+    world = load_standard_world()
+    state = create_initial_state(default_pvp_scenario(), world, seed=3)
+
+    empty_snapshot = to_snapshot(state)
+    assert "robot_launches" not in empty_snapshot
+
+    empty_model = SnapshotState.model_validate(empty_snapshot)
+    assert "robot_launches" not in empty_model.model_dump()
+    assert empty_model.model_dump() == empty_snapshot
+
+    launched_state = state.with_robots_launched(PLAYER_TWO, 7).with_robots_launched(
+        PLAYER_ONE, 2
+    )
+    launched_snapshot = to_snapshot(launched_state)
+    assert launched_snapshot["robot_launches"] == [
+        {"player_id": "p1", "launched": 2},
+        {"player_id": "p2", "launched": 7},
+    ]
+
+    launched_model = SnapshotState.model_validate(launched_snapshot)
+    assert launched_model.model_dump()["robot_launches"] == launched_snapshot["robot_launches"]
+    assert launched_model.model_dump() == launched_snapshot

@@ -268,3 +268,36 @@ def test_serialize_server_message_round_trips_to_schema_valid_json(
 
     round_tripped = OutboundMessageAdapter.validate_json(raw)
     assert round_tripped == message
+
+
+def test_pvp_created_message_is_byte_identical_to_pre_cr004_output() -> None:
+    """CR004 final-review fix (I1): `serialize_server_message` special-cases
+    `ServerCreated` to drop an unset `opponent` and keep `join_code` in its
+    schema position (see the docstring above). That special-casing must not
+    change the *bytes* of an existing PvP `created` reply: it must still be
+    exactly what `OutboundMessageAdapter.dump_json` (the pre-CR004.8 code
+    path, used for every other message type) would have produced for the
+    same fields, compact separators included -- not `json.dumps` on a plain
+    dict, whose default `", "` / `": "` separators would make the reply
+    byte-different from what pre-CR004 clients saw on the wire.
+    """
+    message = ServerCreated(
+        protocol_version=1,
+        type="created",
+        match_id="match-1",
+        join_code="ABCD1234",
+        player_id="player-1",
+        session_token="session-token-1",
+    )
+    assert message.opponent is None  # PvP: no `opponent` field set.
+
+    expected = OutboundMessageAdapter.dump_json(
+        message, by_alias=True, exclude_none=True
+    ).decode("utf-8")
+
+    actual = serialize_server_message(message)
+
+    assert actual == expected
+    assert '", "' not in actual
+    assert '": "' not in actual
+    assert "opponent" not in actual

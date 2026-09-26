@@ -298,6 +298,17 @@ export function isDestroyed(state: SnapshotState, structureId: string): boolean 
   return state.structure_destruction.includes(structureId);
 }
 
+/**
+ * Display name for a seat: the AI seat has no nickname/session to read
+ * (CR004.8: it has no commander and is never a connected player), so it is
+ * named "Computer" for every viewer -- everywhere a player id would
+ * otherwise be shown verbatim (HUD, result overlays, ...) -- rather than
+ * falling back to its bare player id like a disconnected guest would.
+ */
+export function playerLabel(session: Session | null, playerId: string): string {
+  return session?.vsComputer && playerId !== session.playerId ? 'Computer' : playerId;
+}
+
 /** Game clock derived from ticks only (technical spec §4: 120 ticks per in-game hour). */
 export const TICKS_PER_HOUR = 120;
 export const HOURS_PER_DAY = 24;

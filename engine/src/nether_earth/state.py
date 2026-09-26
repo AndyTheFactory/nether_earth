@@ -263,6 +263,51 @@ def _canonical_robot_launches(
     return tuple(sorted(robot_launches, key=lambda count: count.player_id.value))
 
 
+def _robot_launch_ordinal(entity_id: EntityId, owner: PlayerId) -> int | None:
+    """Return ``n`` if ``entity_id`` is ``robot-<owner>-<n>`` for ``owner``, else ``None``.
+
+    Ids that do not follow the ``robot-<owner>-<n>`` scheme (e.g. an older
+    test fixture's bare ``robot-1``) are not this owner's launch history and
+    are silently ignored by :func:`create_game_state`'s consistency check.
+    """
+    prefix = f"robot-{owner.value}-"
+    if not entity_id.value.startswith(prefix):
+        return None
+    ordinal = entity_id.value[len(prefix) :]
+    return int(ordinal) if ordinal.isdigit() else None
+
+
+def _check_robot_launches_cover_robot_ids(
+    robots: tuple[Robot, ...],
+    robot_launches: tuple[RobotLaunchCount, ...],
+) -> None:
+    """Fail fast (T12, final-review fix wave) if ``robot_launches`` understates a robot id.
+
+    ``robot_launches`` is the source of the *next* robot id
+    (:func:`nether_earth.robot_launch._next_robot_id`: ``robots_launched_by(owner) + 1``),
+    so a live robot with a higher ``robot-<owner>-<n>`` ordinal than its
+    owner's recorded count means the next robot launched would collide with
+    it -- a state no legitimate sequence of commands can produce. Raising
+    here, rather than silently accepting it, turns that into an immediate
+    construction-time error instead of a later, harder-to-trace id clash.
+    """
+    launched_by: dict[PlayerId, int] = {count.player_id: count.launched for count in robot_launches}
+    highest_by_owner: dict[PlayerId, int] = {}
+    for robot in robots:
+        ordinal = _robot_launch_ordinal(robot.entity_id, robot.owner)
+        if ordinal is None:
+            continue
+        if ordinal > highest_by_owner.get(robot.owner, 0):
+            highest_by_owner[robot.owner] = ordinal
+    for owner, highest in highest_by_owner.items():
+        if launched_by.get(owner, 0) < highest:
+            raise ValueError(
+                f"robot_launches for {owner.value!r} is {launched_by.get(owner, 0)}, "
+                f"but a robot with id ordinal {highest} exists; "
+                "robot_launches must be at least the highest robot id ordinal that owner has"
+            )
+
+
 def _canonical_ai_memories(ai_memories: tuple[AiMemory, ...]) -> tuple[AiMemory, ...]:
     """Return ``ai_memories`` sorted by ``player_id.value``; at most one per player."""
     if len({memory.player_id for memory in ai_memories}) != len(ai_memories):
@@ -1055,6 +1100,12 @@ def create_game_state(
     ``ai_memories`` defaults to none (every seat human); each memory's
     ``player_id`` must be a participant, at most one per player, and an AI
     seat may not also be given a commander.
+
+    ``robot_launches`` defaults to none (T12, final-review fix wave): each
+    owner's recorded count must be at least the highest ``robot-<owner>-<n>``
+    ordinal among that owner's ``robots``, or a ``ValueError`` is raised --
+    a lower or missing count would let the next launched robot collide with
+    an id already in use (see :func:`_check_robot_launches_cover_robot_ids`).
     """
     if tick < 0:
         raise ValueError("tick must be non-negative")
@@ -1135,6 +1186,7 @@ def create_game_state(
                 f"robot launch count player_id {count.player_id.value!r} "
                 "is not a participant in players"
             )
+    _check_robot_launches_cover_robot_ids(canonical_robots, canonical_robot_launches)
 
     return GameState(
         tick=tick,
