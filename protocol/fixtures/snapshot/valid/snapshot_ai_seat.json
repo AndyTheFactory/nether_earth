@@ -52,6 +52,10 @@
           ]
         }
       }
+    ],
+    "robot_launches": [
+      { "player_id": "p1", "launched": 3 },
+      { "player_id": "p2", "launched": 1 }
     ]
   }
 }
