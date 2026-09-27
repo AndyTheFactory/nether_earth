@@ -506,10 +506,20 @@ class EngineRules:
     #: "One game cycle"), the cadence the original updates its AI at
     #: (`Lb0ca_update_robots_bullets_and_ai`). Bounds per-tick planner cost.
     ai_decision_interval_ticks: int = 4
+    #: CR004.13 (#299, owner decision 2026-09-27): an electronics robot on
+    #: Search & Destroy (robots) re-plans its cached route to the target at
+    #: most once per this many ticks, and follows the cached route in
+    #: between. It re-plans early when the route runs out, its next cell is
+    #: no longer enterable, or the selected target changes. Default ``20``
+    #: ticks = 1 s = 5 game cycles, a controller's choice the owner may
+    #: retune (`_specs/open-questions.md` §5).
+    robot_hunt_replan_ticks: int = 20
 
     def __post_init__(self) -> None:
         if self.ai_decision_interval_ticks <= 0:
             raise ValueError("ai_decision_interval_ticks must be a positive integer")
+        if self.robot_hunt_replan_ticks <= 0:
+            raise ValueError("robot_hunt_replan_ticks must be a positive integer")
         if self.dumb_wander_commit_ticks <= 0:
             raise ValueError("dumb_wander_commit_ticks must be a positive integer")
         if self.commander_min_altitude < 0:

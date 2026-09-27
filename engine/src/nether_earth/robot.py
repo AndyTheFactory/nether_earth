@@ -139,7 +139,14 @@ from nether_earth.robot_build import ModuleIdentity, RobotBuild
 if TYPE_CHECKING:
     from nether_earth.orders import Order
 
-__all__ = ["Robot", "RobotFacing", "RobotMoveTransition", "RobotTurnTransition"]
+__all__ = [
+    "HUNT_ROUTE_STEP_LETTERS",
+    "Robot",
+    "RobotFacing",
+    "RobotHuntRoute",
+    "RobotMoveTransition",
+    "RobotTurnTransition",
+]
 
 
 class RobotFacing(str, Enum):
@@ -340,6 +347,91 @@ class RobotTurnTransition:
         return tick >= self.completes_at()
 
 
+#: One route step per letter in :attr:`RobotHuntRoute.steps`: the cardinal
+#: direction of the cell entered, using :class:`RobotFacing`'s axis convention.
+HUNT_ROUTE_STEP_LETTERS: dict[str, tuple[int, int]] = {
+    "E": (1, 0),
+    "W": (-1, 0),
+    "S": (0, 1),
+    "N": (0, -1),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class RobotHuntRoute:
+    """A Search & Destroy (robots) hunter's cached route (CR004.13, #299).
+
+    Owner decision (2026-09-27): an electronics robot hunting robots plans a
+    route to its target, follows it for up to
+    :attr:`~nether_earth.rules.EngineRules.robot_hunt_replan_ticks` ticks and
+    re-plans only then, or early when the route runs out, its next cell is no
+    longer enterable, or the selected target changes. See
+    :func:`~nether_earth.navigation.next_hunt_step`, which owns the rule.
+
+    - ``target_id``: the target robot the route was planned for;
+    - ``planned_tick``: the ``GameState.tick`` of the plan;
+    - ``origin_x``/``origin_y``: the robot's anchor when it planned;
+    - ``steps``: the route as one letter per cell entered (``E``/``W``/``S``/
+      ``N``, see :data:`HUNT_ROUTE_STEP_LETTERS`) from the origin. ``""`` means
+      the robot already stood on a goal anchor; ``None`` means no route
+      existed at ``planned_tick``, and the robot steps greedily toward the
+      target until the next periodic re-plan.
+
+    The route is stored as it was planned and never consumed: the robot's
+    progress is its own position on it. That keeps the cache unchanged, and
+    the snapshot unchanged, between re-plans. Direction letters rather than
+    cells keep a long route small on the wire.
+    """
+
+    target_id: EntityId
+    planned_tick: int
+    origin_x: int
+    origin_y: int
+    steps: str | None
+
+    def __post_init__(self) -> None:
+        if self.planned_tick < 0:
+            raise ValueError("planned_tick must be non-negative")
+        if self.steps is not None and any(
+            letter not in HUNT_ROUTE_STEP_LETTERS for letter in self.steps
+        ):
+            raise ValueError("steps must only contain the letters E, W, S and N")
+
+    @classmethod
+    def from_cells(
+        cls,
+        target_id: EntityId,
+        planned_tick: int,
+        origin: tuple[int, int],
+        cells: tuple[tuple[int, int], ...] | None,
+    ) -> RobotHuntRoute:
+        """Encode a planned route (cells after ``origin``, or ``None``) as a cache entry."""
+        if cells is None:
+            return cls(target_id, planned_tick, origin[0], origin[1], None)
+        letters: list[str] = []
+        previous = origin
+        for cell in cells:
+            delta = (cell[0] - previous[0], cell[1] - previous[1])
+            letter = next(
+                (key for key, step in HUNT_ROUTE_STEP_LETTERS.items() if step == delta), None
+            )
+            if letter is None:
+                raise ValueError(f"route step {previous} -> {cell} is not one cardinal step")
+            letters.append(letter)
+            previous = cell
+        return cls(target_id, planned_tick, origin[0], origin[1], "".join(letters))
+
+    def cells(self) -> tuple[tuple[int, int], ...]:
+        """Return the route's cells after the origin, in order (``()`` for no route)."""
+        x, y = self.origin_x, self.origin_y
+        route: list[tuple[int, int]] = []
+        for letter in self.steps or "":
+            dx, dy = HUNT_ROUTE_STEP_LETTERS[letter]
+            x, y = x + dx, y + dy
+            route.append((x, y))
+        return tuple(route)
+
+
 @dataclass(frozen=True, slots=True)
 class Robot:
     """An authoritative, launched robot entity.
@@ -377,6 +469,10 @@ class Robot:
     #: it neither moves nor fires until the turn resolves (owner request,
     #: 2026-09-23). See :class:`RobotTurnTransition`.
     turning: RobotTurnTransition | None = None
+    #: The cached route of a Search & Destroy (robots) hunt, or ``None``
+    #: (CR004.13, #299). See :class:`RobotHuntRoute`. Cleared whenever the
+    #: order changes (:meth:`with_order`) and when a commander docks.
+    hunt_route: RobotHuntRoute | None = None
 
     def __post_init__(self) -> None:
         if self.height <= 0:
@@ -423,6 +519,7 @@ class Robot:
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
             turning=turning,
+            hunt_route=self.hunt_route,
         )
 
     def with_facing(self, facing: RobotFacing) -> Robot:
@@ -448,6 +545,7 @@ class Robot:
             exit_steps_remaining=self.exit_steps_remaining,
             facing=facing,
             turning=None,
+            hunt_route=self.hunt_route,
         )
 
     def with_movement(self, movement: RobotMoveTransition | None) -> Robot:
@@ -484,6 +582,7 @@ class Robot:
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
             turning=self.turning,
+            hunt_route=self.hunt_route,
         )
 
     def with_position(self, x: int, y: int) -> Robot:
@@ -515,6 +614,7 @@ class Robot:
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
             turning=self.turning,
+            hunt_route=self.hunt_route,
         )
 
     def with_order(self, order: Order | None) -> Robot:
@@ -526,6 +626,10 @@ class Robot:
         are carried over unchanged; see :meth:`with_movement`'s docstring
         for the same "previously dropped active_projectile_id" latent-bug
         fix applied here.
+
+        The one field it does not carry over is ``hunt_route`` (CR004.13):
+        a cached hunt route belongs to the order that planned it, so any new
+        order -- a player's, a completion, or a fallback -- clears it.
         """
         return Robot(
             entity_id=self.entity_id,
@@ -543,6 +647,28 @@ class Robot:
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
             turning=self.turning,
+            hunt_route=None,
+        )
+
+    def with_hunt_route(self, hunt_route: RobotHuntRoute | None) -> Robot:
+        """Return a copy of this robot with its cached hunt route replaced (CR004.13)."""
+        return Robot(
+            entity_id=self.entity_id,
+            owner=self.owner,
+            x=self.x,
+            y=self.y,
+            build=self.build,
+            stack=self.stack,
+            height=self.height,
+            movement=self.movement,
+            order=self.order,
+            active_projectile_id=self.active_projectile_id,
+            strength=self.strength,
+            last_fire_tick=self.last_fire_tick,
+            exit_steps_remaining=self.exit_steps_remaining,
+            facing=self.facing,
+            turning=self.turning,
+            hunt_route=hunt_route,
         )
 
     def with_active_projectile(self, active_projectile_id: EntityId | None) -> Robot:
@@ -569,6 +695,7 @@ class Robot:
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
             turning=self.turning,
+            hunt_route=self.hunt_route,
         )
 
     def with_strength(self, strength: int) -> Robot:
@@ -601,4 +728,5 @@ class Robot:
             exit_steps_remaining=self.exit_steps_remaining,
             facing=self.facing,
             turning=self.turning,
+            hunt_route=self.hunt_route,
         )

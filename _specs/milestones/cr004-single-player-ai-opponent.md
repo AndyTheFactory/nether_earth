@@ -165,6 +165,7 @@ Tracker: #293.
 | CR004.10 (#291) | Strength and determinism harness | CR004.4, CR004.5 |
 | CR004.11 (#292) | CR004 acceptance gate | all |
 | CR004.12 (#295) | Robot ids: never reuse a robot id after a robot dies | CR004.3 |
+| CR004.13 (#299) | Search & Destroy (robots): keep the hunt when blocked, re-plan periodically | CR004.11 |
 
 Parallel groups: engine (CR004.3 → CR004.4, CR004.5, CR004.6 in parallel) and the session path
 (CR004.7 → CR004.8), which only needs CR004.3's scenario flag. CR004.2 informs CR004.4–CR004.6
@@ -339,3 +340,25 @@ one match, something no PvP game had done before.
 - `robot_launches` round-trips through the snapshot as an additive key, elided while empty, the
   same convention as `ai_memories`.
 - Applies to both PvP and solo; it is not AI-only behaviour.
+
+### CR004.13 (#299) — Search & Destroy (robots): keep the hunt when blocked, re-plan periodically
+
+Found in the CR004.11 solo playtest: an electronics hunter switched to Stop & Defend five times
+with enemies still alive. Its target was moving along a narrow corridor toward it, the target's
+in-flight footprint removed every near-side approach anchor, and electronic navigation proved the
+target `UNREACHABLE` for a block that lasted one tick. Owner decision (2026-09-27), recorded in
+`open-questions.md` ("Search & Destroy approach position"):
+
+- Keep the order: `UNREACHABLE` is no longer a fallback for Search & Destroy (robots). The "no
+  enemy robot" and "no capable weapon" fallbacks stay.
+- With no route, take the greedy primary step toward the target's nearest aligned anchor, through
+  the normal move legality; wait if it is illegal.
+- Cache the route on the robot (`Robot.hunt_route`) and re-plan every
+  `EngineRules.robot_hunt_replan_ticks` ticks (default 20), or early when the route is exhausted,
+  its next cell is no longer enterable, or the selected target changes. Any order change, a
+  fallback, or docking clears the cache.
+- `hunt_route` round-trips through the snapshot as an additive robot key, elided while `None`,
+  with the route stored as one direction letter per step. The rules hash changes (`RULES_VERSION`
+  stays `cr004`), so the M9 fixture's pinned hash is regenerated.
+- Applies to human and AI robots alike. Search & Capture, Advance/Retreat and Search & Destroy
+  against structures are unchanged.

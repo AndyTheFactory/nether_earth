@@ -124,7 +124,7 @@ from nether_earth.docking import (
 )
 from nether_earth.events import Event, EventSequencer, order_events
 from nether_earth.heli_pad import detect_heli_pad_landing
-from nether_earth.ids import PlayerId
+from nether_earth.ids import EntityId, PlayerId
 from nether_earth.map import BootstrapMap, WorldMap
 from nether_earth.movement import RobotMoveRequest, advance_all_robot_transitions
 from nether_earth.orders import (
@@ -290,6 +290,19 @@ def _always_allow_vertical(state: GameState, mover: Commander, dest_altitude: in
     """Permissive :data:`VerticalMoveCheck` used when ``world is None``. See
     :func:`_always_allow_horizontal`."""
     return True
+
+
+def _clear_hunt_route(state: GameState, robot_id: EntityId | None) -> GameState:
+    """Return ``state`` with ``robot_id``'s cached hunt route cleared (CR004.13)."""
+    robot = state.robot_for(robot_id) if robot_id is not None else None
+    if robot is None or robot.hunt_route is None:
+        return state
+    return state.with_robots(
+        tuple(
+            other.with_hunt_route(None) if other.entity_id == robot_id else other
+            for other in state.robots
+        )
+    )
 
 
 def _replace_commander(state: GameState, updated: Commander) -> GameState:
@@ -983,6 +996,9 @@ def step(
         state = _replace_commander(state, updated)
         if dock_event is not None:
             events.append(dock_event)
+            # CR004.13: direct control takes over, so a cached hunt route is
+            # stale by the time the order resumes; drop it now.
+            state = _clear_hunt_route(state, updated.docked_robot_id)
 
     # --- Step 6: docked commanders follow their robot fixture --------------
     robots_by_id = {robot.id: robot for robot in robots}

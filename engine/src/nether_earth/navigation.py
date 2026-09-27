@@ -76,6 +76,16 @@ route on the next tick, and a stale plan can never be followed because none
 is ever retained. Policies are therefore field-less, frozen singletons
 (:data:`NON_ELECTRONIC_NAVIGATION`, :data:`ELECTRONIC_NAVIGATION`).
 
+The one exception is a Search & Destroy (robots) hunt (CR004.13, #299):
+re-planning a long route every tick for every hunter is costly, and a hunt
+that gives up on a route blocked for one tick loses its target. The owner
+decided (2026-09-27) that a hunter follows a cached route and re-plans every
+:attr:`~nether_earth.rules.EngineRules.robot_hunt_replan_ticks` ticks, or
+early when the route becomes invalid. The cache is authoritative robot state
+(:attr:`~nether_earth.robot.Robot.hunt_route`), not policy state:
+:func:`next_hunt_step` reads it from the robot and returns the value to
+store back, so this module still holds no state of its own.
+
 Determinism
 ------------
 No randomness is drawn here. `_specs/milestones/05-orders-navigation-capture.md`
@@ -120,7 +130,7 @@ from nether_earth.reservations import (
     reservations_from_state,
 )
 from nether_earth.rng import MatchRandom, derive_seed
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotHuntRoute
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
 
@@ -129,6 +139,7 @@ __all__ = [
     "ELECTRONIC_NAVIGATION",
     "NON_ELECTRONIC_NAVIGATION",
     "ElectronicNavigation",
+    "HuntDecision",
     "NavigationDecision",
     "NavigationPolicy",
     "NavigationStatus",
@@ -139,6 +150,7 @@ __all__ = [
     "derive_wander_seed",
     "navigation_policy_for",
     "next_body_approach_step",
+    "next_hunt_step",
     "next_navigation_step",
     "plan_route",
     "plan_route_to_any",
@@ -995,8 +1007,196 @@ def next_body_approach_step(
 
     Equivalent to ``navigation_policy_for(robot).next_step_to_body(...)``:
     the entry point for pursuing another robot, whose anchor cell is
-    occupied (CR003.4, Search & Destroy robots).
+    occupied (CR003.4). Search & Destroy (robots) uses :func:`next_hunt_step`
+    instead, which never reports ``UNREACHABLE`` (CR004.13).
     """
     return navigation_policy_for(robot).next_step_to_body(
         robot, target_x, target_y, state, world, rules
+    )
+
+
+# --------------------------------------------------------------------------
+# Search & Destroy (robots) hunts: cached route, periodic re-plan (CR004.13)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class HuntDecision:
+    """One hunt tick's navigation decision plus the hunter's cache to store back.
+
+    ``decision`` is never :attr:`NavigationStatus.UNREACHABLE`. ``hunt_route``
+    is the value the caller writes to
+    :attr:`~nether_earth.robot.Robot.hunt_route`: the robot's own cache when
+    nothing was re-planned, a new one after a re-plan, and always ``None``
+    for a robot without electronics (it has no route to cache).
+    """
+
+    decision: NavigationDecision
+    hunt_route: RobotHuntRoute | None
+
+
+def _plan_body_approach(
+    robot: Robot,
+    target_x: int,
+    target_y: int,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+) -> tuple[tuple[int, int], ...] | None:
+    """Plan to the target's aligned anchors, else its contact anchors (CR003.4).
+
+    The goal logic of :meth:`ElectronicNavigation.next_step_to_body`: aligned
+    anchors first, the wider contact set only when none is reachable.
+    """
+    route = plan_route_to_any(
+        robot, body_alignment_anchors(target_x, target_y), state, world, rules
+    )
+    if route is None:
+        route = plan_route_to_any(
+            robot, body_contact_anchors(target_x, target_y), state, world, rules
+        )
+    return route
+
+
+def _cached_next_cell(
+    route: RobotHuntRoute, position: tuple[int, int]
+) -> tuple[int, int] | None:
+    """Return the cell after ``position`` on ``route``, or ``None`` when there is none.
+
+    ``None`` covers both a route the robot has run to the end of and a
+    position that is not on the route at all; either way the cache no longer
+    tells the robot where to go, and it re-plans.
+    """
+    cells = route.cells()
+    if position == (route.origin_x, route.origin_y):
+        return cells[0] if cells else None
+    try:
+        index = cells.index(position)
+    except ValueError:
+        return None
+    return cells[index + 1] if index + 1 < len(cells) else None
+
+
+def _greedy_hunt_step(
+    robot: Robot,
+    target_x: int,
+    target_y: int,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+) -> NavigationDecision:
+    """Step toward the target when no route exists (owner decision, 2026-09-27).
+
+    A robot touching the target already has what a route would give it, so
+    it holds (``ARRIVED``). Otherwise the goal is the nearest of the target's
+    :func:`body_alignment_anchors`, as for :class:`NonElectronicNavigation`,
+    and the step is the single :func:`_primary_step` down the larger
+    remaining delta. There is no detour: if that step is illegal the robot
+    waits this update (``BLOCKED``).
+    """
+    if (robot.x, robot.y) in body_contact_anchors(target_x, target_y):
+        return NavigationDecision(status=NavigationStatus.ARRIVED)
+    goal = min(
+        body_alignment_anchors(target_x, target_y),
+        key=lambda cell: (_distance(robot, cell), cell),
+    )
+    dx, dy = _primary_step(goal[0] - robot.x, goal[1] - robot.y)
+    request = _step_is_legal(robot, dx, dy, state, world, rules)
+    if request is None:
+        return NavigationDecision(status=NavigationStatus.BLOCKED)
+    return _step_decision(robot, request, dx, dy)
+
+
+def next_hunt_step(
+    robot: Robot,
+    target_id: EntityId,
+    target_x: int,
+    target_y: int,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules = DEFAULT_RULES,
+) -> HuntDecision:
+    """Return ``robot``'s Search & Destroy (robots) step toward the target robot.
+
+    Owner decision (2026-09-27, #299): a hunt never gives up because a route
+    is blocked right now. A robot without electronics uses its own greedy
+    :meth:`NonElectronicNavigation.next_step_to_body`, which never reports
+    ``UNREACHABLE``, and caches nothing. An electronics robot:
+
+    1. waits while a move or turn is in flight, and has arrived when it
+       stands on one of the target's aligned anchors (neither plans);
+    2. follows its cached route (:class:`~nether_earth.robot.RobotHuntRoute`)
+       and re-plans only when the cache is missing, was planned for another
+       target, is ``robot_hunt_replan_ticks`` old, has run out, or its next
+       cell is no longer enterable (occupied, reserved, or terrain the
+       chassis cannot enter). A next cell that is enterable but whose step
+       the executor still refuses is only ``BLOCKED``: the robot waits, and
+       does not re-plan every tick;
+    3. plans with the CR003.4 goals (aligned anchors, else contact anchors).
+       A route of ``()`` means the robot is on a goal and has arrived. No
+       route at all is cached as such, and until the next periodic re-plan
+       the robot steps greedily toward the target (:func:`_greedy_hunt_step`).
+
+    Stateless like the policies: the cache comes in on ``robot`` and goes
+    back out in the result, and only ``state.tick`` measures its age.
+    """
+    if robot.build.electronics is None:
+        return HuntDecision(
+            NON_ELECTRONIC_NAVIGATION.next_step_to_body(
+                robot, target_x, target_y, state, world, rules
+            ),
+            None,
+        )
+    cache = robot.hunt_route
+    if robot.movement is not None:
+        return HuntDecision(NavigationDecision(status=NavigationStatus.MOVE_IN_PROGRESS), cache)
+    if robot.turning is not None:
+        return HuntDecision(NavigationDecision(status=NavigationStatus.TURN_IN_PROGRESS), cache)
+    position = (robot.x, robot.y)
+    if position in body_alignment_anchors(target_x, target_y):
+        return HuntDecision(NavigationDecision(status=NavigationStatus.ARRIVED), cache)
+
+    next_cell: tuple[int, int] | None = None
+    fresh = (
+        cache is not None
+        and cache.target_id == target_id
+        and 0 <= state.tick - cache.planned_tick < rules.robot_hunt_replan_ticks
+    )
+    if fresh and cache is not None:
+        if cache.steps is None:
+            return HuntDecision(
+                _greedy_hunt_step(robot, target_x, target_y, state, world, rules), cache
+            )
+        if cache.steps == "" and position == (cache.origin_x, cache.origin_y) and (
+            position in body_contact_anchors(target_x, target_y)
+        ):
+            # Planned as "already on a contact goal" and still touching it.
+            return HuntDecision(NavigationDecision(status=NavigationStatus.ARRIVED), cache)
+        next_cell = _cached_next_cell(cache, position)
+        if next_cell is not None and not cell_is_enterable(
+            robot, next_cell[0], next_cell[1], state, world, rules
+        ):
+            next_cell = None
+
+    if next_cell is None:
+        route = _plan_body_approach(robot, target_x, target_y, state, world, rules)
+        cache = RobotHuntRoute.from_cells(target_id, state.tick, position, route)
+        if route is None:
+            return HuntDecision(
+                _greedy_hunt_step(robot, target_x, target_y, state, world, rules), cache
+            )
+        if not route:
+            return HuntDecision(NavigationDecision(status=NavigationStatus.ARRIVED), cache)
+        next_cell = route[0]
+
+    request = _step_is_legal(
+        robot, next_cell[0] - robot.x, next_cell[1] - robot.y, state, world, rules
+    )
+    if request is None:
+        return HuntDecision(NavigationDecision(status=NavigationStatus.BLOCKED), cache)
+    return HuntDecision(
+        NavigationDecision(
+            status=NavigationStatus.STEP, request=request, route=(next_cell,)
+        ),
+        cache,
     )

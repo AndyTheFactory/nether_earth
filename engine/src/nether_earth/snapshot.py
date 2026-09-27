@@ -101,6 +101,11 @@ Each entry is ``{"player_id", "launched"}``; the count only grows, so robot
 ids are never reused after a robot dies. Snapshots from before the first
 launch are byte-identical to before. :func:`robot_launch_count_from_snapshot`
 is the inverse of one entry.
+
+Hunt routes (CR004.13, #299): a robot's cached Search & Destroy (robots)
+route, :attr:`~nether_earth.robot.Robot.hunt_route`, is serialized as the
+robot's ``"hunt_route"`` key, appended last and **only when set**, the same
+elision. :func:`robot_hunt_route_from_snapshot` is its inverse.
 """
 
 from __future__ import annotations
@@ -123,7 +128,7 @@ from nether_earth.orders import (
     StopAndDefend,
 )
 from nether_earth.resource_pool import PlayerResourcePool
-from nether_earth.robot import Robot, RobotMoveTransition, RobotTurnTransition
+from nether_earth.robot import Robot, RobotHuntRoute, RobotMoveTransition, RobotTurnTransition
 from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.state import (
     AiConstructionMemory,
@@ -138,6 +143,7 @@ from nether_earth.structures import FactoryType
 
 __all__ = [
     "ai_memory_from_snapshot",
+    "robot_hunt_route_from_snapshot",
     "robot_launch_count_from_snapshot",
     "snapshot_to_json_string",
     "to_snapshot",
@@ -395,8 +401,13 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     is presentation-only state (see :class:`~nether_earth.robot.RobotFacing`)
     but still authoritative per-robot state, so a snapshot that dropped it
     would make a restored robot face south again.
+
+    Extended again by CR004.13 (#299) with ``hunt_route``, appended last and
+    **only when the robot holds one** (absent means ``None``), so a snapshot
+    without a Search & Destroy (robots) hunter is byte-identical to before.
+    See :func:`_robot_hunt_route_snapshot` for its compact form.
     """
-    return {
+    snapshot: dict[str, Any] = {
         "entity_id": robot.entity_id.to_json(),
         "owner": robot.owner.to_json(),
         "x": robot.x,
@@ -417,6 +428,37 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
         "facing": robot.facing.value,
         "turning": _robot_turn_transition_snapshot(robot.turning),
     }
+    if robot.hunt_route is not None:
+        snapshot["hunt_route"] = _robot_hunt_route_snapshot(robot.hunt_route)
+    return snapshot
+
+
+def _robot_hunt_route_snapshot(route: RobotHuntRoute) -> dict[str, Any]:
+    """Return a robot's cached hunt route as JSON-safe data (CR004.13, #299).
+
+    The route is a string of one direction letter per step from the origin
+    rather than a list of cells: a route across the 512-wide map is a few
+    hundred bytes instead of a few kilobytes, and the entry only changes on
+    a re-plan, since the robot's progress is its own position on it.
+    """
+    return {
+        "target_id": route.target_id.to_json(),
+        "planned_tick": route.planned_tick,
+        "origin_x": route.origin_x,
+        "origin_y": route.origin_y,
+        "steps": route.steps,
+    }
+
+
+def robot_hunt_route_from_snapshot(data: dict[str, Any]) -> RobotHuntRoute:
+    """Rebuild a robot snapshot's ``"hunt_route"`` entry into a :class:`RobotHuntRoute`."""
+    return RobotHuntRoute(
+        target_id=EntityId.from_json(data["target_id"]),
+        planned_tick=data["planned_tick"],
+        origin_x=data["origin_x"],
+        origin_y=data["origin_y"],
+        steps=data["steps"],
+    )
 
 
 def _structure_ownership_snapshot(record: StructureOwnership) -> dict[str, Any]:
