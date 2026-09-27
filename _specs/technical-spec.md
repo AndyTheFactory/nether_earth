@@ -544,7 +544,9 @@ Electronic policy:
 
 Electronics never overrides terrain restrictions.
 
-Robot targets (CR003.4 #219): a Search & Destroy (robots) goal is another robot's occupied anchor, so navigation closes on the target's body (`navigation.next_body_approach_step`). Electronic robots plan to any anchor from which their 2×2 body touches or overlaps the target's body (`body_contact_anchors`, `plan_route_to_any`) instead of reporting the occupied goal `UNREACHABLE`; non-electronic robots keep greedy steps and stop beside the target when the overlapping step is refused.
+Robot targets (CR003.4 #219): a Search & Destroy (robots) goal is another robot's occupied anchor, so navigation closes on the target's body (`navigation.next_hunt_step`). Electronic robots plan to the anchors lane-aligned with the target's body, else to any anchor from which their 2×2 body touches it (`body_alignment_anchors`, `body_contact_anchors`, `plan_route_to_any`), instead of reporting the occupied goal `UNREACHABLE`; non-electronic robots keep greedy steps and stop beside the target when the overlapping step is refused.
+
+Hunts keep their order (CR004.13 #299, owner decision 2026-09-27): a Search & Destroy (robots) order never falls back because no route exists; its only fallbacks are "no enemy robot" and "no weapon capable against robots". An electronic hunter caches its route on the robot (`Robot.hunt_route`: target id, planned tick, origin, one `E`/`W`/`S`/`N` letter per step, or no route) and follows it between re-plans. It re-plans every `EngineRules.robot_hunt_replan_ticks` ticks (default 20), and early when the route is exhausted, the robot is off its cached route, the next cell is no longer enterable (occupied, reserved or impassable terrain), or target selection picks a different robot. With no route it takes one greedy primary step toward the target's nearest aligned anchor through normal move legality, and waits when that step is illegal. Any order change, a fallback, or docking clears the cache.
 
 ## 15. Robot orders
 
@@ -724,6 +726,7 @@ Snapshot minimum:
 - projectiles (including `first_advance_tick`);
 - scenery debris (`scenery_debris`);
 - robot launches (`robot_launches`, per-owner monotonic id counters, §28.2);
+- robot hunt routes (`hunt_route` on a robot, CR004.13 §14): additive, elided when `None`;
 - map/scenario/rules versions;
 - match result;
 - AI planner memory (`AiMemory`), when a seat is computer-controlled (§28).

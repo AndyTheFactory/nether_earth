@@ -383,6 +383,20 @@ class ConstructionSessionSnapshot(_SnapshotSubModel):
     entry_snapshot: dict[str, Any]
 
 
+class RobotHuntRouteSnapshot(_SnapshotSubModel):
+    """Mirrors a robot snapshot's optional `"hunt_route"` (CR004.13/#299): an
+    electronics Search & Destroy (robots) hunter's cached route, one direction
+    letter (`E`/`W`/`S`/`N`) per step from the origin; `steps` is `None` when no
+    route existed at `planned_tick`.
+    """
+
+    target_id: EntityId
+    planned_tick: int = Field(ge=0)
+    origin_x: int
+    origin_y: int
+    steps: Annotated[str, Field(pattern=r"^[EWSN]*$")] | None
+
+
 class RobotSnapshot(_SnapshotSubModel):
     entity_id: EntityId
     owner: PlayerId
@@ -399,6 +413,15 @@ class RobotSnapshot(_SnapshotSubModel):
     exit_steps_remaining: int
     facing: RobotFacingWire
     turning: dict[str, Any] | None
+    hunt_route: RobotHuntRouteSnapshot | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: Any) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.hunt_route is None:
+            # Elided like `to_snapshot`'s own robot entry (CR004.13).
+            data.pop("hunt_route", None)
+        return data
 
 
 class StructureOwnershipSnapshot(_SnapshotSubModel):

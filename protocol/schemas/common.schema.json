@@ -387,6 +387,21 @@
               "facing": { "$ref": "#/$defs/robotFacing" },
               "turning": {
                 "anyOf": [{ "type": "object" }, { "type": "null" }]
+              },
+              "hunt_route": {
+                "description": "An electronics Search & Destroy (robots) hunter's cached route (CR004.13/#299): planned at planned_tick from (origin_x, origin_y) for target_id, one direction letter per step (E/W/S/N); steps is null when no route existed. Omitted when the robot has none -- deliberately NOT in required below, matching to_snapshot's own elision.",
+                "type": "object",
+                "properties": {
+                  "target_id": { "$ref": "#/$defs/entityId" },
+                  "planned_tick": { "type": "integer", "minimum": 0 },
+                  "origin_x": { "type": "integer" },
+                  "origin_y": { "type": "integer" },
+                  "steps": {
+                    "anyOf": [{ "type": "string", "pattern": "^[EWSN]*$" }, { "type": "null" }]
+                  }
+                },
+                "required": ["target_id", "planned_tick", "origin_x", "origin_y", "steps"],
+                "additionalProperties": false
               }
             },
             "required": [

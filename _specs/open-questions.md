@@ -918,6 +918,36 @@ closes as far as it can rather than abandoning the order. Non-electronic
 hunters use the same rule: their greedy goal is the nearest aligned anchor, and
 arrival means alignment.
 
+**Hunts keep their order when blocked (CR004.13 #299, owner decision
+2026-09-27).** A solo playtest showed an electronics hunter dropping to Stop &
+Defend while enemies were still alive: its target was moving along a one-lane
+corridor toward it, the target's in-flight footprint removed every near-side
+approach anchor, and electronic navigation reported `UNREACHABLE` for a block
+that lasted one tick. For Search & Destroy (robots), by human and AI robots
+alike:
+
+- **Keep the order.** `UNREACHABLE` is no longer a fallback for this order. The
+  fallbacks that stay are "no enemy robot at all" and "no weapon capable against
+  robots".
+- **Move toward the target anyway.** With no route, the robot takes the single
+  greedy step down the larger remaining delta toward the target's nearest
+  aligned anchor (the non-electronic primary step). The step goes through the
+  normal move legality, and if it is illegal the robot waits this update. A
+  robot already touching the target holds.
+- **Don't re-plan every tick.** The route is cached on the robot
+  (`Robot.hunt_route`: target id, planned tick, origin and steps) and followed
+  between re-plans. It is re-planned every `EngineRules.robot_hunt_replan_ticks`
+  ticks (default 20 = 1 s = 5 game cycles; the controller chose this default and
+  the owner may retune it), and early when the route is exhausted, the robot is
+  off its cached route, its next cell is no longer enterable (occupied, reserved
+  or impassable terrain), or target selection picks a different robot. A next step that is enterable but still
+  refused only waits, and a hunt with no route waits for the next periodic
+  re-plan, so a blocked hunter does not plan every tick. Any order change,
+  including a fallback, and docking clear the cache.
+
+Search & Capture, Advance/Retreat and Search & Destroy against structures are
+unchanged.
+
 ## Documented deviations
 
 Deliberate differences from the original that the owner decided to keep. They are not open questions.

@@ -476,6 +476,20 @@ export interface SnapshotState {
     turning: {
       [k: string]: unknown;
     } | null;
+    /**
+     * An electronics Search & Destroy (robots) hunter's cached route (CR004.13/#299): planned at planned_tick from (origin_x, origin_y) for target_id, one direction letter per step (E/W/S/N); steps is null when no route existed. Omitted when the robot has none -- deliberately NOT in required below, matching to_snapshot's own elision.
+     */
+    hunt_route?: {
+      /**
+       * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+       * via the `definition` "entityId".
+       */
+      target_id: string;
+      planned_tick: number;
+      origin_x: number;
+      origin_y: number;
+      steps: string | null;
+    };
   }[];
   structure_ownership: {
     /**

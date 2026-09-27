@@ -53,8 +53,10 @@ and no parallel ``GameState`` collection can drift out of sync. Everything
 every tick -- in particular **Search & Destroy target selection is never
 cached**. A robot whose Search & Destroy target was destroyed simply
 selects a different target (or falls back to Stop & Defend when none
-remains) on the very next evaluation. It mirrors `navigation.py`'s
-deliberately plan-free "replanning" for the same reason.
+remains) on the very next evaluation. That mirrors `navigation.py`'s
+plan-free policies for the same reason; the one cached plan is an
+electronics hunter's route to its selected robot, which is re-planned as
+soon as the selection changes (CR004.13, see below).
 
 Two pieces of order state *are* retained on the order itself:
 
@@ -70,6 +72,12 @@ Two pieces of order state *are* retained on the order itself:
   capture targets exclusive between same-owner robots with the same order
   (``Lb36c``). It is re-validated every evaluation, so it can never
   outlive the ownership that made it a target.
+
+One piece of navigation state is retained on the robot rather than the
+order: an electronics hunter's cached route
+(:attr:`~nether_earth.robot.Robot.hunt_route`, CR004.13). Evaluation returns
+it on :attr:`OrderEvaluation.hunt_route` and :func:`apply_order_evaluations`
+writes it back; any order change clears it.
 
 Order lifecycle
 ----------------
@@ -121,7 +129,12 @@ rather than silently abandoning its order:
   robot can never complete the order however far it walks;
 - a goal :class:`~nether_earth.navigation.ElectronicNavigation` has
   *proved* unreachable (:attr:`~nether_earth.navigation.NavigationStatus.UNREACHABLE`),
-  except under ``SearchCapture``, which holds and retries instead.
+  except under ``SearchCapture``, which holds and retries instead, and
+  under ``SearchDestroy`` against robots, which never asks: its hunt
+  navigation (:func:`~nether_earth.navigation.next_hunt_step`, CR004.13,
+  owner decision 2026-09-27) steps greedily toward a target it has no route
+  to and re-plans periodically, because a moving target that plugs a
+  corridor for one tick is not an impossible goal.
 
 :attr:`~nether_earth.navigation.NavigationStatus.BLOCKED` is explicitly NOT
 impossible: it is the locked "may get stuck" outcome for a non-electronic
@@ -161,11 +174,11 @@ from nether_earth.map import WorldMap
 from nether_earth.movement import RobotMoveRequest, validate_robot_move
 from nether_earth.navigation import (
     NavigationStatus,
-    next_body_approach_step,
+    next_hunt_step,
     next_navigation_step,
 )
 from nether_earth.reservations import destination_available
-from nether_earth.robot import Robot
+from nether_earth.robot import Robot, RobotHuntRoute
 from nether_earth.robot_build import CANONICAL_WEAPON_ORDER, ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules, miles_to_cells
 from nether_earth.state import GameState
@@ -847,10 +860,11 @@ def select_destroy_target(
     with a different ``owner``, in canonical ``entity_id`` order, and the
     goal cell is the target robot's own authoritative anchor. That anchor is
     occupied by the target's body, so the caller navigates with
-    :func:`~nether_earth.navigation.next_body_approach_step`, which closes on
-    the body rather than the cell (CR003.4): electronic robots plan to any
-    anchor touching it, and greedy robots stop beside it when `movement.py`
-    refuses the final overlapping step.
+    :func:`~nether_earth.navigation.next_hunt_step`, which closes on the
+    body rather than the cell (CR003.4): electronic robots plan to any
+    anchor touching it (following a cached route between re-plans,
+    CR004.13), and greedy robots stop beside it when `movement.py` refuses
+    the final overlapping step.
 
     For the structure kinds the candidates are every factory/war base not
     owned by ``robot.owner`` (a *neutral* structure is a valid destruction
@@ -970,6 +984,10 @@ class OrderEvaluation:
     ``intent`` is this tick's engagement intent, if any. It is deliberately
     independent of ``request``: a robot may close on a target and intend to
     engage it in the same tick.
+
+    ``hunt_route`` is the cached hunt route the robot should now hold
+    (CR004.13): set by a Search & Destroy (robots) evaluation, ``None`` for
+    every other order, so a stale cache never outlives its hunt.
     """
 
     robot_id: EntityId
@@ -978,6 +996,7 @@ class OrderEvaluation:
     status: OrderStatus
     request: RobotMoveRequest | None = None
     intent: EngagementIntent | None = None
+    hunt_route: RobotHuntRoute | None = None
 
     @property
     def changed(self) -> bool:
@@ -1020,13 +1039,8 @@ def _navigate(
     world: WorldMap,
     rules: EngineRules,
     intent: EngagementIntent | None = None,
-    *,
-    goal_is_unit: bool = False,
 ) -> OrderEvaluation | None:
     """Ask the robot's own navigation policy for one step toward ``goal``.
-
-    With ``goal_is_unit`` the goal is another unit's (occupied) body anchor,
-    and the policy closes on that body instead of the cell (CR003.4).
 
     Returns ``None`` when the policy *proved* the goal unreachable
     (:attr:`~nether_earth.navigation.NavigationStatus.UNREACHABLE`), which
@@ -1040,11 +1054,12 @@ def _navigate(
       nothing to submit;
     - ``ARRIVED`` keeps the order active with no step: cell goals never
       produce it (callers test arrival themselves against their own
-      completion rule), and for a ``goal_is_unit`` goal it means the robot
-      already touches its target, which never completes a robot hunt.
+      completion rule).
+
+    A Search & Destroy (robots) hunt does not come here; see
+    :func:`_evaluate_hunt`.
     """
-    navigate = next_body_approach_step if goal_is_unit else next_navigation_step
-    decision = navigate(robot, goal[0], goal[1], state, world, rules)
+    decision = next_navigation_step(robot, goal[0], goal[1], state, world, rules)
     if decision.status is NavigationStatus.UNREACHABLE:
         return None
     return OrderEvaluation(
@@ -1054,6 +1069,38 @@ def _navigate(
         status=OrderStatus.ACTIVE,
         request=decision.request if decision.status is NavigationStatus.STEP else None,
         intent=intent,
+    )
+
+
+def _evaluate_hunt(
+    robot: Robot,
+    order: SearchDestroy,
+    target_id: EntityId,
+    goal: tuple[int, int],
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+) -> OrderEvaluation:
+    """Close on the selected target robot; the order always stays ``ACTIVE``.
+
+    Owner decision (2026-09-27, CR004.13): a hunt never falls back because
+    no route exists right now. :func:`~nether_earth.navigation.next_hunt_step`
+    steps toward the target anyway and re-plans periodically, and it
+    touches the target's body rather than its occupied anchor (CR003.4).
+    Touching the target (``ARRIVED``) never completes a robot hunt.
+    """
+    hunt = next_hunt_step(robot, target_id, goal[0], goal[1], state, world, rules)
+    decision = hunt.decision
+    return OrderEvaluation(
+        robot_id=robot.entity_id,
+        order=order,
+        previous=robot.order,
+        status=OrderStatus.ACTIVE,
+        request=decision.request if decision.status is NavigationStatus.STEP else None,
+        intent=engagement_intent_for(
+            robot, EngagementTargetKind.ROBOT, target_id, goal[0], goal[1]
+        ),
+        hunt_route=hunt.hunt_route,
     )
 
 
@@ -1316,11 +1363,7 @@ def evaluate_order(
         return _fallback(robot)
     target_id, goal = selected
     if target_kind is EngagementTargetKind.ROBOT:
-        intent = engagement_intent_for(robot, target_kind, target_id, goal[0], goal[1])
-        evaluation = _navigate(
-            robot, goal, order, state, world, rules, intent=intent, goal_is_unit=True
-        )
-        return evaluation if evaluation is not None else _fallback(robot)
+        return _evaluate_hunt(robot, order, target_id, goal, state, world, rules)
     if (robot.x, robot.y) == goal:
         # Arrived on the structure's target cell: the order completes, and its
         # completion effect is the nuclear detonation `autonomous_combat.py`
@@ -1413,6 +1456,11 @@ def apply_order_evaluations(
     changed, so a tick in which every robot simply continues provably
     mutates nothing.
 
+    Also writes back each evaluation's
+    :attr:`~OrderEvaluation.hunt_route` where it differs from the robot's
+    (CR004.13). That is navigation state, not an order change, so it emits
+    no event; a hunter following its cached route leaves ``state`` as it is.
+
     Emits one :class:`RobotOrderChangedEvent` per changed order followed by
     one :class:`RobotEngagementIntentEvent` per intent, both walking
     ``evaluations`` in the canonical order :func:`evaluate_orders` produced.
@@ -1427,18 +1475,21 @@ def apply_order_evaluations(
     ordered = tuple(evaluations)
     events: list[Event] = []
 
-    changes = {
-        evaluation.robot_id: evaluation for evaluation in ordered if evaluation.changed
-    }
-    if changes:
-        state = state.with_robots(
-            tuple(
-                robot.with_order(changes[robot.entity_id].order)
-                if robot.entity_id in changes
-                else robot
-                for robot in state.robots
-            )
-        )
+    by_robot = {evaluation.robot_id: evaluation for evaluation in ordered}
+    updated_robots: list[Robot] = []
+    dirty = False
+    for robot in state.robots:
+        evaluation = by_robot.get(robot.entity_id)
+        if evaluation is not None:
+            if evaluation.changed:
+                robot = robot.with_order(evaluation.order)
+                dirty = True
+            if robot.hunt_route != evaluation.hunt_route:
+                robot = robot.with_hunt_route(evaluation.hunt_route)
+                dirty = True
+        updated_robots.append(robot)
+    if dirty:
+        state = state.with_robots(tuple(updated_robots))
 
     for evaluation in ordered:
         if not evaluation.changed:
