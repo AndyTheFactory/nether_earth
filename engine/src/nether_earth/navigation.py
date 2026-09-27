@@ -131,6 +131,7 @@ from nether_earth.reservations import (
 )
 from nether_earth.rng import MatchRandom, derive_seed
 from nether_earth.robot import Robot, RobotHuntRoute
+from nether_earth.robot_build import ModuleIdentity
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
 
@@ -289,6 +290,65 @@ def _traversal_view(state: GameState, world: WorldMap) -> _TraversalView:
     return view
 
 
+@dataclass(frozen=True, slots=True)
+class _StaticTerrain:
+    """One chassis's terrain facts for every body anchor of a map, flat-indexed.
+
+    Index ``(y + 1) * width + x`` (:func:`_anchor_index`); the padding row
+    above and below, and the last column (a 2×2 body anchored there would
+    leave the map), are never enterable, so a planner can step ``±1`` /
+    ``±width`` from any enterable index without a bounds check.
+    ``enterable[i]`` is :func:`_in_bounds` plus
+    :func:`~nether_earth.movement.unit_terrain_enterable`; ``step_cost[i]``
+    is :func:`~nether_earth.movement.move_duration_ticks` for moving onto
+    that anchor (0 where it is not enterable).
+    """
+
+    enterable: bytes
+    step_cost: tuple[int, ...]
+
+
+#: Terrain, map bounds and rules never change inside a search, and only
+#: change between searches when debris lands, so these are derived once per
+#: (terrain, bounds, chassis, rules) instead of once per searched cell --
+#: profiling a real match put ~45% of every route plan in re-deriving them.
+#: Keyed by object identity with both objects kept alive, like
+#: :data:`_TRAVERSAL_VIEW_MEMO`; the terrain grid is shared by every
+#: ownership-overlay world, so capture never invalidates it.
+_STATIC_TERRAIN_MEMO: dict[
+    tuple[int, int, int, ModuleIdentity, int], tuple[object, EngineRules, _StaticTerrain]
+] = {}
+_STATIC_TERRAIN_MEMO_MAX = 32
+
+
+def _anchor_index(world: WorldMap, x: int, y: int) -> int:
+    return (y + 1) * world.width + x
+
+
+def _static_terrain(robot: Robot, world: WorldMap, rules: EngineRules) -> _StaticTerrain:
+    chassis = robot.build.chassis
+    key = (id(world.terrain), world.width, world.height, chassis, id(rules))
+    cached = _STATIC_TERRAIN_MEMO.get(key)
+    if cached is not None and cached[0] is world.terrain and cached[1] is rules:
+        return cached[2]
+    size = (world.height + 2) * world.width
+    enterable = bytearray(size)
+    step_cost = [0] * size
+    for y in range(world.height):
+        for x in range(world.width):
+            if _in_bounds(world, x, y) and unit_terrain_enterable(chassis, world, x, y):
+                index = _anchor_index(world, x, y)
+                enterable[index] = 1
+                step_cost[index] = move_duration_ticks(
+                    chassis, unit_move_terrain(world, x, y), rules
+                )
+    result = _StaticTerrain(enterable=bytes(enterable), step_cost=tuple(step_cost))
+    if len(_STATIC_TERRAIN_MEMO) >= _STATIC_TERRAIN_MEMO_MAX:
+        _STATIC_TERRAIN_MEMO.clear()
+    _STATIC_TERRAIN_MEMO[key] = (world.terrain, rules, result)
+    return result
+
+
 def _in_bounds(world: WorldMap, x: int, y: int) -> bool:
     return unit_footprint_in_bounds(x, y, world.width, world.height)
 
@@ -320,8 +380,21 @@ def _enterable(
     """
     if not _in_bounds(world, x, y):
         return False
-    if not unit_terrain_enterable(robot.build.chassis, world, x, y):
+    if not _static_terrain(robot, world, rules).enterable[_anchor_index(world, x, y)]:
         return False
+    return _dynamic_enterable(robot, x, y, state, world, rules, view)
+
+
+def _dynamic_enterable(
+    robot: Robot,
+    x: int,
+    y: int,
+    state: GameState,
+    world: WorldMap,
+    rules: EngineRules,
+    view: _TraversalView,
+) -> bool:
+    """The state-dependent half of :func:`_enterable`: robots, commanders, reservations."""
     if view.occupancy.blocks_unit(x, y, ignore=robot.entity_id):
         return False
     if commander_blocks_robot_cell(state, robot, x, y, rules, world=world):
@@ -447,59 +520,68 @@ def plan_route_to_any(
         return ()
 
     view = _traversal_view(state, world)
+    static = _static_terrain(robot, world, rules)
+    static_enterable = static.enterable
+    step_cost = static.step_cost
+    width = world.width
 
-    # Per-plan caches. Every argument of `_enterable` and of the step cost
-    # except the cell itself is fixed for the whole search, so caching by
-    # cell returns exactly what recomputing would -- this is a pure memo, not
-    # a behaviour change, and the route is bit-for-bit the same. It matters
-    # because the search reaches a cell once per incoming edge: profiling a
-    # full-width route on the 512x16 map measured ~38k `_enterable` calls for
-    # ~8k cells, and a single plan cost several times the whole 50 ms tick
-    # budget.
-    enterable_cache: dict[tuple[int, int], bool] = {}
+    # The search runs over flat anchor indices (see `_StaticTerrain`) with
+    # the static terrain facts precomputed; only the state-dependent half of
+    # `_enterable` is evaluated here, once per index (0 unknown, 1 enterable,
+    # 2 blocked). Same predicate, same costs, same expansion order and
+    # tie-breaks as the cell-keyed search this replaces, so routes are
+    # bit-for-bit identical -- it is only cheaper per cell.
+    known: bytearray = bytearray(len(static_enterable))
 
-    def enterable(cell: tuple[int, int]) -> bool:
-        cached = enterable_cache.get(cell)
-        if cached is None:
-            cached = _enterable(robot, cell[0], cell[1], state, world, rules, view)
-            enterable_cache[cell] = cached
-        return cached
-
-    step_cost_cache: dict[tuple[int, int], int] = {}
-
-    def step_cost_of(cell: tuple[int, int]) -> int:
-        cached = step_cost_cache.get(cell)
-        if cached is None:
-            cached = move_duration_ticks(
-                robot.build.chassis, unit_move_terrain(world, *cell), rules
+    def enterable(index: int) -> bool:
+        status = known[index]
+        if status == 0:
+            status = (
+                1
+                if static_enterable[index]
+                and _dynamic_enterable(
+                    robot, index % width, index // width - 1, state, world, rules, view
+                )
+                else 2
             )
-            step_cost_cache[cell] = cached
-        return cached
+            known[index] = status
+        return status == 1
 
-    targets = frozenset(goal for goal in goals if enterable(goal))
+    targets = frozenset(
+        _anchor_index(world, x, y)
+        for x, y in goals
+        if _in_bounds(world, x, y) and enterable(_anchor_index(world, x, y))
+    )
     if not targets:
         return None
 
-    best: dict[tuple[int, int], int] = {start: 0}
-    came_from: dict[tuple[int, int], tuple[int, int]] = {}
+    start_index = _anchor_index(world, *start)
+    offsets = tuple(dx + dy * width for dx, dy in CARDINAL_DIRECTIONS)
+    best: dict[int, int] = {start_index: 0}
+    came_from: dict[int, int] = {}
     counter = 0
-    frontier: list[tuple[int, int, tuple[int, int]]] = [(0, counter, start)]
+    frontier: list[tuple[int, int, int]] = [(0, counter, start_index)]
 
     while frontier:
-        cost, _order, cell = heappop(frontier)
-        if cell in targets:
-            return _reconstruct(came_from, start, cell)
-        if cost > best[cell]:
+        cost, _order, index = heappop(frontier)
+        if index in targets:
+            route: list[tuple[int, int]] = []
+            while index != start_index:
+                route.append((index % width, index // width - 1))
+                index = came_from[index]
+            route.reverse()
+            return tuple(route)
+        if cost > best[index]:
             continue  # a cheaper path to this cell was already expanded
-        for dx, dy in CARDINAL_DIRECTIONS:
-            neighbour = (cell[0] + dx, cell[1] + dy)
+        for offset in offsets:
+            neighbour = index + offset
             if not enterable(neighbour):
                 continue
-            neighbour_cost = cost + step_cost_of(neighbour)
-            known = best.get(neighbour)
-            if known is None or neighbour_cost < known:
+            neighbour_cost = cost + step_cost[neighbour]
+            previous = best.get(neighbour)
+            if previous is None or neighbour_cost < previous:
                 best[neighbour] = neighbour_cost
-                came_from[neighbour] = cell
+                came_from[neighbour] = index
                 counter += 1
                 heappush(frontier, (neighbour_cost, counter, neighbour))
 
@@ -569,21 +651,6 @@ def body_alignment_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int
             )
         )
     )
-
-
-def _reconstruct(
-    came_from: dict[tuple[int, int], tuple[int, int]],
-    start: tuple[int, int],
-    target: tuple[int, int],
-) -> tuple[tuple[int, int], ...]:
-    """Walk ``came_from`` back from ``target`` to ``start``, excluding ``start``."""
-    route: list[tuple[int, int]] = []
-    cell = target
-    while cell != start:
-        route.append(cell)
-        cell = came_from[cell]
-    route.reverse()
-    return tuple(route)
 
 
 # --------------------------------------------------------------------------

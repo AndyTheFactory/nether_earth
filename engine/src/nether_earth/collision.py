@@ -307,8 +307,42 @@ def surface_height_at(world: WorldMap, x: int, y: int) -> int:
     """
     if not (0 <= x < world.width and 0 <= y < world.height):
         return 0
-    component_heights = (component.height for component in components_at(world, x, y))
-    return max((world.terrain.height_at(x, y), *component_heights))
+    terrain_height = world.terrain.height_at(x, y)
+    component_height = _component_heights(world).get((x, y))
+    return terrain_height if component_height is None else max(terrain_height, component_height)
+
+
+#: The highest static component on each cell of a world: exactly what
+#: :func:`components_at` would report, folded once per world instead of
+#: walking every structure per queried cell (the per-tick robot-altitude
+#: fold asks for every robot's four cells). Keyed by identity with the world
+#: kept alive; every derived world (`capture`/`destruction` overlays) is
+#: itself memoized, so a world object is stable across ticks.
+_COMPONENT_HEIGHTS_MEMO: dict[int, tuple[WorldMap, dict[tuple[int, int], int]]] = {}
+_COMPONENT_HEIGHTS_MEMO_MAX = 32
+
+
+def _component_heights(world: WorldMap) -> dict[tuple[int, int], int]:
+    cached = _COMPONENT_HEIGHTS_MEMO.get(id(world))
+    if cached is not None and cached[0] is world:
+        return cached[1]
+    heights: dict[tuple[int, int], int] = {}
+    structures: list[WarBase | Factory | Blocker] = [
+        *world.war_bases,
+        *world.factories,
+        *world.blockers,
+    ]
+    for structure in structures:
+        for component in structure.components:
+            cell = (component.x, component.y)
+            previous = heights.get(cell)
+            heights[cell] = (
+                component.height if previous is None else max(previous, component.height)
+            )
+    if len(_COMPONENT_HEIGHTS_MEMO) >= _COMPONENT_HEIGHTS_MEMO_MAX:
+        _COMPONENT_HEIGHTS_MEMO.clear()
+    _COMPONENT_HEIGHTS_MEMO[id(world)] = (world, heights)
+    return heights
 
 
 def unit_surface_height(world: WorldMap, x: int, y: int) -> int:
