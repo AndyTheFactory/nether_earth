@@ -16,6 +16,7 @@ import dataclasses
 
 import pytest
 
+from nether_earth.commander import Commander, CommanderMode
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
 from nether_earth.destruction import destroy_robot
@@ -529,3 +530,40 @@ def test_launch_result_rejects_rejected_with_state_or_robot() -> None:
 
     with pytest.raises(ValueError):
         LaunchResult(accepted=False, reason=LaunchRejectionReason.NO_ACTIVE_SESSION, state=_state())
+
+
+# --- A commander in the door (CR005.1) ---------------------------------------
+#
+# Owner decision (CR005.1): a war base does not produce a robot while a
+# commander stands in its door. The Spectrum only tests robot marks there
+# (`La6c8`), so the new robot and the commander trapped each other.
+
+
+def _commander_at(x: int, y: int, altitude: int) -> Commander:
+    return Commander(player_id=PLAYER_TWO, mode=CommanderMode.FREE, x=x, y=y, altitude=altitude)
+
+
+@pytest.mark.parametrize("offset", [(0, 0), (1, 0), (-1, 0), (0, -1), (1, 1)])
+def test_launch_rejects_an_exit_overlapped_by_a_commander(offset: tuple[int, int]) -> None:
+    world = _world()
+    x, y = P1_EXIT_CELL[0] + offset[0], P1_EXIT_CELL[1] + offset[1]
+    state = _state(session=_session()).with_commanders((_commander_at(x, y, 0),))
+
+    result = launch_robot(state, world, PLAYER_ONE)
+
+    assert not result.accepted
+    assert result.reason is LaunchRejectionReason.EXIT_BLOCKED
+
+
+def test_launch_accepts_a_commander_edge_to_edge_or_above_the_robot() -> None:
+    world = _world()
+    _, height = derive_stack_and_height(_complete_build().to_robot_build(), DEFAULT_RULES)
+    beside = _state(session=_session()).with_commanders(
+        (_commander_at(P1_EXIT_CELL[0] + 2, P1_EXIT_CELL[1], 0),)
+    )
+    above = _state(session=_session()).with_commanders(
+        (_commander_at(*P1_EXIT_CELL, height),)
+    )
+
+    assert launch_robot(beside, world, PLAYER_ONE).accepted
+    assert launch_robot(above, world, PLAYER_ONE).accepted

@@ -94,16 +94,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
+from typing import TypeVar
 
 from nether_earth.capture import CapturableStructureKind, capture_footprint
 from nether_earth.capture import effective_world as _capture_effective_world
-from nether_earth.collision import robot_top
+from nether_earth.collision import components_at, robot_top
 from nether_earth.commander import CommanderMode
 from nether_earth.docking import CommanderUndockedEvent
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
 from nether_earth.map import WorldMap
+from nether_earth.occupancy import unit_footprint_cells
 from nether_earth.robot import Robot
 from nether_earth.rules import DEFAULT_RULES, EngineRules
 from nether_earth.state import GameState
@@ -111,6 +113,8 @@ from nether_earth.structures import Blocker, Factory, WarBase
 from nether_earth.terrain import TerrainType
 from nether_earth.victory import VictoryEvent
 from nether_earth.victory import evaluate_victory as _evaluate_victory
+
+_S = TypeVar("_S", WarBase, Factory, Blocker)
 
 __all__ = [
     "RobotDestroyedEvent",
@@ -407,25 +411,20 @@ def effective_world(base_world: WorldMap, state: GameState) -> WorldMap:
     composable function; wiring it in is later tasks' scope.
     """
     ownership_applied = _capture_effective_world(base_world, state)
-    if not state.structure_destruction and not state.scenery_debris:
+    if not (state.structure_destruction or state.scenery_debris or state.robot_debris):
         return ownership_applied
 
-    key = (id(ownership_applied), state.structure_destruction, state.scenery_debris)
+    key = (
+        id(ownership_applied),
+        state.structure_destruction,
+        state.scenery_debris,
+        state.robot_debris,
+    )
     cached = _EFFECTIVE_WORLD_MEMO.get(key)
     if cached is not None and cached[0] is ownership_applied:
         return cached[1]
 
-    destroyed = set(state.structure_destruction)
-    remaining_war_bases = tuple(
-        war_base for war_base in ownership_applied.war_bases if war_base.id not in destroyed
-    )
-    remaining_factories = tuple(
-        factory for factory in ownership_applied.factories if factory.id not in destroyed
-    )
-    result = _apply_debris(
-        replace(ownership_applied, war_bases=remaining_war_bases, factories=remaining_factories),
-        state.scenery_debris,
-    )
+    result = _apply_debris(ownership_applied, state)
     if len(_EFFECTIVE_WORLD_MEMO) >= _MEMO_MAX_ENTRIES:
         _EFFECTIVE_WORLD_MEMO.clear()
     _EFFECTIVE_WORLD_MEMO[key] = (ownership_applied, result)
@@ -433,54 +432,90 @@ def effective_world(base_world: WorldMap, state: GameState) -> WorldMap:
 
 
 def scenery_world(base_world: WorldMap, state: GameState) -> WorldMap:
-    """Return ``base_world`` with only ``state.scenery_debris`` applied (CR002.18).
+    """Return the physical world: ``base_world`` with every kind of debris applied.
 
     For the physical checks `engine.py` runs against the base map -- robot
-    move validation and commander collision -- which must see debris (rough,
-    no longer blocking) without also changing how destroyed buildings are
-    treated there. Returns ``base_world`` itself when there is no debris;
-    memoized like :func:`effective_world`.
+    move validation and commander collision. Nuclear debris (CR002.18), the
+    rubble of a nuked building and the debris a robot killed in combat left
+    (CR005.3) are all rough, 3 high and no longer blocking; ownership
+    overrides are not applied. Returns ``base_world`` itself when there is no
+    debris; memoized like :func:`effective_world`.
     """
-    if not state.scenery_debris:
+    if not (state.scenery_debris or state.structure_destruction or state.robot_debris):
         return base_world
-    key = (id(base_world), (), state.scenery_debris)
+    key = (id(base_world), state.structure_destruction, state.scenery_debris, state.robot_debris)
     cached = _SCENERY_WORLD_MEMO.get(key)
     if cached is not None and cached[0] is base_world:
         return cached[1]
-    result = _apply_debris(base_world, state.scenery_debris)
+    result = _apply_debris(base_world, state)
     if len(_SCENERY_WORLD_MEMO) >= _MEMO_MAX_ENTRIES:
         _SCENERY_WORLD_MEMO.clear()
     _SCENERY_WORLD_MEMO[key] = (base_world, result)
     return result
 
 
-def _apply_debris(world: WorldMap, scenery_debris: tuple[EntityId, ...]) -> WorldMap:
-    """Return ``world`` with ``scenery_debris`` applied (CR002.18).
+def _apply_debris(world: WorldMap, state: GameState) -> WorldMap:
+    """Return ``world`` with ``state``'s debris applied.
 
-    Each debris blocker leaves ``world.blockers`` and its cells become
-    :attr:`~nether_earth.terrain.TerrainType.ROUGH` terrain -- the same class
-    the map already gives the Spectrum's native rough pieces of types 6/7,
-    which is exactly what `Lba44_robots_handled` writes (type < 8 so no
+    Each debris blocker (``state.scenery_debris``, CR002.18) and each
+    destroyed building (``state.structure_destruction``) leaves the world,
+    and every cell it covered becomes rough debris: `Lbc27_replace_building_by_debris`
+    stamps a random type 6/7 piece over every part of a nuked building, as
+    `Lba44_robots_handled` does over a box. Each ``state.robot_debris``
+    anchor turns its 2×2 into debris the same way (`Lb116_robot_destroyed`,
+    CR005.3). Debris cells are :attr:`~nether_earth.terrain.TerrainType.ROUGH`
+    -- the class of the native rough pieces of types 6/7 (type < 8, so no
     chassis is blocked) -- with the map's ``terrain.debris_height`` (3, the
-    ``Ld7bc_map_piece_heights`` entry of types 6/7, CR002.21), so debris is as
-    high as the native rough pieces of those types. Ids no longer naming a
-    blocker are ignored.
+    ``Ld7bc_map_piece_heights`` entry of types 6/7, CR002.21). Ids no longer
+    naming a blocker or building are ignored.
     """
-    if not scenery_debris:
-        return world
-    debris = set(scenery_debris)
+    gone = set(state.scenery_debris) | set(state.structure_destruction)
     cells = dict(world.terrain.cells)
     heights = dict(world.terrain.heights)
-    remaining: list[Blocker] = []
-    for blocker in world.blockers:
-        if blocker.id in debris:
-            for component in blocker.components:
-                cells[(component.x, component.y)] = TerrainType.ROUGH
-                heights[(component.x, component.y)] = world.terrain.debris_height
-        else:
-            remaining.append(blocker)
+
+    def rubble(x: int, y: int) -> None:
+        cells[(x, y)] = TerrainType.ROUGH
+        heights[(x, y)] = world.terrain.debris_height
+
+    def keep(structures: tuple[_S, ...]) -> tuple[_S, ...]:
+        remaining = []
+        for structure in structures:
+            if structure.id in gone:
+                for component in structure.components:
+                    rubble(component.x, component.y)
+            else:
+                remaining.append(structure)
+        return tuple(remaining)
+
+    blockers = keep(world.blockers)
+    war_bases = keep(world.war_bases)
+    factories = keep(world.factories)
+    for x, y in state.robot_debris:
+        for cell in unit_footprint_cells(x, y):
+            rubble(*cell)
     terrain = replace(world.terrain, cells=cells, heights=heights)
-    return replace(world, blockers=tuple(remaining), terrain=terrain)
+    return replace(
+        world, blockers=blockers, war_bases=war_bases, factories=factories, terrain=terrain
+    )
+
+
+def robot_debris_anchor(world: WorldMap, robot: Robot) -> tuple[int, int] | None:
+    """Return where ``robot``, just killed in combat, leaves debris, or ``None`` (CR005.3).
+
+    `Lb116_robot_destroyed` adds a random type 6/7 piece over the robot's
+    2×2 only when all four map cells are empty (element type 0): plain
+    ground with no terrain piece, structure, scenery or earlier debris.
+    ``world`` is the physical world (:func:`scenery_world`). A robot killed
+    by a nuclear blast leaves none (`Lba44` removes it directly).
+    """
+    for x, y in unit_footprint_cells(robot.x, robot.y):
+        if not (0 <= x < world.width and 0 <= y < world.height):
+            return None
+        if world.terrain.terrain_at(x, y) is not TerrainType.NORMAL:
+            return None
+        if components_at(world, x, y):
+            return None
+    return robot.x, robot.y
 
 
 #: Memo for :func:`effective_world`, same discipline as
@@ -488,12 +523,11 @@ def _apply_debris(world: WorldMap, scenery_debris: tuple[EntityId, ...]) -> Worl
 #: ownership-applied world so its ``id`` cannot be recycled while cached, and
 #: returning one stable object per state keeps downstream ``id(world)`` memos
 #: (``capture_footprint``) hitting after a detonation.
-_EFFECTIVE_WORLD_MEMO: dict[
-    tuple[int, tuple[EntityId, ...], tuple[EntityId, ...]], tuple[WorldMap, WorldMap]
-] = {}
-_SCENERY_WORLD_MEMO: dict[
-    tuple[int, tuple[EntityId, ...], tuple[EntityId, ...]], tuple[WorldMap, WorldMap]
-] = {}
+_DebrisKey = tuple[
+    int, tuple[EntityId, ...], tuple[EntityId, ...], tuple[tuple[int, int], ...]
+]
+_EFFECTIVE_WORLD_MEMO: dict[_DebrisKey, tuple[WorldMap, WorldMap]] = {}
+_SCENERY_WORLD_MEMO: dict[_DebrisKey, tuple[WorldMap, WorldMap]] = {}
 _MEMO_MAX_ENTRIES = 256
 
 

@@ -11,7 +11,7 @@
 import { test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { Graphics, Sprite, Texture } from 'pixi.js';
-import { SurfaceMap } from './surface.ts';
+import { GROUND_LIFT, SurfaceMap } from './surface.ts';
 import { PALETTE } from './assets.ts';
 import { loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
 
@@ -20,7 +20,7 @@ vi.mock('./sprite-slice.ts', async (importOriginal) => ({
   pixelTexture: () => Texture.EMPTY,
 }));
 
-const { drawCommander, drawRobotStack, robotGround, UNIT_SIZE } = await import('./robot.ts');
+const { drawCommander, drawRobotStack, robotGround, shadowParts, UNIT_SIZE } = await import('./robot.ts');
 
 const surface = new SurfaceMap(loadMap(DEFAULT_MAP_ID));
 
@@ -40,19 +40,19 @@ function collect(): { objects: (Graphics | Sprite)[]; getPiece: (i: number, text
   };
 }
 
-test('a robot at rest stands on the terrain under its 2×2 body', () => {
+test('a robot at rest stands on the terrain under its 2×2 body, drawn exaggerated (CR005.2)', () => {
   assert.equal(robotGround(surface, 30, 12, null, 0), 0); // flat
-  assert.equal(robotGround(surface, 32, 12, null, 0), 2); // rough types 2-5
-  assert.equal(robotGround(surface, 54, 14, null, 0), 3); // rough types 6/7
-  assert.equal(robotGround(surface, 167, 9, null, 0), 6); // mountain
+  assert.equal(robotGround(surface, 32, 12, null, 0), 2 * GROUND_LIFT); // rough types 2-5
+  assert.equal(robotGround(surface, 54, 14, null, 0), 3 * GROUND_LIFT); // rough types 6/7
+  assert.equal(robotGround(surface, 167, 9, null, 0), 6 * GROUND_LIFT); // mountain
 });
 
 test('mid-move the ground blends from the origin body to the destination body', () => {
   // Rough-2 (56, 14) -> rough-3 (55, 14), authoritative anchor still the origin.
   const move = { from_x: 56, from_y: 14, to_x: 55, to_y: 14, started_tick: 10, duration_ticks: 4 };
-  assert.equal(robotGround(surface, 56, 14, move, 10), 2);
-  assert.equal(robotGround(surface, 56, 14, move, 12), 2.5);
-  assert.equal(robotGround(surface, 56, 14, move, 14), 3);
+  assert.equal(robotGround(surface, 56, 14, move, 10), 2 * GROUND_LIFT);
+  assert.equal(robotGround(surface, 56, 14, move, 12), 2.5 * GROUND_LIFT);
+  assert.equal(robotGround(surface, 56, 14, move, 14), 3 * GROUND_LIFT);
 });
 
 test('the stack is drawn raised by the ground and its top is ground + height', () => {
@@ -105,6 +105,23 @@ test('the commander is sliced the same way, with a shadow only when airborne', (
   drawCommander(30, 12, 8, 'p1', 0, 0, g2.getPiece);
   assert.equal(g2.objects.filter((o) => o instanceof Graphics).length, 1);
   assert.equal(g2.objects.filter((o) => o instanceof Sprite).length, UNIT_SIZE * UNIT_SIZE);
+});
+
+test('the commander shadow lies on each cell it covers (CR005.4)', () => {
+  // Body anchored at (30, 12) covers cells 30..31 × 11..12; (31, 11) is a 6-high piece.
+  const at = (cx: number, cy: number) => (cx === 31 && cy === 11 ? 6 : 0);
+  const whole = shadowParts(30, 12, at);
+  assert.equal(whole.length, 4);
+  assert.deepEqual(whole.map((p) => p.z).sort(), [0, 0, 0, 6]);
+  for (const p of whole) assert.equal((p.x1 - p.x0) * (p.y1 - p.y0), 1);
+  // Mid-move the body straddles 3 columns: 6 parts, still 4 cells of area.
+  const mid = shadowParts(30.5, 12, at);
+  assert.equal(mid.length, 6);
+  assert.ok(Math.abs(mid.reduce((a, p) => a + (p.x1 - p.x0) * (p.y1 - p.y0), 0) - 4) < 1e-9);
+  // Resting at 6 on the raised cell: no shadow there, only on the lower three.
+  const g = collect();
+  drawCommander(30, 12, 6, 'p1', at, 0, g.getPiece);
+  assert.equal(g.objects.filter((o) => o instanceof Graphics).length, 1);
 });
 
 test('a commander piece index keeps its kind across take-off and landing', () => {

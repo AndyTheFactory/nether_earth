@@ -110,7 +110,7 @@ def _plan(state: GameState, world: WorldMap) -> tuple[tuple[object, ...], AiMemo
 
 
 def _exit_cell(world: WorldMap, state: GameState, base: EntityId) -> tuple[int, int]:
-    cell = resolve_launch_exit(world, state, base)
+    cell = resolve_launch_exit(world, state, base, robot_height=1)
     assert not isinstance(cell, LaunchRejectionReason)
     return cell
 

@@ -66,8 +66,9 @@ from nether_earth.ids import EntityId, PlayerId
 from nether_earth.map import WorldMap
 from nether_earth.resource_pool import PlayerResourcePool
 from nether_earth.rng import MatchRandom
-from nether_earth.robot_build import CANONICAL_WEAPON_ORDER, ModuleIdentity
+from nether_earth.robot_build import CANONICAL_WEAPON_ORDER, ModuleIdentity, RobotBuild
 from nether_earth.robot_launch import LaunchRejectionReason, resolve_launch_exit
+from nether_earth.robot_stack import derive_height
 from nether_earth.rules import EngineRules
 from nether_earth.state import AiConstructionMemory, AiMemory, GameState
 
@@ -342,9 +343,10 @@ def plan(
     )
     if design is None:
         return tuple(commands), memory
+    height = derive_height(RobotBuild.from_modules(design), rules)
 
     for base in war_base_order(owned, memory.construction.last_war_base_id, threatened):
-        if isinstance(resolve_launch_exit(world, state, base), LaunchRejectionReason):
+        if isinstance(resolve_launch_exit(world, state, base, height, rules), LaunchRejectionReason):
             continue
         commands.append(EnterConstructionRemotelyCommand(player=player, sequence=0, war_base_id=base))
         commands.extend(SelectModuleCommand(player=player, sequence=0, module=m) for m in design)

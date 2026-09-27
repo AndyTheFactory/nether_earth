@@ -155,7 +155,7 @@ These correspond to the Spectrum map element types: normal = types 0–1 (height
 
 Terrain is a cell property rather than a generic solid entity.
 
-Terrain pieces have these Spectrum heights (CR002.21 #203; nuclear debris counts as rough, height 3). The commander cannot fly into a piece below its height and rests on top of it. The damage formula's `ground_height` is the highest piece under the robot (§17.2). Normal projectiles (altitude 10) always fly over terrain. Terrain is drawn flat, as in the original. Robots stand on the terrain under them (CR002.25 #214, owner decision 2026-09-21: match the original). A robot's altitude is the highest surface under its 2×2 body, and its top is that altitude plus its stack height. The altitude changes when the robot arrives on a new cell. The commander lands, docks, rides and is ejected at the robot's top, it collides with the robot up to its top, and a commander below a robot's top blocks that robot's moves. The robot is drawn raised by its altitude. A new robot leaves its war base at altitude 0, because every war-base exit on the original map is flat.
+Terrain pieces have these Spectrum heights (CR002.21 #203; nuclear debris counts as rough, height 3). The commander cannot fly into a piece below its height and rests on top of it. The damage formula's `ground_height` is the highest piece under the robot (§17.2). Normal projectiles (altitude 10) always fly over terrain. Terrain is drawn flat, as in the original. Robots stand on the terrain under them (CR002.25 #214, owner decision 2026-09-21: match the original). A robot's altitude is the highest surface under its 2×2 body, and its top is that altitude plus its stack height. The altitude changes when the robot arrives on a new cell. The commander lands, docks, rides and is ejected at the robot's top, it collides with the robot up to its top, and a commander below a robot's top blocks that robot's moves. The robot is drawn raised by its altitude; ground heights (terrain pieces and debris) are drawn exaggerated ×3 under robots, the commander and bullets so climbs read (presentation only, CR005.2). A new robot leaves its war base at altitude 0, because every war-base exit on the original map is flat.
 
 ### 7.3 Static geometry
 
@@ -331,7 +331,7 @@ The nuke may be the only weapon.
 Construction cannot launch when:
 
 - player already has 24 robots;
-- war-base exit is blocked (the new robot's 2×2 body in the doorway would be off the map or overlap a robot or a reserved destination);
+- war-base exit is blocked (the new robot's 2×2 body in the doorway would be off the map or overlap a robot or a reserved destination, or a commander below the new robot's top is in the doorway — owner decision CR005.1; the original only checked robots, so robot and commander trapped each other);
 - build is invalid;
 - resources are insufficient.
 
@@ -503,6 +503,9 @@ Blast shapes, from the Spectrum code (`open-questions.md` §20):
   - A factory is in range when dx < 5, dy < 5, and dx + dy < 7.
 - **Carrier:** always destroyed.
 - **Scenery:** every scenery box (element types 17–20) whose bottom-left cell is inside the robot window becomes rough debris: the whole 2×2 box turns into rough terrain that robots can cross at rough speed. Fences are never destroyed. The debris lasts for the rest of the match.
+- **Destroyed building:** every cell of the destroyed war base or factory becomes rough debris (height 3), as in `Lbc27_replace_building_by_debris` (CR005.3). Robots cross it at rough speed; the commander rests on it at 3.
+
+Robots killed by the blast leave no debris of their own. A robot killed in combat does (CR005.3, `Lb116_robot_destroyed`): when all four cells of its 2×2 body are plain ground (no terrain piece, structure, scenery or earlier debris), they become rough debris (height 3) for the rest of the match.
 
 Nuclear weapons are the only way to destroy factories and war bases.
 

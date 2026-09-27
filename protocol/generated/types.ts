@@ -633,6 +633,13 @@ export interface SnapshotState {
     player_id: string;
     launched: number;
   }[];
+  /**
+   * Anchors of the 2x2 rough debris robots killed in combat left on plain ground (CR005.3, Lb116_robot_destroyed), in the order they fell. Those cells are rough terrain, 3 high. Omitted entirely while empty -- deliberately NOT in `required` below, matching to_snapshot's own elision.
+   */
+  robot_debris?: {
+    x: number;
+    y: number;
+  }[];
 }
 /**
  * Sent by a client re-establishing a WebSocket connection to an existing match after a disconnect.

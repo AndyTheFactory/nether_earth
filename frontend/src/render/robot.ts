@@ -16,11 +16,10 @@
 // colour; the previous placeholder's per-module rainbow was our own
 // invention and is dropped along with the prisms it decorated).
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
-import { drawDiamond } from './prism.ts';
 import { PALETTE, unitFill } from './assets.ts';
 import { interpolateAltitude, type GridTransition } from './interpolation.ts';
 import type { SurfaceMap } from './surface.ts';
-import { depthKey } from './projection.ts';
+import { depthKey, project } from './projection.ts';
 import { pixelTexture, sliceSpriteRows, spriteOriginFor, type SpriteSlice } from './sprite-slice.ts';
 import { ROBOT_SPRITES } from './robot-sprites.ts';
 import { COMMANDER_SPRITES } from './commander-sprites.ts';
@@ -134,19 +133,22 @@ function commanderSlices(): UnitSliceTexture[] {
  * authoritative anchor), read from the same map heights, so the robot's top
  * is exactly where the engine docks and lands the commander. Mid-move it is
  * blended from the origin body's surface to the destination's over the move,
- * like the position; presentation only.
+ * like the position; presentation only. The ground under it is drawn
+ * exaggerated (`GROUND_LIFT`, CR005.2), so the returned elevation is a
+ * drawing elevation, not the engine altitude.
  */
 export function robotGround(
-  surface: Pick<SurfaceMap, 'underUnit'>,
+  surface: Pick<SurfaceMap, 'underUnit' | 'liftUnit'>,
   x: number,
   y: number,
   move: GridTransition | null,
   tick: number,
   destroyed: ReadonlySet<string> = new Set(),
 ): number {
-  if (!move) return surface.underUnit(x, y, destroyed);
-  const from = surface.underUnit(move.from_x, move.from_y, destroyed);
-  const to = surface.underUnit(move.to_x, move.to_y, destroyed);
+  const at = (ax: number, ay: number) => surface.underUnit(ax, ay, destroyed) + surface.liftUnit(ax, ay, destroyed);
+  if (!move) return at(x, y);
+  const from = at(move.from_x, move.from_y);
+  const to = at(move.to_x, move.to_y);
   return interpolateAltitude(from, { from_altitude: from, to_altitude: to, started_tick: move.started_tick, duration_ticks: move.duration_ticks }, tick);
 }
 
@@ -210,7 +212,11 @@ export function drawRobotStack(
 /**
  * `surfaceZ` is the top of whatever lies under the commander (ground,
  * structure roof, heli-pad; see surface.ts): its shadow is drawn there so
- * altitude reads against the surface. No shadow when resting on it. Returns
+ * altitude reads against the surface. Given per cell, the shadow is cut
+ * along cell edges and each part lies on the surface of the cell it covers
+ * (CR005.4), so over uneven ground it falls on each cell below the body
+ * rather than floating at the highest one. No shadow on a cell the
+ * commander rests on or below. Returns
  * the sliced, owner-tinted commander Sprites plus the shadow diamond,
  * positioned and `zIndex`-ed for the scene.
  */
@@ -219,7 +225,7 @@ export function drawCommander(
   y: number,
   altitude: number,
   owner: string,
-  surfaceZ = 0,
+  surfaceZ: number | ((cx: number, cy: number) => number) = 0,
   zBias = 0,
   getPiece: (index: number, textured: boolean) => Container = () => new Graphics(),
   mine = true,
@@ -241,10 +247,41 @@ export function drawCommander(
     s.tint = tint;
     s.zIndex = depthKey(x + slice.dx, y + slice.dy, altitude) + zBias;
   }
-  if (altitude > surfaceZ) {
+  const surfaceAt = typeof surfaceZ === 'number' ? () => surfaceZ : surfaceZ;
+  const parts = shadowParts(x, y, surfaceAt).filter((p) => p.z < altitude);
+  if (parts.length) {
     const shadow = getPiece(idx++, false) as Graphics;
     if ('clear' in shadow) shadow.clear();
-    drawDiamond(shadow, x, y, 0x000000, 0.35, undefined, surfaceZ, UNIT_SIZE);
-    shadow.zIndex = depthKey(x, y, surfaceZ) + zBias;
+    for (const p of parts) {
+      const pts = [project(p.x0, p.y0, p.z), project(p.x1, p.y0, p.z), project(p.x1, p.y1, p.z), project(p.x0, p.y1, p.z)];
+      shadow.poly(pts.flatMap((q) => [q.x, q.y])).fill({ color: 0x000000, alpha: 0.35 });
+    }
+    shadow.zIndex = depthKey(x, y, Math.max(...parts.map((p) => p.z))) + zBias;
   }
+}
+
+/**
+ * The 2×2 body anchored at (x, y) (fractional mid-move) cut along cell
+ * edges: one rectangle per cell it overlaps, at that cell's surface.
+ * Cell (cx, cy) covers [cx-0.5, cx+0.5] × [cy-0.5, cy+0.5].
+ */
+export function shadowParts(
+  x: number,
+  y: number,
+  surfaceAt: (cx: number, cy: number) => number,
+): { x0: number; x1: number; y0: number; y1: number; z: number }[] {
+  const eps = 1e-9;
+  const [ax, bx] = [x - 0.5, x - 0.5 + UNIT_SIZE];
+  const [ay, by] = [y + 0.5 - UNIT_SIZE, y + 0.5];
+  const parts = [];
+  for (let cy = Math.floor(ay + 0.5 + eps); cy <= Math.ceil(by + 0.5 - eps) - 1; cy++) {
+    for (let cx = Math.floor(ax + 0.5 + eps); cx <= Math.ceil(bx + 0.5 - eps) - 1; cx++) {
+      const x0 = Math.max(ax, cx - 0.5);
+      const x1 = Math.min(bx, cx + 0.5);
+      const y0 = Math.max(ay, cy - 0.5);
+      const y1 = Math.min(by, cy + 0.5);
+      if (x1 - x0 > eps && y1 - y0 > eps) parts.push({ x0, x1, y0, y1, z: surfaceAt(cx, cy) });
+    }
+  }
+  return parts;
 }

@@ -9,10 +9,10 @@ import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectil
 import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
 import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, type ModuleId } from './robot.ts';
-import { RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
+import { goneSet, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, terrainElementAsset, terrainManifest, type SemanticAsset } from './assets.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
-import { factoryDecorationAnchor, footprintCellsOf, parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, spriteRows, wallBlocks, type SceneryAsset, type SpriteSlice, type WallBlock } from './scenery.ts';
+import { DEBRIS_KIND, factoryDecorationAnchor, footprintCellsOf, parseColor, sceneryPlacements, sliceDepth, sliceSprite, spriteOrigin, spriteRows, wallBlocks, type SceneryAsset, type SceneryPlacement, type SpriteSlice, type WallBlock } from './scenery.ts';
 import { pixelTexture, spriteOriginFor } from './sprite-slice.ts';
 import { BULLET_FOOTPRINT, bulletAxis, bulletRows, bulletTexture } from './bullets.ts';
 import { textOverlays } from '../state/labels.ts';
@@ -188,7 +188,7 @@ export class WorldRenderer {
 
   // Structure name labels are an optional overlay (CR002.23, textOverlays); flags show ownership.
   private drawStructures(state: SnapshotState | null, debug: boolean): void {
-    const key = JSON.stringify([this.zoom, debug, state?.structure_ownership, state?.structure_destruction, state?.scenery_debris]);
+    const key = JSON.stringify([this.zoom, debug, state?.structure_ownership, state?.structure_destruction, state?.scenery_debris, state?.robot_debris]);
     if (key === this.lastStructureKey) return;
     this.lastStructureKey = key;
     for (const { g } of this.structureCells) g.destroy();
@@ -207,10 +207,17 @@ export class WorldRenderer {
     // placeholder prism, exactly like an unmapped scenery kind.
     const structureBlocks: { c: MapComponent; color: number; dead: boolean }[] = [];
     const structureWalls: WallBlock[] = [];
+    // Rough debris 2×2s (CR005.3): every part of a nuked building
+    // (`Lbc27_replace_building_by_debris`) and where a robot fell in combat
+    // (snapshot `robot_debris`, `Lb116`). Drawn with the debris sprite.
+    const rubble: { x: number; y: number }[] = [...(state?.robot_debris ?? [])];
     const collect = (components: MapComponent[], color: number, isDead: boolean): void => {
       if (isDead) {
-        // A destroyed structure is rubble, drawn per cell; no wall sprites.
-        for (const c of components) structureBlocks.push({ c, color, dead: true });
+        // Paired into 2×2 parts whatever their former heights; a cell left
+        // over keeps a per-cell debris prism.
+        const { blocks: parts, loose } = wallBlocks(components.map((c) => ({ ...c, height: 0 })));
+        for (const part of parts) rubble.push(part.anchor);
+        for (const c of loose) structureBlocks.push({ c, color: colorFor('terrain.rough'), dead: true });
         return;
       }
       const { blocks: walls, loose } = wallBlocks(components);
@@ -232,14 +239,22 @@ export class WorldRenderer {
       collect(f.components, col, destroyed(f.id));
       if (debug) this.label(f.id, f.components, `${f.factory_type.toUpperCase()} ${owner(f.id) ?? 'neutral'}${destroyed(f.id) ? ' ✕' : ''}`, ownerColor(owner(f.id)));
     }
-    const blocks: { c: MapComponent; color: number; dead: boolean; debris?: boolean }[] = [];
+    const blocks: { c: MapComponent; color: number; debris?: boolean }[] = [];
     // CR002.5: mapped blockers are Spectrum sprites (below); the rest keep placeholder prisms.
     // CR002.18: debris blockers resolve through the manifest's `debris` kind.
-    const scenery = sceneryPlacements(this.map, sceneryManifest(), debrisIds);
+    const manifest = sceneryManifest();
+    const scenery = sceneryPlacements(this.map, manifest, debrisIds);
+    const debrisId = manifest?.kinds[DEBRIS_KIND];
+    const debrisAsset = debrisId !== undefined ? manifest?.assets[debrisId] : undefined;
+    const rubblePlacements: SceneryPlacement[] = [];
+    for (const anchor of rubble) {
+      if (debrisAsset && spriteRows(debrisAsset.sprite)) rubblePlacements.push({ blockerId: '', assetId: debrisId!, asset: debrisAsset, anchor });
+      else for (const [dx, dy] of [[0, 0], [1, 0], [0, -1], [1, -1]]) structureBlocks.push({ c: { x: anchor.x + dx, y: anchor.y + dy, height: 0 }, color: colorFor('terrain.rough'), dead: true });
+    }
     for (const b of scenery.unmapped) {
       const debris = debrisIds.has(b.id);
       const color = colorFor(debris ? 'terrain.rough' : 'structure.blocker');
-      for (const c of b.components) blocks.push({ c, color, dead: false, debris });
+      for (const c of b.components) blocks.push({ c, color, debris });
     }
     // Heli-pads sit on the war-base roof (open-questions §18). The pad is one
     // 2×2 sprite (the Spectrum's "H" decoration, Lce38_draw_decoration), but
@@ -301,7 +316,7 @@ export class WorldRenderer {
     // not part of a whole 2x2 wall block (the war bases have a few).
     for (const { c, color, dead } of structureBlocks) {
       const g = new Graphics();
-      if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
+      if (dead) drawPrism(g, c.x, c.y, 0, this.map.terrain.debris_height, shade(color, (c.x + c.y) % 2 ? 0.8 : 1));
       else {
         drawPrism(g, c.x, c.y, 0, c.height, color);
         const padAnchor = pads.get(`${c.x},${c.y}`);
@@ -313,17 +328,16 @@ export class WorldRenderer {
       this.structureCells.push({ g, x: c.x });
       this.scene.addChild(g);
     }
-    for (const { c, color, dead, debris } of blocks) {
+    for (const { c, color, debris } of blocks) {
       const g = new Graphics();
-      if (dead) drawPrism(g, c.x, c.y, 0, RUBBLE_HEIGHT, shade(color, 0.3), 0.8);
       // Fallback prism of unmapped debris: the map's rough-piece debris height (types 6/7, 3).
-      else if (debris) drawPrism(g, c.x, c.y, 0, this.map.terrain.debris_height, shade(color, (c.x + c.y) % 2 ? 0.8 : 1));
+      if (debris) drawPrism(g, c.x, c.y, 0, this.map.terrain.debris_height, shade(color, (c.x + c.y) % 2 ? 0.8 : 1));
       else drawPrism(g, c.x, c.y, 0, c.height, color);
       g.zIndex = depthKey(c.x, c.y);
       this.structureCells.push({ g, x: c.x });
       this.scene.addChild(g);
     }
-    for (const p of scenery.placements) {
+    for (const p of [...scenery.placements, ...rubblePlacements]) {
       const origin = spriteOrigin(p.asset, p.anchor);
       for (const { slice, texture } of this.sceneryTexturesFor(p.assetId, p.asset)) {
         const s = new Sprite(texture);
@@ -481,7 +495,7 @@ export class WorldRenderer {
     this.diffForEffects(snap, nowMs);
 
     const me = state.connection.session?.playerId ?? null;
-    const destroyed = new Set([...snap.structure_destruction, ...snap.scenery_debris]);
+    const destroyed = goneSet(snap);
     const robotPos = new Map<string, { x: number; y: number; top: number }>();
 
     for (const r of snap.robots) {
@@ -544,11 +558,14 @@ export class WorldRenderer {
         const p = interpolateGrid(c.x, c.y, ht, tick);
         x = p.x;
         y = p.y;
-        alt = interpolateAltitude(c.altitude, vt, tick);
+        // Raised with the ground it is over, as robots are (CR005.2).
+        alt = interpolateAltitude(c.altitude, vt, tick) + this.surface.liftUnit(x, y, destroyed);
       }
-      // Docked: resting on the robot top, so no separate shadow.
-      // The shadow falls on the highest surface under the 2×2 body (CR002.4).
-      const surfaceZ = docked ? alt : Math.min(alt, this.surface.underUnit(x, y, destroyed));
+      // Docked: resting on the robot top, so no separate shadow. Otherwise
+      // each part of the shadow falls on the cell it covers (CR005.4).
+      const surfaceZ = docked
+        ? alt
+        : (cx: number, cy: number) => this.surface.heightAt(cx, cy, destroyed) + this.surface.liftAt(cx, cy, destroyed);
       // Sliced one cell at a time, like robots (#242): a single anchor-only
       // key (formerly biased +0.5 to always win ties) put the commander in
       // front even when it stood behind a robot or warbase it partly
@@ -584,9 +601,12 @@ export class WorldRenderer {
       // body centre, shadowed on the highest piece under the body.
       const { x, y } = interpolateProjectile(pr, snap.tick, tick);
       const centre = unitCentre(x, y);
-      const sh = project(centre.x, centre.y, Math.min(pr.z, this.surface.underUnit(x, y, destroyed)));
+      // Raised with the ground it flies over, as robots are (CR005.2).
+      const lift = this.surface.liftUnit(x, y, destroyed);
+      const z = pr.z + lift;
+      const sh = project(centre.x, centre.y, Math.min(z, this.surface.underUnit(x, y, destroyed) + lift));
       const key = `projectile:${pr.id}`;
-      const depth = depthKey(x, y, pr.z);
+      const depth = depthKey(x, y, z);
       const g = this.pooledPiece(key, 0, false, usedDynamicKeys) as Graphics;
       g.zIndex = depth;
       g.circle(sh.x, sh.y, 1).fill({ color: 0x000000, alpha: 0.4 });
@@ -599,11 +619,11 @@ export class WorldRenderer {
       if (texture) {
         const sprite = this.pooledPiece(key, 1, true, usedDynamicKeys) as Sprite;
         sprite.texture = texture;
-        const origin = spriteOriginFor(bulletRows(pr.weapon, axis)!, BULLET_FOOTPRINT, { x, y }, pr.z);
+        const origin = spriteOriginFor(bulletRows(pr.weapon, axis)!, BULLET_FOOTPRINT, { x, y }, z);
         sprite.position.set(origin.x, origin.y);
         sprite.zIndex = depth;
       } else {
-        const p = project(centre.x, centre.y, pr.z);
+        const p = project(centre.x, centre.y, z);
         g.circle(p.x, p.y, 2.5).fill(colorFor(`projectile.${pr.weapon}` as SemanticAsset));
       }
     }
@@ -630,11 +650,11 @@ export class WorldRenderer {
     this.prevSnapshot = snap;
     if (!prev || snap.tick <= prev.tick) return;
     for (const p of prev.projectiles) {
-      if (!snap.projectiles.some((q) => q.id === p.id)) this.fx.push({ ...unitCentre(p.x + p.dx, p.y + p.dy), z: p.z, kind: 'hit', startMs: nowMs, durationMs: 250 });
+      if (!snap.projectiles.some((q) => q.id === p.id)) this.fx.push({ ...unitCentre(p.x + p.dx, p.y + p.dy), z: p.z + this.surface.liftUnit(p.x + p.dx, p.y + p.dy, goneSet(prev)), kind: 'hit', startMs: nowMs, durationMs: 250 });
     }
     for (const r of prev.robots) {
       if (!snap.robots.some((q) => q.entity_id === r.entity_id)) {
-        const ground = this.surface.underUnit(r.x, r.y, new Set([...prev.structure_destruction, ...prev.scenery_debris]));
+        const ground = robotGround(this.surface, r.x, r.y, null, 0, goneSet(prev));
         this.fx.push({ ...unitCentre(r.x, r.y), z: ground + r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
       }
     }

@@ -130,7 +130,7 @@ def baseline_plan(
         len(robots) < rules.max_robots_per_player
         and owned
         and pool_after(pool.to_resource_pool(), _CHEAPEST, rules) is not None
-        and not isinstance(resolve_launch_exit(world, state, owned[0]), LaunchRejectionReason)
+        and not isinstance(resolve_launch_exit(world, state, owned[0], robot_height=1), LaunchRejectionReason)
     ):
         commands.append(
             EnterConstructionRemotelyCommand(player=player, sequence=0, war_base_id=owned[0])

@@ -7,14 +7,40 @@
 // same data the engine's `collision.surface_height_at` reads.
 import type { MapData } from '../world/map.ts';
 
-/** Destroyed structures are drawn (and cast shadows onto) low rubble of this height. */
-export const RUBBLE_HEIGHT = 1;
+/**
+ * Presentation-only exaggeration of ground heights (terrain pieces and
+ * debris) when drawing what stands or flies over them (CR005.2, owner
+ * request): a robot on a 6-high mountain is drawn 18 px up instead of 6, so
+ * the climb reads. Buildings and scenery boxes are unaffected; everything
+ * drawn over the ground (robots, the commander, bullets, shadows) is raised
+ * by the same `lift`, so they stay consistent with each other.
+ */
+export const GROUND_LIFT = 3;
 
 interface Column {
   structureId: string;
   height: number;
-  /** Height once `structureId` is gone: rubble for buildings, rough debris for scenery. */
+  /** Height once `structureId` is gone: rough debris (CR002.18, CR005.3). */
   goneHeight: number;
+}
+
+/** Key a robot-debris cell (snapshot `robot_debris`) takes in a `destroyed` set. */
+const debrisCellKey = (x: number, y: number): string => `@${x},${y}`;
+
+/**
+ * Everything that no longer stands as built: destroyed buildings, debris
+ * blockers and the 2×2 debris robots killed in combat left (CR005.3).
+ */
+export function goneSet(snap: {
+  structure_destruction: readonly string[];
+  scenery_debris: readonly string[];
+  robot_debris?: readonly { x: number; y: number }[];
+}): Set<string> {
+  const gone = new Set([...snap.structure_destruction, ...snap.scenery_debris]);
+  for (const d of snap.robot_debris ?? []) {
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, -1], [1, -1]]) gone.add(debrisCellKey(d.x + dx, d.y + dy));
+  }
+  return gone;
 }
 
 /** Inclusive cell range covered by a `size`-wide footprint centred on `c` (size 0 = a point). */
@@ -27,8 +53,10 @@ export function footprintRange(c: number, size: number): [number, number] {
 
 export class SurfaceMap {
   private readonly cells = new Map<string, Column[]>();
+  private readonly debrisHeight: number;
 
   constructor(map: MapData) {
+    this.debrisHeight = map.terrain.debris_height;
     const add = (x: number, y: number, column: Column) => {
       const k = `${x},${y}`;
       this.cells.set(k, [...(this.cells.get(k) ?? []), column]);
@@ -37,7 +65,7 @@ export class SurfaceMap {
       if (c.height) add(c.x, c.y, { structureId: '', height: c.height, goneHeight: c.height });
     }
     for (const s of [...map.war_bases, ...map.factories]) {
-      for (const c of s.components) add(c.x, c.y, { structureId: s.id, height: c.height, goneHeight: RUBBLE_HEIGHT });
+      for (const c of s.components) add(c.x, c.y, { structureId: s.id, height: c.height, goneHeight: map.terrain.debris_height });
     }
     for (const b of map.blockers) {
       for (const c of b.components) add(c.x, c.y, { structureId: b.id, height: c.height, goneHeight: map.terrain.debris_height });
@@ -45,14 +73,27 @@ export class SurfaceMap {
   }
 
   /**
-   * Top of whatever stands on cell (x, y); 0 on open ground. `destroyed`
-   * holds destroyed buildings and debris blockers (snapshot
-   * `structure_destruction` + `scenery_debris`).
+   * Top of whatever stands on cell (x, y); 0 on open ground. `destroyed` is
+   * a `goneSet`. With `groundOnly`, only terrain pieces and debris count.
    */
-  heightAt(x: number, y: number, destroyed: ReadonlySet<string> = new Set()): number {
-    let top = 0;
-    for (const c of this.cells.get(`${x},${y}`) ?? []) top = Math.max(top, destroyed.has(c.structureId) ? c.goneHeight : c.height);
+  heightAt(x: number, y: number, destroyed: ReadonlySet<string> = new Set(), groundOnly = false): number {
+    let top = destroyed.has(debrisCellKey(x, y)) ? this.debrisHeight : 0;
+    for (const c of this.cells.get(`${x},${y}`) ?? []) {
+      const gone = destroyed.has(c.structureId);
+      if (groundOnly && c.structureId && !gone) continue;
+      top = Math.max(top, gone ? c.goneHeight : c.height);
+    }
     return top;
+  }
+
+  /** Extra drawing elevation over cell (x, y): the ground under it, exaggerated (GROUND_LIFT). */
+  liftAt(x: number, y: number, destroyed: ReadonlySet<string> = new Set()): number {
+    return (GROUND_LIFT - 1) * this.heightAt(x, y, destroyed, true);
+  }
+
+  /** `liftAt` over the 2×2 unit body anchored at (x, y), like `underUnit`. */
+  liftUnit(x: number, y: number, destroyed: ReadonlySet<string> = new Set()): number {
+    return (GROUND_LIFT - 1) * this.under(x + 0.5, y - 0.5, destroyed, 2, true);
   }
 
   /**
@@ -60,11 +101,11 @@ export class SurfaceMap {
    * fractional positions (mid-move) cover every cell they overlap.
    * size 0 samples the single cell containing the point (projectiles).
    */
-  under(x: number, y: number, destroyed: ReadonlySet<string> = new Set(), size = 1): number {
+  under(x: number, y: number, destroyed: ReadonlySet<string> = new Set(), size = 1, groundOnly = false): number {
     const [x0, x1] = footprintRange(x, size);
     const [y0, y1] = footprintRange(y, size);
     let top = 0;
-    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) top = Math.max(top, this.heightAt(cx, cy, destroyed));
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) top = Math.max(top, this.heightAt(cx, cy, destroyed, groundOnly));
     return top;
   }
 
