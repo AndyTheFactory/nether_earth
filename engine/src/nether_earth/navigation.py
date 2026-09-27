@@ -102,6 +102,7 @@ concern, unchanged.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from heapq import heappop, heappush
@@ -112,20 +113,18 @@ from nether_earth.map import WorldMap
 from nether_earth.movement import (
     RobotMoveRequest,
     commander_blocks_robot_cell,
-    folded_robot_occupancy,
     move_duration_ticks,
+    static_occupancy,
     unit_move_terrain,
     unit_terrain_enterable,
     validate_robot_move,
 )
 from nether_earth.occupancy import (
     UNIT_FOOTPRINT_OFFSETS,
-    OccupancyGrid,
     unit_footprint_cells,
     unit_footprint_in_bounds,
 )
 from nether_earth.reservations import (
-    ReservationTable,
     destination_available,
     reservations_from_state,
 )
@@ -255,10 +254,20 @@ class _TraversalView:
     planner quadratic in robot count for no behavioral gain: within one
     :meth:`NavigationPolicy.next_step` call the state is fixed, so one
     derivation is the same answer as many.
+
+    The planner reads the same facts through per-anchor indices
+    (:func:`_anchor_index`), so each searched cell is a few lookups instead
+    of four footprint walks per query: ``static_blocked`` marks anchors a
+    structure blocks (memoized per world, see :func:`_static_blocked`),
+    ``unit_blockers`` names every robot whose body or reserved destination
+    overlaps an anchor, and ``commander_anchors`` holds every anchor some
+    commander's body overlaps -- the only cells where
+    :func:`~nether_earth.movement.commander_blocks_robot_cell` can say yes.
     """
 
-    occupancy: OccupancyGrid
-    reservations: ReservationTable
+    static_blocked: bytes
+    unit_blockers: Mapping[int, frozenset[EntityId]]
+    commander_anchors: frozenset[int]
 
 
 #: One traversal view per (state, world), shared by every robot planning in
@@ -280,14 +289,64 @@ def _traversal_view(state: GameState, world: WorldMap) -> _TraversalView:
     cached = _TRAVERSAL_VIEW_MEMO.get(key)
     if cached is not None and cached[0] is state and cached[1] is world:
         return cached[2]
+    reservations = reservations_from_state(state)
+    unit_blockers: dict[int, set[EntityId]] = {}
+    body_cells = [
+        (robot.entity_id, cell)
+        for robot in state.robots
+        for cell in unit_footprint_cells(robot.x, robot.y)
+    ]
+    body_cells.extend((holder, cell) for cell, holder in reservations.holders.items())
+    for entity_id, cell in body_cells:
+        for anchor in _anchors_covering(world, cell):
+            unit_blockers.setdefault(anchor, set()).add(entity_id)
+    commander_anchors = frozenset(
+        _anchor_index(world, commander.x + dx, commander.y + dy)
+        for commander in state.commanders
+        for dx in (-1, 0, 1)
+        for dy in (-1, 0, 1)
+        if _in_bounds(world, commander.x + dx, commander.y + dy)
+    )
     view = _TraversalView(
-        occupancy=folded_robot_occupancy(world, state),
-        reservations=reservations_from_state(state),
+        static_blocked=_static_blocked(world),
+        unit_blockers={anchor: frozenset(ids) for anchor, ids in unit_blockers.items()},
+        commander_anchors=commander_anchors,
     )
     if len(_TRAVERSAL_VIEW_MEMO) >= _TRAVERSAL_VIEW_MEMO_MAX:
         _TRAVERSAL_VIEW_MEMO.clear()
     _TRAVERSAL_VIEW_MEMO[key] = (state, world, view)
     return view
+
+
+def _anchors_covering(world: WorldMap, cell: tuple[int, int]) -> tuple[int, ...]:
+    """Return the index of every on-map anchor whose 2×2 body covers ``cell``."""
+    return tuple(
+        _anchor_index(world, cell[0] - dx, cell[1] - dy)
+        for dx, dy in UNIT_FOOTPRINT_OFFSETS
+        if _in_bounds(world, cell[0] - dx, cell[1] - dy)
+    )
+
+
+#: Anchors a static structure blocks, per world -- the structure half of the
+#: folded occupancy grid, which only changes with the world itself (capture
+#: or destruction overlays, each a memoized world object).
+_STATIC_BLOCKED_MEMO: dict[int, tuple[WorldMap, bytes]] = {}
+_STATIC_BLOCKED_MEMO_MAX = 8
+
+
+def _static_blocked(world: WorldMap) -> bytes:
+    cached = _STATIC_BLOCKED_MEMO.get(id(world))
+    if cached is not None and cached[0] is world:
+        return cached[1]
+    blocked = bytearray((world.height + 2) * world.width)
+    for cell in static_occupancy(world).cells():
+        for anchor in _anchors_covering(world, cell):
+            blocked[anchor] = 1
+    result = bytes(blocked)
+    if len(_STATIC_BLOCKED_MEMO) >= _STATIC_BLOCKED_MEMO_MAX:
+        _STATIC_BLOCKED_MEMO.clear()
+    _STATIC_BLOCKED_MEMO[id(world)] = (world, result)
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,14 +453,21 @@ def _dynamic_enterable(
     rules: EngineRules,
     view: _TraversalView,
 ) -> bool:
-    """The state-dependent half of :func:`_enterable`: robots, commanders, reservations."""
-    if view.occupancy.blocks_unit(x, y, ignore=robot.entity_id):
+    """The state-dependent half of :func:`_enterable`: structures, robots, commanders, reservations.
+
+    Reads :class:`_TraversalView`'s indices, which answer exactly what
+    ``view.occupancy.blocks_unit(x, y, ignore=robot.entity_id)`` and
+    ``view.reservations.is_reserved_by_other`` over the body would: the
+    robot's own body and reservation never block it.
+    """
+    index = _anchor_index(world, x, y)
+    if view.static_blocked[index]:
         return False
-    if commander_blocks_robot_cell(state, robot, x, y, rules, world=world):
+    blockers = view.unit_blockers.get(index)
+    if blockers is not None and (len(blockers) > 1 or robot.entity_id not in blockers):
         return False
-    return not any(
-        view.reservations.is_reserved_by_other(robot.entity_id, cell_x, cell_y)
-        for cell_x, cell_y in unit_footprint_cells(x, y)
+    return index not in view.commander_anchors or not commander_blocks_robot_cell(
+        state, robot, x, y, rules, world=world
     )
 
 
