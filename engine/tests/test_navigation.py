@@ -367,6 +367,49 @@ def test_non_electronic_detours_perpendicular_when_the_primary_axis_is_blocked()
     assert (decision.request.dx, decision.request.dy) in ((0, 1), (0, -1))
 
 
+def test_non_electronic_keeps_walking_the_way_it_faces_when_the_primary_is_blocked() -> None:
+    """Momentum: a detour under way outranks the perpendicular draw."""
+    # Body (2..3, 4..5) with a wall just east of it, robot already walking north.
+    world = _world(blockers=(_wall(((4, 5), (4, 4))),))
+    robot = _robot(x=2, y=5, facing=RobotFacing.NORTH)
+    commit = DEFAULT_RULES.dumb_wander_commit_ticks
+
+    # In every window, including the ones whose draw puts south first.
+    steps = set()
+    for tick in range(8 * commit):
+        decision = NON_ELECTRONIC_NAVIGATION.next_step(
+            robot, 8, 5, _state((robot,), tick=tick), world
+        )
+        assert decision.request is not None
+        steps.add((decision.request.dx, decision.request.dy))
+
+    assert steps == {RobotFacing.NORTH.step}
+
+
+def test_non_electronic_rounds_a_staggered_pair_of_walls_without_looping() -> None:
+    """The reported "stuck in a loop": the greedy pull back round a corner.
+
+    Two staggered walls. Stepping aside clears the first one, the primary
+    step is legal again for a cell, and a policy with no momentum is dragged
+    straight back into the corner it just left, pacing the same two cells for
+    ever. It has to keep walking its detour out past the wall instead.
+    """
+    world = _world(
+        width=30,
+        height=20,
+        blockers=(
+            _wall(tuple((10, y) for y in range(14))),
+            _wall(tuple((18, y) for y in range(6, 20)), entity_id="wall-b"),
+        ),
+    )
+    robot = _robot(x=3, y=10)
+
+    status, cell, _tick = _run_to_target(robot, world, (26, 10), max_ticks=6000)
+
+    assert status is NavigationStatus.ARRIVED
+    assert cell == (26, 10)
+
+
 def test_non_electronic_keeps_its_detour_direction_for_the_whole_window() -> None:
     """The stand-in for the Spectrum's per-robot "keep walking" counter."""
     world = _world(blockers=(_wall(((4, 5),)),))

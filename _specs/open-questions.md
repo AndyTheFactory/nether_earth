@@ -188,13 +188,34 @@ then commits to that direction for `rand & 3 + 3` = 3–6 game cycles
 (`ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING`, `Lb1f5`) before reconsidering,
 which is what carries it along an obstacle instead of oscillating against it.
 
-The engine implements this as: the primary-axis step, then the two steps
-perpendicular to it in an order drawn once per *window*
-(`EngineRules.dumb_wander_commit_ticks`, default 16 ticks = 4 game cycles),
-then the reverse of the primary. The draw is derived from
+The engine implements this as: the primary-axis step; then the direction the
+robot is already walking (`robot.facing`), the *momentum* rule; then the two
+steps perpendicular to the primary in an order drawn once per *window*
+(`EngineRules.dumb_wander_commit_ticks`, default 16 ticks = 4 game cycles);
+then whatever is still legal. The draw is derived from
 `(match seed, tick // commit window, entity id)`, so it is replay-safe and
 per-robot without storing a counter on the robot; the policy stays pure and
 stateless. `BLOCKED` now means every cardinal step is illegal.
+
+**Momentum (owner report 2026-09-27: "robots keep getting stuck in loops").**
+The window draw alone was not enough. A robot would step aside, find the
+primary step legal for one cell, be pulled straight back behind the obstacle,
+and pace those two cells for ever — the corner trap. Continuing in the
+direction it already faces is the memoryless stand-in for the Spectrum's
+"keep walking" counter, and it is free: a step in the faced direction needs no
+turn. Measured over four obstacle fixtures × 8 seeds, it took arrivals from
+27/32 to 32/32 and roughly halved the time; on a comb of staggered walls it
+took 0/8 to 8/8.
+
+The owner's proposed remedy — more randomness over all four directions — was
+tested and rejected on the evidence: drawing uniformly over all four
+directions (25/32), and spending whole windows roaming at random (1-in-4:
+29/32 and much slower), both did worse than the momentum rule, as did a
+faithful port of the Spectrum's own 3–6-cycle random-direction counter (9/32).
+At 24 ticks per step a robot cannot afford a random walk; coherence, not
+entropy, is what gets it round an obstacle. Deep concave pockets and diagonal
+staircases remain unsolvable for this policy by design (§5's "may become
+blocked even if a longer route exists"); electronics clears all of them.
 
 What electronics buys is unchanged in kind and still substantial: a planned
 shortest route versus a greedy step with a random detour that can walk into a

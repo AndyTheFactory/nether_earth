@@ -654,11 +654,16 @@ class NonElectronicNavigation:
     1. the **primary step**: along whichever axis has the larger remaining
        absolute delta (ties go to X, a fixed rule, not an incidental
        ordering);
-    2. the **two perpendicular steps**, in an order drawn from this robot's
+    2. **momentum**: the direction the robot is already walking
+       (``robot.facing``), when that is not the primary step. A detour under
+       way continues rather than unravelling the moment the greedy step
+       looks legal again;
+    3. the **two perpendicular steps**, in an order drawn from this robot's
        own seeded stream. One of them is the secondary axis, the step that
        also closes the other delta; the draw decides whether the robot
        detours that way or the other way;
-    3. the **reverse of the primary step**, a last resort.
+    4. **anything else still legal**, the reverse of the primary included,
+       as a last resort.
 
     The first candidate the movement executor accepts is taken. Only a robot
     for which not one cardinal step is legal reports
@@ -675,12 +680,24 @@ class NonElectronicNavigation:
     **Coherence.** A direction redrawn every tick would jitter on the spot
     and never clear an obstacle, so the Spectrum commits to its choice for
     ``rand & 3 + 3`` = 3-6 game cycles
-    (``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING``, ``Lb1f5``). This
-    policy is stateless, so it derives the same coherence from the tick
-    window ``tick // rules.dumb_wander_commit_ticks``: inside one window a
-    robot's draw is fixed, so it keeps trying the same detour and walks the
-    length of a wall instead of oscillating against it. Nothing is stored on
-    the robot and nothing is threaded through ``GameState``.
+    (``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING``, ``Lb1f5``). Two
+    things stand in for that counter here, and this policy still stores
+    nothing on the robot and threads no RNG through ``GameState``:
+
+    - the perpendicular draw is fixed for a whole tick window
+      (``tick // rules.dumb_wander_commit_ticks``), so a robot picks one
+      side of an obstacle and keeps picking it;
+    - momentum (candidate 2) carries an started detour forward.
+
+    Momentum is what actually breaks loops. Without it the robot steps
+    aside, the primary step is legal for one cell, the greedy pull drags it
+    back behind the obstacle, and it paces the same two cells for ever.
+    Measured on a staggered-wall fixture, without momentum the robot fails
+    to arrive on most seeds; with it, it arrives on every seed in roughly
+    half the ticks. Extra randomness does not fix this and makes it worse:
+    drawing uniformly over all four directions, or spending whole windows
+    roaming at random, both lowered the arrival rate in the same test --
+    a robot that moves at 24 ticks per step cannot afford a random walk.
 
     What electronics still buys is unchanged and substantial: a shortest
     legal route (:class:`ElectronicNavigation`) versus a greedy step with a
@@ -867,12 +884,27 @@ def _candidate_order(
 ) -> tuple[tuple[int, int], ...]:
     """Return this robot's candidate steps for the tick, best first.
 
-    The primary step, then the two steps perpendicular to it in this
-    window's drawn order, then the reverse of the primary. See
-    :class:`NonElectronicNavigation` for why the perpendicular pair is drawn
-    once per window rather than once per tick, and why its order is drawn at
-    all rather than always preferring the one that also closes the other
-    axis.
+    The primary step; then, when the robot is already walking some other
+    way, that direction again; then the two steps perpendicular to the
+    primary in this window's drawn order; then the reverse of the primary.
+
+    Carrying on in the robot's current facing is the *momentum* rule, and it
+    is what keeps a detour from unravelling. Without it the robot steps
+    aside to clear an obstacle, the primary step becomes legal for one cell,
+    the greedy pull drags it straight back into the obstacle's shadow, and
+    it paces that two-cell loop for the rest of the match -- the reported
+    "robots get stuck in loops". The Spectrum avoids the same loop with a
+    counter (``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING``, ``Lb1f5``:
+    keep walking this way for 3-6 game cycles before reconsidering);
+    ``robot.facing`` already records the direction a robot is walking, so
+    this policy reads its momentum off that rather than storing a second
+    counter on ``Robot``. It costs the robot nothing either way: a step in
+    the direction it already faces needs no turn.
+
+    See :class:`NonElectronicNavigation` for why the perpendicular pair is
+    drawn once per window rather than once per tick, and why its order is
+    drawn at all rather than always preferring the one that also closes the
+    other axis.
     """
     perpendicular = (
         [(0, -1), (0, 1)] if primary[1] == 0 else [(-1, 0), (1, 0)]
@@ -883,7 +915,12 @@ def _candidate_order(
         )
     )
     rng.shuffle(perpendicular)
-    return (primary, *perpendicular, (-primary[0], -primary[1]))
+    candidates = [primary]
+    if robot.facing.step != primary:
+        candidates.append(robot.facing.step)
+    candidates += [step for step in perpendicular if step not in candidates]
+    candidates += [step for step in CARDINAL_DIRECTIONS if step not in candidates]
+    return tuple(candidates)
 
 
 def _first_step_decision(
