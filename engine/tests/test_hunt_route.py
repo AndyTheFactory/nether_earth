@@ -9,6 +9,8 @@ route runs out, its next cell becomes unenterable, or the target changes.
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from nether_earth import navigation
@@ -290,8 +292,15 @@ def _apply(state: GameState, world: WorldMap) -> GameState:
 def test_a_hunter_with_a_valid_route_plans_at_most_once_per_replan_interval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """An anti-grav hunter steps every 12 ticks, faster than the 20-tick interval.
+
+    Before CR004.13 every idle update re-planned, so a chassis quicker than
+    the interval planned more often than once per interval; a bipod (24
+    ticks per cell) would not tell the two rules apart.
+    """
+    assert DEFAULT_RULES.robot_move_ticks_anti_grav_normal < REPLAN
     world = _world(60, 12)
-    hunter = _robot(HUNTER, PLAYER_ONE, 2, 5, order=HUNT)
+    hunter = _robot(HUNTER, PLAYER_ONE, 2, 5, chassis=ModuleIdentity.ANTI_GRAV, order=HUNT)
     # 48 cells away: out of every weapon's range, so the hunter only walks.
     target = _robot(
         TARGET, PLAYER_TWO, 50, 5, weapons=(ModuleIdentity.CANNON,), electronics=None
@@ -300,15 +309,22 @@ def test_a_hunter_with_a_valid_route_plans_at_most_once_per_replan_interval(
     counter = _PlanCounter(monkeypatch)
 
     ticks = 5 * REPLAN
+    plan_ticks: list[int] = []
     for _ in range(ticks):
         state, _events = step(state, (), world)
+        route = _hunter_of(state).hunt_route
+        if route is not None and (not plan_ticks or plan_ticks[-1] != route.planned_tick):
+            plan_ticks.append(route.planned_tick)
 
     robot = _hunter_of(state)
-    assert robot.x > hunter.x  # it followed the route
+    assert robot.x > hunter.x + 3  # it followed the route
     assert robot.order == HUNT
-    # One plan at the first tick, then at most one per full interval.
+    # One plan at the first tick, then at most one per full interval. A due
+    # re-plan waits for the move in flight to land, so gaps may exceed it.
     assert 1 <= counter.calls <= ticks // REPLAN
-    assert robot.hunt_route is not None and robot.hunt_route.target_id == TARGET
+    assert plan_ticks[0] == 0
+    assert len(plan_ticks) == counter.calls
+    assert all(later - earlier >= REPLAN for earlier, later in pairwise(plan_ticks))
 
 
 def test_a_new_target_forces_an_early_replan(monkeypatch: pytest.MonkeyPatch) -> None:

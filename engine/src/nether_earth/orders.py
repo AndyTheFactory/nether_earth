@@ -51,10 +51,12 @@ The order itself lives on :attr:`nether_earth.robot.Robot.order`, so
 and no parallel ``GameState`` collection can drift out of sync. Everything
 *else* is recomputed from the current :class:`~nether_earth.state.GameState`
 every tick -- in particular **Search & Destroy target selection is never
-cached** (the route to the selected robot is, see below). A robot whose Search & Destroy target was destroyed simply
+cached**. A robot whose Search & Destroy target was destroyed simply
 selects a different target (or falls back to Stop & Defend when none
-remains) on the very next evaluation. It mirrors `navigation.py`'s
-deliberately plan-free "replanning" for the same reason.
+remains) on the very next evaluation. That mirrors `navigation.py`'s
+plan-free policies for the same reason; the one cached plan is an
+electronics hunter's route to its selected robot, which is re-planned as
+soon as the selection changes (CR004.13, see below).
 
 Two pieces of order state *are* retained on the order itself:
 

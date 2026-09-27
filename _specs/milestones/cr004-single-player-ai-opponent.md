@@ -355,7 +355,8 @@ target `UNREACHABLE` for a block that lasted one tick. Owner decision (2026-09-2
   the normal move legality; wait if it is illegal.
 - Cache the route on the robot (`Robot.hunt_route`) and re-plan every
   `EngineRules.robot_hunt_replan_ticks` ticks (default 20), or early when the route is exhausted,
-  its next cell is no longer enterable, or the selected target changes. Any order change, a
+  the robot is off its cached route, its next cell is no longer enterable, or the selected target
+  changes. Any order change, a
   fallback, or docking clears the cache.
 - `hunt_route` round-trips through the snapshot as an additive robot key, elided while `None`,
   with the route stored as one direction letter per step. The rules hash changes (`RULES_VERSION`

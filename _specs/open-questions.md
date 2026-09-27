@@ -938,9 +938,9 @@ alike:
   (`Robot.hunt_route`: target id, planned tick, origin and steps) and followed
   between re-plans. It is re-planned every `EngineRules.robot_hunt_replan_ticks`
   ticks (default 20 = 1 s = 5 game cycles; the controller chose this default and
-  the owner may retune it), and early when the route is exhausted, its next cell
-  is no longer enterable (occupied, reserved or impassable terrain), or target
-  selection picks a different robot. A next step that is enterable but still
+  the owner may retune it), and early when the route is exhausted, the robot is
+  off its cached route, its next cell is no longer enterable (occupied, reserved
+  or impassable terrain), or target selection picks a different robot. A next step that is enterable but still
   refused only waits, and a hunt with no route waits for the next periodic
   re-plan, so a blocked hunter does not plan every tick. Any order change,
   including a fallback, and docking clear the cache.
