@@ -445,9 +445,10 @@ The original's facing-direction bonus to the autonomous fire-decision *scan* (10
 Without electronics:
 
 - limited/original-style local routing: the step that closes the larger
-  remaining axis, else a detour along the obstacle in a direction drawn for
-  the robot and held for a few game cycles, else a step back
-  (`open-questions.md` §5 "Detour fallback", the original's `Lb326`/`Lb33e`);
+  remaining axis; else carry on the way the robot is already walking; else a
+  detour along the obstacle in a direction drawn for the robot and held for a
+  few game cycles; else any step still legal (`open-questions.md` §5 "Detour
+  fallback" and "Momentum", the original's `Lb326`/`Lb33e`/`Lb1f5`);
 - erratic and slow around obstacles, and prone to walking into pockets, but
   immobile only where no legal step at all exists.
 

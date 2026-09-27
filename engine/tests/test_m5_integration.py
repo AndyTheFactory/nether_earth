@@ -416,14 +416,14 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert bipod_moves[0].to_x == 1 and bipod_moves[0].to_y == 1  # body over NORMAL
     assert bipod_moves[1].duration_ticks == ROUGH_BIPOD_TICKS
     assert bipod_moves[1].to_x == 2 and bipod_moves[1].to_y == 1  # body over ROUGH
-    # The bipod cannot enter a body over the ditch at x=4, and never does:
-    # it detours along the ditch for the rest of the run instead of standing
-    # still against it (`_specs/open-questions.md` §5/§22.6, ``Lb33e``).
-    assert len(bipod_moves) > 2
-    assert all(move.to_x <= 2 for move in bipod_moves)
+    # The bipod cannot enter a body over the ditch at x=4, so it walks along
+    # the ditch until it finds the gap and completes its Advance from there
+    # (`_specs/open-questions.md` §5/§22.6, ``Lb33e`` plus the momentum rule).
+    assert len(bipod_moves) > miles_to_cells(3)  # longer than the straight line
     bipod_robot = final.robot_for(ROBOT_BIPOD)
     assert bipod_robot is not None
-    assert bipod_robot.x <= 2
+    assert bipod_robot.x == miles_to_cells(3)
+    assert bipod_robot.order == StopAndDefend()
 
     tracks_moves = move_started_by_robot[ROBOT_TRACKS]
     assert tracks_moves[0].duration_ticks == TRACKS_TICKS
