@@ -990,3 +990,21 @@ def test_plan_route_to_any_ignores_unenterable_goals_and_is_order_independent() 
     assert plan_route_to_any(hunter, tuple(reversed(goals)), state, world) == route
     assert plan_route_to_any(hunter, ((4, 5),), state, world) is None
     assert plan_route_to_any(hunter, ((0, 5), (9, 9)), state, world) == ()
+
+
+def test_routes_along_the_map_edges_never_wrap_or_leave_the_map() -> None:
+    # The planner searches flat anchor indices; a step off the right edge or
+    # below the bottom row must be refused, never wrap onto another row.
+    world = _world(width=6, height=4)
+    robot = _robot(x=4, y=3, electronics=ModuleIdentity.ELECTRONICS)
+    state = _state((robot,))
+
+    route = plan_route(robot, 0, 1, state, world)
+
+    assert route is not None and route[-1] == (0, 1)
+    assert len(route) == 6  # 4 west + 2 north: the Manhattan distance
+    assert all(cell_is_enterable(robot, x, y, state, world) for x, y in route)
+    # Anchors whose 2x2 body would leave the map are never goals.
+    assert plan_route(robot, 5, 3, state, world) is None
+    assert plan_route(robot, 0, 0, state, world) is None
+    assert plan_route(robot, 0, 4, state, world) is None

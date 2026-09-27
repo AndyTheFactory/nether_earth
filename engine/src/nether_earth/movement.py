@@ -357,10 +357,25 @@ def folded_robot_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
     destination is claimed through M5.3's reservation contract, not through
     this grid.
     """
+    key = (id(world), id(state))
+    cached = _FOLDED_OCCUPANCY_MEMO.get(key)
+    if cached is not None and cached[0] is world and cached[1] is state:
+        return cached[2]
     grid = static_occupancy(world)
     for robot in state.robots:
         grid = grid.with_added(robot.entity_id, unit_footprint(robot.x, robot.y))
+    if len(_FOLDED_OCCUPANCY_MEMO) >= _FOLDED_OCCUPANCY_MEMO_MAX:
+        _FOLDED_OCCUPANCY_MEMO.clear()
+    _FOLDED_OCCUPANCY_MEMO[key] = (world, state, grid)
     return grid
+
+
+#: One fold per (world, state): ``GameState`` is immutable, and every move
+#: validated against the same state (a tick's move batch, the navigation
+#: view) would otherwise re-fold every robot. Same identity-keyed discipline
+#: as :data:`_STATIC_OCCUPANCY_MEMO`.
+_FOLDED_OCCUPANCY_MEMO: dict[tuple[int, int], tuple[WorldMap, GameState, OccupancyGrid]] = {}
+_FOLDED_OCCUPANCY_MEMO_MAX = 8
 
 
 # --------------------------------------------------------------------------
