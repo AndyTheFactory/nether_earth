@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { footprintRange, RUBBLE_HEIGHT, SurfaceMap } from './surface.ts';
+import { footprintRange, goneSet, GROUND_LIFT, SurfaceMap } from './surface.ts';
 import { footprintCells, loadMap, DEFAULT_MAP_ID } from '../world/map.ts';
 
 const map = loadMap(DEFAULT_MAP_ID);
@@ -47,8 +47,23 @@ test('mid-move footprint takes the highest surface it overlaps', () => {
   assert.equal(surface.under(19.4, 6, new Set(), 0), 0);
 });
 
-test('destroyed structures leave rubble height', () => {
-  assert.equal(surface.under(37, 5, new Set(['factory-1'])), RUBBLE_HEIGHT);
+test('destroyed structures leave rough debris (CR005.3)', () => {
+  assert.equal(surface.under(37, 5, new Set(['factory-1'])), map.terrain.debris_height);
+});
+
+test('robot debris covers its 2×2 at debris height (CR005.3)', () => {
+  const gone = goneSet({ structure_destruction: [], scenery_debris: [], robot_debris: [{ x: 22, y: 12 }] });
+  for (const [x, y] of [[22, 12], [23, 12], [22, 11], [23, 11]]) assert.equal(surface.heightAt(x, y, gone), map.terrain.debris_height);
+  assert.equal(surface.heightAt(22, 13, gone), 0);
+  assert.equal(surface.heightAt(24, 12, gone), 0);
+});
+
+test('ground lift exaggerates terrain and debris only (CR005.2)', () => {
+  assert.equal(surface.liftAt(167, 9), (GROUND_LIFT - 1) * 6); // mountain
+  assert.equal(surface.liftAt(18, 3), 0); // war base: not ground
+  assert.equal(surface.liftAt(37, 5, new Set(['factory-1'])), (GROUND_LIFT - 1) * map.terrain.debris_height);
+  assert.equal(surface.liftUnit(166, 9), (GROUND_LIFT - 1) * 6);
+  assert.equal(surface.liftUnit(165, 9), 0);
 });
 
 test('terrain pieces have their Spectrum heights (CR002.21)', () => {

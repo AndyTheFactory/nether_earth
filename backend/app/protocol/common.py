@@ -508,6 +508,13 @@ class RobotLaunchCountSnapshot(_SnapshotSubModel):
     launched: int = Field(ge=1)
 
 
+class CellSnapshot(_SnapshotSubModel):
+    """One map cell (CR005.3 robot debris anchor)."""
+
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+
+
 class SnapshotState(_SnapshotSubModel):
     """Mirrors `nether_earth.snapshot.to_snapshot(state)`'s exact return shape.
 
@@ -538,6 +545,9 @@ class SnapshotState(_SnapshotSubModel):
     #: Empty until the first launch; `_serialize` then elides the key,
     #: mirroring `to_snapshot`.
     robot_launches: list[RobotLaunchCountSnapshot] = Field(default_factory=list)
+    #: Anchors of the 2×2 debris robots killed in combat left (CR005.3), in
+    #: the order they fell. Elided while empty, like `robot_launches`.
+    robot_debris: list[CellSnapshot] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: Any) -> dict[str, Any]:
@@ -546,4 +556,6 @@ class SnapshotState(_SnapshotSubModel):
             data.pop("ai_memories", None)
         if not self.robot_launches:
             data.pop("robot_launches", None)
+        if not self.robot_debris:
+            data.pop("robot_debris", None)
         return data

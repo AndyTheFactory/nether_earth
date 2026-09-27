@@ -1142,6 +1142,14 @@ the bit position into `b`, then indexes
 east/west/south/north column order (`FACINGS`) is a reading of the code, not
 an assumption.
 
+## CR005 playtest fixes — RESOLVED (owner request 2026-09-27)
+
+**Commander in a war-base door (CR005.1).** Owner decision: a war base does not produce a robot while a free commander is in its doorway below the new robot's top (the same overlap that would block the robot's move, `movement.commander_blocks_robot_cell`); the launch is rejected as `EXIT_BLOCKED`, for players and the AI alike. This departs from the Spectrum, whose `La6c8` only tests robot marks: the robot was built, could not leave, and trapped the commander. Engine: `robot_launch.resolve_launch_exit` (now given the new robot's height). Tests: `engine/tests/test_robot_launch.py`.
+
+**Robot and building debris (CR005.3).** Spectrum behavior, from `netherearth-annotated.asm`: `Lb116_robot_destroyed` stamps a random type 6/7 piece over a killed robot's 2×2 only when all four map cells are empty; a robot removed by a nuclear blast (`Lba44`) skips it; `Lbc27_replace_building_by_debris` stamps one over every part of a nuked building. Engine: `GameState.robot_debris` (anchors, in the order robots fell; snapshot/protocol `robot_debris`, elided while empty); `destruction.scenery_world`/`effective_world` turn robot debris, nuked buildings and debris blockers into rough cells of `terrain.debris_height`, and a nuked building no longer blocks moves or the commander (before CR005 it stayed solid). The random 6/7 variant is not modelled. `RULES_VERSION` becomes `cr005`. Tests: `engine/tests/test_robot_debris.py`.
+
+**Terrain lift and commander shadow (CR005.2, CR005.4).** Presentation only. Ground heights (terrain pieces and debris) are drawn `GROUND_LIFT` (3) times higher under robots, the commander and bullets (`frontend/src/render/surface.ts`), so a robot on a mountain is drawn 18 px up instead of 6; the engine altitudes are unchanged. The commander's shadow is cut along cell edges and each part lies on the surface of the cell it covers (`robot.ts` `shadowParts`).
+
 ## Resolution process
 
 Use this fidelity order:

@@ -588,6 +588,11 @@ class GameState:
     ever launched (:class:`RobotLaunchCount`), the source of new robot ids
     (``robot_launch.py``). Canonical (sorted by player), at most one entry
     per player, none for a player who has not launched; defaults to ``()``.
+
+    ``robot_debris`` (CR005.3) holds the anchors of the 2×2 rough debris
+    robots killed in combat left on plain ground (`Lb116_robot_destroyed`),
+    in the order they fell; ``destruction.scenery_world`` makes those cells
+    rough. Defaults to ``()``.
     """
 
     tick: int
@@ -604,6 +609,7 @@ class GameState:
     scenery_debris: tuple[EntityId, ...] = ()
     ai_memories: tuple[AiMemory, ...] = ()
     robot_launches: tuple[RobotLaunchCount, ...] = ()
+    robot_debris: tuple[tuple[int, int], ...] = ()
 
     def with_tick(self, tick: int) -> GameState:
         """Return a new ``GameState`` with ``tick`` replaced.
@@ -630,6 +636,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def with_commanders(self, commanders: tuple[Commander, ...]) -> GameState:
@@ -667,6 +674,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def commander_for(self, player_id: PlayerId) -> Commander | None:
@@ -712,6 +720,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def resource_pool_for(self, player_id: PlayerId) -> PlayerResourcePool | None:
@@ -759,6 +768,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def construction_session_for(self, player_id: PlayerId) -> ConstructionSession | None:
@@ -802,6 +812,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def robot_for(self, entity_id: EntityId) -> Robot | None:
@@ -852,6 +863,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def structure_ownership_for(self, structure_id: EntityId) -> StructureOwnership | None:
@@ -888,6 +900,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def capture_progress_for(self, structure_id: EntityId) -> CaptureProgress | None:
@@ -926,6 +939,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def projectile_for(self, entity_id: EntityId) -> Projectile | None:
@@ -965,6 +979,7 @@ class GameState:
             scenery_debris=self.scenery_debris,
             ai_memories=self.ai_memories,
             robot_launches=self.robot_launches,
+            robot_debris=self.robot_debris,
         )
 
     def structure_destroyed(self, structure_id: EntityId) -> bool:
@@ -978,6 +993,10 @@ class GameState:
         other field is carried over unchanged.
         """
         return replace(self, scenery_debris=_canonical_scenery_debris(tuple(scenery_debris)))
+
+    def with_robot_debris(self, robot_debris: tuple[tuple[int, int], ...]) -> GameState:
+        """Return a new ``GameState`` with ``robot_debris`` replaced (CR005.3)."""
+        return replace(self, robot_debris=tuple(robot_debris))
 
     def robots_launched_by(self, player_id: PlayerId) -> int:
         """Return how many robots ``player_id`` has ever launched (``0`` if none)."""
@@ -1042,6 +1061,7 @@ def create_game_state(
     scenery_debris: tuple[EntityId, ...] | list[EntityId] | None = None,
     ai_memories: tuple[AiMemory, ...] | list[AiMemory] | None = None,
     robot_launches: tuple[RobotLaunchCount, ...] | list[RobotLaunchCount] | None = None,
+    robot_debris: tuple[tuple[int, int], ...] | list[tuple[int, int]] | None = None,
 ) -> GameState:
     """Construct a ``GameState`` with ``players``/``commanders``/``resource_pools``/``construction_sessions``/``robots``/``structure_ownership``/``capture_progress``/``projectiles``/``structure_destruction`` normalized.
 
@@ -1205,4 +1225,5 @@ def create_game_state(
         ),
         ai_memories=canonical_ai_memories,
         robot_launches=canonical_robot_launches,
+        robot_debris=() if robot_debris is None else tuple(robot_debris),
     )

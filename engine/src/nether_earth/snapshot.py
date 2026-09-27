@@ -86,6 +86,10 @@ Scenery debris (CR002.18, #196): ``GameState.scenery_debris`` is serialized
 as ``"scenery_debris"``, a plain list of blocker ids in canonical order,
 appended after ``structure_destruction`` the same way.
 
+Robot debris (CR005.3): ``GameState.robot_debris`` is serialized as
+``"robot_debris"``, a list of ``{"x", "y"}`` 2×2 debris anchors in the order
+the robots fell, elided while empty like ``robot_launches``.
+
 AI memories (CR004.3, #284): ``GameState.ai_memories`` is serialized as
 ``"ai_memories"``, appended last, **only when the match has an AI seat**. An
 all-human state has no AI memory and no such key, so every PvP snapshot (and
@@ -661,6 +665,9 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
         snapshot["robot_launches"] = [
             _robot_launch_count_snapshot(count) for count in state.robot_launches
         ]
+    if state.robot_debris:
+        # Elided until a robot leaves debris (CR005.3), like robot_launches.
+        snapshot["robot_debris"] = [{"x": x, "y": y} for x, y in state.robot_debris]
     return snapshot
 
 

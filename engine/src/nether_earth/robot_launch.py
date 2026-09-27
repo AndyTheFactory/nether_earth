@@ -140,6 +140,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from nether_earth.collision import VerticalRange, commander_blocks_cell, unit_surface_height
 from nether_earth.construction_session import ConstructionSession, exit_construction
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind
@@ -222,7 +223,11 @@ def _folded_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
 
 
 def resolve_launch_exit(
-    world: WorldMap, state: GameState, war_base_id: EntityId
+    world: WorldMap,
+    state: GameState,
+    war_base_id: EntityId,
+    robot_height: int,
+    rules: EngineRules = DEFAULT_RULES,
 ) -> tuple[int, int] | LaunchRejectionReason:
     """Return the exit cell a robot launched from ``war_base_id`` would take, or why it cannot.
 
@@ -231,6 +236,8 @@ def resolve_launch_exit(
     or :data:`LaunchRejectionReason.EXIT_BLOCKED`, else the resolved anchor
     cell. Public so the AI construction planner (CR004.4) can skip a war base
     whose exit is blocked using the launch rule itself rather than a copy.
+    ``robot_height`` is the new robot's stack height: a free commander below
+    the robot's top at the exit blocks it (CR005.1).
     """
     exit_cell = _resolve_exit_cell(world, war_base_id)
     if exit_cell is None:
@@ -256,6 +263,21 @@ def resolve_launch_exit(
     # that callers would have to branch on identically.
     reservations = reservations_from_state(state)
     if any(reservations.is_reserved(x, y) for x, y in unit_footprint_cells(exit_x, exit_y)):
+        return LaunchRejectionReason.EXIT_BLOCKED
+
+    # A commander standing in the door (owner decision, CR005.1): the new
+    # robot could not leave and would trap the commander, so no robot is
+    # built. It blocks exactly as it would block the robot stepping there
+    # (`movement.commander_blocks_robot_cell`): below the robot's top.
+    top = unit_surface_height(world, exit_x, exit_y) + robot_height
+    vertical_range = VerticalRange(bottom=0, top=top)
+    if any(
+        commander.docked_robot_id is None
+        and commander_blocks_cell(
+            state, commander, exit_x, exit_y, vertical_range, rules=rules
+        )
+        for commander in state.commanders
+    ):
         return LaunchRejectionReason.EXIT_BLOCKED
     return exit_x, exit_y
 
@@ -325,12 +347,12 @@ def launch_robot(
     if existing_robot_count >= rules.max_robots_per_player:
         return LaunchResult.reject(LaunchRejectionReason.ROBOT_CAP_REACHED)
 
-    exit_check = resolve_launch_exit(world, state, session.war_base_id)
+    stack, height = derive_stack_and_height(robot_build, rules)
+    exit_check = resolve_launch_exit(world, state, session.war_base_id, height, rules)
     if isinstance(exit_check, LaunchRejectionReason):
         return LaunchResult.reject(exit_check)
     exit_x, exit_y = exit_check
 
-    stack, height = derive_stack_and_height(robot_build, rules)
     entity_id = _next_robot_id(state, player_id)
     # The Spectrum starts every new robot on Stop & Defend with a 5-step walk
     # south out of the doorway (`La6c8` after `Lc849`; CR002.3, see

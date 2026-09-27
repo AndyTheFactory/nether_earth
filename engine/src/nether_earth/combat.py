@@ -155,7 +155,7 @@ from typing import TYPE_CHECKING
 
 from nether_earth.collision import robot_top, unit_surface_height
 from nether_earth.commands import Command
-from nether_earth.destruction import destroy_robot
+from nether_earth.destruction import destroy_robot, robot_debris_anchor
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.occupancy import unit_footprints_overlap
@@ -1115,6 +1115,10 @@ def apply_damage(
     new_strength = robot.strength - damage
 
     if new_strength <= 0:
+        # A robot killed in combat leaves debris on plain ground (CR005.3, `Lb116`).
+        debris = robot_debris_anchor(world, robot)
+        if debris is not None:
+            state = state.with_robot_debris((*state.robot_debris, debris))
         return destroy_robot(state, target_robot_id, tick, rules, sequencer, world=world)
 
     updated_robot = robot.with_strength(new_strength)

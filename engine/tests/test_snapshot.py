@@ -556,6 +556,7 @@ def test_snapshot_covers_every_game_state_field() -> None:
         seed=0,
         ai_memories=(AiMemory(PLAYER_ONE),),
         robot_launches=(RobotLaunchCount(PLAYER_ONE, 1),),
+        robot_debris=((4, 4),),
     )
 
     assert set(to_snapshot(state)) == {field.name for field in fields(state)}
@@ -568,6 +569,7 @@ def test_snapshot_elides_ai_memories_only_for_an_all_human_state() -> None:
     assert set(to_snapshot(human)) == {field.name for field in fields(human)} - {
         "ai_memories",
         "robot_launches",
+        "robot_debris",
     }
 
 
