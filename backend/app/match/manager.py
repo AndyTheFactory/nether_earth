@@ -685,13 +685,30 @@ _BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u20
 #: Unicode general categories rejected outright: controls, surrogates,
 #: private use, unassigned, and ``Cf`` format characters (zero-width space,
 #: word joiner, BOM, ...) which render as nothing and let one nickname
-#: impersonate another. ``Cf`` also covers U+200D ZWJ, so multi-person
-#: emoji sequences are rejected; single emoji are fine.
+#: impersonate another. ``Cf`` includes U+200D ZWJ, which is allowed inside
+#: emoji sequences (when preceded and followed by emoji/modifier characters).
 _REJECTED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
 
 #: At least one character from these major classes must be present so a
 #: nickname is never visually empty: Letter, Number, Punctuation, Symbol.
 _VISIBLE_MAJOR_CLASSES = frozenset("LNPS")
+
+#: Unicode categories for emoji and emoji-related characters.
+_EMOJI_CATEGORIES = frozenset({"So", "Sk", "Mn"})  # Symbol (other), Symbol (modifier), Mark (nonspacing)
+
+
+def _zwj_joins_emoji(nickname: str, index: int) -> bool:
+    """Check if a ZWJ at the given index joins emoji characters.
+
+    ZWJ (U+200D) is allowed only when the character immediately before it
+    AND immediately after it both have Unicode category in {So, Sk, Mn}
+    (emoji, skin-tone modifiers, variation selectors).
+    """
+    if index == 0 or index == len(nickname) - 1:
+        return False
+    before_cat = unicodedata.category(nickname[index - 1])
+    after_cat = unicodedata.category(nickname[index + 1])
+    return before_cat in _EMOJI_CATEGORIES and after_cat in _EMOJI_CATEGORIES
 
 
 def _validate_nickname(nickname: str) -> str:
@@ -699,10 +716,17 @@ def _validate_nickname(nickname: str) -> str:
     if not nickname:
         raise InvalidNicknameError("nickname must be a non-empty string")
     categories = [unicodedata.category(ch) for ch in nickname]
-    if any(cat in _REJECTED_CATEGORIES for cat in categories) or any(
-        ch in _BIDI_CONTROLS for ch in nickname
-    ):
-        raise InvalidNicknameError("nickname must not contain control or invisible characters")
+
+    # Check for rejected categories and bidirectional controls
+    for i, (cat, ch) in enumerate(zip(categories, nickname)):
+        if ch in _BIDI_CONTROLS:
+            raise InvalidNicknameError("nickname must not contain control or invisible characters")
+        if cat in _REJECTED_CATEGORIES:
+            # ZWJ (U+200D, category Cf) is allowed only in emoji sequences
+            if ch == "‍" and _zwj_joins_emoji(nickname, i):
+                continue
+            raise InvalidNicknameError("nickname must not contain control or invisible characters")
+
     if not any(cat[0] in _VISIBLE_MAJOR_CLASSES for cat in categories):
         raise InvalidNicknameError("nickname must contain at least one visible character")
     return nickname
