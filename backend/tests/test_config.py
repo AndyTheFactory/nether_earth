@@ -61,3 +61,10 @@ def test_production_app_hides_interactive_docs(tmp_path: Path) -> None:
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert prod.get(path).status_code == 404
         assert dev.get(path).status_code == 200
+
+
+def test_abandoned_lobby_grace_defaults_and_parses() -> None:
+    assert load_settings({}).abandoned_lobby_grace_s == 30
+    assert load_settings({"NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS": "5"}).abandoned_lobby_grace_s == 5
+    with pytest.raises(ConfigError, match="NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS"):
+        load_settings({"NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS": "0"})

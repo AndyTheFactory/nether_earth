@@ -185,6 +185,7 @@ class MatchManager:
         max_matches: int | None = None,
         finished_retention_s: float | None = None,
         waiting_timeout_s: float | None = None,
+        abandoned_lobby_grace_s: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
@@ -215,6 +216,7 @@ class MatchManager:
         # Disposal policy for `sweep` (M10.6); ``None`` = keep forever.
         self._finished_retention_s = finished_retention_s
         self._waiting_timeout_s = waiting_timeout_s
+        self._abandoned_lobby_grace_s = abandoned_lobby_grace_s
         self._clock = clock
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
@@ -483,7 +485,7 @@ class MatchManager:
         )
 
     def sweep(self) -> list[Match]:
-        """Dispose finished matches past retention and lobbies past the waiting timeout.
+        """Dispose finished matches past retention, lobbies past the waiting timeout, and lobbies abandoned past the grace.
 
         Returns the disposed matches (their final state intact) so the caller
         can tell any still-connected sockets. ``ACTIVE``/``PAUSED`` matches
@@ -506,6 +508,12 @@ class MatchManager:
                     match.state is MatchRuntimeState.WAITING
                     and self._waiting_timeout_s is not None
                     and now - match.created_at >= self._waiting_timeout_s
+                )
+                or (
+                    match.state is MatchRuntimeState.WAITING
+                    and self._abandoned_lobby_grace_s is not None
+                    and match.abandoned_at is not None
+                    and now - match.abandoned_at >= self._abandoned_lobby_grace_s
                 )
             ]
             disposed = [self._matches[match_id] for match_id in expired]
@@ -586,6 +594,30 @@ class MatchManager:
                 return
             if self._reconnect is not None:
                 self._reconnect.mark_reconnected(match, player_id)
+
+    def mark_lobby_abandoned(self, match_id: str) -> None:
+        """Record that no socket is attached to ``match_id`` while it is still WAITING.
+
+        The transport calls this when the last registered socket for the
+        match goes away. Only a WAITING lobby is affected: an ACTIVE/PAUSED
+        match is governed by the reconnect-grace policy instead. Unknown ids
+        are ignored (the match may already be disposed).
+        """
+        with self._lock:
+            match = self._matches.get(match_id)
+            if (
+                match is not None
+                and match.state is MatchRuntimeState.WAITING
+                and match.abandoned_at is None
+            ):
+                match.abandoned_at = self._clock()
+
+    def mark_lobby_occupied(self, match_id: str) -> None:
+        """Clear the abandonment mark: a socket attached to ``match_id`` again."""
+        with self._lock:
+            match = self._matches.get(match_id)
+            if match is not None:
+                match.abandoned_at = None
 
     def __len__(self) -> int:
         with self._lock:

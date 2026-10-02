@@ -212,6 +212,11 @@ def create_websocket_router(
             removed = connection_registry.unregister(bound.match_id, bound.player_id, websocket)
             if removed:
                 await notify_disconnect_once()
+                if not connection_registry.connections_for(bound.match_id):
+                    # Nobody is attached any more. A no-op unless the match
+                    # is still WAITING (NE-01: abandoned lobbies must not
+                    # hold capacity for the whole waiting timeout).
+                    match_manager.mark_lobby_abandoned(bound.match_id)
 
         async def _reject_and_close(
             ws: WebSocket,
@@ -226,6 +231,7 @@ def create_websocket_router(
         async def attach(match_id: str, player_id: str) -> None:
             """Make this socket the live one for ``(match_id, player_id)``; close any predecessor."""
             replaced = connection_registry.register(match_id, player_id, websocket)
+            match_manager.mark_lobby_occupied(match_id)
             if replaced is not None:
                 await _close(replaced, _REPLACED_CLOSE_CODE)
 

@@ -24,6 +24,7 @@ class ConfigError(ValueError):
 DEFAULT_MAX_MATCHES = 200
 DEFAULT_FINISHED_RETENTION_S = 300
 DEFAULT_WAITING_TIMEOUT_S = 900
+DEFAULT_ABANDONED_LOBBY_GRACE_S = 30
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 _LOG_FORMATS = ("json", "text")
 
@@ -42,6 +43,9 @@ class Settings:
     finished_retention_s: int = DEFAULT_FINISHED_RETENTION_S
     #: Seconds a lobby may wait for its second player before it is dropped.
     waiting_timeout_s: int = DEFAULT_WAITING_TIMEOUT_S
+    #: Seconds a lobby survives with no socket attached (page refresh grace)
+    #: before its capacity is released.
+    abandoned_lobby_grace_s: int = DEFAULT_ABANDONED_LOBBY_GRACE_S
     log_level: str = "INFO"
     #: ``json`` (one object per line; production default) or ``text``.
     log_format: str = "text"
@@ -109,6 +113,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         ),
         waiting_timeout_s=_positive_int(
             env, "NETHER_EARTH_WAITING_MATCH_TIMEOUT_SECONDS", DEFAULT_WAITING_TIMEOUT_S
+        ),
+        abandoned_lobby_grace_s=_positive_int(
+            env, "NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS", DEFAULT_ABANDONED_LOBBY_GRACE_S
         ),
         log_level=log_level,
         log_format=log_format,

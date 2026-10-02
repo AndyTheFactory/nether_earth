@@ -50,6 +50,7 @@ sudo install -d -o 10001 -g 10001 -m 750 /srv/nether-earth/replays
 | `NETHER_EARTH_MAX_MATCHES` | no (200) | Matches held in memory at once; beyond this, `create` gets `server_busy`. |
 | `NETHER_EARTH_FINISHED_MATCH_RETENTION_SECONDS` | no (300) | How long a finished match stays resolvable for late reconnects. |
 | `NETHER_EARTH_WAITING_MATCH_TIMEOUT_SECONDS` | no (900) | How long a lobby waits for its second player. |
+| `NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS` | no (30) | How long a lobby with no connected player keeps its capacity (covers a page refresh). |
 | `NETHER_EARTH_BACKEND_MEM_LIMIT` / `_CPUS` | no (1g / 1.0) | Backend container limits. |
 
 A missing required variable stops `docker compose config`/`up` with
@@ -229,3 +230,8 @@ Replay files need no migration; each `meta.json` records its `schema_version`/`r
 | Stutter / `tick_overrun` warnings | `docker stats nether-earth-backend-1` | CPU saturated: fewer concurrent matches or a faster CPU |
 | No new replays | `/api/ready` checks, `replay_write_failed` logs | permissions or full disk; matches keep running without replays |
 | Backend restarts | `docker inspect -f '{{.RestartCount}} {{.State.OOMKilled}}' nether-earth-backend-1` | OOM → raise `NETHER_EARTH_BACKEND_MEM_LIMIT`, check leak signs in `/api/ready` counts |
+
+- **`server_busy` for everyone:** capacity is `NETHER_EARTH_MAX_MATCHES` across every state. One IP
+  can hold at most 32 sockets (gateway `limit_conn`) and therefore at most 32 lobbies, plus whatever
+  it created inside the abandonment grace (30 handshakes/min × 30 s ≈ 15). Filling 200 needs several
+  addresses. Lower `NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS` or the gateway `limit_conn` if abused.

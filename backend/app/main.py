@@ -272,6 +272,7 @@ def create_app(
         max_matches=settings.max_matches,
         finished_retention_s=settings.finished_retention_s,
         waiting_timeout_s=settings.waiting_timeout_s,
+        abandoned_lobby_grace_s=settings.abandoned_lobby_grace_s,
     )
     # Breaks the construction-order cycle (this coordinator must exist
     # before `MatchManager` can be constructed with it, but the natural
