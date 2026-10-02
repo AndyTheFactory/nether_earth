@@ -521,16 +521,24 @@ def create_websocket_router(
                         await websocket.send_text(serialize_server_message(finished))
                     elif match_result is not None:
                         if match_result.outcome is MatchOutcome.FORFEIT:
-                            assert match_result.forfeiting_player_id is not None
-                            assert match_result.winner_player_id is not None
+                            forfeiting = match_result.forfeiting_player_id
+                            winner = match_result.winner_player_id
+                            if forfeiting is None or winner is None:
+                                # Invariant, not client input: a FORFEIT result
+                                # always names both seats. A real exception
+                                # (not `assert`, which `python -O` strips).
+                                raise RuntimeError(
+                                    f"match {match.match_id!r} has a FORFEIT result "
+                                    "without both player ids"
+                                )
                             await websocket.send_text(
                                 serialize_server_message(
                                     ServerForfeit(
                                         protocol_version=PROTOCOL_VERSION,
                                         type="forfeit",
                                         match_id=match.match_id,
-                                        forfeiting_player_id=match_result.forfeiting_player_id.value,
-                                        winner_player_id=match_result.winner_player_id.value,
+                                        forfeiting_player_id=forfeiting.value,
+                                        winner_player_id=winner.value,
                                         reason="disconnect_timeout",
                                     )
                                 )
