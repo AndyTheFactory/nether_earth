@@ -1311,3 +1311,31 @@ def test_resync_is_sent_before_any_resumed_broadcast_it_triggers(
             # is itself a fresh disconnect that would re-pause the match.
             match = manager.get_match(created["matchId"])
             assert match.state is MatchRuntimeState.ACTIVE
+
+
+def test_opponents_token_cannot_issue_commands_from_another_players_socket(
+    client: TestClient,
+) -> None:
+    """§9.8: a socket bound as P2 presenting P1's valid token is a session mismatch, not P1."""
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
+        ws_b.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "command",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                    "clientSequence": 0,
+                    "payload": {"kind": "commander_move", "dx": 1, "dy": 0},
+                }
+            )
+        )
+        message = _next_non_snapshot(ws_b, own_match_id=created["matchId"])
+        assert message["type"] == "error"
+        assert message["error"]["code"] == "session_mismatch"
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            for _ in range(1000):
+                ws_b.receive_json()
+        assert exc_info.value.code == 1008
