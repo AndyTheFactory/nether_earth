@@ -650,14 +650,27 @@ def _generate_session_token() -> str:
 #: a nickname in other players' UIs and in replay artifacts.
 _BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
 
+#: Unicode general categories rejected outright: controls, surrogates,
+#: private use, unassigned, and ``Cf`` format characters (zero-width space,
+#: word joiner, BOM, ...) which render as nothing and let one nickname
+#: impersonate another. ``Cf`` also covers U+200D ZWJ, so multi-person
+#: emoji sequences are rejected; single emoji are fine.
+_REJECTED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
+
+#: At least one character from these major classes must be present so a
+#: nickname is never visually empty: Letter, Number, Punctuation, Symbol.
+_VISIBLE_MAJOR_CLASSES = frozenset("LNPS")
+
 
 def _validate_nickname(nickname: str) -> str:
     nickname = nickname.strip()
     if not nickname:
         raise InvalidNicknameError("nickname must be a non-empty string")
-    if any(
-        unicodedata.category(ch) in ("Cc", "Cs", "Co", "Cn") or ch in _BIDI_CONTROLS
-        for ch in nickname
+    categories = [unicodedata.category(ch) for ch in nickname]
+    if any(cat in _REJECTED_CATEGORIES for cat in categories) or any(
+        ch in _BIDI_CONTROLS for ch in nickname
     ):
-        raise InvalidNicknameError("nickname must not contain control characters")
+        raise InvalidNicknameError("nickname must not contain control or invisible characters")
+    if not any(cat[0] in _VISIBLE_MAJOR_CLASSES for cat in categories):
+        raise InvalidNicknameError("nickname must contain at least one visible character")
     return nickname

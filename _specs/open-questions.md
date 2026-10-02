@@ -1150,6 +1150,10 @@ an assumption.
 
 **Terrain lift and commander shadow (CR005.2, CR005.4).** Presentation only. Ground heights (terrain pieces and debris) are drawn `GROUND_LIFT` (3) times higher under robots, the commander and bullets (`frontend/src/render/surface.ts`), so a robot on a mountain is drawn 18 px up instead of 6; the engine altitudes are unchanged. The commander's shadow is cut along cell edges and each part lies on the surface of the cell it covers (`robot.ts` `shadowParts`).
 
+## Nickname policy: duplicates — OPEN (security review 2026-09-30, NE-04)
+
+Invisible/format characters are rejected since 2026-10 (backend `_validate_nickname`). Still undecided: whether a guest may use the exact nickname of the player already in the lobby (allows lobby-UI impersonation; no gameplay effect). Options: reject with `invalid_nickname`; accept and disambiguate in the UI by seat (`p1`/`p2`). Owner decision needed before either is implemented.
+
 ## Resolution process
 
 Use this fidelity order:
