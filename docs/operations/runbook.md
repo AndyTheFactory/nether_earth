@@ -235,3 +235,5 @@ Replay files need no migration; each `meta.json` records its `schema_version`/`r
   can hold at most 32 sockets (gateway `limit_conn`) and therefore at most 32 lobbies, plus whatever
   it created inside the abandonment grace (30 handshakes/min × 30 s ≈ 15). Filling 200 needs several
   addresses. Lower `NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS` or the gateway `limit_conn` if abused.
+- **`bind_timeout` errors in a client:** a socket must send `create`/`join`/`reconnect` within 30 s
+  of connecting; the backend closes it otherwise (code 1008).

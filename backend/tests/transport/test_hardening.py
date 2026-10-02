@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from app.match.manager import MatchManager
 from app.match.models import InvalidNicknameError, ServerBusyError
 from app.replay.writer import match_dir
 from app.transport import connections
+from app.transport import ws as ws_module
 from app.transport.limits import MAX_FAILED_JOINS, MAX_MESSAGE_BYTES, MESSAGE_BURST, TokenBucket
 from tests.transport._helpers import _create
 
@@ -160,3 +162,42 @@ async def test_stalled_peer_is_closed_instead_of_blocking(monkeypatch: pytest.Mo
     # Later sends skip the stalled socket immediately rather than waiting again.
     await asyncio.wait_for(connections._send_text(stalled, "{}"), 0.01)  # type: ignore[arg-type]
     assert stalled.sends == 1
+
+
+def test_unbound_socket_is_closed_at_the_deadline(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NE-13: an accepted socket that never creates/joins/reconnects is dropped."""
+    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.1)
+    with client.websocket_connect("/ws") as ws:
+        assert _error(ws)["error"]["code"] == "bind_timeout"
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            ws.receive_json()
+    assert exc_info.value.code == 1008
+
+
+def test_invalid_frames_do_not_extend_the_bind_deadline(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review Focus 1: the deadline is absolute, not reset per received frame."""
+    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.2)
+    with client.websocket_connect("/ws") as ws:
+        time.sleep(0.12)
+        ws.send_text("not json")
+        assert _error(ws)["error"]["code"] == "invalid_message"
+        started = time.monotonic()
+        assert _error(ws)["error"]["code"] == "bind_timeout"
+        assert time.monotonic() - started < 0.15  # ~0.08 s left, not a fresh 0.2 s
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()
+
+
+def test_bound_socket_is_not_subject_to_the_bind_deadline(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.1)
+    with client.websocket_connect("/ws", headers={"origin": _ORIGIN}) as ws:
+        assert _create(ws)["type"] == "created"
+        time.sleep(0.15)
+        ws.send_text("not json")
+        assert _error(ws)["error"]["code"] == "invalid_message"  # still open and serving

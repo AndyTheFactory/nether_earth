@@ -72,6 +72,7 @@ once both players are connected again, resume the match.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -137,6 +138,12 @@ _INTERNAL_ERROR_CLOSE_CODE = 1011
 #: parallel with its owner unnoticed.
 _REPLACED_CLOSE_CODE = 4000
 
+#: Seconds an accepted socket may stay without a bound session (no
+#: successful create/join/ready/leave/command/reconnect) before it is
+#: closed. Bounds idle unauthenticated sockets independently of the
+#: gateway's proxy_read_timeout (security review NE-13).
+UNBOUND_SOCKET_TIMEOUT_S = 30.0
+
 
 @dataclass(slots=True)
 class _BoundSession:
@@ -181,6 +188,7 @@ def create_websocket_router(
             await websocket.close(code=_POLICY_VIOLATION_CLOSE_CODE)
             return
         await websocket.accept()
+        bind_deadline = asyncio.get_running_loop().time() + UNBOUND_SOCKET_TIMEOUT_S
         bound: _BoundSession | None = None
         bucket = TokenBucket()
         failed_joins = 0
@@ -238,8 +246,21 @@ def create_websocket_router(
         try:
             while True:
                 try:
-                    raw = await websocket.receive_text()
+                    if bound is None:
+                        remaining = bind_deadline - asyncio.get_running_loop().time()
+                        raw = await asyncio.wait_for(websocket.receive_text(), max(remaining, 0.0))
+                    else:
+                        raw = await websocket.receive_text()
                 except WebSocketDisconnect:
+                    return
+                except TimeoutError:
+                    logger.info(
+                        "closing websocket: no session bound before the deadline",
+                        extra={"event": "ws_bind_timeout"},
+                    )
+                    await _reject_and_close(
+                        websocket, None, "bind_timeout", "no session bound in time; closing"
+                    )
                     return
 
                 current_match_id = bound.match_id if bound else None
