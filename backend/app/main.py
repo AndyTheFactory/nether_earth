@@ -299,17 +299,22 @@ def create_app(
     )
 
     @fastapi_app.get("/health", tags=["operations"])
-    def health() -> dict[str, str]:
-        """Liveness: the process is up and serving HTTP. No gameplay logic."""
+    async def health() -> dict[str, str]:
+        """Liveness: the process is up and serving HTTP. No gameplay logic.
+
+        ``async`` so it runs on the event loop, never in Starlette's threadpool:
+        every registry here is mutated on the loop and is not thread-safe.
+        """
         return {"status": "ok"}
 
     @fastapi_app.get("/ready", tags=["operations"])
-    def ready(response: Response) -> dict[str, object]:
+    async def ready(response: Response) -> dict[str, object]:
         """Readiness: can this process accept and persist new matches right now?
 
-        503 while shutting down or when the replay directory is not writable
-        (matches would run but their replay artifacts would be lost). The
-        counts are operational totals only, no match or player data.
+        503 while shutting down or when the replay directory is not writable.
+        Operational counts are included only outside production (NE-11): the
+        route is public through the gateway and the figures reveal load.
+        ``async`` for the same reason as ``health``.
         """
         checks = {
             "replay_dir": _replay_dir_status(replay_writer.base_dir),
@@ -318,13 +323,12 @@ def create_app(
         is_ready = all(value == "ok" for value in checks.values())
         if not is_ready:
             response.status_code = 503
-        return {
-            "status": "ready" if is_ready else "not_ready",
-            "checks": checks,
-            "matches": len(match_manager),
-            "runtimes": len(runtime_registry),
-            "connections": connection_registry.connection_count(),
-        }
+        body: dict[str, object] = {"status": "ready" if is_ready else "not_ready", "checks": checks}
+        if not settings.production:
+            body["matches"] = len(match_manager)
+            body["runtimes"] = len(runtime_registry)
+            body["connections"] = connection_registry.connection_count()
+        return body
 
     return fastapi_app
 

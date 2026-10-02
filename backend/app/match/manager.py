@@ -109,11 +109,7 @@ class JoinMatchResult:
 class MatchManager:
     """Owns every in-memory ``Match``, keyed by match id, join code, and session token.
 
-    Not async-aware and not thread-hostile-safe beyond a single coarse lock
-    guarding its own bookkeeping dictionaries -- callers issuing concurrent
-    create/join/ready calls across *different* matches do not block each
-    other's gameplay (there is none here yet), only the bookkeeping mutation
-    itself is serialized. This is a plain, synchronous, deterministic
+    Loop-thread only: every caller runs on the asyncio event loop; the lock only serializes the bookkeeping mutation itself and is not a thread-safety guarantee for readers. This is a plain, synchronous, deterministic
     lifecycle layer; nothing here awaits or does network I/O.
 
     ``runtime``, if supplied, is an optional hook (M7 Task 4, issue #93) into
