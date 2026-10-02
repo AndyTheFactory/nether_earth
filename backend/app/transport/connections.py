@@ -46,15 +46,18 @@ class ConnectionRegistry:
     def __init__(self) -> None:
         self._by_match: dict[str, dict[str, WebSocket]] = {}
 
-    def register(self, match_id: str, player_id: str, websocket: WebSocket) -> None:
+    def register(self, match_id: str, player_id: str, websocket: WebSocket) -> WebSocket | None:
         """Associate ``websocket`` with ``(match_id, player_id)``.
 
-        A second registration for the same pair (e.g. a reconnect replacing
-        a stale connection) silently replaces the previous socket -- this
-        registry does not itself close the old one; the caller (the
-        WebSocket handler) owns that connection's lifecycle.
+        Returns the socket this registration replaced (a reconnect taking
+        over a slot), or ``None`` if the slot was empty or already held
+        this same socket. The caller owns closing the replaced socket; this
+        registry never performs I/O.
         """
-        self._by_match.setdefault(match_id, {})[player_id] = websocket
+        players = self._by_match.setdefault(match_id, {})
+        previous = players.get(player_id)
+        players[player_id] = websocket
+        return previous if previous is not websocket else None
 
     def unregister(self, match_id: str, player_id: str, websocket: WebSocket) -> bool:
         """Remove ``websocket`` from ``(match_id, player_id)``, if it is still current.

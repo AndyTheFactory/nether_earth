@@ -780,6 +780,37 @@ def test_reconnect_returns_resync_snapshot_and_rebinds_connection(client: TestCl
     assert resync["snapshot"]["type"] == "snapshot"
 
 
+def test_second_socket_with_same_session_closes_the_first(client: TestClient) -> None:
+    """NE-06: a token holder gets exactly one live socket; the superseded one is closed 4000."""
+    with client.websocket_connect("/ws") as first_ws:
+        created = _create(first_ws)
+        with client.websocket_connect("/ws") as second_ws:
+            second_ws.send_text(
+                json.dumps(
+                    {
+                        "protocolVersion": 1,
+                        "type": "reconnect",
+                        "matchId": created["matchId"],
+                        "playerId": "p1",
+                        "sessionToken": created["sessionToken"],
+                    }
+                )
+            )
+            assert second_ws.receive_json()["type"] == "resync"
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                first_ws.receive_json()
+            assert exc_info.value.code == 4000
+            # The newer socket is still the live one: a ready toggle on it is served.
+            _ready(
+                second_ws,
+                match_id=created["matchId"],
+                player_id="p1",
+                session_token=created["sessionToken"],
+                ready=False,
+            )
+            assert second_ws.receive_json()["type"] == "ready_state"
+
+
 def test_reconnect_to_a_still_waiting_match_returns_a_valid_empty_snapshot_not_a_crash(
     client: TestClient,
 ) -> None:

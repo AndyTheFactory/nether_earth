@@ -131,6 +131,11 @@ _NORMAL_CLOSE_CODE = 1000
 #: RFC 6455 "Message Too Big" / "Internal Error" close codes.
 _TOO_BIG_CLOSE_CODE = 1009
 _INTERNAL_ERROR_CLOSE_CODE = 1011
+#: Close code sent to a socket superseded by a newer connection for the same
+#: session (RFC 6455 reserves 4000-4999 for applications). The holder of a
+#: token gets exactly one live socket, so a leaked token cannot be used in
+#: parallel with its owner unnoticed.
+_REPLACED_CLOSE_CODE = 4000
 
 
 @dataclass(slots=True)
@@ -218,6 +223,12 @@ def create_websocket_router(
             await _send_error(ws, match_id, code, detail)
             await _close(ws, close_code)
 
+        async def attach(match_id: str, player_id: str) -> None:
+            """Make this socket the live one for ``(match_id, player_id)``; close any predecessor."""
+            replaced = connection_registry.register(match_id, player_id, websocket)
+            if replaced is not None:
+                await _close(replaced, _REPLACED_CLOSE_CODE)
+
         try:
             while True:
                 try:
@@ -285,7 +296,7 @@ def create_websocket_router(
                         player_id=create_player_id.value,
                         session_token=create_session_token,
                     )
-                    connection_registry.register(bound.match_id, bound.player_id, websocket)
+                    await attach(bound.match_id, bound.player_id)
                     await websocket.send_text(
                         serialize_server_message(
                             ServerCreated(
@@ -334,7 +345,7 @@ def create_websocket_router(
                         player_id=join_result.player_id.value,
                         session_token=join_result.session_token,
                     )
-                    connection_registry.register(bound.match_id, bound.player_id, websocket)
+                    await attach(bound.match_id, bound.player_id)
                     await websocket.send_text(
                         serialize_server_message(
                             ServerJoined(
@@ -373,7 +384,7 @@ def create_websocket_router(
                         player_id=engine_player_id.value,
                         session_token=message.session_token,
                     )
-                    connection_registry.register(bound.match_id, bound.player_id, websocket)
+                    await attach(bound.match_id, bound.player_id)
                 elif (
                     bound.session_token != message.session_token
                     or bound.match_id != match.match_id
@@ -464,7 +475,7 @@ def create_websocket_router(
                     continue
 
                 if isinstance(message, ClientReconnect):
-                    connection_registry.register(match.match_id, engine_player_id.value, websocket)
+                    await attach(match.match_id, engine_player_id.value)
                     # Idempotent: if the readying handler was cancelled before
                     # its own `announce_started` could fire, a reconnect must
                     # not leave the runtime's start gate closed forever. A
