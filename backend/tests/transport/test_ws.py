@@ -36,6 +36,7 @@ from app.match.world import load_standard_world
 from app.transport import ConnectionRegistry, create_websocket_router
 from tests.transport._helpers import (
     _create,
+    _drain_replays,
     _join,
     _match_manager,
     _next_non_snapshot,
@@ -319,6 +320,7 @@ def test_match_start_lands_a_replay_artifact_on_disk(
         assert ws_a.receive_json()["type"] == "started"
         assert ws_b.receive_json()["type"] == "started"
 
+    _drain_replays(client)
     meta_path = tmp_path / "replays" / created["matchId"] / "meta.json"
     assert meta_path.exists(), (
         f"expected a replay artifact at {meta_path} after the match started -- "

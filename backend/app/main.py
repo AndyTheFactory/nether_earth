@@ -21,6 +21,7 @@ import os
 import tempfile
 import time
 from collections.abc import AsyncIterator, Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -209,6 +210,7 @@ def create_app(
         sweeper = asyncio.create_task(sweep_forever())
         yield
         sweeper.cancel()
+        await asyncio.to_thread(replay_writer.close)
         shutting_down = True
         logger.info(
             "backend stopping; in-memory matches end with the process",
@@ -231,7 +233,12 @@ def create_app(
 
     connection_registry = ConnectionRegistry()
     runtime_registry = MatchRuntimeRegistry(tick_rate_hz=tick_rate_hz)
-    replay_writer = ReplayWriter(base_dir=replay_dir)
+    # One worker thread (NE-02): replay I/O never runs on the event loop,
+    # and a single worker keeps every match's lines in submission order.
+    replay_writer = ReplayWriter(
+        base_dir=replay_dir,
+        executor=ThreadPoolExecutor(max_workers=1, thread_name_prefix="replay-writer"),
+    )
 
     def _on_tick_factory(match: Match) -> TickObserver:
         # Bound per match at start time (see `MatchManager.on_tick_factory`'s
@@ -289,6 +296,7 @@ def create_app(
     fastapi_app.state.sweep_expired_matches = sweep_expired_matches
     fastapi_app.state.runtime_registry = runtime_registry
     fastapi_app.state.connection_registry = connection_registry
+    fastapi_app.state.replay_writer = replay_writer
 
     fastapi_app.include_router(
         create_websocket_router(

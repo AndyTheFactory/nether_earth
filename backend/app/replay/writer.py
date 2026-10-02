@@ -42,17 +42,12 @@ other guest credential. ``meta.json``'s ``players`` field carries only
 public-facing nicknames and player ids -- see ``_meta_players`` -- and every
 lifecycle event carries only player ids and wall-clock/tick numbers.
 
-No secrets, no database: every write here is a plain local file open/write
-call. Two concurrent matches with distinct ``match_id``s write to distinct
-directories with no shared file, so no locking is needed across matches; a
-single match's own writes are always issued synchronously (no ``await``
-inside a single write call), so two lifecycle/tick writes for the *same*
-match can never interleave into a torn line even though several asyncio
-tasks (the tick loop, a reconnect-policy deadline watcher) may call into
-this writer for the same match_id -- see ``app.match.runtime``'s
-``TickCommandObserver`` and ``app.match.reconnect``'s ``DisconnectNotifier``
-call sites for why a synchronous, non-suspending write is safe under
-cooperative asyncio scheduling here.
+No secrets, no database: every write here is a plain local file call. In
+production ``app.main`` hands this writer a single-worker executor, so the
+tick loop and lifecycle watchers only enqueue; one worker thread runs every
+write in submission order, which is what keeps a match's lines from
+interleaving and keeps a slow disk from stalling any match's tick cadence.
+Without an executor the same methods run inline (unit tests, scripts).
 """
 
 from __future__ import annotations
@@ -61,7 +56,10 @@ import json
 import logging
 import os
 import re
+import threading
 import time
+from collections.abc import Callable
+from concurrent.futures import Executor
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +118,11 @@ _ENV_VAR = "NETHER_EARTH_REPLAY_DIR"
 _META_FILENAME = "meta.json"
 _COMMANDS_FILENAME = "commands.jsonl"
 _LIFECYCLE_FILENAME = "lifecycle.jsonl"
+
+#: Upper bound on writes queued to the executor. Beyond it a write is dropped
+#: and reported (``replay_write_failed``, action ``backlog``) rather than
+#: letting a stalled disk grow memory without limit (security review NE-02).
+MAX_PENDING_WRITES = 10_000
 
 
 def _package_relative_default_replay_dir() -> Path:
@@ -333,35 +336,85 @@ def _result_to_json(match: Match) -> dict[str, Any] | None:
 class ReplayWriter:
     """Owns one filesystem artifact per match: header/meta, gameplay stream, lifecycle stream.
 
-    Every public method here is synchronous and does plain local file I/O --
-    see the module docstring for why that is safe under cooperative asyncio
-    scheduling without any additional locking. Callers (``app.main``'s
+    Every public method returns without waiting for the filesystem when an
+    executor is supplied (writes run on it in submission order), or does the
+    plain local file I/O inline when not -- see the module docstring. Callers (``app.main``'s
     composition root) supply this object's bound methods directly as
     ``MatchManager``'s ``on_match_start``/``on_match_finish`` hooks, and use
     :func:`make_replay_tick_recorder`/:func:`make_replay_lifecycle_notifier`
     to build the tick/lifecycle callback shapes those layers expect.
     """
 
-    def __init__(self, base_dir: Path | None = None) -> None:
+    def __init__(self, base_dir: Path | None = None, *, executor: Executor | None = None) -> None:
         self._base_dir = base_dir if base_dir is not None else default_replay_dir()
         self._failed_match_ids: set[str] = set()
+        # ``executor`` (NE-02): when set, every write runs there and the
+        # caller never waits for the filesystem. It must be single-worker so
+        # lines land in submission order across all matches. ``None`` runs
+        # writes inline (unit tests, scripts).
+        self._executor = executor
+        self._pending = 0
+        self._pending_lock = threading.Lock()
 
-    def _report_failure(self, match_id: str, action: str) -> None:
-        """Log a replay I/O failure without interrupting the match (M10.5).
+    def _report_failure(self, match_id: str, action: str, *, exc: bool = True) -> None:
+        """Log a replay I/O failure without interrupting the match.
 
-        Replay persistence is a debug/audit artifact: a full disk must not
-        freeze or crash a live match. The first failure per match is an
-        ERROR with traceback (``/ready`` also turns 503 while the directory
-        is unwritable); repeats for the same match (every tick) are DEBUG.
+        The first failure per match is an ERROR with traceback (``/ready``
+        also turns 503 while the directory is unwritable); repeats for the
+        same match (every tick) are DEBUG.
         """
         first = match_id not in self._failed_match_ids
         self._failed_match_ids.add(match_id)
         logger.log(
             logging.ERROR if first else logging.DEBUG,
             "replay artifact write failed; the match continues without it",
-            exc_info=first,
+            exc_info=first and exc,
             extra={"event": "replay_write_failed", "match_id": match_id, "action": action},
         )
+
+    def _run(self, match_id: str, action: str, fn: Callable[[], None]) -> None:
+        """Run ``fn`` inline, or queue it on the executor; report (never raise) on failure."""
+
+        def job() -> None:
+            try:
+                fn()
+            except (OSError, ValueError):
+                self._report_failure(match_id, action)
+
+        if self._executor is None:
+            job()
+            return
+        with self._pending_lock:
+            if self._pending >= MAX_PENDING_WRITES:
+                overflow = True
+            else:
+                overflow = False
+                self._pending += 1
+        if overflow:
+            self._report_failure(match_id, "backlog", exc=False)
+            return
+        try:
+            future = self._executor.submit(job)
+        except RuntimeError:  # executor already shut down (process stopping)
+            with self._pending_lock:
+                self._pending -= 1
+            self._report_failure(match_id, action, exc=False)
+            return
+        future.add_done_callback(self._on_done)
+
+    def _on_done(self, _future: object) -> None:
+        with self._pending_lock:
+            self._pending -= 1
+
+    def drain(self) -> None:
+        """Block until every queued write has run. Never call this on the event loop."""
+        if self._executor is not None:
+            self._executor.submit(lambda: None).result()
+
+    def close(self) -> None:
+        """Drain and stop the executor; later writes are reported as failures."""
+        if self._executor is not None:
+            self._executor.shutdown(wait=True)
 
     @property
     def base_dir(self) -> Path:
@@ -372,21 +425,18 @@ class ReplayWriter:
     def start_match(self, match: Match, scenario: Scenario, map_data: BootstrapMap) -> None:
         """Create ``match``'s artifact directory and write its ``in_progress`` header.
 
-        Called exactly once per match (``MatchManager._start_match_locked``
-        runs the ``WAITING`` -> ``ACTIVE`` transition, and therefore this
-        hook, exactly once per match -- see that method's own docstring),
-        so this never clobbers a live in-progress stream that already has
-        ticks appended to it.
+        Called exactly once per match by ``MatchManager._start_match_locked``,
+        before the runtime starts, so this never clobbers a live stream.
         """
-        try:
+
+        def job() -> None:
             self._start_match(match, scenario, map_data)
-        except (OSError, ValueError):
-            self._report_failure(match.match_id, "start")
-            return
-        logger.info(
-            "replay artifact started",
-            extra={"event": "replay_started", "match_id": match.match_id},
-        )
+            logger.info(
+                "replay artifact started",
+                extra={"event": "replay_started", "match_id": match.match_id},
+            )
+
+        self._run(match.match_id, "start", job)
 
     def _start_match(self, match: Match, scenario: Scenario, map_data: BootstrapMap) -> None:
         directory = match_dir(self._base_dir, match.match_id)
@@ -432,61 +482,66 @@ class ReplayWriter:
             "commands": [_command_to_json(command) for command in commands],
             "events": [_event_summary(event) for event in events],
         }
-        try:
-            self._append_jsonl(match_id, _COMMANDS_FILENAME, line)
-        except (OSError, ValueError):
-            self._report_failure(match_id, "record_tick")
+        self._run(
+            match_id, "record_tick", lambda: self._append_jsonl(match_id, _COMMANDS_FILENAME, line)
+        )
 
     def record_lifecycle_event(self, match_id: str, payload: dict[str, Any]) -> None:
         """Append one disconnect/reconnect/pause/forfeit/no-contest event to the lifecycle stream.
 
         ``payload`` must already be JSON-safe and must never carry a session
-        token (see :func:`make_replay_lifecycle_notifier`, this writer's own
-        production caller, for the concrete shapes actually passed here). A
-        wall-clock ``wall_clock_epoch_ms`` timestamp is stamped on every
-        line by this method itself, not by the caller, so every lifecycle
-        entry is comparably timestamped regardless of caller.
+        token. ``wall_clock_epoch_ms`` is stamped here, not by the caller.
         """
         line = {"wall_clock_epoch_ms": _epoch_ms(), **payload}
-        try:
-            self._append_jsonl(match_id, _LIFECYCLE_FILENAME, line)
-        except (OSError, ValueError):
-            self._report_failure(match_id, "record_lifecycle_event")
+        self._run(
+            match_id,
+            "record_lifecycle_event",
+            lambda: self._append_jsonl(match_id, _LIFECYCLE_FILENAME, line),
+        )
 
     def finish_match(self, match: Match) -> None:
         """Atomically flip ``match``'s artifact to ``status: "finished"`` with its final result.
 
-        Idempotent: a match with no known artifact (never started, or the
-        base directory was never populated -- e.g. a test that never called
-        :meth:`start_match`) or one already ``"finished"`` is a silent
-        no-op, since ``MatchManager.finish_match`` itself is documented as
-        idempotent/callable more than once for the same match (issue #97's
-        finalize-exactly-once acceptance criterion).
+        Idempotent: no artifact, or one already ``"finished"``, is a silent
+        no-op (``MatchManager.finish_match`` may be called more than once).
+        The final snapshot is captured on the caller's thread so the
+        persisted state is the match state at finish time.
         """
-        try:
-            finalized = self._finish_match(match)
-        except (OSError, ValueError):
-            self._report_failure(match.match_id, "finish")
-            return
-        finally:
-            self._failed_match_ids.discard(match.match_id)
-        if finalized:
-            logger.info(
-                "replay artifact finalized",
-                extra={"event": "replay_finalized", "match_id": match.match_id},
-            )
+        state = match.game_state
+        final_tick = state.tick if state is not None else None
+        final_snapshot = to_snapshot(state) if state is not None else None
+        result = _result_to_json(match)
+        match_id = match.match_id
 
-    def _finish_match(self, match: Match) -> bool:
-        meta = self._read_meta(match.match_id)
+        def job() -> None:
+            try:
+                finalized = self._finish_match(match_id, final_tick, result, final_snapshot)
+            finally:
+                self._failed_match_ids.discard(match_id)
+            if finalized:
+                logger.info(
+                    "replay artifact finalized",
+                    extra={"event": "replay_finalized", "match_id": match_id},
+                )
+
+        self._run(match_id, "finish", job)
+
+    def _finish_match(
+        self,
+        match_id: str,
+        final_tick: int | None,
+        result: dict[str, Any] | None,
+        final_snapshot: dict[str, Any] | None,
+    ) -> bool:
+        meta = self._read_meta(match_id)
         if meta is None or meta.get("status") == "finished":
             return False
         meta["status"] = "finished"
         meta["finished_at_epoch_ms"] = _epoch_ms()
-        state = match.game_state
-        meta["final_tick"] = state.tick if state is not None else None
-        meta["result"] = _result_to_json(match)
-        meta["final_snapshot"] = to_snapshot(state) if state is not None else None
-        self._write_meta_atomic(match.match_id, meta)
+        meta["final_tick"] = final_tick
+        meta["result"] = result
+        meta["final_snapshot"] = final_snapshot
+        self._write_meta_atomic(match_id, meta)
         return True
 
     # -- internal helpers -------------------------------------------------------

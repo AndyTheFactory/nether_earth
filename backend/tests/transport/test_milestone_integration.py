@@ -78,6 +78,7 @@ from app.protocol.common import CommandPayload
 from app.replay.verify import load_commands_by_tick, verify_replay
 from tests.transport._helpers import (
     _create,
+    _drain_replays,
     _join,
     _match_manager,
     _next_non_snapshot,
@@ -521,6 +522,7 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
                     # docstring), so this independently confirms all 9 really
                     # reached the engine's per-command validation, not just
                     # that 9 opaque records exist on disk.
+                    _drain_replays(client)
                     raw_lines = (
                         (replay_dir / match_a_id / "commands.jsonl").read_text(encoding="utf-8").splitlines()
                     )
