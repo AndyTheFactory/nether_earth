@@ -380,6 +380,13 @@ class ReplayWriter:
                 fn()
             except (OSError, ValueError):
                 self._report_failure(match_id, action)
+            except Exception:
+                # Anything else is a bug, not a disk problem: log it here,
+                # since an executor future's exception is never read.
+                logger.exception(
+                    "replay write crashed",
+                    extra={"event": "replay_write_crashed", "match_id": match_id, "action": action},
+                )
 
         if self._executor is None:
             job()
@@ -514,8 +521,13 @@ class ReplayWriter:
         match_id = match.match_id
 
         def job() -> None:
+            # Report then forget, as before NE-02: no write follows a finish,
+            # so keeping the id flagged would only grow the set.
             try:
                 finalized = self._finish_match(match_id, final_tick, result, final_snapshot)
+            except (OSError, ValueError):
+                self._report_failure(match_id, "finish")
+                return
             finally:
                 self._failed_match_ids.discard(match_id)
             if finalized:

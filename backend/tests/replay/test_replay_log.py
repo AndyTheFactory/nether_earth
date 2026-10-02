@@ -520,13 +520,14 @@ async def test_backlog_beyond_bound_is_dropped_and_reported_once(
         for tick in range(1, 11):
             writer.record_tick(match.match_id, tick, (), ())
     errors = [r for r in caplog.records if r.getMessage().startswith("replay artifact write failed")]
-    assert len(errors) >= 1
+    # The worker holds tick 1 behind the gate, ticks 2-3 fill the bound, 4-10 overflow.
+    assert len(errors) == 7
     assert sum(1 for r in errors if r.levelno == logging.ERROR) == 1  # first failure is ERROR, repeats DEBUG
 
     gate.set()
     await asyncio.to_thread(writer.drain)
     lines = (match_dir(tmp_path, match.match_id) / "commands.jsonl").read_text().splitlines()
-    assert 0 < len(lines) < 10  # some landed, the overflow was dropped
+    assert [json.loads(line)["tick"] for line in lines] == [1, 2, 3]  # the overflow was dropped
     writer.close()
 
 
@@ -537,4 +538,36 @@ def test_inline_writer_without_executor_is_synchronous(tmp_path: Path) -> None:
     writer.record_tick(match.match_id, 1, (), ())
     assert (match_dir(tmp_path, match.match_id) / "commands.jsonl").read_text().count("\n") == 1
     writer.drain()  # no-op without an executor
+    writer.close()
+
+
+async def test_unexpected_worker_exception_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-I/O error on the worker must be logged, not lost in an unread future."""
+    original = ReplayWriter._append_jsonl
+    calls = 0
+
+    def crash_once(self: ReplayWriter, match_id: str, filename: str, line: dict[str, Any]) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TypeError("boom")
+        original(self, match_id, filename, line)
+
+    monkeypatch.setattr(ReplayWriter, "_append_jsonl", crash_once)
+    match, scenario, map_data = _build_match("match-crash")
+    writer = _async_writer(tmp_path)
+    writer.start_match(match, scenario, map_data)
+    with caplog.at_level(logging.ERROR, logger="app.replay.writer"):
+        writer.record_tick(match.match_id, 1, (), ())
+        await asyncio.to_thread(writer.drain)
+    crashed = [r for r in caplog.records if getattr(r, "event", None) == "replay_write_crashed"]
+    assert len(crashed) == 1
+    assert crashed[0].levelno == logging.ERROR
+
+    writer.record_tick(match.match_id, 2, (), ())
+    await asyncio.to_thread(writer.drain)
+    lines = (match_dir(tmp_path, match.match_id) / "commands.jsonl").read_text().splitlines()
+    assert [json.loads(line)["tick"] for line in lines] == [2]
     writer.close()
