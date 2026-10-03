@@ -10,7 +10,7 @@ COPY backend/requirements.lock backend/requirements.lock
 # Third-party dependencies come only from the pinned lock file; the two
 # first-party packages are then built without dependency resolution.
 RUN python -m venv /opt/venv \
- && /opt/venv/bin/pip install --no-deps --require-virtualenv -r backend/requirements.lock
+ && /opt/venv/bin/pip install --no-deps --require-virtualenv --require-hashes -r backend/requirements.lock
 COPY engine engine
 COPY backend/pyproject.toml backend/pyproject.toml
 COPY backend/app backend/app

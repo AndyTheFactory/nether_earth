@@ -31,7 +31,11 @@ jobs:
             backend/pyproject.toml
             backend/requirements.lock
       - name: Install (runtime deps pinned to the production lock)
-        run: python -m pip install -c backend/requirements.lock -e './engine[dev]' -e './backend[dev]'
+        run: |
+          # Constraints files cannot carry --hash entries; strip them for -c.
+          sed -e 's/ \\$//' -e '/^    --hash/d' backend/requirements.lock > /tmp/constraints.txt
+          python -m pip install -c /tmp/constraints.txt -e './engine[dev]' -e './backend[dev]'
+          python -m pip check
       - name: Ruff
         run: ruff check engine backend
       - name: Mypy
