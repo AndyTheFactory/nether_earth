@@ -5,26 +5,18 @@ matching ``map.BootstrapMap``). State never changes in place; a new
 ``GameState`` is produced via an explicit, named transition method (e.g.
 ``with_tick``) rather than ad hoc attribute assignment or ``dataclasses.replace``
 calls scattered across callers. This keeps every state transition a single,
-auditable, deterministic step, which later issues (#4 tick clock, #7
-simulation step) build on.
+auditable, deterministic step.
 
 Ordering convention: ``players`` is exposed as a tuple in canonical order
 (sorted by ``PlayerId.value``), never as a plain ``set``/``dict`` whose
 iteration order could depend on insertion history. This guarantees that
 serialization and any future derived output (events, snapshots) are
-independent of the order callers happen to supply players in. ``commanders``
-(added by issue #37), ``resource_pools`` (added by issue #54), and
-``construction_sessions`` (added by issue #55) follow the exact same
+independent of the order callers happen to supply players in. ``commanders``,
+``resource_pools``, and ``construction_sessions`` follow the exact same
 convention: a tuple sorted by the owning player's ``PlayerId.value``, never
 a plain ``dict``/``set``.
 
-Scope: this milestone (M1.1) intentionally excludes map/world/entities/
-robots/economy/combat. Issue #37 (M3.1) adds the first entity-shaped field,
-``commanders``; issue #54 (M4.4) adds ``resource_pools``; issue #55 (M4.5)
-adds ``construction_sessions`` -- see below -- but robots and map/world
-integration remain out of scope for later issues.
-
-Seed field (added by issue #7, the simulation-step integration task): the
+Seed field: the
 engine's match-local RNG ownership contract (``rng.py``) requires "same seed
 => same output sequence", but ``rng.MatchRandom`` is a *mutable*, stateful
 wrapper around ``random.Random`` — each draw advances it. Embedding a live
@@ -32,13 +24,11 @@ wrapper around ``random.Random`` — each draw advances it. Embedding a live
 state equality/serialization depend on private RNG internals and would be
 awkward to reason about across ticks. Instead, ``GameState`` carries only the
 immutable integer ``seed`` it was created with; any code that actually needs
-to draw random numbers (no such gameplay system exists yet in M1) is expected
-to construct a fresh ``rng.MatchRandom(state.seed)`` on demand. This keeps
-``GameState`` a clean, comparable, serializable-in-spirit value type (relevant
-to issue #8's upcoming canonical-snapshot work) while still making "same seed
-=> same behavior" structurally checkable today.
+to draw random numbers constructs a fresh ``rng.MatchRandom`` from it on
+demand. This keeps ``GameState`` a clean, comparable, serializable value
+type while still making "same seed => same behavior" structurally checkable.
 
-Commanders field (added by issue #37): ``commanders`` attaches the
+Commanders field: ``commanders`` attaches the
 authoritative per-player :class:`~nether_earth.commander.Commander` state
 (see ``commander.py``) directly onto ``GameState``, following the same
 "immutable tuple in canonical order" convention as ``players`` rather than
@@ -52,7 +42,7 @@ commander). Use :func:`create_game_state` or :meth:`with_commanders` rather
 than constructing this dataclass with a pre-sorted/pre-validated tuple by
 convention alone.
 
-Resource pools field (added by issue #54, M4.4): ``resource_pools`` attaches
+Resource pools field: ``resource_pools`` attaches
 the authoritative per-player
 :class:`~nether_earth.resource_pool.PlayerResourcePool` state directly onto
 ``GameState``, mirroring ``commanders`` exactly for the same reasons: a
@@ -63,8 +53,7 @@ player has at most one resource pool). Use :func:`create_game_state` or
 :meth:`with_resource_pools` rather than constructing this dataclass with a
 pre-sorted/pre-validated tuple by convention alone.
 
-Construction sessions field (added by issue #55, M4.5):
-``construction_sessions`` attaches the authoritative per-player
+Construction sessions field: ``construction_sessions`` attaches the authoritative per-player
 :class:`~nether_earth.construction_session.ConstructionSession` state
 directly onto ``GameState``, mirroring ``commanders``/``resource_pools``
 exactly: a tuple in canonical (sorted by
@@ -79,7 +68,7 @@ tuple by convention alone. ``construction_session.py`` is only imported
 under ``TYPE_CHECKING`` here to avoid a circular import (that module itself
 imports ``GameState`` to type its own session-returning functions).
 
-Robots field (added by issue #56, M4.6): ``robots`` attaches the
+Robots field: ``robots`` attaches the
 authoritative :class:`~nether_earth.robot.Robot` entity collection directly
 onto ``GameState``, following the same "immutable tuple, never a ``dict``/
 ``Mapping``-shaped field" convention as ``commanders``/``resource_pools``/
@@ -99,7 +88,7 @@ circular import (that module itself imports ``ids``/``robot_build``, not
 precedent above for symmetry and to keep this module's own import graph
 shallow).
 
-Projectiles field (added by issue #73, M6.4): ``projectiles`` attaches the
+Projectiles field: ``projectiles`` attaches the
 authoritative in-flight :class:`~nether_earth.combat.Projectile` collection
 directly onto ``GameState``, following the exact same "immutable tuple,
 never a ``dict``/``Mapping``-shaped field" convention established above.
@@ -115,11 +104,11 @@ derives ``owner`` from a validated ``FireRequest``/``Robot`` pair; unlike
 ``robots``/``commanders``/etc., ``GameState.with_projectiles`` only
 enforces the one invariant it can check locally (unique ``id``).
 ``combat.py`` is only imported under ``TYPE_CHECKING`` here to avoid a
-circular import (that module itself will need ``GameState`` for
+circular import (that module itself needs ``GameState`` for
 ``apply_fire``/``advance_projectiles``), mirroring the ``robot.py``/
 ``construction_session.py`` precedent above.
 
-Structure destruction field (added by issue #78, M6.8): ``structure_destruction``
+Structure destruction field: ``structure_destruction``
 attaches the set of war base/factory ids nuclear detonation has permanently
 removed from play, analogous to ``structure_ownership`` -- another
 ``GameState``-attached override layered over ``WorldMap`` without mutating
@@ -127,15 +116,15 @@ it -- but simpler: destruction has no associated value to record, only the
 bare fact "this structure no longer exists", so it is a plain tuple of
 ``EntityId`` rather than a tuple of id-plus-value records. It is always
 stored in canonical (sorted by ``EntityId.value``) order, at most once per
-id (a structure cannot be destroyed twice); it defaults to ``()`` so
-existing callers keep working unchanged. `destruction.py`'s
+id (a structure cannot be destroyed twice); it defaults to ``()``.
+`destruction.py`'s
 :func:`~nether_earth.destruction.destroy_structure` is the sole writer, and
 :func:`~nether_earth.destruction.effective_world` is the sole reader that
 turns this into "excluded from ``WorldMap.war_bases``/``factories``" for
 every downstream consumer, mirroring `capture.py`'s
 :func:`~nether_earth.capture.effective_world` shape one layer further.
 
-Scenery debris field (CR002.18, issue #196): ``scenery_debris`` holds the ids
+Scenery debris field: ``scenery_debris`` holds the ids
 of map blockers a nuclear blast has turned into rough debris
 (`Lba44_robots_handled`). Same shape and invariants as
 ``structure_destruction`` (canonical sorted tuple, each id once, default
@@ -145,7 +134,7 @@ writer; :func:`~nether_earth.destruction.effective_world` is the sole reader
 that drops those blockers and makes their cells rough terrain. The base
 ``WorldMap`` is never mutated.
 
-AI memories field (CR004.3, issue #284): ``ai_memories`` holds one
+AI memories field: ``ai_memories`` holds one
 :class:`AiMemory` per AI-controlled seat -- the planner's carry-over state,
 which must live here (not in a Python object beside the loop) so it
 round-trips through snapshots and replays. Presence of a player's memory *is*
@@ -173,7 +162,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class AiConstructionMemory:
-    """Carry-over state of the AI construction sub-planner (CR004.4).
+    """Carry-over state of the AI construction sub-planner.
 
     ``last_war_base_id`` is the war base the planner last built at, so the
     next build goes to the next owned war base in map order (round robin).
@@ -185,7 +174,7 @@ class AiConstructionMemory:
 
 @dataclass(frozen=True, slots=True)
 class AiDefenceAssignment:
-    """One AI robot sent to meet one enemy robot threatening an owned structure (CR004.5)."""
+    """One AI robot sent to meet one enemy robot threatening an owned structure."""
 
     defender_id: EntityId
     intruder_id: EntityId
@@ -205,7 +194,7 @@ class AiSighting:
 
 @dataclass(frozen=True, slots=True)
 class AiOrderMemory:
-    """Carry-over state of the AI robot-order sub-planner (CR004.5).
+    """Carry-over state of the AI robot-order sub-planner.
 
     ``defences`` are the standing defender assignments, sorted by defender
     id; ``sightings`` are last decision's enemy distances, sorted by robot
@@ -226,7 +215,7 @@ class AiOrderMemory:
 
 @dataclass(frozen=True, slots=True)
 class AiMemory:
-    """One AI seat's planner carry-over state (CR004.3).
+    """One AI seat's planner carry-over state.
 
     Each sub-planner owns one sub-record, so the construction and order
     planners evolve their own state without touching each other's fields.
@@ -239,7 +228,7 @@ class AiMemory:
 
 @dataclass(frozen=True, slots=True)
 class RobotLaunchCount:
-    """How many robots ``player_id`` has ever launched (CR004.12, #295).
+    """How many robots ``player_id`` has ever launched.
 
     It is also the ordinal of that player's newest robot id
     (``robot-<player>-<launched>``). It only ever grows: a robot's death
@@ -351,7 +340,7 @@ def _canonical_resource_pools(
 
     Shared by :func:`create_game_state` and
     :meth:`GameState.with_resource_pools`, mirroring
-    :func:`_canonical_commanders` exactly (see issue #54, M4.4).
+    :func:`_canonical_commanders` exactly.
     """
     seen_players: set[PlayerId] = set()
     for pool in resource_pools:
@@ -371,8 +360,7 @@ def _canonical_construction_sessions(
 
     Shared by :func:`create_game_state` and
     :meth:`GameState.with_construction_sessions`, mirroring
-    :func:`_canonical_commanders`/:func:`_canonical_resource_pools` exactly
-    (see issue #55, M4.5).
+    :func:`_canonical_commanders`/:func:`_canonical_resource_pools` exactly.
     """
     seen_players: set[PlayerId] = set()
     for session in construction_sessions:
@@ -433,7 +421,7 @@ def _canonical_structure_ownership(
     """Return ``structure_ownership`` sorted canonically, after validating it.
 
     Shared by :func:`create_game_state` and
-    :meth:`GameState.with_structure_ownership` (see issue #66, M5.7). Mirrors
+    :meth:`GameState.with_structure_ownership`. Mirrors
     :func:`_canonical_robots`'s "sort/validate by the record's own id"
     shape: a structure has at most one runtime ownership override recorded
     at a time (absence means "still whatever ``WorldMap`` says", never a
@@ -460,7 +448,7 @@ def _canonical_capture_progress(
     """Return ``capture_progress`` sorted canonically, after validating it.
 
     Shared by :func:`create_game_state` and
-    :meth:`GameState.with_capture_progress` (see issue #66, M5.7). A
+    :meth:`GameState.with_capture_progress`. A
     structure has at most one active capture attempt in progress at a time
     -- per `_specs/open-questions.md` §7, any interruption resets progress
     to zero immediately rather than retaining a second, stale attempt --
@@ -485,7 +473,7 @@ def _canonical_structure_destruction(
     """Return ``structure_destruction`` sorted canonically, after validating it.
 
     Shared by :func:`create_game_state` and
-    :meth:`GameState.with_structure_destruction` (see issue #78, M6.8).
+    :meth:`GameState.with_structure_destruction`.
     Simpler than :func:`_canonical_structure_ownership`/
     :func:`_canonical_capture_progress`: this is a plain tuple of ids, not
     id-plus-value records, so validation is just "no id appears twice" (a
@@ -518,38 +506,33 @@ class GameState:
 
     ``seed`` is the immutable match seed this state (and any future state
     derived from it via :meth:`with_tick`) was initialized with. It defaults
-    to ``0`` so existing callers that construct ``GameState`` without a seed
-    keep working unchanged. See the module docstring for why this is a plain
+    to ``0``. See the module docstring for why this is a plain
     ``int`` rather than a live ``rng.MatchRandom`` instance.
 
     ``commanders`` is always stored in canonical (sorted by
     ``Commander.player_id.value``) order, matching ``players``; it defaults
-    to ``()`` so existing callers that construct ``GameState`` without
-    commander state keep working unchanged. See the module docstring for the
+    to ``()``. See the module docstring for the
     ownership invariants ``create_game_state``/``with_commanders`` enforce.
 
     ``resource_pools`` is always stored in canonical (sorted by
     ``PlayerResourcePool.player_id.value``) order, matching ``players``; it
-    defaults to ``()`` so existing callers that construct ``GameState``
-    without resource-pool state keep working unchanged. See the module
+    defaults to ``()``. See the module
     docstring for the ownership invariants
     ``create_game_state``/``with_resource_pools`` enforce.
 
     ``construction_sessions`` is always stored in canonical (sorted by
     ``ConstructionSession.player_id.value``) order, matching ``players``; it
-    defaults to ``()`` so existing callers that construct ``GameState``
-    without construction-session state keep working unchanged. See the
+    defaults to ``()``. See the
     module docstring for the ownership invariants
     ``create_game_state``/``with_construction_sessions`` enforce.
 
     ``robots`` is always stored in canonical (sorted by
-    ``Robot.entity_id.value``) order; it defaults to ``()`` so existing
-    callers that construct ``GameState`` without robot state keep working
-    unchanged. See the module docstring for why robots sort by their own
+    ``Robot.entity_id.value``) order; it defaults to ``()``. See the module
+    docstring for why robots sort by their own
     entity id rather than owning-player id, and for the ownership/
     uniqueness invariants ``create_game_state``/``with_robots`` enforce.
 
-    ``structure_ownership`` (added by issue #66, M5.7) carries runtime
+    ``structure_ownership`` carries runtime
     ownership overrides for war bases/factories captured since match start,
     layered over ``WorldMap``'s own static/scenario-starting ``owner``
     fields (see ``capture.py``'s ``effective_world``) -- ``WorldMap`` is a
@@ -557,39 +540,36 @@ class GameState:
     in place, so a structure's *current* owner after any capture completes
     is authoritative only on ``GameState``. It is always stored in
     canonical (sorted by ``StructureOwnership.structure_id.value``) order,
-    at most one override per structure; it defaults to ``()`` so existing
-    callers keep working unchanged.
+    at most one override per structure; it defaults to ``()``.
 
-    ``capture_progress`` (added by issue #66, M5.7) carries the in-progress
+    ``capture_progress`` carries the in-progress
     continuous-occupation capture attempt, if any, for each contested
     structure (`_specs/technical-spec.md` §10's ``CaptureProgress``). It is
     always stored in canonical (sorted by
     ``CaptureProgress.structure_id.value``) order, at most one active
-    attempt per structure; it defaults to ``()`` so existing callers keep
-    working unchanged.
+    attempt per structure; it defaults to ``()``.
 
-    ``projectiles`` (added by issue #73, M6.4) carries every in-flight
+    ``projectiles`` carries every in-flight
     :class:`~nether_earth.combat.Projectile`. It is always stored in
     canonical (sorted by ``Projectile.id.value``) order, matching
     ``robots``' own-id sort rather than an owning-player sort (see the
-    module docstring); it defaults to ``()`` so existing callers keep
-    working unchanged.
+    module docstring); it defaults to ``()``.
 
-    ``structure_destruction`` (added by issue #78, M6.8) carries the ids of
+    ``structure_destruction`` carries the ids of
     every war base/factory nuclear detonation has permanently destroyed --
     a ``GameState``-attached "this structure no longer exists" marker,
     analogous to ``structure_ownership`` but simpler (presence alone is the
     fact; there is no associated value, unlike ownership which must also
     record who owns it). It is always stored in canonical (sorted by
     ``EntityId.value``) order, at most once per structure id; it defaults
-    to ``()`` so existing callers keep working unchanged.
+    to ``()``.
 
-    ``robot_launches`` (CR004.12, #295) counts the robots each player has
+    ``robot_launches`` counts the robots each player has
     ever launched (:class:`RobotLaunchCount`), the source of new robot ids
     (``robot_launch.py``). Canonical (sorted by player), at most one entry
     per player, none for a player who has not launched; defaults to ``()``.
 
-    ``robot_debris`` (CR005.3) holds the anchors of the 2×2 rough debris
+    ``robot_debris`` holds the anchors of the 2×2 rough debris
     robots killed in combat left on plain ground (`Lb116_robot_destroyed`),
     in the order they fell; ``destruction.scenery_world`` makes those cells
     rough. Defaults to ``()``.
@@ -987,7 +967,7 @@ class GameState:
         return structure_id in self.structure_destruction
 
     def with_scenery_debris(self, scenery_debris: tuple[EntityId, ...]) -> GameState:
-        """Return a new ``GameState`` with ``scenery_debris`` replaced (CR002.18).
+        """Return a new ``GameState`` with ``scenery_debris`` replaced.
 
         Canonical (sorted by ``EntityId.value``), each id at most once; every
         other field is carried over unchanged.
@@ -995,7 +975,7 @@ class GameState:
         return replace(self, scenery_debris=_canonical_scenery_debris(tuple(scenery_debris)))
 
     def with_robot_debris(self, robot_debris: tuple[tuple[int, int], ...]) -> GameState:
-        """Return a new ``GameState`` with ``robot_debris`` replaced (CR005.3)."""
+        """Return a new ``GameState`` with ``robot_debris`` replaced."""
         return replace(self, robot_debris=tuple(robot_debris))
 
     def robots_launched_by(self, player_id: PlayerId) -> int:
@@ -1008,7 +988,7 @@ class GameState:
     def with_robots_launched(self, player_id: PlayerId, launched: int) -> GameState:
         """Return a new ``GameState`` recording ``launched`` robots ever launched by ``player_id``.
 
-        The count never goes down (ids are never reused, #295).
+        The count never goes down (ids are never reused).
         """
         if player_id not in self.players:
             raise ValueError(f"{player_id.value!r} is not a participant in players")

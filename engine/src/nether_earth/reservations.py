@@ -1,4 +1,4 @@
-"""Deterministic destination reservations and contention resolution (issue #62, M5.3).
+"""Deterministic destination reservations and contention resolution.
 
 `_specs/open-questions.md` §11 (RESOLVED) locks the rules this module owns:
 
@@ -15,8 +15,8 @@ Never by robot id, submission order, or priority: the winner of a contested
 cell is drawn from the seeded RNG, so it is unpredictable to players yet
 reproducible for an identical seed + state + command stream.
 
-2×2 destinations (CR002.3 #170)
---------------------------------
+2×2 destinations
+----------------
 A robot is a 2×2 body (`occupancy.py`, `_specs/open-questions.md` §21), so
 the "destination" a move reserves is the whole destination body: all four of
 its cells. Two same-tick claims contend when their destination bodies
@@ -67,18 +67,18 @@ What plugs in where
 - :func:`apply_robot_move_batch` is the batched entry point ``engine.step``
   uses: it validates every same-tick claim against one common entry state,
   groups the surviving claims by destination cell, resolves each contested
-  cell with the seeded RNG, and only then starts the winners' moves. Any
-  future robot control source (direct control M5.4, autonomous orders
-  M5.7) must issue its moves through this function -- calling
+  cell with the seeded RNG, and only then starts the winners' moves. Every
+  robot control source (direct control, autonomous orders) must issue its
+  moves through this function -- calling
   :func:`~nether_earth.movement.apply_robot_move` one request at a time
   would resolve a contested cell by submission order, which §11 forbids.
 
 RNG stream
 ----------
 `engine.py`'s module docstring locks how randomness enters a tick: a
-milestone needing randomness "should construct ``rng.MatchRandom(state.seed)``
-fresh from the state it is given, not thread a long-lived mutable RNG object
-through ``GameState``". A single ``MatchRandom(state.seed)`` per tick would
+match-local ``rng.MatchRandom`` is constructed fresh from the state it is
+given, never threaded through ``GameState`` as a long-lived mutable RNG
+object. A single ``MatchRandom(state.seed)`` per tick would
 be deterministic but *identical* every tick, so a recurring two-way
 contention would always pick the same index -- reproducible, yet not the
 locked coin flip. :func:`derive_contention_seed` therefore mixes the
@@ -183,7 +183,8 @@ def reservations_from_state(state: GameState) -> ReservationTable:
     """Return the :class:`ReservationTable` implied by ``state``'s in-flight moves.
 
     One entry per cell of the destination 2×2 body of every robot with a
-    non-``None`` :attr:`~nether_earth.robot.Robot.movement` (CR002.3). Robots are walked in ``state.robots``' canonical order
+    non-``None`` :attr:`~nether_earth.robot.Robot.movement`. Robots are walked in
+    ``state.robots``' canonical order
     (sorted by ``entity_id.value``, per `state.py`), so the projection never
     depends on incidental ordering.
 
@@ -343,7 +344,7 @@ def apply_robot_move_batch(
        (:attr:`~nether_earth.movement.MovementRejectionReason.MOVE_IN_PROGRESS`),
        mirroring the one-move-at-a-time rule `movement.py` enforces across
        ticks.
-    2. **Resolve** overlapping claims (CR002.3). Visiting open claims in
+    2. **Resolve** overlapping claims. Visiting open claims in
        canonical ``(destination anchor, entity id)`` order, the first open
        claim and every open claim whose destination 2×2 body overlaps its
        destination body form a group. A group of one wins outright;

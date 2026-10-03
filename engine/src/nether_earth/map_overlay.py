@@ -212,7 +212,7 @@ def _commander_spawn_cell(
     Player 2 starts outside its extreme-right base just as Player 1 starts
     outside its extreme-left one. The original game is single-player, so
     Player 2's mirrored start is a locked PvP adaptation confirmed by the
-    owner (`_specs/open-questions.md` §17, CR001), not Spectrum evidence; it
+    owner (`_specs/open-questions.md` §17), not Spectrum evidence; it
     stays overlay data kept in one place here. The result is clamped into the map so an odd map cannot
     yield an out-of-bounds spawn (``apply_overlay`` would reject it).
     """

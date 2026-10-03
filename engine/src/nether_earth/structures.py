@@ -10,9 +10,8 @@ whole structure. Generic scenery/blockers (:class:`Blocker`) use the same
 per-component shape for consistency, even though they carry no ownership or
 production semantics.
 
-This supersedes the earlier generic ``Structure``/``StructureKind`` model
-(issue #19): that model used one uniform ``footprint``/``height`` pair per
-structure, which the resolved open question explicitly rules out.
+One uniform ``footprint``/``height`` pair per structure is explicitly ruled
+out by the resolved open question.
 
 Interaction zones (heli-pad, exit, capture) remain independent semantic
 metadata — see `interactions.py` — and are *not* derived from a structure's
@@ -162,11 +161,11 @@ class Blocker:
     """Generic unowned static scenery (cubes/boxes/other blockers).
 
     ``kind`` is an opaque data label (e.g. ``"box_low"``, ``"fence"`` on the
-    original map, CR002.1 #168) that presentation layers map to an asset.
+    original map) that presentation layers map to an asset.
     The engine never branches on it: a blocker's gameplay effect comes only
     from its components' cells and heights, and ``destructible``.
 
-    ``destructible`` (CR002.18, #196) marks scenery a nuclear blast turns
+    ``destructible`` marks scenery a nuclear blast turns
     into rough debris (`Lba44_robots_handled`: element types 17-20; the
     type-21 fence is not destructible). Map data, default ``False``.
     """

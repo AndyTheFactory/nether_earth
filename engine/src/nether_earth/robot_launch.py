@@ -1,27 +1,24 @@
-"""Robot launch: cap/exit/build validation, atomic commit, robot creation (issue #56, M4.6).
+"""Robot launch: cap/exit/build validation, atomic commit, robot creation.
 
 Per `_specs/functional-spec.md` §11 ("Construction cannot launch when:
 player already has 24 robots; war-base exit is blocked; build is invalid;
 resources are insufficient.") and `_specs/milestones/
-04-robots-construction-economy.md` (M4.6), this module is the convergence
-point of Tasks 1-5: it takes a player's active
-:class:`~nether_earth.construction_session.ConstructionSession` (Task 5),
+04-robots-construction-economy.md`, this module takes a player's active
+:class:`~nether_earth.construction_session.ConstructionSession`,
 validates it against the 24-robot cap (`rules.py`'s
-``max_robots_per_player``, issue #56) and the canonical M2 war-base ``EXIT``
+``max_robots_per_player``) and the canonical war-base ``EXIT``
 interaction point (`interactions.py`/`occupancy.py`), and -- on success --
-atomically commits the session's temporary resource buffer (Task 3/4) as
+atomically commits the session's temporary resource buffer as
 the player's new actual resources, creates exactly one authoritative
-:class:`~nether_earth.robot.Robot` entity (this task's new type) at the
-resolved exit cell, and clears the construction session (Task 5). This
+:class:`~nether_earth.robot.Robot` entity at the
+resolved exit cell, and clears the construction session. This
 module deliberately reuses every one of those primitives rather than
 reimplementing any of them -- see the imports below.
 
 Like `construction_session.py`'s own functions, :func:`launch_robot` is a
 plain, pure function of ``(state, world, player_id, rules) -> LaunchResult``,
-not a ``Command`` subclass: wiring this into ``engine.step``'s per-tick
-command pipeline is explicitly Task 7 (M4.7)'s scope, not this task's (see
-`construction_session.py`'s module docstring for the identical reasoning,
-which applies here verbatim).
+not a ``Command`` subclass (see `construction_session.py`'s module
+docstring).
 
 Validation order (mirrors `_specs/functional-spec.md` §11's listed
 conditions, checked in the order most useful for early, cheap rejection --
@@ -45,7 +42,7 @@ and folding robot occupancy):
    a cell;
 5. the new robot's 2×2 body at the resolved exit cell is on the map and
    none of its cells is occupied or *reserved* as some
-   in-flight move's destination (issue #62/M5.3; both surface as
+   in-flight move's destination (both surface as
    :data:`LaunchRejectionReason.EXIT_BLOCKED` -- see the check itself for
    why a reservation blocks an exit exactly like a standing robot does).
 
@@ -58,7 +55,7 @@ Exit-cell resolution (deterministic, single cell)
 --------------------------------------------------
 
 The resolved exit cell is the new robot's **anchor**: the robot is a 2×2
-body (CR002.3, `_specs/open-questions.md` §21) covering the anchor, the
+body (`_specs/open-questions.md` §21) covering the anchor, the
 cell to its right and the two cells above them. The launch is refused as
 :data:`LaunchRejectionReason.EXIT_BLOCKED` when that body would leave the
 map, or when any of its cells is occupied or reserved. On the Spectrum the
@@ -79,7 +76,7 @@ lexicographically smallest ``(x, y)`` cell. This mirrors
 ``heli_pad.detect_heli_pad_landing``'s own "iterate in stable declared
 order, deterministic first match" precedent for resolving canonical
 interaction-point metadata to a concrete cell. A real map is expected to
-declare exactly one single-cell ``EXIT`` point per war base (see the M2
+declare exactly one single-cell ``EXIT`` point per war base (see the
 fixture map), so this multi-point/multi-cell tie-break is a defensive
 fallback, not the common case.
 
@@ -87,22 +84,20 @@ Occupancy-folding approach
 -----------------------------
 
 ``OccupancyGrid`` is not attached to ``GameState`` (see `occupancy.py`'s
-module docstring and this task's brief): it is computed on demand from a
-``WorldMap``'s *static* structures only (``WorldMap.occupancy()``). No
-robot has ever been foldable into it before this task, because no robot
-entity existed. To check whether the resolved exit cell is blocked by an
+module docstring): it is computed on demand from a
+``WorldMap``'s *static* structures only (``WorldMap.occupancy()``). To
+check whether the resolved exit cell is blocked by an
 existing robot (not just by static structures), this module builds a full
 occupancy grid by starting from ``world.occupancy()`` and folding in every
-one of ``state.robots``' current single-cell footprints via
+one of ``state.robots``' current 2×2 bodies via
 ``OccupancyGrid.with_added`` -- the existing dynamic-update API, reused
 verbatim rather than inventing a second "is this cell taken" check. Robots
 are folded in canonical ``state.robots`` order (already
 ``entity_id.value``-sorted, see `state.py`), so this fold is itself
-deterministic. Since CR002.3 a robot occupies its 2×2 body (see
-`occupancy.py`).
+deterministic.
 
-Issue #60 (M5.1) needs exactly this fold for robot movement's destination
-occupancy check, so the fold itself now lives once, publicly, as
+Robot movement's destination occupancy check needs exactly this fold, so
+the fold itself lives once, publicly, as
 :func:`nether_earth.movement.folded_robot_occupancy`; this module's
 ``_folded_occupancy`` delegates to it rather than keeping a second copy
 that could silently diverge.
@@ -122,17 +117,15 @@ reconstructed equal copy), so ``state.resource_pools``, ``state.robots``,
 and ``state.construction_sessions`` are trivially, provably identical
 (``is``-identical, not just ``==``-equal) to their pre-call values.
 
-Robot id assignment scheme (CR004.12, #295)
--------------------------------------------
+Robot id assignment scheme
+--------------------------
 
 A new robot is ``EntityId(f"robot-{owner.value}-{ordinal}")``, where
 ``ordinal`` is ``1 + GameState.robots_launched_by(owner)``: a per-player
 monotonic launch counter (``GameState.robot_launches``) that each accepted
 launch bumps and that a robot's death never lowers. Ids are therefore never
-reused, not even a destroyed robot's. Until a player's first robot dies the
-counter equals the number of that player's robots, so those ids are the
-same as under the original M4.6 scheme (``1 + robots alive``), which
-collided once robots could die.
+reused, not even a destroyed robot's (``1 + robots alive`` would collide
+once robots can die).
 """
 
 from __future__ import annotations
@@ -234,10 +227,10 @@ def resolve_launch_exit(
     The exit half of :func:`launch_robot`'s validation (conditions 4 and 5
     in the module docstring): :data:`LaunchRejectionReason.NO_EXIT_DEFINED`
     or :data:`LaunchRejectionReason.EXIT_BLOCKED`, else the resolved anchor
-    cell. Public so the AI construction planner (CR004.4) can skip a war base
+    cell. Public so the AI construction planner can skip a war base
     whose exit is blocked using the launch rule itself rather than a copy.
     ``robot_height`` is the new robot's stack height: a free commander below
-    the robot's top at the exit blocks it (CR005.1).
+    the robot's top at the exit blocks it.
     """
     exit_cell = _resolve_exit_cell(world, war_base_id)
     if exit_cell is None:
@@ -252,7 +245,7 @@ def resolve_launch_exit(
 
     # A robot with a move in flight authoritatively occupies its *origin*
     # cell, so the fold above cannot see the destination it is about to
-    # land on -- that claim lives in M5.3's reservation contract (see
+    # land on -- that claim lives in the reservation contract (see
     # `movement.folded_robot_occupancy`'s docstring, which says exactly
     # this). Launching onto a reserved exit cell would therefore look legal
     # here and then stack two robots on one cell the moment that move
@@ -265,7 +258,7 @@ def resolve_launch_exit(
     if any(reservations.is_reserved(x, y) for x, y in unit_footprint_cells(exit_x, exit_y)):
         return LaunchRejectionReason.EXIT_BLOCKED
 
-    # A commander standing in the door (owner decision, CR005.1): the new
+    # A commander standing in the door (owner decision): the new
     # robot could not leave and would trap the commander, so no robot is
     # built. It blocks exactly as it would block the robot stepping there
     # (`movement.commander_blocks_robot_cell`): below the robot's top.
@@ -355,7 +348,7 @@ def launch_robot(
 
     entity_id = _next_robot_id(state, player_id)
     # The Spectrum starts every new robot on Stop & Defend with a 5-step walk
-    # south out of the doorway (`La6c8` after `Lc849`; CR002.3, see
+    # south out of the doorway (`La6c8` after `Lc849`; see
     # `orders.walk_out_request`).
     robot = Robot(
         entity_id=entity_id,

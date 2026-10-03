@@ -1,18 +1,16 @@
-"""Authoritative commander domain state (issue #37; movement fields #38).
+"""Authoritative commander domain state.
 
 This module defines the commander's authoritative state shape described by
 `_specs/technical-spec.md` §9 and `_specs/functional-spec.md` §8: an
 indestructible, untargetable, physically collidable anti-grav unit with
 integer X/Y, integer altitude, and a ``FREE``/``DOCKED`` mode.
 
-Issue #37 scope (unchanged): the state model and its structural invariants.
-It intentionally does not implement height-aware collision, docking/
-undocking transitions, enemy-robot contact, or heli-pad interaction --
-those are later M3 issues (#39-#41) that build on top of this shape.
+This module owns the state model and its structural invariants only; it
+does not implement height-aware collision, docking/undocking transitions,
+enemy-robot contact, or heli-pad interaction (`collision.py`,
+`docking.py`, `heli_pad.py` build on top of this shape).
 
-Issue #38 scope (this revision): adds the fields and in-progress-transition
-shapes needed to represent authoritative horizontal/vertical *movement*
-without changing any of #37's structural invariants:
+Movement fields and in-progress-transition shapes:
 
 - ``rising``: persistent boolean vertical intent (see
   :mod:`nether_earth.commander_movement` for why intent is modeled as a
@@ -34,9 +32,8 @@ without changing any of #37's structural invariants:
   "any interpolation remains frontend-only" rule. It carries no legality
   meaning of its own.
 
-All new fields default to values that reproduce #37's prior behavior
-(``rising=False``, both transitions ``None``), so every existing #37
-``Commander(...)`` call site and test keeps working unchanged.
+The movement fields default to a stationary commander (``rising=False``,
+both transitions ``None``).
 
 Invariant set (enforced by :meth:`Commander.__post_init__`):
 
@@ -57,8 +54,7 @@ bounds in addition to the structural invariants above. Horizontal (X/Y)
 legality against map/world geometry, and vertical legality against
 collision, are out of scope for this module -- see
 :mod:`nether_earth.commander_movement` for the duck-typed collision-check
-callable contract that later milestones (starting with #39) implement
-against.
+callable contract `collision.py` implements against.
 """
 
 from dataclasses import dataclass, replace
@@ -173,12 +169,11 @@ class Commander:
     invariant set enforced by :meth:`__post_init__`).
 
     ``rising``, ``horizontal_transition``, and ``vertical_transition`` are
-    the movement fields added by issue #38 -- see the module docstring for
-    what each represents. All three default to values that reproduce a
-    stationary, non-rising, transition-free commander, so existing #37
-    construction call sites are unaffected.
+    the movement fields -- see the module docstring for what each
+    represents. All three default to a stationary, non-rising,
+    transition-free commander.
 
-    ``elevate_updates_remaining`` (CR002.12/CR002.13) counts the vertical
+    ``elevate_updates_remaining`` counts the vertical
     updates left in the automatic ascent that follows leaving the
     construction screen (Spectrum ``Lfd30_player_elevate_timer``); ``0``
     means no automatic ascent. See
@@ -255,15 +250,15 @@ class Commander:
     ) -> "Commander":
         """Return a new ``Commander`` with ``mode``/``docked_robot_id`` replaced.
 
-        Added by issue #40 (M3.4, docking/undocking) following the exact
-        same "explicit named transition, all other fields carried over
-        unchanged" pattern as the other ``with_*`` methods above. This is
+        Follows the same "explicit named transition, all other fields
+        carried over unchanged" pattern as the other ``with_*`` methods
+        above. This is
         the only supported way to change a commander's docking state:
         callers must not construct a new ``Commander`` by hand for a mode
         change, since :meth:`__post_init__` enforces the FREE/DOCKED
         invariant on the *new* object and every other field (position,
         altitude, rising intent, in-progress transitions) must survive a
-        dock/undock transition unchanged -- ``docking.py`` (issue #40) is
+        dock/undock transition unchanged -- ``docking.py`` is
         responsible for separately updating position/altitude (e.g. via
         :meth:`with_position`/:meth:`with_altitude`) when a dock/undock also
         moves the commander, rather than this method silently doing so.

@@ -1,11 +1,11 @@
-"""Direct-control robot movement interaction state (issue #63, M5.4).
+"""Direct-control robot movement interaction state.
 
 `_specs/functional-spec.md` §15 locks the precondition: "Available after
 docking: command menu; direct control; orders menu; combat control" and
 "Direct control uses exactly the same movement rules as autonomous
 movement." This module is the engine-side interaction gate and command type
-that implement that rule, built entirely on the *existing* M3/M4 commander/
-robot interaction contract rather than a new one:
+that implement that rule, built entirely on the *existing* commander/robot
+interaction contract rather than a new one:
 
 - A commander must be ``DOCKED`` to a robot
   (:attr:`~nether_earth.commander.Commander.mode` /
@@ -36,14 +36,14 @@ robot interaction contract rather than a new one:
   independent *commander* movement on the same mode. No new "leave direct
   control" command or event type is introduced here: undocking already is
   that transition, and it is snapshot/replay-safe because ``Commander``
-  itself already is (issue #37).
+  itself already is.
 
 Movement legality itself is intentionally NOT re-implemented here: once the
 docking gate passes, a :class:`DirectRobotMoveCommand` becomes exactly a
 :class:`~nether_earth.movement.RobotMoveRequest`, submitted to
 :func:`~nether_earth.reservations.apply_robot_move_batch` -- the single
 batched move-start path every robot control source (this module, and
-autonomous orders in a later M5 task) must use. Terrain capability,
+autonomous orders) must use. Terrain capability,
 occupancy, commander blocking, and destination reservation/contention are
 therefore checked exactly once, inside ``movement.py``/``reservations.py``,
 never duplicated here -- direct control cannot bypass any of them because
@@ -211,7 +211,7 @@ def direct_robot_move_request(
     command: no :class:`~nether_earth.movement.RobotMoveRequest` is ever
     built for a player not currently entitled to direct control, so an
     invalid direct-control command cannot reach the shared movement executor
-    at all -- zero side effects, per this issue's acceptance criteria.
+    at all -- zero side effects.
 
     Returns ``(result, request)`` when the gate passes. ``request`` still
     has to survive :func:`~nether_earth.movement.validate_robot_move`'s own

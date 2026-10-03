@@ -1,16 +1,15 @@
-"""Construction/economy ``Command``/``Event`` shapes for ``engine.step`` (issue #57, M4.7).
+"""Construction/economy ``Command``/``Event`` shapes for ``engine.step``.
 
-This module is the Task 7 (M4.7) counterpart of ``commander_movement.py``:
+This module is the construction counterpart of ``commander_movement.py``:
 it defines the concrete :class:`~nether_earth.commands.Command` subclasses
 and :class:`~nether_earth.events.Event` subclasses that let a player-issued
-command stream drive Tasks 5/6's already-landed pure functions
+command stream drive the pure functions
 (``construction_session.py``'s :func:`~nether_earth.construction_session.select_module`/
 :func:`~nether_earth.construction_session.deselect_module`/
 :func:`~nether_earth.construction_session.cancel_construction`, and
 ``robot_launch.py``'s :func:`~nether_earth.robot_launch.launch_robot`)
 through ``engine.step``'s per-tick command pipeline -- see ``engine.py``'s
-own module docstring/``step`` docstring for exactly where these are wired
-in (a new, clearly-numbered step, added by this task).
+``step`` docstring for exactly where these are wired in (Step 8).
 
 Command shapes mirror :class:`~nether_earth.commander_movement.CommanderMoveCommand`
 exactly: frozen/slotted dataclasses extending :class:`~nether_earth.commands.Command`,
@@ -20,7 +19,7 @@ carrying only the fields each action needs beyond the base ``player``/
 Entering construction is deliberately **not** represented as a player-issued
 ``Command`` here: `_specs/functional-spec.md` §10.3/§8 model construction
 entry as an automatic consequence of landing on the player's own war-base
-heli-pad (``heli_pad.CommanderConstructionEntryEligible``, M3's detection
+heli-pad (``heli_pad.CommanderConstructionEntryEligible``, the detection
 event), not a discrete player action. ``engine.step`` wires
 :func:`~nether_earth.construction_session.enter_construction` to fire
 automatically, in direct response to that detection event, in the same
@@ -93,7 +92,7 @@ class CancelConstructionCommand(Command):
 
 @dataclass(frozen=True, slots=True)
 class EnterConstructionRemotelyCommand(Command):
-    """Request to open a construction session at ``war_base_id`` without landing (CR004.4).
+    """Request to open a construction session at ``war_base_id`` without landing.
 
     The AI seat's entry into construction: it has no commander, so it cannot
     land on a heli-pad (see the module docstring). Applied by

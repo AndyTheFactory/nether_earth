@@ -8,9 +8,8 @@ deterministic starting player set from it.
 
 Scope note: this module intentionally does not implement map/world
 geometry, victory checking, or economy processing. ``victory_rule`` and
-``factory_initial_ownership`` are recorded as scenario metadata only,
-because the entities they will govern (war bases, factories) do not exist
-until later milestones (M2+).
+``factory_initial_ownership`` are recorded as scenario metadata only; the
+systems they govern live in `victory.py`, `map_overlay.py` and `capture.py`.
 """
 
 from dataclasses import dataclass
@@ -27,9 +26,8 @@ from nether_earth.structures import Factory, WarBase
 
 #: Locked v1 victory-rule identifier (`_specs/technical-spec.md` §6,
 #: `_specs/functional-spec.md` §4.2): a player wins when the opponent owns
-#: zero war bases. This is recorded as stable scenario data only; the
-#: engine does not check victory in this issue (no war-base entities exist
-#: yet).
+#: zero war bases. This is recorded as stable scenario data only; victory
+#: is checked by `victory.py`.
 VICTORY_RULE_ZERO_WAR_BASES = "zero_war_bases"
 
 #: v1 default factory ownership: factories start neutral unless the map/
@@ -43,7 +41,7 @@ FactoryOwnershipDefault = Literal["neutral"]
 #: ``Scenario`` shape.
 FactoryOwnershipOverrides = dict[str, str]
 
-#: Who drives a seat (CR004.3): a human client or the engine's AI planner.
+#: Who drives a seat: a human client or the engine's AI planner.
 #: Nothing else about the player differs, so this is scenario data, not a
 #: kind of ``PlayerId``.
 SeatController = Literal["human", "ai"]
@@ -57,7 +55,7 @@ class Scenario:
     This is data only — no gameplay/map/victory logic lives here. Fields
     mirror the "Recommended scenario fields" in `_specs/technical-spec.md`
     §6, plus explicit map identity/version references (naming convention
-    matches ``map.BootstrapMap.map_id``/``version`` from M0).
+    matches ``map.BootstrapMap.map_id``/``version``).
     """
 
     id: str
@@ -67,8 +65,7 @@ class Scenario:
     starting_general_resources: int = 20
     factory_initial_ownership: FactoryOwnershipDefault | FactoryOwnershipOverrides = "neutral"
     victory_rule: str = VICTORY_RULE_ZERO_WAR_BASES
-    #: CR004.3: per-seat controller. Both default to ``"human"``, so every
-    #: pre-CR004 scenario (PvP) is unchanged.
+    #: Per-seat controller. Both default to ``"human"`` (PvP).
     player_one_controller: SeatController = "human"
     player_two_controller: SeatController = "human"
 
@@ -104,8 +101,8 @@ def default_pvp_scenario() -> Scenario:
     Values are locked by `_specs/technical-spec.md` §6 and
     `_specs/functional-spec.md` §4/§10.1: one starting war base per
     player, 20 starting general resources (the same value ``rules.py``'s
-    ``starting_general_resources`` seeds into each pool -- M9.2 keeps the
-    two in lock-step via ``engine/tests/test_m9_scenario.py``), neutral
+    ``starting_general_resources`` seeds into each pool -- kept in
+    lock-step by ``engine/tests/test_m9_scenario.py``), neutral
     factories, and the "opponent owns zero war bases" victory rule.
     """
     return Scenario(
@@ -124,7 +121,7 @@ def initialize_players(scenario: Scenario) -> tuple[PlayerId, ...]:
 
     v1 scope is a fixed two-player PvP match (`PLAYER_ONE`, `PLAYER_TWO`
     from ``ids.py``); the scenario itself does not vary the participant
-    set in this issue. The result is always in the same canonical order
+    set. The result is always in the same canonical order
     that :func:`create_initial_state`/``create_game_state`` produce, so
     two calls with equivalent scenarios yield an identical player tuple.
     """
@@ -163,10 +160,10 @@ def create_initial_state(
 ) -> GameState:
     """Build the deterministic tick-0 :class:`GameState` for ``scenario``.
 
-    With ``world`` omitted this is the bare M1 contract: tick 0, the
+    With ``world`` omitted this is the bare contract: tick 0, the
     canonically ordered player set from :func:`initialize_players`, nothing
-    else (kept for the M1 tests and for callers that compose commanders/
-    robots by hand, e.g. the M3-M6 milestone fixtures).
+    else (for callers that compose commanders/robots by hand, e.g. test
+    fixtures).
 
     With ``world`` supplied (a :class:`~nether_earth.map.WorldMap` that
     already has the scenario overlay applied -- see
@@ -179,7 +176,7 @@ def create_initial_state(
       ``rules.commander_min_altitude`` on the cell
       ``world.spawn_positions[commander_spawn_key(player)]`` -- a missing
       spawn entry is a scenario-data error, not a silent default. An AI
-      seat gets no commander (CR004, owner decision 2026-09-25) and a fresh
+      seat gets no commander (owner decision 2026-09-25) and a fresh
       :class:`~nether_earth.state.AiMemory` instead;
     - one :func:`~nether_earth.resource_pool.starting_player_resource_pool`
       per player (``rules.starting_general_resources``, which

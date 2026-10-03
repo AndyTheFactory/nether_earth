@@ -1,4 +1,4 @@
-"""Height-aware commander collision (issue #39, M3.3).
+"""Height-aware commander collision.
 
 Implements the authoritative collision rules the commander is subject to
 against static world geometry, robots, and the opposing commander, per
@@ -11,9 +11,9 @@ Why a dedicated module
 Collision is a pure, stateless geometric query: "does this vertical range,
 at this X/Y, intersect anything that should block movement?" It has no
 mutation, no ordering dependency, and no knowledge of *how* a commander
-decides to move (that is #38's concern). Keeping it in its own module lets
-#38's movement functions and later M5 robot movement share the exact same
-collision math via the stable query contract documented below, rather than
+decides to move (that is `commander_movement.py`'s concern). Keeping it in
+its own module lets commander movement and robot movement share the exact
+same collision math via the stable query contract documented below, rather than
 each re-deriving vertical-range overlap semantics independently -- which
 would risk them silently diverging (e.g. one treating touching surfaces as
 blocking and the other not).
@@ -38,24 +38,24 @@ overlap") and §14 ("stops at the top of the ... stack").
 
 Ground-rooted geometry
 -----------------------
-2×2 bodies (CR002.3 #170, CR002.4 #171): a commander's and a robot's
+2×2 bodies: a commander's and a robot's
 ``(x, y)`` is the anchor of a 2×2 body (`occupancy.py`,
 `_specs/open-questions.md` §21). Every query below tests whole bodies:
 static components under any of the four cells, and robots/commanders whose
 bodies overlap.
 
-Static components and the (placeholder) robot fixture are modeled as
+Static components and the robot fixture are modeled as
 ground-rooted physical stacks: a component/robot of height ``h`` at a cell
 occupies ``[0, h)`` in that cell's column. This matches
 `_specs/functional-spec.md` §7 / §9.1 (structures/robots are objects
 standing on the map) and is the only height reference available anywhere in
 the locked specs or `structures.py`'s per-component ``height`` field.
-A robot stands on the terrain under it (CR002.25): its range is ``[0,
+A robot stands on the terrain under it: its range is ``[0,
 altitude + height)``, where ``altitude`` is the static surface under its
 body (:func:`robot_top`, :attr:`RobotFixture.top`).
 
-Terrain piece heights -- one surface-height function (CR002.21, #203)
-----------------------------------------------------------------------
+Terrain piece heights -- one surface-height function
+----------------------------------------------------
 Terrain pieces are solid too: the Spectrum's ``Lb052_check_player_collision``
 and ``Lb5d6_map_altitude_2x2`` read every map piece's height from
 ``Ld7bc_map_piece_heights``, terrain (rough 2/3, mountain 6) as well as
@@ -71,21 +71,18 @@ is ground-rooted like a component: a piece of height ``h`` occupies
 ``[0, h)``, so the ship rests on rough at altitude 3 and cannot fly into it
 lower down, as ``Lb052``/``Lafc3_gravity`` keep ``altitude >= height``.
 
-The robot fixture placeholder
--------------------------------
-No robot subsystem exists yet (M4/M5). `_specs/milestones/03-commander-movement-docking.md`
-explicitly anticipates this: "Initially use test robots/height fixtures if
-the full robot subsystem is not yet present." :class:`RobotFixture` here is
-exactly that -- a minimal (id, owner, x, y, height) stand-in for "a robot's
-top surface for collision purposes", scoped to collision math only. It is
-deliberately *not* placed in a shared module: later milestones building the
-real robot model should not be tempted to import or extend this type.
+The robot fixture
+-----------------
+:class:`RobotFixture` is a minimal (id, owner, x, y, height, altitude)
+projection of "a robot's top surface for collision purposes" (see
+`_specs/milestones/03-commander-movement-docking.md`), scoped to collision
+math only. It is deliberately *not* placed in a shared module: the real
+robot model should not import or extend this type.
 
-The #38 / #42 integration contract
-------------------------------------
-Issue #38 (M3.2, commander movement) is developed in parallel and does not
-import this module. Its movement functions accept collision-check
-callables of this exact duck-typed shape::
+The commander-movement integration contract
+-------------------------------------------
+`commander_movement.py` does not import this module. Its movement functions
+accept collision-check callables of this exact duck-typed shape::
 
     HorizontalMoveCheck = Callable[[GameState, Commander, int, int], bool]
     VerticalMoveCheck = Callable[[GameState, Commander, int], bool]
@@ -93,8 +90,8 @@ callables of this exact duck-typed shape::
 :func:`commander_horizontal_move_allowed` and
 :func:`commander_vertical_move_allowed` below take additional keyword-only
 parameters (``world``, ``robots``) that this narrower shape does not have.
-That is intentional: issue #42 (a later integration task) is expected to
-bind ``world``/``robots`` with ``functools.partial`` (keyword-bound, so
+That is intentional: `engine.py` binds ``world``/``robots`` with
+``functools.partial`` (keyword-bound, so
 parameter order does not matter), e.g.::
 
     horizontal_check = functools.partial(
@@ -104,18 +101,18 @@ parameter order does not matter), e.g.::
         commander_vertical_move_allowed, world=world, robots=robots
     )
 
-producing callables matching #38's ``HorizontalMoveCheck``/``VerticalMoveCheck``
+producing callables matching the ``HorizontalMoveCheck``/``VerticalMoveCheck``
 contract. This module must not be changed in a way that breaks that binding
 (i.e. ``state``, ``commander``/``mover``, ``dest_x``/``dest_y``/``dest_altitude``
 must remain the leading positional parameters).
 
-Robot-vs-commander forward compatibility (M5)
-------------------------------------------------
-:func:`commander_blocks_cell` is the stable, named query M5 robot movement
-is expected to call to ask "does this commander block this cell at this
+Robot-vs-commander blocking
+---------------------------
+:func:`commander_blocks_cell` is the stable, named query robot movement
+calls to ask "does this commander block this cell at this
 vertical range", without duplicating overlap math. It is intentionally the
 narrowest possible query (one commander, one cell, one range) so robot
-movement -- which will need to loop over *all* commanders and its own
+movement -- which loops over *all* commanders and its own
 collision sources -- composes it rather than this module trying to guess
 robot movement's iteration shape ahead of time.
 """
@@ -182,10 +179,10 @@ class VerticalRange:
 
 @dataclass(frozen=True, slots=True)
 class RobotFixture:
-    """Minimal test-only stand-in for "a robot's top surface" (issue #39).
+    """Minimal collision projection of "a robot's top surface".
 
-    This is **not** the real robot model -- no robot subsystem exists yet
-    (M4/M5). It carries exactly what collision math needs: a position, an
+    This is **not** the real robot model. It carries exactly what collision
+    math needs: a position, an
     owner (so future callers can distinguish friendly/enemy if they choose
     to, though `_specs/open-questions.md` §14 treats both as physical
     surfaces identically for commander collision), and a ground-rooted
@@ -198,7 +195,7 @@ class RobotFixture:
     x: int
     y: int
     height: int
-    #: Terrain altitude under the robot's 2×2 body (CR002.25): the Spectrum's
+    #: Terrain altitude under the robot's 2×2 body: the Spectrum's
     #: ``ROBOT_STRUCT_ALTITUDE``. ``engine.py`` fills it with
     #: :func:`unit_surface_height` at the robot's authoritative anchor.
     altitude: int = 0
@@ -241,7 +238,7 @@ def robot_vertical_range(robot: RobotFixture) -> VerticalRange:
     """Return the ground-rooted vertical range ``robot`` occupies: ``[0, robot.top)``.
 
     Same ground-rooted convention as :func:`component_vertical_range`. The
-    top includes the terrain altitude under the robot (CR002.25, see
+    top includes the terrain altitude under the robot (see
     :func:`robot_top`), so the ship rests on, docks on and is blocked by a
     robot standing on rough or a mountain at ``altitude + height``, as the
     Spectrum's ``Lb099_get_robot_or_decoration_altitude`` reads it.
@@ -250,7 +247,7 @@ def robot_vertical_range(robot: RobotFixture) -> VerticalRange:
 
 
 def robot_top(world: WorldMap, robot: Robot) -> int:
-    """Return the top of ``robot``: the terrain under its body plus its stack height (CR002.25).
+    """Return the top of ``robot``: the terrain under its body plus its stack height.
 
     The Spectrum keeps ``ROBOT_STRUCT_ALTITUDE``, the highest map piece under
     the robot's 2×2 body (``Lb5d6_map_altitude_2x2``, stored by ``Lb495``
@@ -271,8 +268,8 @@ def components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
     """Return every static ``Component`` (war base/factory/blocker) at ``(x, y)``.
 
     Queries `structures.py`'s compositional per-component model directly
-    (rather than assuming one scalar height per structure), per the issue's
-    explicit requirement to use "M2 component/cell-aware static heights".
+    (rather than assuming one scalar height per structure), so static
+    heights are component/cell-aware.
     Structures are walked in a stable order (war bases, then factories, then
     blockers, each in their tuple order) so results are deterministic; at
     most one component can legally occupy a given cell across all
@@ -280,7 +277,7 @@ def components_at(world: WorldMap, x: int, y: int) -> tuple[Component, ...]:
     function does not assume that invariant -- it simply returns whatever
     components are present.
 
-    Public (issue #73, M6.4): `combat.py`'s projectile-vs-geometry collision
+    Public: `combat.py`'s projectile-vs-geometry collision
     check reuses this exact cell lookup rather than re-implementing the
     same war-bases/factories/blockers walk a second time, so the two
     modules' notion of "what static geometry occupies this cell" can never
@@ -372,12 +369,10 @@ def commander_blocks_cell(
 ) -> bool:
     """Return ``True`` iff ``commander`` blocks a 2×2 body anchored at ``(x, y)``.
 
-    This is the stable, forward-compatible query named by the issue's
-    "expose the commander blocking query/contract needed later by robot
-    movement" acceptance criterion (M5 robot movement will call this per
+    This is the stable commander-blocking query robot movement calls per
     commander it needs to check, without duplicating overlap math -- see
-    the module docstring). ``(x, y)`` is the anchor of the other unit's 2×2
-    body (CR002.3/CR002.4, `_specs/open-questions.md` §21): ``commander``
+    the module docstring. ``(x, y)`` is the anchor of the other unit's 2×2
+    body (`_specs/open-questions.md` §21): ``commander``
     blocks it iff the commander's own 2×2 body overlaps that body and its
     vertical range (from ``rules``, default
     :data:`~nether_earth.rules.DEFAULT_RULES`) overlaps ``vertical_range``.
@@ -401,7 +396,7 @@ def _blocking_ranges_at(
 ) -> tuple[VerticalRange, ...]:
     """Return every static-geometry/robot vertical range under the 2×2 body at ``(x, y)``.
 
-    ``(x, y)`` is a commander anchor (CR002.4, `_specs/open-questions.md`
+    ``(x, y)`` is a commander anchor (`_specs/open-questions.md`
     §21). Static geometry -- components and terrain pieces -- is one
     ground-rooted range up to :func:`unit_surface_height`, as the Spectrum's
     ``Lb052_check_player_collision`` takes the highest map piece of its 2×2
@@ -450,8 +445,7 @@ def commander_horizontal_move_allowed(
 
     - static geometry components at the destination cell (`structures.py`,
       queried per-component so a tall component blocks a low commander
-      while a sufficiently high commander clears it -- the acceptance
-      criterion this directly implements);
+      while a sufficiently high commander clears it);
     - ``robots`` (friendly and enemy alike -- both are physical top
       surfaces per `_specs/open-questions.md` §14; this function does not
       distinguish ownership because the collision rule does not);
@@ -462,16 +456,16 @@ def commander_horizontal_move_allowed(
       at most one commander, so this is effectively "the opposing
       commander" in the locked 2-player v1 scope, expressed generally).
 
-    ``(dest_x, dest_y)`` is the anchor of the commander's 2×2 body
-    (CR002.4): every source is tested against the whole body (see
+    ``(dest_x, dest_y)`` is the anchor of the commander's 2×2 body:
+    every source is tested against the whole body (see
     :func:`_blocking_ranges_at`), and a body that would leave the map is
     refused (the Spectrum keeps the ship's rows inside the map the same
     way, ``Laf90``).
 
-    ``world``/``robots`` are keyword-only so a later ``functools.partial``
-    binding (see the module docstring's #38/#42 integration contract)
+    ``world``/``robots`` are keyword-only so a ``functools.partial``
+    binding (see the module docstring's integration contract)
     leaves ``(state, commander, dest_x, dest_y)`` as the exact positional
-    shape #38's ``HorizontalMoveCheck`` expects.
+    shape ``HorizontalMoveCheck`` expects.
     """
     if not unit_footprint_in_bounds(dest_x, dest_y, world.width, world.height):
         return False
@@ -513,7 +507,7 @@ def commander_vertical_move_allowed(
     destination range blocks the move outright, whether ascending or
     descending).
 
-    ``world``/``robots`` are keyword-only for the same #38/#42
+    ``world``/``robots`` are keyword-only for the same
     ``functools.partial`` binding reason as
     :func:`commander_horizontal_move_allowed` -- see the module docstring.
     """

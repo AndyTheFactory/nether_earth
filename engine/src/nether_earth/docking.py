@@ -1,4 +1,4 @@
-"""Commander docking/undocking on friendly robots (issue #40, M3.4).
+"""Commander docking/undocking on friendly robots.
 
 Implements the physical commander/robot interaction described by
 `_specs/functional-spec.md` §8.4 and the resolved decision in
@@ -9,36 +9,34 @@ Implements the physical commander/robot interaction described by
 - while docked, the commander's effective position/altitude is derived from
   the robot it is docked to, and independent movement is disabled;
 - rising away from a docked robot undocks the commander (``DOCKED`` ->
-  ``FREE``) and starts the exit lift (CR002.24, see :func:`apply_undock`);
+  ``FREE``) and starts the exit lift (see :func:`apply_undock`);
 - **enemy** robots remain physical collision surfaces only -- descent stops
-  at the top of an enemy robot's stack (already implemented by
-  :mod:`nether_earth.collision`, issue #39, which treats every
+  at the top of an enemy robot's stack (implemented by
+  :mod:`nether_earth.collision`, which treats every
   :class:`~nether_earth.collision.RobotFixture` as a top surface identically
   regardless of ownership), but no docking, control transfer, or contact
-  damage ever occurs there. This module's job for that half of the issue is
+  damage ever occurs there. This module's job for that half is
   almost entirely to *not* dock on an enemy fixture -- see
-  :func:`attempt_auto_dock` -- and to prove it via tests, not to reimplement
-  any collision/stopping geometry.
+  :func:`attempt_auto_dock` -- not to reimplement any collision/stopping
+  geometry.
 
 Why a dedicated module
 -----------------------
 Docking is a distinct gameplay concern from both the state shape
-(``commander.py``, issue #37) and general collision geometry (``collision.py``,
-issue #39): it is the *rule* that decides when a purely-geometric "resting on
+(``commander.py``) and general collision geometry (``collision.py``): it is
+the *rule* that decides when a purely-geometric "resting on
 a robot" collision outcome additionally causes a mode transition and control
 hand-off. Keeping it separate means ``collision.py`` never needs to know
-about ownership-conditional docking, and ``commander_movement.py`` (issue
-#38) never needs to know about robots at all -- both stay exactly as
-reusable as their own issues intended. This module is the composition point
+about ownership-conditional docking, and ``commander_movement.py`` never
+needs to know about robots at all. This module is the composition point
 that answers "is this specific top-surface contact a dock, or merely a
 landing?" per `_specs/open-questions.md` §14.
 
-No robot subsystem exists yet (M4/M5) -- this module, like ``collision.py``,
-uses :class:`~nether_earth.collision.RobotFixture` as the test-only stand-in
-for "a robot's position/height/owner", per
-`_specs/milestones/03-commander-movement-docking.md`'s explicit allowance to
-use M3 robot-height fixtures until M4 introduces full robot construction/
-state. It is not this module's job to invent a richer robot model.
+This module, like ``collision.py``, uses
+:class:`~nether_earth.collision.RobotFixture` as its view of "a robot's
+position/height/owner" (see
+`_specs/milestones/03-commander-movement-docking.md`); it does not need a
+richer robot model.
 
 Purity/determinism
 --------------------
@@ -49,12 +47,8 @@ wall-clock time or any other non-deterministic source. This matches the
 convention already established by ``commander.py``/``commander_movement.py``/
 ``collision.py``.
 
-Integration scope note (same as #38/#39): this module does NOT wire itself
-into ``engine.step()``, ``commands.py``'s validation, or ``snapshot.py`` --
-that is issue #42's job. Tests in this milestone call the functions below
-directly, following the same "reference implementation, not yet threaded
-into the authoritative tick loop" pattern #38 used for
-``advance_commander_movement_tick``.
+This module does not wire itself into ``engine.step()``; `engine.py` calls
+the functions below.
 """
 
 from __future__ import annotations
@@ -89,7 +83,8 @@ class CommanderDockedEvent(Event):
 
     Emitted by :func:`attempt_auto_dock` exactly when a dock transition
     actually occurs (never on a no-op check), following the same
-    "only emit when something changed" convention as #38's movement events.
+    "only emit when something changed" convention as the commander movement
+    events.
     """
 
     player_id: PlayerId
@@ -105,7 +100,7 @@ class CommanderUndockedEvent(Event):
     """A ``DOCKED`` commander undocked (via rising intent) back to ``FREE``.
 
     ``from_altitude``/``to_altitude`` are the commander's altitude before
-    and after the transition. Since CR002.24 the exit lift runs on the
+    and after the transition. The exit lift runs on the
     following vertical updates (see :func:`apply_undock`), so for a
     rise-intent undock both are the robot-top altitude.
     """
@@ -143,10 +138,10 @@ def attempt_auto_dock(
     condition `_specs/functional-spec.md` §8.4 ("automatic when descending
     onto the top of a friendly robot") and §8.3's height-aware collision
     model describe. ``top`` is the robot's stack height plus the terrain
-    altitude under its body (CR002.25, :attr:`RobotFixture.top`), so a
+    altitude under its body (:attr:`RobotFixture.top`), so a
     robot on rough or a mountain is docked 2, 3 or 6 higher.
 
-    2×2 bodies (CR002.4, `_specs/open-questions.md` §21): ``(x, y)`` is the
+    2×2 bodies (`_specs/open-questions.md` §21): ``(x, y)`` is the
     anchor of both bodies, and docking needs the *same* anchor -- the bodies
     coincide exactly. The Spectrum's game loop docks only when the robot's
     map mark is on the ship's own anchor cell and ``altitude == robot
@@ -157,7 +152,7 @@ def attempt_auto_dock(
 
     Only the *first* matching friendly fixture (in ``robots`` order) is
     docked to -- at most one robot can legally occupy a given cell (enforced
-    upstream by the eventual robot subsystem/occupancy rules), so this is
+    upstream by the occupancy rules), so this is
     only ambiguous for a deliberately malformed test fixture list, in which
     case picking the first match keeps this function total and deterministic
     rather than raising.
@@ -167,8 +162,8 @@ def attempt_auto_dock(
     - ``commander.mode`` is already ``DOCKED`` (docking only applies to a
       ``FREE`` commander -- a docked commander cannot re-dock without first
       undocking);
-    - ``commander.elevate_updates_remaining > 0`` (an exit lift is running,
-      CR002.24; see :func:`apply_undock`);
+    - ``commander.elevate_updates_remaining > 0`` (an exit lift is running;
+      see :func:`apply_undock`);
     - no robot fixture is at ``commander``'s ``(x, y)`` with
       ``top == commander.altitude``;
     - the matching fixture at that position is **enemy**-owned
@@ -177,21 +172,20 @@ def attempt_auto_dock(
       only; the commander may be resting there (that resting/stopping
       geometry is `collision.py`'s job, already exercised before this
       function is ever called), but no docking occurs. This is this
-      function's primary "enemy robot contact" behavior and is covered
-      explicitly by this issue's tests.
+      function's primary "enemy robot contact" behavior.
 
     This function does not itself decide *whether* the commander was
     allowed to descend to ``commander.altitude`` in the first place -- that
     legality (including "stop at any robot's top, friendly or enemy") is
     ``collision.py``'s :func:`~nether_earth.collision.commander_vertical_move_allowed`,
-    which #42's integration is expected to call first. This function only
+    which the caller calls first. This function only
     asks "given where the commander now legally is, does that constitute a
     friendly dock?".
     """
     if commander.mode is not CommanderMode.FREE:
         return commander
     if commander.elevate_updates_remaining > 0:
-        # Exit lift running (CR002.24, see apply_undock): no re-dock yet.
+        # Exit lift running (see apply_undock): no re-dock yet.
         return commander
     for robot in robots:
         if robot.x != commander.x or robot.y != commander.y:
@@ -261,9 +255,8 @@ def follow_docked_robot(
     ``docked_robot_id`` are left unchanged -- this function only repositions,
     it never itself docks or undocks.
 
-    This is a pure per-call reposition, not a physics step: callers (this
-    milestone's tests, and #42's future per-tick integration once a real
-    robot subsystem can move a robot around) are expected to call it once per
+    This is a pure per-call reposition, not a physics step: callers are
+    expected to call it once per
     tick for a docked commander, passing whatever the robot's current
     position/height happens to be that tick. It does not validate that
     ``robot.id == commander.docked_robot_id`` -- callers are responsible for
@@ -290,10 +283,8 @@ def docked_movement_allowed(commander: Commander) -> bool:
     :func:`apply_undock`).
 
     This module does not itself call ``commander_movement.py``'s move/
-    vertical-physics functions -- that file is issue #38's, already merged
-    and stable, and this issue is explicitly scoped to not modify it. #42
-    (the later integration issue that wires all of #38-#41 into
-    ``engine.step()``) is expected to call this guard *before* invoking
+    vertical-physics functions. The integrating caller (``engine.step()``)
+    calls this guard *before* invoking
     :func:`~nether_earth.commander_movement.apply_commander_move` or
     :func:`~nether_earth.commander_movement.apply_vertical_physics` for a
     given commander, short-circuiting them entirely (e.g. rejecting a
@@ -328,7 +319,7 @@ def apply_undock(
        undocks and no new input vocabulary is needed.
     2. Transition: ``mode`` flips ``DOCKED`` -> ``FREE`` and
        ``docked_robot_id`` is cleared in the same authoritative step.
-    3. Lift (CR002.24, `_specs/open-questions.md` §13): the commander gets
+    3. Lift (`_specs/open-questions.md` §13): the commander gets
        ``rules.commander_exit_elevate_updates`` automatic-ascent updates,
        exactly like leaving the construction screen. Spectrum evidence: the
        robot HUD's EXIT option (``#a7fd``--``#a80f``, falling through to

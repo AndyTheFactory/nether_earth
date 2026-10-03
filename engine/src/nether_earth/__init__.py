@@ -7,5 +7,5 @@ __all__ = ["engine_identity"]
 
 
 def engine_identity() -> str:
-    """Return a deterministic smoke-test value for the M0 package boundary."""
+    """Return a deterministic smoke-test value for the package boundary."""
     return "nether-earth-engine"

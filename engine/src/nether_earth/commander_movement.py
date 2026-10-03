@@ -1,7 +1,7 @@
-"""Deterministic commander horizontal/vertical movement (issue #38 / M3.2).
+"""Deterministic commander horizontal/vertical movement.
 
 This module implements authoritative commander movement on top of the
-state shape added by issue #37 (``commander.py``) and the shared rule
+state shape in ``commander.py`` and the shared rule
 configuration in ``rules.py``: cell-to-cell horizontal movement via
 :class:`~nether_earth.commander.GridTransition`, and the locked Spectrum
 vertical cadence (ascend/gravity) via
@@ -13,15 +13,11 @@ immutable :class:`~nether_earth.state.GameState`/
 ``Commander``), never mutating its arguments. This mirrors the convention
 already established by ``state.py``/``commands.py``/``events.py``.
 
-Integration scope note: this issue deliberately does NOT wire these
-commands/events into ``engine.step()`` -- that is issue #42 (M3.6)'s job,
-once #38-#41 have all landed. Tests in this milestone call the functions
-below directly.
+This module does not wire itself into ``engine.step()``; `engine.py` calls
+the functions below.
 
-Collision-check contract (load-bearing for parallel work -- read this if
-you are #39 or #42): issue #39 (M3.3, height-aware collision) is being
-implemented in parallel, in a separate worktree, against a duck-typed
-callable contract rather than a shared interface module:
+Collision-check contract: this module does not import `collision.py`; it
+accepts duck-typed callables rather than a shared interface module:
 
     HorizontalMoveCheck = Callable[[GameState, Commander, int, int], bool]
     # (state, mover, dest_x, dest_y) -> allowed
@@ -35,10 +31,9 @@ own responsibility, not the callable's), ``False`` if blocked. Every
 function that needs a collision decision accepts an optional callable of
 the matching shape, defaulting to an always-``True`` permissive stub when
 not supplied -- see :func:`_permissive_horizontal_check`/
-:func:`_permissive_vertical_check`. This lets #38 (this module) and #39
-land independently; #42 later threads #39's real collision-query functions
-in as the concrete callables, which are compatible by construction since
-both sides were built against this same documented contract.
+:func:`_permissive_vertical_check`. `engine.py` binds `collision.py`'s
+real collision-query functions in as the concrete callables, which are
+compatible by construction since both sides follow this documented contract.
 
 Vertical intent model: the original ZX Spectrum game has no "hover" --
 releasing the rise control always means descend/fall. This is modeled as a
@@ -273,7 +268,7 @@ def validate_commander_move(
     - the issuing player has a commander at all;
     - the commander is ``FREE`` (a ``DOCKED`` commander has independent
       movement disabled per `_specs/functional-spec.md` §8.4 -- docking
-      itself is #40's scope, but this module respects the already-locked
+      itself is `docking.py`'s concern, but this module respects the
       rule once a commander happens to be docked);
     - the commander is not already mid-transition (one horizontal move at
       a time -- a second move command while one is in flight is rejected
@@ -473,7 +468,7 @@ def is_vertical_update_tick(tick: int, rules: EngineRules = DEFAULT_RULES) -> bo
     is never itself an update tick, since no time has elapsed yet). With
     the default ``commander_vertical_update_ticks=4`` this is exactly
     ticks 4, 8, 12, ... -- i.e. "vertical state updates exactly every 4
-    ticks", per the M3.2 acceptance criteria.
+    ticks".
     """
     return tick > 0 and tick % rules.commander_vertical_update_ticks == 0
 
@@ -497,7 +492,7 @@ def apply_vertical_physics(
 
     Callers are expected to only call this on cadence ticks (see
     :func:`is_vertical_update_tick`); this function does not itself gate on
-    cadence so tests/#42's step loop can call it unconditionally against a
+    cadence so tests/``engine.step`` can call it unconditionally against a
     tick they have already confirmed is due, or reuse it for the
     automatic-elevation hook (see :func:`apply_automatic_elevation`, which
     deliberately does *not* gate on cadence).
@@ -517,7 +512,7 @@ def apply_vertical_physics(
     enemy-robot stack) are expected to be expressed via ``vertical_check``,
     not embedded here.
 
-    Automatic ascent (CR002.12/CR002.13): while
+    Automatic ascent: while
     ``commander.elevate_updates_remaining`` is positive the update ascends
     regardless of ``rising`` and consumes one unit of the counter, even when
     the ascent itself is clamped or blocked (Spectrum
@@ -565,11 +560,11 @@ def _gravity_landing_altitude(
 ) -> int:
     """Return how far gravity lowers ``commander`` toward ``candidate``.
 
-    A descent step larger than 1 (CR003.1, ``commander_descent_step = 2``)
+    A descent step larger than 1 (``commander_descent_step = 2``)
     must not skip past a surface at an odd altitude, nor stop a whole step
     above it: the commander falls one altitude unit at a time and stops on
     the first surface it meets (the last legal altitude before a blocked
-    one). With a step of 1 this is the old single-check behavior.
+    one).
     """
     landed = commander.altitude
     for altitude in range(commander.altitude - 1, candidate - 1, -1):
@@ -590,17 +585,14 @@ def apply_automatic_elevation(
     """Apply one automatic ascent step, using the same +step semantics as
     normal rise-intent ascent (``rules.commander_ascent_step``).
 
-    This is a standalone hook for later flows (#40 undocking, #41 war-base
-    heli-pad exit) that need to auto-elevate a commander away from a robot
+    This is a standalone hook for flows (undocking, war-base heli-pad exit)
+    that need to auto-elevate a commander away from a robot
     or war base, without duplicating the ascent arithmetic already in
     :func:`apply_vertical_physics`. Unlike that function, this hook does
     NOT gate on :func:`is_vertical_update_tick` -- automatic elevation is
     triggered by a discrete event (exiting a robot/base), not the periodic
     rise/gravity cadence -- and it does not read or require
-    ``commander.rising``. This issue (#38) does not call this function from
-    anywhere itself (no docking/undocking exists yet); it exists solely so
-    those later integrations have a correct, tested ascent primitive to
-    call.
+    ``commander.rising``.
     """
     candidate = min(commander.altitude + rules.commander_ascent_step, rules.commander_max_altitude)
     if candidate == commander.altitude:
@@ -626,7 +618,7 @@ def apply_automatic_elevation(
 
 
 # --------------------------------------------------------------------------
-# Whole-tick orchestration (template for #42's engine.step() wiring)
+# Whole-tick orchestration (reference for engine.step()'s ordering)
 # --------------------------------------------------------------------------
 
 
@@ -640,11 +632,10 @@ def advance_commander_movement_tick(
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Apply one authoritative tick's worth of commander movement.
 
-    This is NOT called by ``engine.step()`` (that wiring is #42's scope);
-    it exists as a pure, directly testable reference implementation of the
-    ordering #42 is expected to reuse, and as the anchor for this issue's
-    "same initial state + command stream -> identical state/events"
-    determinism acceptance criterion.
+    This is NOT called by ``engine.step()``; it is a pure, directly
+    testable reference implementation of the ordering ``engine.step()``
+    uses, and the anchor for the "same initial state + command stream ->
+    identical state/events" determinism tests.
 
     Deterministic processing order, all fixed regardless of ``commands``'
     input order:
@@ -661,8 +652,8 @@ def advance_commander_movement_tick(
        :func:`is_vertical_update_tick`), vertical physics is applied to
        every commander, again in canonical order.
 
-    Horizontal and vertical updates can both occur within the same tick
-    (per the M3.2 acceptance criteria), since steps 2 and 3 are
+    Horizontal and vertical updates can both occur within the same tick,
+    since steps 2 and 3 are
     independent passes over the (possibly already horizontally-updated)
     commander set.
 

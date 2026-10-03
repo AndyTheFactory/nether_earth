@@ -1,12 +1,12 @@
-"""Canonical robot component stack and height derivation (issue #53, M4.2).
+"""Canonical robot component stack and height derivation.
 
 `_specs/technical-spec.md` §12.1 and `_specs/milestones/04-robots-construction-
-economy.md` (M4.2) require "one engine function [that] derives physical/
+economy.md` require "one engine function [that] derives physical/
 render order and total height" from a valid robot build, with rendering,
 collision, docking, construction preview, and projectile interaction all
 consuming the *same* stack metadata rather than each re-deriving it. This
-module is that one canonical source of truth. Task 1 (M4.1, issue #52,
-`robot_build.py`) already owns *build validity* (which module identities may
+module is that one canonical source of truth. `robot_build.py` owns
+*build validity* (which module identities may
 coexist and in what normalized weapon order); this module owns turning an
 already-valid :class:`~nether_earth.robot_build.RobotBuild` into (a) its
 physical bottom-to-top component stack and (b) its total physical height.
@@ -24,8 +24,8 @@ Locked stack order (`_specs/technical-spec.md` §12.1, bottom to top)::
     electronics
 
 ("commander (when docked)" is also listed in §12.1 as a conceptually higher
-layer, but docking is M3's existing, already-implemented concern
-(`collision.py`, `docking.py`) and is out of scope here -- this module
+layer, but docking is `collision.py`/`docking.py`'s concern and is out of
+scope here -- this module
 derives only the *robot's own* component stack from a ``RobotBuild``.)
 Missing intermediate weapons are omitted while the remaining weapons keep
 their relative order; :class:`~nether_earth.robot_build.RobotBuild` already
@@ -44,7 +44,7 @@ Height source: same metadata as the stack, no duplicate table
 Total height is the sum of each present component's height, sourced from
 the eight ``module_height_*`` fields of
 :class:`~nether_earth.rules.EngineRules` (the Spectrum's
-``Ld7b4_piece_heights`` values since CR003.3 -- see ``rules.py``'s module
+``Ld7b4_piece_heights`` values -- see ``rules.py``'s module
 docstring). :func:`derive_stack` and
 :func:`derive_height` both walk the same :func:`_module_heights` mapping
 built from one ``rules`` argument, so stack order and height are always
@@ -62,21 +62,17 @@ spec.md` §7.3), used by `collision.py`'s ground-rooted
 against the *map*. The per-module heights here describe one *mobile robot
 build's own* component stack (chassis/weapons/electronics) -- an entirely
 different structural layer that has no ``Component``/map-cell identity at
-all. `collision.py`'s ``RobotFixture.height`` (a placeholder scalar "one
-robot, one height" stand-in, explicitly documented there as *not* the real
-robot model) is the closest existing relative: once M5/M6 wire a real robot
-entity through, ``derive_height`` from this module is expected to be the
-authoritative source that placeholder's scalar height is replaced with --
-but that wiring is out of scope for this task (see `robot_stack.py`'s scope
-note below and the milestone's task list).
+all. `collision.py`'s ``RobotFixture.height`` (a scalar "one robot, one
+height" collision projection, *not* the real robot model) is the closest
+existing relative; it is filled from a robot's height derived here.
 
-Explicitly out of scope for this task (left to later M4/M5/M6 tasks)
-----------------------------------------------------------------------
+Explicitly out of scope
+-----------------------
 Rendering, commander docking behavior/height changes, weapon firing/damage,
 resource spending, construction session state, and robot launch/placement.
 This module only derives stack order and total height from an already-valid
-``RobotBuild``; later systems (construction preview, launch, collision,
-combat) are expected to call into this module rather than re-deriving or
+``RobotBuild``; other systems (construction preview, launch, collision,
+combat) call into this module rather than re-deriving or
 duplicating this logic themselves.
 """
 
@@ -91,7 +87,7 @@ __all__ = ["derive_height", "derive_stack", "derive_stack_and_height"]
 def _module_heights(rules: EngineRules) -> dict[ModuleIdentity, int]:
     """Return the per-module physical height mapping backing ``rules``.
 
-    The one place this task reads ``rules.module_height_*`` into a
+    The one place this module reads ``rules.module_height_*`` into a
     :class:`~nether_earth.robot_build.ModuleIdentity`-keyed mapping, so
     :func:`derive_stack`'s ordering and :func:`derive_height`'s summation
     both draw from this same mapping for a given ``rules`` value -- see the

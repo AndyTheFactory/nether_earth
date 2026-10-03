@@ -4,18 +4,18 @@ Per `_specs/technical-spec.md` §7.3 and `_specs/functional-spec.md` §7.2,
 terrain is a property of a grid cell, not a solid occupant. This module
 represents terrain purely as data: a per-cell :class:`TerrainType` lookup.
 
-Movement legality/penalties (bipod/tracks/anti-grav capability rules) are a
-later milestone's concern (M5, per `_specs/technical-spec.md` §7.3's "exact
+Movement legality/penalties (bipod/tracks/anti-grav capability rules) are
+`movement.py`'s concern (per `_specs/technical-spec.md` §7.3's "exact
 speed/tick values must be derived from verified ZX Spectrum behavior"). This
 module intentionally stops at "what terrain is this cell", not "can this
 robot enter it".
 
-Piece heights (CR002.21, issue #203)
------------------------------------
+Piece heights
+-------------
 Each terrain cell may also carry the height of its map piece, as
 ``Ld7bc_map_piece_heights`` gives it (rough 2 or 3, mountain 6, ditch and
 normal 0); :meth:`TerrainGrid.height_at` reads it and ``debris_height`` is the
-height of the rough piece a nuclear blast leaves (CR002.18). The height is map
+height of the rough piece a nuclear blast leaves. The height is map
 data, decoded with its provenance (``data/maps/decode_zx_terrain.py``), not a
 function of the terrain class: rough pieces come in two heights. A cell with
 no ``height`` is 0 high, so hand-written test maps keep flat terrain.

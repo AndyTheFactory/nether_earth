@@ -1,7 +1,7 @@
-"""Factory and war-base capture subsystem (issue #66, M5.7).
+"""Factory and war-base capture subsystem.
 
-Per `_specs/milestones/05-orders-navigation-capture.md` ("Task 6: Factory
-and war-base capture subsystem") and `_specs/open-questions.md` §§6-7
+Per `_specs/milestones/05-orders-navigation-capture.md` and
+`_specs/open-questions.md` §§6-7
 (RESOLVED), this module implements:
 
 - **capture of every capturable structure**: continuous qualifying
@@ -19,7 +19,7 @@ and war-base capture subsystem") and `_specs/open-questions.md` §§6-7
   boundary, plus a deterministic capture event.
 
 This module follows `docking.py`/`heli_pad.py`'s established "continuous
-occupation of a canonical M2 interaction point drives a stateful process"
+occupation of a canonical interaction point drives a stateful process"
 architectural shape, not a new one: qualifying occupation is checked purely
 from already-authoritative positions (``Robot.x``/``Robot.y``, ``WorldMap``
 interaction-point footprints), the same way `heli_pad.py` checks a
@@ -31,7 +31,7 @@ third state-attachment style.
 
 Why capture uses canonical interaction points, never inferred footprints
 ------------------------------------------------------------------------
-`interactions.py` (M2) already exposes ``FACTORY_CAPTURE`` (required, one
+`interactions.py` exposes ``FACTORY_CAPTURE`` (required, one
 per factory) and ``WARBASE_CAPTURE`` (optional, zero-or-more per war base)
 interaction points precisely so later systems consume this one shared
 representation instead of re-deriving "near the structure" from its
@@ -51,7 +51,7 @@ externally-held, never-mutated-in-place value that engine callers pass into
 every ``engine.step`` call by reference (see `engine.py`'s own module
 docstring); ``engine.step`` does not return an updated ``WorldMap``, so a
 structure's *current* owner after any capture completes cannot live on
-``WorldMap`` alone without changing that established API shape mid-milestone.
+``WorldMap`` alone without changing that established API shape.
 Runtime ownership changes are therefore recorded as
 :class:`StructureOwnership` overrides on ``GameState`` -- a tuple in
 canonical (sorted by ``structure_id.value``) order, mirroring every other
@@ -98,8 +98,8 @@ robot is detected creates a progress record with ``elapsed_ticks == 1``,
 and each subsequent still-qualifying tick increments it by one. Completion
 triggers when ``elapsed_ticks >= rules.capture_duration_ticks`` -- so with
 the default ``1440``, ownership changes exactly on the 1440th continuously-
-qualifying tick, not the 1441st, satisfying the "exactly at the configured
-duration boundary, not off-by-one" acceptance criterion.
+qualifying tick, not the 1441st ("exactly at the configured duration
+boundary, not off-by-one").
 """
 
 from __future__ import annotations
@@ -171,8 +171,7 @@ class CaptureProgress:
     the record in the same tick ownership transfers. ``required_ticks`` is
     captured on the record (rather than re-read from ``EngineRules`` on
     every tick) so a snapshot/replay of an in-progress capture is
-    self-describing without also carrying the full rule set (Task 8, M5.8,
-    owns actually wiring this into `snapshot.py`).
+    self-describing without also carrying the full rule set.
     """
 
     structure_id: EntityId
@@ -234,7 +233,7 @@ def effective_owner(
     return structure.owner
 
 
-#: Memo for :func:`effective_world` (M10.6 performance). ``engine.step``
+#: Memo for :func:`effective_world` (performance). ``engine.step``
 #: resolves the effective world several times per tick, almost always with
 #: the same base world and unchanged ownership, and rebuilding the overlaid
 #: ``WorldMap`` dominated tick cost. The function is pure, so returning the
@@ -366,7 +365,7 @@ def _qualifying_robot(
     """Return the deterministic qualifying robot occupying ``footprint``, or ``None``.
 
     A robot qualifies when its authoritative ``(x, y)`` -- the anchor of
-    its 2×2 body (CR002.3) -- is a member of ``footprint``. The Spectrum
+    its 2×2 body -- is a member of ``footprint``. The Spectrum
     counts a building's capture timer only while a robot's map mark (its
     anchor) is on the building's own cell (``Ladb7_building_loop``: ``bit
     6`` on the building's map pointer), and the capture points are those
@@ -430,9 +429,8 @@ def advance_capture(
     whose continuous-occupation capture completed this tick, in canonical
     (structure-id) order.
     Interruptions and in-progress accrual never emit
-    an event -- only the ownership-changing completion does, per this
-    issue's "emit a deterministic ownership/capture event [on completion]"
-    acceptance criterion; a consumer that wants interruption/progress
+    an event -- only the ownership-changing completion does; a consumer
+    that wants interruption/progress
     detail can already read it directly from
     ``state.capture_progress``/``new_state.capture_progress``.
 

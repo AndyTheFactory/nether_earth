@@ -1,9 +1,8 @@
 """Base engine event contract and deterministic event ordering.
 
-This module defines the *shape* that all future gameplay events (production,
-capture, combat, docking, victory, ...) will extend. No concrete gameplay
-event exists yet; those are introduced by later milestones on top of the
-:class:`Event` base.
+This module defines the *shape* that all gameplay events (production,
+capture, combat, docking, victory, ...) extend; the concrete events live in
+their own modules on top of the :class:`Event` base.
 
 Ordering convention: events produced within a single tick must have a
 deterministic order independent of the order Python happened to collect them
@@ -22,7 +21,7 @@ from dataclasses import dataclass
 class Event:
     """Base contract for all engine-level events.
 
-    Concrete gameplay events (not defined in this milestone) subclass
+    Concrete gameplay events (defined in their own modules) subclass
     ``Event`` and add their own fields. Every event must carry ``sequence``:
     a non-negative integer assigned by the emitting code, in emission order,
     via :class:`EventSequencer` (or an equivalent explicit counter) - never

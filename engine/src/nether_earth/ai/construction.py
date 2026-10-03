@@ -1,4 +1,4 @@
-"""AI construction sub-planner (CR004.4, #285): what the AI builds, where and when.
+"""AI construction sub-planner: what the AI builds, where and when.
 
 The AI builds through the ordinary construction commands, never by creating a
 robot directly. With no commander it cannot land on a heli-pad, so it opens a

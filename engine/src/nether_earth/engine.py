@@ -1,35 +1,25 @@
 """Canonical engine integration API: ``new_game`` and ``step``.
 
-This module is the integration point for issue #7, combining the four
-prerequisite building blocks (``state.py``/``ids.py``, ``clock.py``,
-``commands.py``/``events.py``, ``scenario.py``/``rng.py``) into the
-conceptual contract from `_specs/technical-spec.md` §4.1:
+This module combines the building blocks (``state.py``/``ids.py``,
+``clock.py``, ``commands.py``/``events.py``, ``scenario.py``/``rng.py``) into
+the conceptual contract from `_specs/technical-spec.md` §4.1:
 
 ```python
 state = engine.new_game(map_data, scenario, players, seed)
 state, events = engine.step(state, commands)
 ```
 
-Scope (locked by the M1 milestone): this module owns deterministic tick
-advancement, deterministic command validation/ordering, and deterministic
-structural event emission. It intentionally does **not** implement any
-concrete gameplay system (movement, combat, economy, construction, ...) —
-none exist yet. Applying an accepted command in M1 is therefore a
-pass-through: nothing on ``GameState`` exists for a command to mutate, so
-"applying" a batch of commands has no observable effect beyond the single
-authoritative tick advance every ``step`` call performs. The *contract*
-(validate -> order -> apply -> advance tick -> emit ordered events) is real
-and tested, not a stub, so later milestones can layer concrete gameplay
-commands on top without changing this shape.
+This module owns deterministic tick advancement, deterministic command
+validation/ordering, and deterministic event emission; the concrete gameplay
+systems live in their own modules and are wired in by :func:`step`. Every
+``step`` follows one contract: validate -> order -> apply -> advance tick ->
+emit ordered events.
 
 RNG ownership: ``GameState.seed`` (see ``state.py``) is the immutable seed a
-match was created with. ``new_game`` records it; ``step`` does not draw any
-random numbers in this milestone because no gameplay system consumes
-randomness yet (`_specs/technical-spec.md` §5.3 requires a match-local seeded
-RNG "if randomness is required" — none is required in M1). A future
-milestone that needs randomness inside ``step`` should construct
-``rng.MatchRandom(state.seed)`` fresh from the state it is given, not thread
-a long-lived mutable RNG object through ``GameState``.
+match was created with. ``new_game`` records it; code that needs randomness
+inside ``step`` constructs a match-local ``rng.MatchRandom`` fresh from the
+state it is given (`_specs/technical-spec.md` §5.3), never threading a
+long-lived mutable RNG object through ``GameState``.
 
 Wall-clock convention: nothing in this module reads wall-clock time (no
 ``time.time()``, no ``datetime.now()``); every notion of progress is the
@@ -155,9 +145,8 @@ __all__ = [
 class CommandAccepted(Event):
     """Structural event: ``command`` was accepted and applied during a ``step``.
 
-    M1 has no concrete gameplay command types, so this event only records
-    which command was accepted and by whom; later milestones' gameplay
-    events layer on top of (or alongside) this minimal contract.
+    This event only records which command was accepted and by whom;
+    gameplay events are emitted alongside it.
     """
 
     command: Command
@@ -188,15 +177,13 @@ def new_game(
     integer ``seed`` recorded on the resulting state (see the module
     docstring for how/when it is consumed).
 
-    ``commanders`` (added by issue #43, M3.7, additive/backward-compatible
-    following the exact same optional-parameter pattern as ``seed``/
-    ``players``): already-constructed :class:`~nether_earth.commander.Commander`
-    objects to seed onto the resulting tick-0 state, forwarded unchanged to
+    ``commanders``: already-constructed
+    :class:`~nether_earth.commander.Commander` objects to seed onto the
+    resulting tick-0 state, forwarded unchanged to
     :func:`nether_earth.state.create_game_state`'s own ``commanders``
     parameter (which validates ownership/uniqueness -- see ``state.py``).
-    Defaults to ``()``, reproducing every prior call site's behavior exactly.
-    An AI seat of ``scenario`` (CR004.3) gets a fresh ``AiMemory`` and must not
-    be given a commander.
+    Defaults to ``()``. An AI seat of ``scenario`` gets a fresh ``AiMemory``
+    and must not be given a commander.
     This is intentionally *not* commander-spawning logic (it does not derive
     a starting position from ``map_data.spawn_positions`` or similar) -- that
     remains out of scope; callers wanting spawn-derived commanders must
@@ -205,8 +192,8 @@ def new_game(
     ``map_data`` and ``scenario`` must describe the same map: this is
     validated structurally (``map_id``/``version`` must match
     ``scenario.map_id``/``scenario.map_version``) since a mismatch would make
-    "same scenario => same initial state" ambiguous. No map/world geometry is
-    otherwise consumed in this milestone (M2+ scope).
+    "same scenario => same initial state" ambiguous. No other map/world
+    geometry is consumed here.
 
     This delegates player-set derivation to
     :func:`nether_earth.scenario.initialize_players` rather than
@@ -242,17 +229,16 @@ def _robot_fixtures(
     """Return ``fixtures`` plus one :class:`RobotFixture` per live robot in ``state``.
 
     A fixture is the robot's ``(id, owner, x, y, height)`` projection plus
-    its terrain ``altitude`` (CR002.25, ``ROBOT_STRUCT_ALTITUDE``): the
+    its terrain ``altitude`` (``ROBOT_STRUCT_ALTITUDE``): the
     static surface under its 2×2 body in the physical world
     (`destruction.scenery_world`, the world robot moves and commander
     collision are checked against), so its top is ``altitude + height``
     (``collision.robot_top``). Both are taken from the authoritative cell (a
     robot mid-move still stands on its origin cell until the move completes
     -- `movement.py`); the Spectrum's ``Lb495`` likewise updates the
-    altitude together with the robot's cell. ``world`` is ``None`` only for
-    the world-less M3 test path, where every robot stands at altitude 0.
-    Caller-supplied fixtures come first so the M3 tests' explicit surfaces
-    keep their precedence.
+    altitude together with the robot's cell. When ``world`` is ``None``,
+    every robot stands at altitude 0. Caller-supplied fixtures come first so
+    their explicit surfaces keep precedence.
     """
     physical_world = scenery_world(world, state) if world is not None else None
     return fixtures + tuple(
@@ -293,7 +279,7 @@ def _always_allow_vertical(state: GameState, mover: Commander, dest_altitude: in
 
 
 def _clear_hunt_route(state: GameState, robot_id: EntityId | None) -> GameState:
-    """Return ``state`` with ``robot_id``'s cached hunt route cleared (CR004.13)."""
+    """Return ``state`` with ``robot_id``'s cached hunt route cleared."""
     robot = state.robot_for(robot_id) if robot_id is not None else None
     if robot is None or robot.hunt_route is None:
         return state
@@ -312,7 +298,7 @@ def _replace_commander(state: GameState, updated: Commander) -> GameState:
     ``_replace_commander`` helper -- that module does not export it (it is
     an internal implementation detail of its own whole-state helpers), so
     this integration module defines its own rather than reaching into
-    another module's private name (see issue #42's "Do NOT do" list).
+    another module's private name.
     """
     return state.with_commanders(
         tuple(
@@ -331,17 +317,14 @@ def step(
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Advance ``state`` by exactly one authoritative tick.
 
-    Contract (see module docstring, extended by issue #42/M3.6 to wire in
-    the commander subsystem built by #37-#41):
+    Contract (see module docstring):
 
     1. Validate the incoming ``commands`` batch deterministically via
        :func:`nether_earth.commands.validate_command_batch` (this also
        applies canonical ``(player, sequence)`` ordering and rejects
        colliding commands). Exactly one :class:`CommandAccepted`/
        :class:`CommandRejected` event is emitted per input command, in that
-       canonical order -- this generic contract is unchanged by #42 and
-       fires for commander commands exactly like any other structurally
-       valid command (see the module's commander-integration notes below).
+       canonical order, for every command type alike.
     2. Layered on top of that generic pass-through, every *structurally
        accepted* :class:`~nether_earth.commander_movement.CommanderMoveCommand`/
        :class:`~nether_earth.commander_movement.CommanderSetVerticalIntentCommand`
@@ -358,9 +341,8 @@ def step(
        so the final :func:`~nether_earth.events.order_events` pass reflects
        one globally consistent per-tick ordering.
 
-    ``world``/``robots`` are optional and default to values that reproduce
-    the exact M1/M2 behavior for every existing call site that does not use
-    commanders: when ``world is None``, no collision check is applied to any
+    ``world``/``robots`` are optional: when ``world is None``, no collision
+    check is applied to any
     commander in ``state.commanders`` (movement functions fall back to their
     own permissive "always allow" defaults; heli-pad detection, which
     requires a real ``WorldMap``, is skipped entirely for the tick). When
@@ -369,10 +351,7 @@ def step(
     ``commander_movement.py``'s functions expect (see ``collision.py``'s
     module docstring for this exact binding contract).
 
-    Extended by issue #57 (M4.7) to wire in the construction/economy
-    subsystem built by #52-#56 (robot build identity, stack/height
-    derivation, construction economy, resource pools, construction
-    sessions, robot launch):
+    Construction and economy:
 
     5. Step 7 (heli-pad landing detection) additionally, in direct and
        immediate response to a detected
@@ -398,19 +377,17 @@ def step(
        resolution/occupancy cannot be computed without one); when
        ``world is None`` it is a gameplay no-op, matching Step 7's own
        world-gating.
-    Extended by issue #60 (M5.1) with Step 2b: any robot move transition
-    started through the shared movement executor (`movement.py`) and due to
-    complete by ``tick`` is resolved via
+
+    Step 2b: any robot move transition started through the shared movement
+    executor (`movement.py`) and due to complete by ``tick`` is resolved via
     :func:`~nether_earth.movement.advance_all_robot_transitions`, in
-    ``state.robots``' canonical order. This is a no-op for any state with
-    no in-flight robot move, so every existing call site is unaffected;
-    starting robot moves is issued by later M5 tasks' own command types
-    (direct control, autonomous orders), which route through
+    ``state.robots``' canonical order. Starting robot moves is done by the
+    direct-control and autonomous-order commands, which route through
     :func:`~nether_earth.movement.apply_robot_move` -- this step is only
     the completion half, so a started move always resolves on the tick its
     centrally configured duration elapses.
 
-    Extended by issue #62 (M5.3) with Step 2c: ``robot_moves`` -- this
+    Step 2c: ``robot_moves`` -- this
     tick's :class:`~nether_earth.movement.RobotMoveRequest`\\ s -- are
     started as one deconflicted *batch* via
     :func:`~nether_earth.reservations.apply_robot_move_batch`, never one at
@@ -425,12 +402,10 @@ def step(
     matching this module's existing "a gameplay-level rejection produces no
     additional event" convention. Like Step 8's launch handling this needs
     a real ``world`` and is skipped when ``world is None``. ``robot_moves``
-    is a parameter (additive, defaulting to ``()``) for any caller that
-    already has its own :class:`~nether_earth.movement.RobotMoveRequest`\\ s
-    to submit directly.
+    (default ``()``) is for any caller that already has its own
+    :class:`~nether_earth.movement.RobotMoveRequest`\\ s to submit directly.
 
-    Extended by issue #63 (M5.4) with direct-control robot movement:
-    structurally accepted
+    Direct-control robot movement: structurally accepted
     :class:`~nether_earth.direct_control.DirectRobotMoveCommand`\\ s are,
     immediately before Step 2c's batch call, resolved via
     :func:`~nether_earth.direct_control.direct_robot_move_request` against
@@ -460,8 +435,7 @@ def step(
        launch handling, this requires a real ``world`` (factory/war-base
        ownership) and is skipped when ``world is None``.
 
-    Extended by issue #66 (M5.7) with Step 2d and the war-base-capture
-    victory hook:
+    Capture and the war-base-capture victory hook:
 
     8. A new Step 2d, immediately after Step 2c starts this tick's robot
        moves (capture reads robots' *post*-move authoritative positions,
@@ -489,8 +463,7 @@ def step(
        finalization/session lifecycle is the match/session layer's job).
     10. Steps 7-9 above (heli-pad/construction entry, launch, daily
         production) are evaluated against
-        :func:`~nether_earth.destruction.effective_world` (M6.10; this was
-        :func:`~nether_earth.capture.effective_world` through M5) -- ``world``
+        :func:`~nether_earth.destruction.effective_world` -- ``world``
         with every runtime capture ownership override (including any that
         completed earlier in this same tick's Step 2c) layered on top, and
         every destroyed structure filtered out -- rather than the raw
@@ -499,7 +472,7 @@ def step(
         the same tick it changes hands, matching "ownership transfers
         immediately on completion".
 
-    Extended by issue #64 (M5.5) with Step 2b2, the autonomous-order pass:
+    Step 2b2, the autonomous-order pass:
 
     11. Structurally accepted
         :class:`~nether_earth.orders.SetRobotOrderCommand`\\ s are applied
@@ -525,8 +498,7 @@ def step(
         what §11 forbids. Autonomous and direct-control moves therefore
         contend as equals in one batch.
     13. Order evaluation reads
-        :func:`~nether_earth.destruction.effective_world` (M6.10; this was
-        :func:`~nether_earth.capture.effective_world` through M5) --
+        :func:`~nether_earth.destruction.effective_world` --
         ownership as it stands at the start of the tick, including every
         previously completed capture, with every already-destroyed structure
         filtered out -- so a Search & Capture/Search & Destroy order
@@ -536,10 +508,8 @@ def step(
         evaluation, which is the same one-tick visibility every other
         pre-capture step in this function has.
 
-    Extended by M6.10 with Step 2c2, the combat pass -- the single point at
-    which every Milestone 6 combat function (built as pure, directly
-    testable functions by M6.2/6.4/6.6/6.7/6.8/6.9, deliberately leaving
-    this module untouched) is wired in:
+    Step 2c2, the combat pass -- the single point at which the pure combat
+    functions are wired in:
 
     14. Step 2c2 sits immediately after Step 2c (this tick's robot moves
         start) and before Step 2d (capture), and runs three sub-phases in a
@@ -553,8 +523,8 @@ def step(
            lethal hit to `destruction.py`). Advancement precedes firing so
            a projectile fired this tick is not advanced a second time on
            the tick it was created: its first move is made by
-           :func:`~nether_earth.combat.apply_fire` itself on the fire tick
-           (CR002.2 #169), including damage for a hit on that move.
+           :func:`~nether_earth.combat.apply_fire` itself on the fire tick,
+           including damage for a hit on that move.
         b. Every structurally accepted
            :class:`~nether_earth.combat.FireCommand` is applied, in
            canonical command order. A normal weapon routes through
@@ -581,7 +551,7 @@ def step(
         reads authoritative positions in Step 2d -- a move *starting* this
         tick does not change a robot's position, so this ordering has no
         observable effect beyond being fixed and documented.
-    15. Every one of this module's own world resolutions now reads
+    15. Every one of this module's own world resolutions reads
         `destruction.py`'s composed
         :func:`~nether_earth.destruction.effective_world` (capture ownership
         overrides *and* destruction) rather than `capture.py`'s
@@ -592,9 +562,8 @@ def step(
         handed *into* :func:`~nether_earth.capture.advance_capture`, which
         therefore stays destruction-unaware itself.
     16. **At most one** :class:`~nether_earth.victory.VictoryEvent` is
-        appended per ``step`` call, per issue #79's locked criteria
-        ("repeated/redundant evaluation does not emit duplicate
-        match-result events"). Three sites can each independently find the
+        appended per ``step`` call (repeated/redundant evaluation must not
+        emit duplicate match-result events). Three sites can each independently find the
         same condition in one tick -- Step 2c2's per-``FireCommand``
         nuclear branch (once per nuclear command in the batch), Step 2c2's
         autonomous-engagement branch, and Step 2d's capture-triggered check
@@ -602,7 +571,7 @@ def step(
         this function, guards all three appends rather than each site
         reasoning about the others.
 
-    Extended by CR004.3 (#284) with Step 0, the AI seats:
+    Step 0, the AI seats:
 
     17. Before anything else -- in particular before the batch is validated
         and ordered -- every AI seat's planner runs on AI decision ticks
@@ -615,8 +584,6 @@ def step(
         tick. A state with an AI seat must be stepped with a real ``world``
         (``ValueError`` otherwise); a state with no AI seat skips this step
         entirely, so all-human matches are unaffected.
-
-    Extended by CR004.4 (#285):
 
     18. Step 8 also applies
         :class:`~nether_earth.construction_commands.EnterConstructionRemotelyCommand`,
@@ -664,10 +631,9 @@ def step(
     starting_tick = state.tick
     tick = state.tick + 1
 
-    # At most ONE VictoryEvent may be appended per `step` call, per issue
-    # #79's locked acceptance criteria ("repeated/redundant evaluation does
-    # not emit duplicate match-result events"; "match result is emitted once
-    # and cannot oscillate/reopen"). Three independent sites below can each
+    # At most ONE VictoryEvent may be appended per `step` call: a match
+    # result is emitted once and cannot oscillate/reopen. Three independent
+    # sites below can each
     # find the same victory condition in one tick -- the per-`FireCommand`
     # nuclear branch (once per nuclear command in the batch), the autonomous
     # engagement branch, and Step 2d's capture-triggered check -- so the
@@ -684,15 +650,14 @@ def step(
     # collision functions with world=None would crash.
     horizontal_check: HorizontalMoveCheck
     vertical_check: VerticalMoveCheck
-    # Real robots (M4+) are physical surfaces for the commander exactly like
-    # the M3 ``robots`` fixtures: fold ``state.robots`` in here for collision
-    # and again below (post-move positions) for auto-dock/follow. Found by
-    # the M9.1 audit: without this a live commander flew through robots and
-    # could never dock on one, so direct control was unreachable in a match.
+    # Real robots are physical surfaces for the commander exactly like the
+    # ``robots`` fixtures: fold ``state.robots`` in here for collision and
+    # again below (post-move positions) for auto-dock/follow; without this a
+    # commander would fly through robots and could never dock on one.
     fixture_robots = robots
     robots = _robot_fixtures(state, fixture_robots, world)
     if world is not None:
-        # Nuclear debris (CR002.18) is no longer a solid blocker.
+        # Nuclear debris is not a solid blocker.
         commander_world = scenery_world(world, state)
         horizontal_check = functools.partial(
             commander_horizontal_move_allowed, world=commander_world, robots=robots
@@ -705,7 +670,7 @@ def step(
         vertical_check = _always_allow_vertical
 
     # --- Step 2: resolve horizontal transitions due to complete ------------
-    # CR003.10 (#232, open-questions §23): runs *before* Step 1 so a
+    # Runs *before* Step 1 (open-questions §23) so a
     # commander move completing on this tick is cleared before this tick's
     # commander_move is applied; a held key then starts the next cell on the
     # completion tick (4 ticks per cell, no idle tick). Robots already
@@ -721,12 +686,11 @@ def step(
         if isinstance(command, CommanderMoveCommand):
             commander = state.commander_for(command.player)
             if commander is not None and not docked_movement_allowed(commander):
-                # Independent movement is disabled while docked (#40's own
-                # integration point); a gameplay no-op beyond the already-
-                # emitted generic CommandAccepted.
+                # Independent movement is disabled while docked; a gameplay
+                # no-op beyond the already-emitted generic CommandAccepted.
                 continue
             if state.construction_session_for(command.player) is not None:
-                # The construction screen is modal (CR002.13): the Spectrum
+                # The construction screen is modal: the Spectrum
                 # construction loop reads only menu input until EXIT MENU or
                 # START ROBOT, so the commander cannot fly off the pad with
                 # the screen still open. Same no-op convention as above.
@@ -750,7 +714,7 @@ def step(
     # --- Step 2b2: apply order assignments, then evaluate standing orders ---
     # Runs *before* Step 2c so every autonomous move request joins the exact
     # same deconflicted batch as this tick's direct-control requests -- see
-    # the docstring's issue #64 notes for why a second batch would break
+    # the docstring's Step 2b2 notes for why a second batch would break
     # `_specs/open-questions.md` §11.
     order_requests: list[RobotMoveRequest] = []
     order_lifecycle_events: tuple[Event, ...] = ()
@@ -774,7 +738,7 @@ def step(
         state, order_lifecycle_events = apply_order_evaluations(
             evaluations, state, tick, sequencer
         )
-        # CR002.19 (#197): an order moves the robot only on its own update,
+        # An order moves the robot only on its own update,
         # and not on an update where it fires (see `autonomous_combat.py`).
         order_requests = list(
             gate_order_requests(evaluations, state, orders_world, tick, rules)
@@ -799,12 +763,12 @@ def step(
         batch = apply_robot_move_batch(
             (*robot_moves, *order_requests, *direct_move_requests),
             state,
-            scenery_world(world, state),  # debris cells are rough, not blocked (CR002.18)
+            scenery_world(world, state),  # debris cells are rough, not blocked
             tick,
             rules,
             sequencer,
         )
-        # CR002.3: count down (or end) launch walk-outs against the state
+        # Count down (or end) launch walk-outs against the state
         # the orders were gated on (see `autonomous_combat.settle_walk_outs`).
         state = settle_walk_outs(
             state,
@@ -821,8 +785,7 @@ def step(
     # --- Step 2c2: combat --------------------------------------------------
     # Projectile advancement + damage, direct fire, autonomous engagement,
     # nuclear detonation, and the nuclear victory check -- the single place
-    # every M6 combat function is wired in (see the docstring's M6.10 notes
-    # for why all of it lives in one step rather than four).
+    # combat function is wired in (see the docstring's Step 2c2 notes).
     #
     # `world_for_step` is NOT in scope here: it is first bound by Step 2d
     # below, which runs after this step. Every sub-phase therefore resolves
@@ -835,7 +798,7 @@ def step(
     if world is not None:
         # (a) Advance in-flight projectiles, then apply damage for every hit,
         # in the exact tuple order `advance_projectiles` returns its events
-        # (already canonical per M6.4), so simultaneous hits resolve stably.
+        # (already canonical), so simultaneous hits resolve stably.
         combat_world = destruction_effective_world(world, state)
         state, projectile_events = advance_projectiles(
             state, combat_world, tick, rules, sequencer
@@ -976,7 +939,7 @@ def step(
                 # non-FREE commander; skip explicitly for clarity.
                 continue
             if state.construction_session_for(commander.player_id) is not None:
-                # Modal construction screen (CR002.13, see Step 1): the
+                # Modal construction screen (see Step 1): the
                 # commander stays on the pad, whatever its rise intent, until
                 # the player leaves via EXIT MENU or START ROBOT.
                 continue
@@ -996,7 +959,7 @@ def step(
         state = _replace_commander(state, updated)
         if dock_event is not None:
             events.append(dock_event)
-            # CR004.13: direct control takes over, so a cached hunt route is
+            # Direct control takes over, so a cached hunt route is
             # stale by the time the order resumes; drop it now.
             state = _clear_hunt_route(state, updated.docked_robot_id)
 
@@ -1008,8 +971,7 @@ def step(
         robot = robots_by_id.get(commander.docked_robot_id)
         if robot is None:
             # Stale/removed robot fixture: leave the commander unchanged
-            # rather than crash. No real robot subsystem exists until M4/M5
-            # (see issue #42's PR description for this forward-compat gap).
+            # rather than crash.
             continue
         state = _replace_commander(state, follow_docked_robot(commander, robot, rules))
 
@@ -1019,7 +981,7 @@ def step(
             if commander.mode is not CommanderMode.FREE:
                 continue
             if commander.elevate_updates_remaining > 0:
-                # Just left the construction screen (CR002.12/CR002.13): the
+                # Just left the construction screen: the
                 # exit ascent lifts the commander off the pad before the next
                 # landing check can match (Spectrum: the elevate timer raises
                 # the ship above altitude 15 before `cp 15` runs again).
@@ -1074,7 +1036,7 @@ def step(
         elif isinstance(command, SelectModuleCommand):
             select_result = select_module(state, command.player, command.module, rules)
             # A chassis swap removes the fitted chassis first, even when the
-            # new one then turns out unaffordable (Spectrum Lca0f, CR002.20).
+            # new one then turns out unaffordable (Spectrum Lca0f).
             if select_result.state is not None:
                 state = select_result.state
             if select_result.removed_chassis is not None:
@@ -1114,7 +1076,7 @@ def step(
             # for a player with no active session; checking first here keeps
             # that no-op from producing a spurious ConstructionCancelledEvent.
             if state.construction_session_for(command.player) is not None:
-                # EXIT MENU (CR002.13): discard the build and lift off the pad.
+                # EXIT MENU: discard the build and lift off the pad.
                 state = exit_construction(state, command.player, rules)
                 events.append(
                     ConstructionCancelledEvent(

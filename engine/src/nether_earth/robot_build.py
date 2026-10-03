@@ -1,11 +1,11 @@
 """Canonical robot module catalog and build identity model.
 
-Issue #52 (M4.1, `_specs/milestones/04-robots-construction-economy.md`)
+This module (`_specs/milestones/04-robots-construction-economy.md`)
 defines the single authoritative identity model for robot modules and
-concrete robot builds. Every later Milestone 4 system (stack/height
-derivation, construction economy costs, resource production, construction
-session state, robot launch, engine integration) and Milestone 6 combat
-import :class:`ModuleIdentity` and :class:`RobotBuild` from here rather than
+concrete robot builds. Every other system (stack/height derivation,
+construction economy costs, resource production, construction session
+state, robot launch, engine integration, combat) imports :class:`ModuleIdentity` and
+:class:`RobotBuild` from here rather than
 re-declaring module names or the resource-category mapping; this module is
 the one canonical catalog.
 
@@ -25,9 +25,8 @@ produces into and a resource pool tracks, so this module reuses
 parallel category enum. This is a *categorical* mapping only: no cost
 numbers are defined here. `_specs/functional-spec.md` §10.2's Spectrum cost
 table (Bipod 3, Tracks 5, Anti-grav 10, Cannon 2, Missile 4, Phaser 4,
-Nuclear 20, Electronics 3) is explicitly out of scope for this task -- it is
-Task 3 / M4.3's `EngineRules` scope, attached by module identity against the
-catalog defined here without redefining identities.
+Nuclear 20, Electronics 3) lives in `EngineRules`, attached by module
+identity against the catalog defined here without redefining identities.
 
 Build validity (`_specs/functional-spec.md` §11 "Robot construction",
 locked): a build has exactly one chassis, one to three weapons, no
@@ -42,8 +41,7 @@ logical loadout are always equal, hashable identically, and independent of
 caller-supplied ordering, matching the determinism/replay-safety convention
 used by ``GameState``/``Commander`` elsewhere in this package.
 
-Out of scope for this task (left to later Milestone 4 tasks, see the module
-docstring above and each task's own module): stack/height derivation,
+Out of scope for this module (see each subsystem's own module): stack/height derivation,
 construction cost values, spending/refund logic, resource pools/production,
 construction session state, robot launch/placement, and any combat
 properties (range/damage/projectile).
@@ -115,7 +113,7 @@ ELECTRONICS_MODULES: frozenset[ModuleIdentity] = frozenset({ModuleIdentity.ELECT
 #: (`_specs/functional-spec.md` §9, §10.1). Categories are
 #: ``nether_earth.structures.FactoryType`` values, not a new enum -- see the
 #: module docstring for why. This dict is the one place this mapping is
-#: defined; later tasks (construction cost, resource production) look up a
+#: defined; other systems (construction cost, resource production) look up a
 #: module's category here rather than re-deriving it.
 MODULE_RESOURCE_CATEGORY: dict[ModuleIdentity, FactoryType] = {
     ModuleIdentity.BIPOD: FactoryType.CHASSIS,

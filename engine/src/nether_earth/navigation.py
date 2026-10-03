@@ -1,4 +1,4 @@
-"""Non-electronic and electronic robot navigation policies (issue #65, M5.6).
+"""Non-electronic and electronic robot navigation policies.
 
 `_specs/open-questions.md` §5 (RESOLVED) locks the rules this module owns:
 
@@ -23,8 +23,8 @@ around an obstacle that sits across its approach axis, even when a trivially
 short detour exists. That is the locked gameplay difference electronics buys
 a player; it is not a deficiency to be repaired, and it must not be replaced
 with generic optimal pathfinding "for simplicity"
-(`_specs/milestones/05-orders-navigation-capture.md`, issue #65's fidelity
-note). Exact historical quirks of the original algorithm remain open
+(`_specs/milestones/05-orders-navigation-capture.md`). Exact historical quirks of the
+original algorithm remain open
 research detail -- the *qualitative* behavior locked above is what this
 module implements, behind an interface that lets a future refinement swap
 the local rule without touching any caller.
@@ -38,8 +38,8 @@ step it proposes is validated by, and must be executed through,
 - **terrain legality**: `movement.py`'s
   :func:`~nether_earth.movement.unit_terrain_enterable` over
   :func:`~nether_earth.movement.chassis_can_enter` -- the single
-  chassis/terrain table, applied to all four cells of the robot's 2×2 body
-  (CR002.3). Routes are searched over body anchors. Because both policies (and the route planner) ask
+  chassis/terrain table, applied to all four cells of the robot's 2×2 body.
+  Routes are searched over body anchors. Because both policies (and the route planner) ask
   exactly that function about the robot's *own* chassis, an electronic robot
   provably cannot be routed somewhere its chassis forbids: an electronic
   bipod still cannot enter a ditch.
@@ -48,9 +48,9 @@ step it proposes is validated by, and must be executed through,
   static structures plus live robots the executor uses.
 - **commander blocking**: `movement.py`'s
   :func:`~nether_earth.movement.commander_blocks_robot_cell`, which itself
-  composes the M3 `collision.py` contract. No overlap math here.
+  composes the `collision.py` contract. No overlap math here.
 - **reservations**: `reservations.py`'s
-  :func:`~nether_earth.reservations.destination_available` (M5.3), so a cell
+  :func:`~nether_earth.reservations.destination_available`, so a cell
   another robot's in-flight move has claimed is a dynamic obstacle both
   policies see.
 - **final legality**: a proposed step is only ever returned after
@@ -76,7 +76,7 @@ route on the next tick, and a stale plan can never be followed because none
 is ever retained. Policies are therefore field-less, frozen singletons
 (:data:`NON_ELECTRONIC_NAVIGATION`, :data:`ELECTRONIC_NAVIGATION`).
 
-The one exception is a Search & Destroy (robots) hunt (CR004.13, #299):
+The one exception is a Search & Destroy (robots) hunt:
 re-planning a long route every tick for every hunter is costly, and a hunt
 that gives up on a route blocked for one tick loses its target. The owner
 decided (2026-09-27) that a hunter follows a cached route and re-plans every
@@ -176,7 +176,7 @@ class NavigationStatus(str, Enum):
     A dedicated enum rather than a reuse of
     :class:`~nether_earth.movement.MovementRejectionReason`: that enum says
     why a *specific move* was illegal, while these say what the *robot's
-    navigation* concluded. Autonomous orders (M5.7, issue #64) branch on
+    navigation* concluded. Autonomous orders branch on
     these to decide whether to keep going, wait, or abandon an order, so
     they are part of this module's public contract.
     """
@@ -240,7 +240,8 @@ class NavigationDecision:
 
 
 # --------------------------------------------------------------------------
-# Shared traversability (composed from the M2/M3/M5.1/M5.3 contracts)
+# Shared traversability (composed from the occupancy, collision, movement
+# and reservation contracts)
 # --------------------------------------------------------------------------
 
 
@@ -423,7 +424,7 @@ def _enterable(
 ) -> bool:
     """Return whether ``robot``'s 2×2 body could stand anchored at ``(x, y)`` given ``view``.
 
-    Whole-body checks (CR002.3, `_specs/open-questions.md` §21): the body is
+    Whole-body checks (`_specs/open-questions.md` §21): the body is
     on the map, its four cells are terrain the chassis may enter, and no
     structure, other robot, commander, or other robot's reserved destination
     body overlaps it. The robot itself never blocks its own next body.
@@ -483,7 +484,7 @@ def cell_is_enterable(
 
     The single composed traversability query both navigation policies and
     :func:`plan_route` search over (see the module docstring for the
-    contracts it delegates to). ``(x, y)`` is a 2×2 body anchor (CR002.3);
+    contracts it delegates to). ``(x, y)`` is a 2×2 body anchor;
     the robot's own current body never blocks it.
     """
     return _enterable(robot, x, y, state, world, rules, _traversal_view(state, world))
@@ -663,10 +664,10 @@ _CONTACT_NEIGHBOURS: tuple[tuple[int, int], ...] = ((0, 0), *CARDINAL_DIRECTIONS
 def body_contact_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int], ...]:
     """Return every anchor from which a 2x2 body can engage the target body.
 
-    ``(target_x, target_y)`` is the target unit's 2x2 body anchor (CR002.3).
+    ``(target_x, target_y)`` is the target unit's 2x2 body anchor.
     An anchor qualifies when some cell of the body anchored there is equal or
     *cardinally* adjacent to some cell of the target's body, which is the
-    CR003.4 "touches or overlaps" rule restricted to edge contact.
+    "touches or overlaps" rule restricted to edge contact.
 
     Corner-only contact (anchors two cells away on *both* axes) is excluded
     on purpose. A robot fires along its cardinal facing and a bullet hits
@@ -729,8 +730,8 @@ class NavigationPolicy(Protocol):
 
     A policy is a pure decision function: given a robot and a target cell it
     returns a :class:`NavigationDecision`, never touching
-    :class:`~nether_earth.state.GameState`. Autonomous orders (M5.7, issue
-    #64) hold a policy chosen by :func:`navigation_policy_for` and call
+    :class:`~nether_earth.state.GameState`. Autonomous orders hold a policy
+    chosen by :func:`navigation_policy_for` and call
     :meth:`next_step` once per robot per tick, collecting the resulting
     requests into one
     :func:`~nether_earth.reservations.apply_robot_move_batch` call.
@@ -765,7 +766,7 @@ class NavigationPolicy(Protocol):
 
         The target cell is another unit's 2×2 body anchor, which is occupied
         by definition, so an implementation must not treat that occupancy as
-        proof the target is unreachable (CR003.4).
+        proof the target is unreachable.
         """
         ...
 
@@ -956,7 +957,7 @@ class ElectronicNavigation:
         world: WorldMap,
         rules: EngineRules = DEFAULT_RULES,
     ) -> NavigationDecision:
-        """Replan to an anchor lane-aligned with the target unit's body (CR003.4).
+        """Replan to an anchor lane-aligned with the target unit's body.
 
         The goal set is :func:`body_alignment_anchors` of the target's
         anchor: the four positions where the two bodies face each other
@@ -1101,7 +1102,7 @@ def navigation_policy_for(robot: Robot) -> NavigationPolicy:
     :data:`ELECTRONIC_NAVIGATION`, everything else with
     :data:`NON_ELECTRONIC_NAVIGATION`. Callers must not branch on
     ``robot.build.electronics`` themselves, so the mapping stays in one
-    place for M5.7 and beyond.
+    place.
     """
     if robot.build.electronics is not None:
         return ELECTRONIC_NAVIGATION
@@ -1140,8 +1141,8 @@ def next_body_approach_step(
 
     Equivalent to ``navigation_policy_for(robot).next_step_to_body(...)``:
     the entry point for pursuing another robot, whose anchor cell is
-    occupied (CR003.4). Search & Destroy (robots) uses :func:`next_hunt_step`
-    instead, which never reports ``UNREACHABLE`` (CR004.13).
+    occupied. Search & Destroy (robots) uses :func:`next_hunt_step`
+    instead, which never reports ``UNREACHABLE``.
     """
     return navigation_policy_for(robot).next_step_to_body(
         robot, target_x, target_y, state, world, rules
@@ -1149,7 +1150,7 @@ def next_body_approach_step(
 
 
 # --------------------------------------------------------------------------
-# Search & Destroy (robots) hunts: cached route, periodic re-plan (CR004.13)
+# Search & Destroy (robots) hunts: cached route, periodic re-plan
 # --------------------------------------------------------------------------
 
 
@@ -1176,7 +1177,7 @@ def _plan_body_approach(
     world: WorldMap,
     rules: EngineRules,
 ) -> tuple[tuple[int, int], ...] | None:
-    """Plan to the target's aligned anchors, else its contact anchors (CR003.4).
+    """Plan to the target's aligned anchors, else its contact anchors.
 
     The goal logic of :meth:`ElectronicNavigation.next_step_to_body`: aligned
     anchors first, the wider contact set only when none is reachable.
@@ -1251,7 +1252,7 @@ def next_hunt_step(
 ) -> HuntDecision:
     """Return ``robot``'s Search & Destroy (robots) step toward the target robot.
 
-    Owner decision (2026-09-27, #299): a hunt never gives up because a route
+    Owner decision (2026-09-27): a hunt never gives up because a route
     is blocked right now. A robot without electronics uses its own greedy
     :meth:`NonElectronicNavigation.next_step_to_body`, which never reports
     ``UNREACHABLE``, and caches nothing. An electronics robot:
@@ -1265,7 +1266,7 @@ def next_hunt_step(
        chassis cannot enter). A next cell that is enterable but whose step
        the executor still refuses is only ``BLOCKED``: the robot waits, and
        does not re-plan every tick;
-    3. plans with the CR003.4 goals (aligned anchors, else contact anchors).
+    3. plans with the body goals (aligned anchors, else contact anchors).
        A route of ``()`` means the robot is on a goal and has arrived. No
        route at all is cached as such, and until the next periodic re-plan
        the robot steps greedily toward the target (:func:`_greedy_hunt_step`).
