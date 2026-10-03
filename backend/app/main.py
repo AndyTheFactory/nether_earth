@@ -6,7 +6,7 @@ call gets its own isolated ``MatchManager``/``MatchRuntimeRegistry``/
 connections across independent app instances. ``app`` below is the one
 instance used by a real deployment (e.g. ``uvicorn app.main:app``).
 
-``replay_dir`` (M7 Task 8, issue #97) is likewise an explicit, optional
+``replay_dir`` is likewise an explicit, optional
 factory parameter rather than always falling back to
 ``ReplayWriter``'s own env-var/repo-relative default: a test building its
 own app via ``create_app()`` must not silently write real replay artifacts
@@ -81,7 +81,7 @@ def _release_commit() -> str:
     return os.environ.get("NETHER_EARTH_COMMIT") or "unknown"
 
 
-#: How often expired matches are looked for (M10.6).
+#: How often expired matches are looked for.
 SWEEP_INTERVAL_S = 15.0
 
 #: How often artifacts past NETHER_EARTH_REPLAY_RETENTION_DAYS are deleted.
@@ -106,7 +106,7 @@ def _combine_disconnect_notifiers(*notifiers: DisconnectNotifier) -> DisconnectN
     module docstring), but this app wants two independent consumers of the
     same disconnect-policy events: the WebSocket broadcast
     (``make_disconnect_notifier``) and the filesystem replay writer
-    (``make_replay_lifecycle_notifier``, M7 Task 8, issue #97). Composing
+    (``make_replay_lifecycle_notifier``). Composing
     them here keeps both packages mutually unaware of each other, matching
     every other hook in this module.
     """
@@ -152,7 +152,7 @@ def create_app(
     policy) and exist purely so a test can build the *exact* same
     composition-root wiring as a real deployment while substituting a short
     grace period/fast tick interval, instead of duplicating this function's
-    wiring in a second, drift-prone copy (M7 Task 10, issue #99).
+    wiring in a second, drift-prone copy.
 
     ``_reconnect_monotonic_clock`` is a leading-underscore, test-only seam
     (never overridden by a real deployment, which always wants the real
@@ -160,8 +160,7 @@ def create_app(
     sequential disconnects to compute the exact same grace deadline (a
     genuine tie -- see ``ReconnectCoordinator._resolve_expiry``'s own
     docstring for why only an exact tie resolves to no-contest) without
-    hand-assembling a second copy of this function's wiring (M7 Task 10
-    review, Important I3).
+    hand-assembling a second copy of this function's wiring.
 
     ``settings`` carries deployment-only configuration (``app.config``);
     ``None`` means development defaults. An explicit ``replay_dir`` wins over
@@ -252,8 +251,8 @@ def create_app(
         lifespan=lifespan,
     )
 
-    # The scenario-overlaid real map every match on this app plays on (M9.1
-    # audit gap G1). ``world`` lets a test inject a fixture world; a real
+    # The scenario-overlaid real map every match on this app plays on.
+    # ``world`` lets a test inject a fixture world; a real
     # deployment always loads the standard v1 map from ``data/maps``.
     resolved_world = world if world is not None else load_standard_world()
 
@@ -270,8 +269,8 @@ def create_app(
         # Bound per match at start time (see `MatchManager.on_tick_factory`'s
         # docstring): broadcasts a fresh authoritative snapshot to every
         # connection registered for `match.match_id` after each tick this
-        # match's `MatchRuntime` completes (M7 Task 6, issue #95).
-        # Snapshot first, then victory finalization (M9.1 audit gap G2), so
+        # match's `MatchRuntime` completes.
+        # Snapshot first, then victory finalization, so
         # the final authoritative snapshot always precedes ``finished``.
         return _compose_tick_observers(
             make_tick_broadcaster(connection_registry, match.match_id),
@@ -281,7 +280,7 @@ def create_app(
     def _on_tick_commands_factory(match: Match) -> TickCommandObserver:
         # Bound per match at start time, mirroring `_on_tick_factory` above:
         # appends every tick's accepted command batch to this match's
-        # filesystem replay artifact (M7 Task 8, issue #97).
+        # filesystem replay artifact.
         return make_replay_tick_recorder(replay_writer, match.match_id)
 
     reconnect_coordinator = ReconnectCoordinator(
@@ -310,10 +309,9 @@ def create_app(
     # Breaks the construction-order cycle (this coordinator must exist
     # before `MatchManager` can be constructed with it, but the natural
     # finish hook is `MatchManager.finish_match` itself) -- see
-    # `ReconnectCoordinator.bind_finish_hook`'s docstring (M7 Task 7
-    # review, Important I3). This makes forfeit/no-contest finalization
-    # go through the exact same path (state transition + runtime-loop
-    # cancellation, plus any future finish-time logic such as Task 8's
+    # `ReconnectCoordinator.bind_finish_hook`'s docstring. This makes
+    # forfeit/no-contest finalization go through the exact same path (state
+    # transition + runtime-loop cancellation, plus finish-time logic such as
     # replay persistence) as every other `FINISHED` transition.
     reconnect_coordinator.bind_finish_hook(match_manager.finish_match)
 

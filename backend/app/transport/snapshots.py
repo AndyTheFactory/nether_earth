@@ -1,6 +1,6 @@
 """Engine-state -> protocol-snapshot mapping and the per-tick broadcast hook.
 
-Scope (M7 Task 6, issue #95): a thin field-mapping layer from
+Scope: a thin field-mapping layer from
 ``nether_earth.snapshot.to_snapshot`` into
 ``app.protocol.snapshot.SnapshotMessage`` -- no gameplay value is re-derived
 or duplicated here, only wrapped in the protocol envelope. Also builds the
@@ -9,13 +9,11 @@ installs on a match's ``MatchRuntime`` (``runtime.py`` itself never imports
 this package; see its module docstring).
 
 Broadcast policy: **snapshot-only** (not event+snapshot or a delta).
-``SnapshotState`` is now the real, fully enumerated shape (issue #98: every
-field of ``nether_earth.snapshot.to_snapshot``'s return value, strictly
-typed) rather than the Task 3 placeholder it started as -- but there is
-still no stable delta/event shape to diff or encode against, since #98's
-scope was the snapshot/command mapping, not a delta protocol; inventing one
-now would be exactly the speculative, likely-to-be-redone work this task's
-brief asks to avoid. A full snapshot every tick is also the simplest thing
+``SnapshotState`` is the real, fully enumerated shape (every field of
+``nether_earth.snapshot.to_snapshot``'s return value, strictly typed), but
+there is no stable delta/event shape to diff or encode against, and
+inventing one would be speculative. A full snapshot every tick is also the
+simplest thing
 that provably satisfies "a newly-connected/reconnected client can
 reconstruct all currently exposed state," for every client, not just ones
 that saw every prior tick. **Engine ``Event``s are therefore still never
@@ -78,9 +76,9 @@ def empty_snapshot_message(match_id: str) -> SnapshotMessage:
     genuinely no authoritative gameplay state to report yet. Kept as its own
     helper so this shape is spelled once rather than duplicated at every
     reconnect/fallback call site. ``state`` is a structurally valid, fully
-    empty ``SnapshotState`` (every list field empty, ``seed=0``) now that
-    ``SnapshotState`` is a real, strict model rather than an open
-    placeholder dict (issue #98) -- an empty ``{}`` no longer validates.
+    empty ``SnapshotState`` (every list field empty, ``seed=0``):
+    ``SnapshotState`` is a strict model, so an empty ``{}`` does not
+    validate.
     """
     return SnapshotMessage(
         protocol_version=PROTOCOL_VERSION,

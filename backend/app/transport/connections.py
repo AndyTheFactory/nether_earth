@@ -1,11 +1,11 @@
 """Per-match WebSocket connection registry and broadcast primitives.
 
-Scope (M7 Task 5, issue #94): tracks which live ``WebSocket`` belongs to
+Scope: tracks which live ``WebSocket`` belongs to
 which ``(match_id, player_id)`` pair, and provides the minimal send/broadcast
 primitives ``app.transport.ws`` needs. This module owns no gameplay or
 lifecycle logic and builds no snapshot/event content -- it only knows how to
-address a match's sockets (Task 6 builds real snapshot/event payloads on top
-of :func:`broadcast`/:func:`send_to_player`).
+address a match's sockets (``app.transport.snapshots`` builds real
+snapshot/event payloads on top of :func:`broadcast`/:func:`send_to_player`).
 
 Isolation guarantee: :meth:`ConnectionRegistry.connections_for` only ever
 returns sockets registered under the exact ``match_id`` requested, so a
@@ -26,7 +26,7 @@ from app.transport.limits import SEND_TIMEOUT_S
 
 logger = logging.getLogger(__name__)
 
-#: Sockets whose send timed out (M10.4/M10.6). Skipped by every later send
+#: Sockets whose send timed out. Skipped by every later send
 #: and closed in the background; the connection's own handler then sees the
 #: close and runs the normal disconnect -> pause -> grace policy. Weak, so a
 #: finished connection never lingers here.
@@ -108,7 +108,7 @@ async def send_to_player(
 
     A no-op if that player has no live connection (nothing to notify) or if
     the send itself fails (e.g. the peer is mid-disconnect) -- either case
-    is handled by this task's disconnect notification path, not by this
+    is handled by the transport's disconnect notification path, not by this
     function raising.
     """
     websocket = registry.connection_for_player(match_id, player_id)

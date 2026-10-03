@@ -1,4 +1,4 @@
-"""Transport `CommandPayload` -> concrete engine `Command` adapter (M7 Task 9, issue #98).
+"""Transport `CommandPayload` -> concrete engine `Command` adapter.
 
 Scope (AGENTS.md non-negotiable): pure field-shape translation only. Given a
 `CommandPayload` that has already cleared pydantic/JSON-Schema validation,

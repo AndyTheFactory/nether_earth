@@ -1,6 +1,6 @@
 """Replay-verification helper: reconstruct a persisted artifact and re-run it through the engine directly.
 
-Scope (M7 Task 8, issue #97): given a completed ``ReplayWriter`` artifact,
+Scope: given a completed ``ReplayWriter`` artifact,
 reconstruct the accepted command stream from ``commands.jsonl`` *only*, feed
 it to ``nether_earth.engine`` exactly the way
 ``nether_earth.replay.run_fixture`` already does for engine-side test
@@ -58,8 +58,8 @@ __all__ = [
     "verify_replay",
 ]
 
-#: Seat controllers for an artifact recorded before ``seat_controllers`` was
-#: written to ``meta.json`` (CR004.7): every seat before CR004 was human.
+#: Seat controllers for an artifact whose ``meta.json`` has no
+#: ``seat_controllers``: every seat is human.
 _ALL_HUMAN_SEAT_CONTROLLERS = meta_seat_controllers(default_pvp_scenario())
 
 
@@ -102,8 +102,8 @@ def check_rules_identity(meta: dict[str, Any]) -> None:
 #: dispatches on the string ``kind`` directly (one explicit branch per
 #: token, each naming its own field set) rather than resolving a class first
 #: and re-dispatching on it, so a type checker can verify each branch's own
-#: constructor call against that exact class's fields (M7 Task 9 review,
-#: Minor M5) instead of an ``in (A, B)`` grouping it cannot see through.
+#: constructor call against that exact class's fields instead of an ``in (A, B)``
+#: grouping it cannot see through.
 _KNOWN_COMMAND_KINDS = frozenset(
     {
         "commander_move",
@@ -120,10 +120,9 @@ _KNOWN_COMMAND_KINDS = frozenset(
 
 
 def _command_from_json(data: dict[str, Any]) -> Command:
-    """Inverse of ``ReplayWriter``'s ``_command_to_json`` (issue #98).
+    """Inverse of ``ReplayWriter``'s ``_command_to_json``.
 
-    A record with no ``kind`` key is the bare ``Command`` contract (the only
-    shape ``_command_to_json`` ever wrote before this task); one of the nine
+    A record with no ``kind`` key is the bare ``Command`` contract; one of the nine
     known ``kind`` tokens reconstructs the matching concrete gameplay
     ``Command`` subclass with its own fields. Raises ``ValueError`` for an
     unrecognized ``kind`` -- a persisted artifact from a newer schema this
@@ -247,8 +246,8 @@ def verify_replay(
     meta = load_meta(base_dir, match_id)
     check_rules_identity(meta)
     # Only human commands are persisted; an AI seat's are re-derived by the
-    # engine, so the scenario must name the same AI seats (CR004.7). An
-    # artifact from before seat controllers were recorded is all-human.
+    # engine, so the scenario must name the same AI seats. An artifact
+    # without recorded seat controllers is all-human.
     recorded_controllers = meta.get("seat_controllers") or _ALL_HUMAN_SEAT_CONTROLLERS
     if meta_seat_controllers(scenario) != recorded_controllers:
         raise ValueError(
@@ -264,7 +263,7 @@ def verify_replay(
         )
 
     if world is not None:
-        # A real match (M9.1 gap G1): the same ``create_initial_state`` +
+        # A real match: the same ``create_initial_state`` +
         # ``engine.step`` path ``MatchManager``/``MatchRuntime`` used live.
         if world.map_id != meta["map_id"] or world.version != meta["map_version"]:
             raise ValueError(

@@ -7,8 +7,8 @@ shared shapes so they cannot silently diverge across message families.
 
 Architecture note (AGENTS.md): this module is a transport/serialization
 boundary only. It does not validate gameplay legality; `CommandPayload`/
-`SnapshotState` below are the real, fully enumerated command/state shapes
-(issue #98), exactly matching the JSON Schema they mirror. An adapter that
+`SnapshotState` below are the real, fully enumerated command/state shapes,
+exactly matching the JSON Schema they mirror. An adapter that
 turns a validated `CommandPayload` into a concrete engine `Command`
 subclass lives in `app.transport.commands` -- this module only defines the
 wire shapes, never gameplay legality.
@@ -66,9 +66,9 @@ SearchCaptureTargetWire = Literal["neutral_factory", "enemy_factory", "enemy_war
 #: (`nether_earth.orders.SearchDestroyTarget`).
 SearchDestroyTargetWire = Literal["robot", "factory", "war_base"]
 
-#: Mirrors common.schema.json `$defs.opponentMode` (CR004.8, issue #289):
-#: the second seat of a match, either a second human player (default,
-#: today's PvP behaviour) or the engine's AI seat.
+#: Mirrors common.schema.json `$defs.opponentMode`: the second seat of a
+#: match, either a second human player (default, PvP) or the engine's AI
+#: seat.
 OpponentMode = Literal["human", "computer"]
 
 
@@ -124,7 +124,7 @@ class PlayerSummary(ProtocolModel):
 
 
 ##############################################################################
-# Robot orders (mirrors common.schema.json `$defs.robotOrder`, issue #98)
+# Robot orders (mirrors common.schema.json `$defs.robotOrder`)
 ##############################################################################
 
 
@@ -144,9 +144,8 @@ class AdvanceOrderPayload(ProtocolModel):
     No `targetX`: it is engine-bound state (the `PENDING` -> `ACTIVE`
     transition), never a player input -- see `orders.py`'s own docstrings.
 
-    `distance_miles` deliberately carries no `ge`/`le` bound here (issue #98
-    review, Important I2): `orders.py`'s own
-    `MAX_ORDER_DISTANCE_MILES`/`order_is_valid` already enforce the 0-50-mile
+    `distance_miles` deliberately carries no `ge`/`le` bound here:
+    `orders.py`'s own `MAX_ORDER_DISTANCE_MILES`/`order_is_valid` already enforce the 0-50-mile
     range, and the locked functional-spec §16 response to an out-of-range
     order is not "reject the frame" -- it is "accept the command and store
     `StopAndDefend` with `OrderStatus.FALLBACK`" (a real, observable engine
@@ -207,8 +206,8 @@ RobotOrderPayload = Annotated[
 
 
 ##############################################################################
-# Gameplay command payloads (mirrors common.schema.json `$defs.commandPayload`,
-# issue #98). One variant per concrete `nether_earth.commands.Command`
+# Gameplay command payloads (mirrors common.schema.json `$defs.commandPayload`).
+# One variant per concrete `nether_earth.commands.Command`
 # subclass a player can trigger in v1 (see `engine.step`'s `isinstance`
 # dispatch for the exhaustive list). Each payload is a thin field-shape
 # mirror of its engine dataclass -- it carries no legality decision; see
@@ -327,7 +326,7 @@ CommandPayload = Annotated[
 
 
 ##############################################################################
-# Snapshot state (mirrors common.schema.json `$defs.snapshotState`, issue #98)
+# Snapshot state (mirrors common.schema.json `$defs.snapshotState`)
 ##############################################################################
 #
 # `SnapshotEntity`/`SnapshotState` deliberately do NOT use `ProtocolModel`'s
@@ -384,7 +383,7 @@ class ConstructionSessionSnapshot(_SnapshotSubModel):
 
 
 class RobotHuntRouteSnapshot(_SnapshotSubModel):
-    """Mirrors a robot snapshot's optional `"hunt_route"` (CR004.13/#299): an
+    """Mirrors a robot snapshot's optional `"hunt_route"`: an
     electronics Search & Destroy (robots) hunter's cached route, one direction
     letter (`E`/`W`/`S`/`N`) per step from the origin; `steps` is `None` when no
     route existed at `planned_tick`.
@@ -419,7 +418,7 @@ class RobotSnapshot(_SnapshotSubModel):
     def _serialize(self, handler: Any) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
         if self.hunt_route is None:
-            # Elided like `to_snapshot`'s own robot entry (CR004.13).
+            # Elided like `to_snapshot`'s own robot entry.
             data.pop("hunt_route", None)
         return data
 
@@ -454,13 +453,13 @@ class ProjectileSnapshot(_SnapshotSubModel):
 
 
 class AiConstructionMemorySnapshot(_SnapshotSubModel):
-    """Mirrors `nether_earth.snapshot._ai_construction_memory_snapshot` (CR004.4)."""
+    """Mirrors `nether_earth.snapshot._ai_construction_memory_snapshot`."""
 
     last_war_base_id: EntityId | None
 
 
 class AiDefenceAssignmentSnapshot(_SnapshotSubModel):
-    """Mirrors one entry of `AiOrderMemory.defences` (CR004.5, `AiDefenceAssignment`)."""
+    """Mirrors one entry of `AiOrderMemory.defences` (`AiDefenceAssignment`)."""
 
     defender_id: EntityId
     intruder_id: EntityId
@@ -469,29 +468,27 @@ class AiDefenceAssignmentSnapshot(_SnapshotSubModel):
 
 
 class AiSightingSnapshot(_SnapshotSubModel):
-    """Mirrors one entry of `AiOrderMemory.sightings` (CR004.5, `AiSighting`)."""
+    """Mirrors one entry of `AiOrderMemory.sightings` (`AiSighting`)."""
 
     robot_id: EntityId
     distance: int
 
 
 class AiOrderMemorySnapshot(_SnapshotSubModel):
-    """Mirrors `nether_earth.snapshot._ai_order_memory_snapshot` (CR004.5)."""
+    """Mirrors `nether_earth.snapshot._ai_order_memory_snapshot`."""
 
     defences: list[AiDefenceAssignmentSnapshot]
     sightings: list[AiSightingSnapshot]
 
 
 class AiMemorySnapshot(_SnapshotSubModel):
-    """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["ai_memories"]`
-    (CR004.3/#284): one AI seat's `AiMemory`.
+    """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["ai_memories"]`:
+    one AI seat's `AiMemory`.
 
-    `construction`/`orders` were originally left as loosely-typed `dict[str,
-    Any]` while CR004.4/CR004.5 were still in flight on separate branches
-    (see git history). Now that both have merged, their shapes are fixed --
+    `construction`/`orders` mirror
     `_ai_construction_memory_snapshot`/`_ai_order_memory_snapshot` in
-    `nether_earth.snapshot` -- so they are typed as strict sub-models here,
-    matching `common.schema.json`'s `ai_memories` `$def`.
+    `nether_earth.snapshot` as strict sub-models, matching
+    `common.schema.json`'s `ai_memories` `$def`.
     """
 
     player_id: PlayerId
@@ -500,8 +497,8 @@ class AiMemorySnapshot(_SnapshotSubModel):
 
 
 class RobotLaunchCountSnapshot(_SnapshotSubModel):
-    """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["robot_launches"]`
-    (CR004.12/#295): how many robots a player has ever launched.
+    """Mirrors one entry of `nether_earth.snapshot.to_snapshot(state)["robot_launches"]`:
+    how many robots a player has ever launched.
     """
 
     player_id: PlayerId
@@ -509,7 +506,7 @@ class RobotLaunchCountSnapshot(_SnapshotSubModel):
 
 
 class CellSnapshot(_SnapshotSubModel):
-    """One map cell (CR005.3 robot debris anchor)."""
+    """One map cell (a robot debris anchor)."""
 
     x: int = Field(ge=0)
     y: int = Field(ge=0)
@@ -533,19 +530,18 @@ class SnapshotState(_SnapshotSubModel):
     capture_progress: list[CaptureProgressSnapshot]
     projectiles: list[ProjectileSnapshot]
     structure_destruction: list[EntityId]
-    #: Blocker ids turned into rough debris by a nuclear blast (CR002.18).
+    #: Blocker ids turned into rough debris by a nuclear blast.
     scenery_debris: list[EntityId]
-    #: One entry per AI seat (CR004.3/#284), canonical (player-sorted) order.
+    #: One entry per AI seat, canonical (player-sorted) order.
     #: Defaults to empty for an all-human match; `_serialize` below then
     #: elides the key entirely, mirroring `to_snapshot`'s own elision so a
-    #: PvP snapshot's wire shape -- and `model_dump()` -- is byte-identical
-    #: to before this field existed.
+    #: PvP snapshot's wire shape -- and `model_dump()` -- carries no such key.
     ai_memories: list[AiMemorySnapshot] = Field(default_factory=list)
-    #: Robots each player has ever launched (CR004.12/#295), canonical order.
+    #: Robots each player has ever launched, canonical order.
     #: Empty until the first launch; `_serialize` then elides the key,
     #: mirroring `to_snapshot`.
     robot_launches: list[RobotLaunchCountSnapshot] = Field(default_factory=list)
-    #: Anchors of the 2×2 debris robots killed in combat left (CR005.3), in
+    #: Anchors of the 2×2 debris robots killed in combat left, in
     #: the order they fell. Elided while empty, like `robot_launches`.
     robot_debris: list[CellSnapshot] = Field(default_factory=list)
 

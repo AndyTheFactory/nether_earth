@@ -1,4 +1,4 @@
-"""Per-connection transport bounds (M10.4). Resource limits only, no gameplay rules.
+"""Per-connection transport bounds. Resource limits only, no gameplay rules.
 
 A browser client sends at most ~20 messages/s while a movement key is held
 (``frontend/src/input/keyboard.ts`` pulses every 50 ms) plus occasional

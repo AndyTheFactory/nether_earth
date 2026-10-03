@@ -76,7 +76,7 @@ def order_from_json(data: dict[str, Any]) -> Order:
     if kind == "retreat":
         return Retreat(distance_miles=data["distance_miles"], target_x=data["target_x"])
     if kind == "search_capture":
-        # ``structure_id`` (CR003.2) is absent from records written before it.
+        # ``structure_id`` is absent from older records.
         structure_id = data.get("structure_id")
         return SearchCapture(
             target=SearchCaptureTarget(data["target"]),

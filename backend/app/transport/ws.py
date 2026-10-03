@@ -1,4 +1,4 @@
-"""WebSocket transport: session association and message routing (M7 Task 5, issue #94).
+"""WebSocket transport: session association and message routing.
 
 Endpoint design: a single ``/ws`` endpoint (no ``{match_id}`` path segment),
 not one endpoint per match. Rationale: two of the six inbound message
@@ -12,8 +12,8 @@ from the URL) avoids inventing a second, redundant place to carry the same
 identity, and is exactly what lets one connection go
 create-or-join -> ready -> command over its own lifetime.
 
-Session binding rule (this task's "associate each connection with exactly
-one session" requirement): a connection has no bound session until its first
+Session binding rule ("associate each connection with exactly one
+session"): a connection has no bound session until its first
 successful ``create``/``join``/``ready``/``leave``/``command``/``reconnect``
 message authenticates one. From that point on the connection is pinned to
 that ``(match_id, player_id, session_token)`` triple for its lifetime --
@@ -37,7 +37,7 @@ fragile. Either way, no invalid/unauthenticated message ever reaches
 reaches `engine.step`).
 
 Gameplay-command-conversion scope: `ClientGameplayCommand.payload` is the
-real, fully enumerated `CommandPayload` discriminated union (issue #98; see
+real, fully enumerated `CommandPayload` discriminated union (see
 `app/protocol/common.py`). This module converts it to the exact matching
 concrete `nether_earth.commands.Command` subclass via
 `app.transport.commands.payload_to_command` -- a pure field-shape adapter
@@ -49,8 +49,8 @@ that is schema-valid but structurally malformed for its target `Command`
 violation is: a `ServerError`, no `MatchRuntimeRegistry`/`engine.step`
 involvement at all.
 
-Disconnect notification: `MatchManager.mark_disconnected` (added by Task 5)
-is called through a single `teardown_connection()` helper, itself invoked
+Disconnect notification: `MatchManager.mark_disconnected` is called through
+a single `teardown_connection()` helper, itself invoked
 from exactly one `finally` block plus (redundantly-but-safely, via the same
 helper) the `leave` handler, regardless of whether the connection ends via a
 clean `leave` message, a WebSocket close/error, or an auth rejection after a
@@ -61,9 +61,9 @@ reports this socket was still the one currently registered for its
 connection's delayed teardown (e.g. slow TCP close) could otherwise fire a
 spurious disconnect notification for a player who has since reconnected on
 a newer socket (`ConnectionRegistry.unregister`'s return value exists
-specifically to make that race detectable). `mark_disconnected` now drives
-the real pause/grace-timer policy (`app.match.reconnect.ReconnectCoordinator`,
-M7 Task 7, issue #96), which is exactly why this race matters -- a spurious
+specifically to make that race detectable). `mark_disconnected` drives
+the real pause/grace-timer policy (`app.match.reconnect.ReconnectCoordinator`),
+which is exactly why this race matters -- a spurious
 notification here would otherwise pause/grace-timer a player who never
 actually disconnected. The `reconnect` message handler below calls the
 symmetric `MatchManager.mark_reconnected` to cancel that grace timer and,
@@ -163,7 +163,7 @@ def create_websocket_router(
 ) -> APIRouter:
     """Build the ``/ws`` router bound to one set of match/runtime/connection stores.
 
-    ``allowed_origins`` (M10.4): when non-empty, a handshake whose ``Origin``
+    ``allowed_origins``: when non-empty, a handshake whose ``Origin``
     header is present and not in this set is refused before ``accept`` (the
     client sees HTTP 403), which blocks cross-site WebSocket hijacking from
     other web pages. Browsers always send ``Origin``; non-browser clients
@@ -336,8 +336,8 @@ def create_websocket_router(
                                 # `None` on the PvP path: `opponent` is
                                 # dropped from the wire for a plain `create`
                                 # (see `ServerCreated`'s docstring), keeping
-                                # it byte-compatible with pre-CR004.8
-                                # clients. Only a solo create states it.
+                                # it byte-compatible with clients that do
+                                # not know it. Only a solo create states it.
                                 opponent="computer" if solo else None,
                             )
                         )
@@ -535,18 +535,17 @@ def create_websocket_router(
                     )
                     # Cancels this player's reconnect-grace deadline watcher
                     # and, once both players are connected again, resumes
-                    # the match (M7 Task 7, issue #96). A no-op if this
+                    # the match. A no-op if this
                     # player was never marked disconnected (e.g. a
                     # reconnect message on an already-connected session).
-                    # Sequenced *after* the resync send above (M7 Task 7
-                    # review, Minor M1) so this player's own resync is
+                    # Sequenced *after* the resync send above so this
+                    # player's own resync is
                     # structurally guaranteed to precede any `resumed`
                     # broadcast a resulting resume might trigger, rather
                     # than relying on incidental ordering.
                     match_manager.mark_reconnected(message.session_token)
 
-                    # A durable forfeit/no-contest result (M7 Task 7 review,
-                    # Important I2): the winning side of a both-disconnected
+                    # A durable forfeit/no-contest result: the winning side of a both-disconnected
                     # forfeit was, by construction, not connected to receive
                     # the live `ServerForfeit`/`ServerNoContest` broadcast --
                     # replay it to whoever reconnects to an already-decided

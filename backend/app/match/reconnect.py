@@ -1,4 +1,4 @@
-"""Disconnect/reconnect pause, grace-deadline, forfeit, and no-contest policy (M7 Task 7, issue #96).
+"""Disconnect/reconnect pause, grace-deadline, forfeit, and no-contest policy.
 
 Scope: this module owns the *runtime* (wall-clock, asyncio) half of the
 locked disconnect/reconnect policy. It never touches `nether_earth.engine`
@@ -6,10 +6,10 @@ or `GameState`/tick count -- pausing/resuming/forfeiting/no-contesting a
 match is purely `Match.state` bookkeeping plus wall-clock deadline tracking
 (`time.monotonic`-style, never engine ticks). The fixed-tick loop
 (`app.match.runtime.MatchRuntime._run`) already treats any non-``ACTIVE``
-state as a cheap no-op poll (Task 4), so flipping `Match.state` here is
+state as a cheap no-op poll, so flipping `Match.state` here is
 sufficient to stop/resume ticking with no `runtime.py` changes.
 
-Locked policy (see the M7 Task 7 brief / issue #96 -- non-negotiable):
+Locked policy (non-negotiable):
 
 - First disconnect pauses the match immediately.
 - Reconnect grace defaults to 60s, configurable per :class:`ReconnectCoordinator`.
@@ -23,7 +23,7 @@ Locked policy (see the M7 Task 7 brief / issue #96 -- non-negotiable):
   Never invented as a winner.
 - No manual pause exists in v1 -- the only path into `PAUSED_DISCONNECTED`
   is a disconnect notification.
-- Solo matches (CR004.7): the AI seat is never disconnected, so only the
+- Solo matches: the AI seat is never disconnected, so only the
   human can pause the match; the AI is always an eligible opponent, so a
   human's expiry is a forfeit to the AI and never a no-contest.
 
@@ -135,7 +135,7 @@ def _log_task_failure(task: asyncio.Task[None]) -> None:
     """`asyncio.Task` done-callback: log (not silently drop) an unretrieved exception.
 
     Mirrors `MatchRuntime._run`'s own discipline of never letting a
-    fire-and-forget task fail silently (issue #93 review). These tasks
+    fire-and-forget task fail silently. These tasks
     (deadline watchers, one-shot notifier dispatches) are never awaited by
     production code, so nothing else would ever surface a bug here.
     """
@@ -155,8 +155,7 @@ class ReconnectCoordinator:
     this class creates.
 
     ``monotonic_clock``/``sleep_fn``/``epoch_clock`` are injectable purely
-    for deterministic testing (see the M7 Task 7 brief's testing
-    constraint: no real 60s sleeps). Production callers should leave all
+    for deterministic testing (no real 60s sleeps). Production callers should leave all
     three at their defaults (`time.monotonic`, `asyncio.sleep`,
     `time.time`).
 
@@ -212,8 +211,8 @@ class ReconnectCoordinator:
         second disconnect while already paused starts that second player's
         own independent deadline without re-pausing or re-notifying.
 
-        A solo match's AI seat has no connection and is never disconnected
-        (CR004.7): a notification naming it is ignored, so it can neither
+        A solo match's AI seat has no connection and is never disconnected:
+        a notification naming it is ignored, so it can neither
         pause the match nor take part in a both-disconnected no-contest. The
         human disconnecting pauses a solo match with the same grace window
         as PvP.
@@ -312,12 +311,10 @@ class ReconnectCoordinator:
         right after constructing both, breaks that construction-order
         cycle. Never required: with no hook bound, ``_resolve_expiry``
         falls back to its own direct ``match.state``/``runtime_registry``
-        finalization (M7 Task 7 review, Important I3 -- the *fallback*
-        keeps `reconnect=None`-style tests working unchanged; the *hook*
-        ensures production forfeit/no-contest finalization goes through the
-        exact same path -- including any future finish-time logic, e.g.
-        Task 8's replay persistence -- as every other ``FINISHED``
-        transition).
+        finalization (the *fallback* serves `reconnect=None`-style tests;
+        the *hook* ensures production forfeit/no-contest finalization goes
+        through the exact same path -- including finish-time logic such as
+        replay persistence -- as every other ``FINISHED`` transition).
         """
         self._on_finish = on_finish
 
@@ -330,7 +327,7 @@ class ReconnectCoordinator:
         that ends for any reason (engine victory, forfeit, no-contest, or
         explicit disposal) never leaves an orphan watcher task behind --
         mirrors the same discipline `MatchRuntimeRegistry.cancel`/`dispose`
-        already enforce for the tick-loop task (issue #93 review).
+        already enforce for the tick-loop task.
         Idempotent: a `match_id` with nothing tracked is a harmless no-op.
         """
         watchers = self._watchers.pop(match_id, None)
@@ -379,7 +376,7 @@ class ReconnectCoordinator:
         partition), the earlier-expiring player's watcher could see the
         opponent's deadline as already "past" and wrongly resolve
         no-contest for a genuinely-ordered pair, where the mandated outcome
-        is a normal forfeit (M7 Task 7 review, Critical finding). Comparing
+        is a normal forfeit. Comparing
         ``opponent_deadline`` to ``deadlines[expired_player_id]`` (the
         expiring player's *own*, already-known deadline value) is
         jitter-independent and symmetric regardless of which watcher
@@ -422,7 +419,7 @@ class ReconnectCoordinator:
         # below), aborting the broadcast this method exists to deliver.
         # Only cancel it if this call did *not* originate from that task
         # (e.g. a test invoking `_resolve_expiry` directly while the real
-        # watcher is still pending) -- see M7 Task 7 review, Minor M2.
+        # watcher is still pending).
         own_task = watchers.pop(expired_player_id, None)
         if own_task is not None and own_task is not asyncio.current_task() and not own_task.done():
             own_task.cancel()
@@ -456,8 +453,7 @@ class ReconnectCoordinator:
         # own `_resolve_expiry` call will see `match.state is FINISHED` and
         # return immediately (see the guard above). Routed through
         # `self._on_finish`, if bound, so this is the same finish path
-        # every other `FINISHED` transition uses (M7 Task 7 review,
-        # Important I3) -- the bookkeeping pops above already removed this
+        # every other `FINISHED` transition uses -- the bookkeeping pops above already removed this
         # match's entries from `_watchers`/`_deadlines`, so a hook that
         # loops back into `self.cancel(match_id)` (e.g.
         # `MatchManager.finish_match`) is a harmless no-op here, never a

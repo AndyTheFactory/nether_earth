@@ -30,8 +30,8 @@ from app.protocol.common import (
 class ClientCreateMatch(ProtocolModel):
     """Mirrors client_messages.schema.json `$defs.createMatch`.
 
-    `opponent` is optional (CR004.8, issue #289) and defaults to `"human"`
-    -- absent, it is today's unchanged PvP create. `"computer"` requests a
+    `opponent` is optional and defaults to `"human"`
+    -- absent, it is a PvP create. `"computer"` requests a
     solo match against the engine's AI seat; `app.transport.ws` is the only
     place that reads this field to choose
     `MatchManager.create_match`/`create_solo_match`, so no gameplay
@@ -85,10 +85,10 @@ class ClientLeaveMatch(ProtocolModel):
 class ClientGameplayCommand(ProtocolModel):
     """Mirrors client_messages.schema.json `$defs.gameplayCommand`.
 
-    `payload` is the real discriminated `commandPayload` union (issue #98,
-    `app.protocol.common.CommandPayload`); the envelope fields
-    (matchId/playerId/sessionToken/clientSequence) are stable and did not
-    change when the real payload variants were added.
+    `payload` is the real discriminated `commandPayload` union
+    (`app.protocol.common.CommandPayload`); the envelope fields
+    (matchId/playerId/sessionToken/clientSequence) are stable across
+    payload variants.
     """
 
     model_config = ConfigDict(extra="forbid")

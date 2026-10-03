@@ -1,11 +1,11 @@
-"""In-memory match/session lifecycle layer (M7 Task 2, issue #92).
+"""In-memory match/session lifecycle layer.
 
 Public surface: :class:`~app.match.manager.MatchManager` plus the data
-types/errors it works with, and (M7 Task 4, issue #93)
+types/errors it works with, and
 :class:`~app.match.runtime.MatchRuntimeRegistry`/
 :class:`~app.match.runtime.MatchRuntime`, the async fixed-tick engine-stepping
-layer. No WebSocket/transport code lives here -- see ``AGENTS.md``/the M7
-plan for how later tasks layer transport on top.
+layer. No WebSocket/transport code lives here -- see ``AGENTS.md``;
+``app.transport`` layers transport on top.
 """
 
 from app.match.manager import (

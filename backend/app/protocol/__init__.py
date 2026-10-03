@@ -56,7 +56,7 @@ def parse_client_message(raw: str | bytes) -> InboundMessage:
     required fields, or unexpected extra fields -- i.e. for anything that
     would fail `protocol/schemas/client_messages.schema.json` or
     `protocol/schemas/reconnect.schema.json`'s `clientReconnect` variant.
-    Callers (the WebSocket handler, in a later task) must let this
+    Callers (the WebSocket handler) must let this
     exception reject the message before it reaches `app.match` or engine
     code.
     """
@@ -75,23 +75,23 @@ def serialize_server_message(message: OutboundMessage) -> str:
     (`common.schema.json#/$defs/snapshotState`, carried by `snapshot` and
     `resync`) is one exception, serialized without `exclude_none`: its
     nullable fields (`docked_robot_id`, `horizontal_transition`, `order`,
-    ...) are *required* and must be emitted as `null` (M9.1 audit / M9.6: a
-    real-match snapshot otherwise fails the protocol schema on the wire).
+    ...) are *required* and must be emitted as `null` (a real-match snapshot
+    otherwise fails the protocol schema on the wire).
 
-    `ServerCreated` (CR004.8, issue #289) needs different treatment *per
+    `ServerCreated` needs different treatment *per
     field*, so it cannot just join that exemption list: `join_code` is
     required-but-nullable (a solo match's `null` must be emitted), while
     `opponent` is optional-and-`None`-on-every-PvP-path and must be *dropped*
-    so an existing PvP `created` reply carries no new key on the wire (byte
-    compatibility with clients that predate CR004.8). `model_dump_json` with
+    so a PvP `created` reply carries no `opponent` key on the wire (byte
+    compatibility with clients that do not know it). `model_dump_json` with
     `exclude_none=False` keeps every field, in the model's declared (schema)
     order -- `join_code` where the schema puts it -- and `exclude={"opponent"}`
     drops that key entirely when unset, which never disturbs `join_code`'s
     position. Crucially this emits Pydantic's compact JSON (no `", "` / `": "`
     separators), the same as every other message on the wire -- going
-    through `json.dumps` on a dict (as an earlier fix did) would reintroduce
-    those separators and make a PvP `created` reply byte-different from the
-    pre-CR004 `OutboundMessageAdapter.dump_json` output.
+    through `json.dumps` on a dict would introduce those separators and make
+    a PvP `created` reply byte-different from
+    `OutboundMessageAdapter.dump_json` output.
     """
     if isinstance(message, ServerCreated):
         exclude = {"opponent"} if message.opponent is None else None

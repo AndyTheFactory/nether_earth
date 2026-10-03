@@ -1,4 +1,4 @@
-"""In-memory match/session data model for the M7 lifecycle layer.
+"""In-memory match/session data model for the lifecycle layer.
 
 This module owns *data shapes only* (states, slots, a match record, and the
 error types the lifecycle can raise) -- no lifecycle transition logic. See
@@ -24,10 +24,10 @@ class MatchRuntimeState(Enum):
     """Runtime lifecycle state of one match.
 
     ``WAITING`` -> ``ACTIVE`` and ``ACTIVE``/``WAITING`` -> ``FINISHED``
-    transitions are implemented by ``MatchManager`` (M7 Task 2, issue #92).
+    transitions are implemented by ``MatchManager``.
     ``ACTIVE`` <-> ``PAUSED_DISCONNECTED`` and ``PAUSED_DISCONNECTED`` ->
     ``FINISHED`` (forfeit/no-contest) are implemented by
-    ``app.match.reconnect.ReconnectCoordinator`` (M7 Task 7, issue #96) --
+    ``app.match.reconnect.ReconnectCoordinator`` --
     the only path into ``PAUSED_DISCONNECTED`` is a disconnect notification;
     there is no manual pause in v1.
     """
@@ -44,8 +44,7 @@ class MatchOutcome(Enum):
     Deliberately does **not** cover a normal in-game (engine) victory --
     that result lives entirely in ``GameState`` and is never duplicated
     here. This enum only names the two runtime-level outcomes
-    ``app.match.reconnect.ReconnectCoordinator`` (M7 Task 7, issue #96) can
-    produce.
+    ``app.match.reconnect.ReconnectCoordinator`` can produce.
     """
 
     FORFEIT = "forfeit"
@@ -53,7 +52,7 @@ class MatchOutcome(Enum):
     #: Normal in-game victory (a player owns zero war bases), recorded by
     #: ``app.transport.victory`` from the engine's ``VictoryEvent`` so a
     #: reconnecting client and the replay artifact both see the outcome
-    #: (M9.1 audit gap G2). The engine itself remains the only authority on
+    #: The engine itself remains the only authority on
     #: *whether* victory occurred; this only mirrors its event.
     VICTORY = "victory"
 
@@ -61,7 +60,7 @@ class MatchOutcome(Enum):
 @dataclass(frozen=True, slots=True)
 class MatchResult:
     """A durable runtime-level result annotation, set once a match ends via
-    forfeit or no-contest (M7 Task 7, issue #96 review, Important I2).
+    forfeit or no-contest.
 
     Exists *alongside*, never instead of, whatever engine victory state
     ``GameState`` already carries for a normal in-game win -- this is set
@@ -71,7 +70,7 @@ class MatchResult:
     outcome-bearing broadcast has already gone out -- exactly the case for
     the *winning* side of a both-disconnected forfeit, who by construction
     was not connected to receive it live -- still learns the result, and so
-    a future replay writer (Task 8) has something durable to persist.
+    the replay writer has something durable to persist.
     """
 
     outcome: MatchOutcome
@@ -111,7 +110,7 @@ class Match:
     by ``ReconnectCoordinator``, a normal engine victory by
     ``app.transport.victory`` (see :class:`MatchResult`).
 
-    A solo match (CR004.7, issue #288) has one human ``PlayerSlot`` and an
+    A solo match has one human ``PlayerSlot`` and an
     AI seat named by ``ai_player_id``. The AI seat is not a ``PlayerSlot``:
     it has no nickname, session token or socket, so nothing that iterates
     ``players`` (broadcasts, tokens, replay nicknames) can mistake it for a
@@ -127,7 +126,7 @@ class Match:
     game_state: GameState | None = None
     result: MatchResult | None = None
     #: ``MatchManager``'s monotonic clock at creation / first ``FINISHED``
-    #: transition; drive disposal of abandoned and finished matches (M10.6).
+    #: transition; drive disposal of abandoned and finished matches.
     created_at: float = 0.0
     finished_at: float | None = None
     #: ``MatchManager``'s clock when the last socket left a WAITING lobby;

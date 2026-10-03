@@ -1,12 +1,12 @@
 """``MatchManager``: in-memory match/session lifecycle owner.
 
-Scope (issue #92 / M7 Task 2): create/join/ready lifecycle, guest session
-tokens, and the ``WAITING`` -> ``ACTIVE`` transition that calls
+Scope: create/join/ready lifecycle, guest session tokens, and the
+``WAITING`` -> ``ACTIVE`` transition that calls
 ``nether_earth.engine.new_game`` exactly once. No WebSocket I/O, no
 fixed-tick stepping (``engine.step`` is never called from this module --
 that is ``app.match.runtime.MatchRuntime``'s job, optionally wired in via
-this class's ``runtime`` constructor parameter, M7 Task 4/issue #93), no
-transport (Pydantic) models -- those are separate M7 tasks (3, 4, 5).
+this class's ``runtime`` constructor parameter), no transport (Pydantic)
+models.
 
 Architecture note (AGENTS.md, non-negotiable): this module never implements
 or checks gameplay rules. It calls ``engine.new_game`` once, at match start,
@@ -51,7 +51,7 @@ from app.match.runtime import MatchRuntimeRegistry, TickCommandObserver, TickObs
 #: derive on its own.
 _SEAT_ORDER: tuple[PlayerId, ...] = (PLAYER_ONE, PLAYER_TWO)
 
-#: The seat the engine's AI drives in a solo match (CR004.7, issue #288):
+#: The seat the engine's AI drives in a solo match:
 #: the human creator takes PLAYER_ONE exactly as in PvP, the AI the seat a
 #: joining guest would otherwise take.
 SOLO_AI_SEAT: PlayerId = PLAYER_TWO
@@ -66,14 +66,9 @@ def _default_bootstrap_map(scenario: Scenario) -> BootstrapMap:
     """Return a ``BootstrapMap`` structurally consistent with ``scenario``.
 
     Deliberately does **not** load a real map file from ``data/maps/`` here:
-    this task only reaches ``engine.new_game``, whose sole use of
-    ``map_data`` is the ``map_id``/``version`` cross-check against
-    ``scenario`` (see ``engine.py``'s docstring) -- no terrain/geometry is
-    consumed. Real map-file loading/deployment-path resolution (the
-    ``data/maps/`` directory is not currently shipped into the backend's
-    Docker image, and there is no existing backend config surface for it)
-    is a wiring concern for whichever later task first needs a real
-    ``WorldMap`` for ``engine.step`` (Task 4's fixed-tick runtime). Callers
+    ``engine.new_game``'s sole use of ``map_data`` is the
+    ``map_id``/``version`` cross-check against ``scenario`` (see
+    ``engine.py``'s docstring) -- no terrain/geometry is consumed. Callers
     that already have a properly loaded ``BootstrapMap``/``WorldMap`` should
     pass one to ``MatchManager.__init__`` instead of relying on this
     placeholder.
@@ -117,16 +112,16 @@ class MatchManager:
     Loop-thread only: every caller runs on the asyncio event loop; the lock only serializes the bookkeeping mutation itself and is not a thread-safety guarantee for readers. This is a plain, synchronous, deterministic
     lifecycle layer; nothing here awaits or does network I/O.
 
-    ``runtime``, if supplied, is an optional hook (M7 Task 4, issue #93) into
+    ``runtime``, if supplied, is an optional hook into
     the async fixed-tick layer: the ``WAITING`` -> ``ACTIVE`` transition
     starts a ``MatchRuntime`` for the match, and ``finish_match``/
     ``dispose_match`` cancel it. This class never awaits anything itself --
     ``MatchRuntimeRegistry``'s start/cancel/dispose methods are synchronous
     and non-blocking (see ``runtime.py``'s module docstring for why), so
-    passing ``runtime=None`` (the default) keeps this class exactly as
-    synchronous/event-loop-free as it was before Task 4 existed.
+    passing ``runtime=None`` (the default) keeps this class fully
+    synchronous/event-loop-free.
 
-    ``on_tick_factory``, if supplied (M7 Task 6, issue #95), is called once
+    ``on_tick_factory``, if supplied, is called once
     with the ``Match`` being started, at the moment its runtime starts; its
     return value (a ``TickObserver`` or ``None``) is passed to
     ``MatchRuntimeRegistry.start``. A factory rather than one shared
@@ -136,7 +131,7 @@ class MatchManager:
     concrete body is supplied by whoever constructs this class
     (``app.main``).
 
-    ``reconnect``, if supplied (M7 Task 7, issue #96), is the async
+    ``reconnect``, if supplied, is the async
     disconnect/reconnect-grace policy layer: ``mark_disconnected``/
     ``mark_reconnected`` delegate to it, and ``finish_match``/
     ``dispose_match`` cancel its pending deadline-watcher tasks for the
@@ -144,11 +139,11 @@ class MatchManager:
     wiring. Like ``runtime``, this class never awaits anything itself --
     ``ReconnectCoordinator``'s public methods are synchronous facades over
     asyncio internals (see its module docstring), so passing
-    ``reconnect=None`` (the default) keeps this class exactly as
-    synchronous/event-loop-free as before Task 7 existed.
+    ``reconnect=None`` (the default) keeps this class fully
+    synchronous/event-loop-free.
 
     ``on_tick_commands_factory``, ``on_match_start``, and ``on_match_finish``
-    (M7 Task 8, issue #97) are the filesystem replay writer's hook points,
+    are the filesystem replay writer's hook points,
     mirroring ``on_tick_factory``'s own closure-per-match style so this
     class never imports ``app.replay`` (its concrete callback bodies are
     supplied by whoever constructs this class -- ``app.main``):
@@ -171,8 +166,7 @@ class MatchManager:
 
     None of these three are awaited -- like every other hook this class
     already supports, they must be plain synchronous callables so this
-    class stays exactly as synchronous/event-loop-free as before Task 8
-    existed.
+    class stays synchronous/event-loop-free.
     """
 
     def __init__(
@@ -194,12 +188,12 @@ class MatchManager:
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
-        # ``world`` (M9.1 audit gap G1): the scenario-overlaid real map. When
+        # ``world``: the scenario-overlaid real map. When
         # supplied it is the source of truth for both the tick-0 state
         # (``scenario.create_initial_state``: commanders, resource pools,
         # starting ownership) and every ``engine.step`` in ``MatchRuntime``.
-        # ``None`` keeps the M7 placeholder behaviour for unit tests that only
-        # exercise lifecycle bookkeeping.
+        # ``None`` keeps the placeholder bootstrap map for unit tests that
+        # only exercise lifecycle bookkeeping.
         self._world = world
         if map_data is not None:
             self._map_data = map_data
@@ -215,10 +209,10 @@ class MatchManager:
         self._on_tick_commands_factory = on_tick_commands_factory
         self._on_match_start = on_match_start
         self._on_match_finish = on_match_finish
-        # Capacity bound (M10.4): matches in any state count, so abandoned
+        # Capacity bound: matches in any state count, so abandoned
         # lobbies cannot grow memory without limit. ``None`` = unbounded.
         self._max_matches = max_matches
-        # Disposal policy for `sweep` (M10.6); ``None`` = keep forever.
+        # Disposal policy for `sweep`; ``None`` = keep forever.
         self._finished_retention_s = finished_retention_s
         self._waiting_timeout_s = waiting_timeout_s
         self._abandoned_lobby_grace_s = abandoned_lobby_grace_s
@@ -399,7 +393,7 @@ class MatchManager:
         if self._on_match_start is not None:
             # Before the runtime starts (see below) -- a replay writer must
             # see the match's identity/seed/scenario before any tick it
-            # will ever be asked to append (M7 Task 8, issue #97).
+            # will ever be asked to append.
             self._on_match_start(match, scenario, self._map_data)
         if self._runtime is not None:
             # Whenever `on_tick_factory` actually produced an observer,
@@ -472,7 +466,7 @@ class MatchManager:
         """Explicit disposal hook: remove ``match_id`` and all its indices.
 
         No persistence happens here or anywhere else in this module (replay
-        persistence is Task 8's filesystem writer, invoked by the runtime
+        persistence is the filesystem replay writer, invoked by the runtime
         layer *before* disposal, not by ``MatchManager`` itself). Raises
         ``MatchNotFoundError`` for an unknown id so a caller cannot silently
         double-dispose.
@@ -563,12 +557,12 @@ class MatchManager:
     def mark_disconnected(self, session_token: str) -> None:
         """Record that the connection owning ``session_token`` has closed.
 
-        Delegates to the ``reconnect`` policy layer (M7 Task 7, issue #96),
+        Delegates to the ``reconnect`` policy layer,
         if one was supplied: it pauses the match on the first currently-
         disconnected player and starts that player's reconnect grace timer
         (see ``ReconnectCoordinator.mark_disconnected``). With
-        ``reconnect=None`` this remains the pre-Task-7 no-op bookkeeping
-        call (e.g. tests that only need session/lifecycle bookkeeping and no
+        ``reconnect=None`` this is a no-op bookkeeping call (e.g. tests that only need
+        session/lifecycle bookkeeping and no
         asyncio at all). An unknown token (e.g. notification for an
         already-disposed match) is silently ignored rather than raising,
         since "the match is already gone" is an expected, non-exceptional
@@ -584,7 +578,7 @@ class MatchManager:
     def mark_reconnected(self, session_token: str) -> None:
         """Record that the connection owning ``session_token`` has reattached.
 
-        Delegates to the ``reconnect`` policy layer (M7 Task 7, issue #96),
+        Delegates to the ``reconnect`` policy layer,
         if one was supplied: it cancels that player's reconnect grace timer
         and, once both players are connected again, resumes the match (see
         ``ReconnectCoordinator.mark_reconnected``). A no-op (like

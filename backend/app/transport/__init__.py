@@ -1,4 +1,4 @@
-"""WebSocket transport layer (M7 Task 5/6, issues #94/#95).
+"""WebSocket transport layer.
 
 Public surface: :func:`~app.transport.ws.create_websocket_router` (the
 ``/ws`` endpoint factory) and :class:`~app.transport.connections.ConnectionRegistry`

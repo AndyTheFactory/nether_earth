@@ -1,4 +1,4 @@
-"""Standard v1 world loading for the backend composition root (M7 gap fixed in M9.1).
+"""Standard v1 world loading for the backend composition root.
 
 ``MatchManager`` needs a real, scenario-overlaid ``WorldMap`` for
 ``engine.new_game``/``MatchRuntime`` (see ``manager.py``): this module is the

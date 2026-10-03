@@ -1,4 +1,4 @@
-"""Process logging: one stdout stream, JSON lines in production (M10.5).
+"""Process logging: one stdout stream, JSON lines in production.
 
 Lifecycle records carry their context as ``extra`` fields (``event``,
 ``match_id``, ``player_id``, ...), which this formatter emits as top-level
