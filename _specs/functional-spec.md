@@ -309,7 +309,8 @@ Construction preserves original Spectrum behavior:
 - deselecting a component refunds its cost into its type-specific pool up to that pool's amount when the screen opened, and the rest into general resources;
 - picking a different chassis while one is fitted swaps it: the fitted chassis is refunded and removed first, then the new chassis is paid for; if the new chassis is unaffordable even after that refund, it is rejected and the robot is left with no chassis (the Spectrum does not restore the old one); weapons and electronics are unaffected;
 - resources are committed only when **Start Robot** succeeds;
-- exiting/canceling before launch consumes no resources.
+- exiting/canceling before launch consumes no resources;
+- daily production credited while the construction screen is open is lost when the robot launches, because the launch commits the buffer copied when the screen opened; leaving with EXIT MENU keeps it (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)).
 
 ## 11. Robot construction
 
@@ -416,7 +417,7 @@ Available after docking:
 - orders menu;
 - combat control.
 
-Direct control moves the docked robot one cell at a time with exactly the same movement rules as autonomous movement, including turning. Combat control fires a chosen fitted weapon in the robot's facing; a nuclear weapon detonates on the spot. The client offers orders, direct control and combat control only for the robot the commander is docked on. The engine accepts order and fire commands for any robot the player owns (the computer seat gives orders this way); only direct control requires a docked commander.
+Direct control moves the docked robot one cell at a time with exactly the same movement rules as autonomous movement, including turning. Combat control fires a chosen fitted weapon in the robot's facing; a nuclear weapon detonates on the spot. The client offers orders, direct control and combat control only for the robot the commander is docked on. The engine accepts order and fire commands for any robot the player owns (the computer seat gives orders this way); only direct control requires a docked commander. Whether undocked robots should be able to fire is pending an owner decision (see [open-questions.md](open-questions.md#3-owner-decisions-pending)).
 
 ## 16. Autonomous orders
 
@@ -425,14 +426,14 @@ Supported orders:
 - **Stop & Defend** — hold position and engage enemy robots in range (a newly launched robot first walks out of its war base, §11). It is the fallback for every other order.
 - **Advance N** — move East 0–50 miles, then Stop & Defend. The goal column is fixed when the order starts and clamped to the map; detours north or south do not change it.
 - **Retreat N** — move West 0–50 miles, then Stop & Defend, as for Advance.
-- **Search & Capture** — target neutral factories, enemy factories, or war bases. The war-base target takes **any war base not already the ordering player's**, neutral ones included; the factory targets keep the original's split. The order never completes and never falls back: the robot walks to the nearest matching structure that no other friendly robot with the same order already targets, holds its capture cell (still defending) until the structure changes hands, then retargets and leaves. Selection is re-run on every evaluation, so a structure that changes hands nearer to the robot than its current target pulls it in — except while the robot stands on its target's capture cell, where the capture in progress is never abandoned. With no matching structure it keeps the order and holds position until one appears.
+- **Search & Capture** — target neutral factories, enemy factories, or war bases. The war-base target takes **any war base not already the ordering player's**, neutral ones included; the factory targets keep the original's split. The order never completes and never falls back: the robot walks to the nearest matching structure that no other friendly robot with the same order already targets, holds its capture cell (still defending) until the structure changes hands, then retargets and leaves. Selection is re-run on every evaluation (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)), so a structure that changes hands nearer to the robot than its current target pulls it in — except while the robot stands on its target's capture cell, where the capture in progress is never abandoned. With no matching structure it keeps the order and holds position until one appears.
 - **Search & Destroy** — target enemy robots, or factories or war bases not owned by the player (neutral ones included).
 
 Order fallbacks:
 
 - an order that is invalid when given becomes Stop & Defend;
 - Advance/Retreat fall back when the robot already stands at the map edge it was told to head for, or when an electronic robot finds no route at all;
-- Search & Destroy against robots falls back only when no hostile robot remains (a robot whose only weapon is nuclear keeps hunting but never fires, §16.2). While a hostile robot exists, the robot closes on the nearest one and engages it, even when no route exists right now (it then steps directly toward it, or waits). It closes to a *lane-aligned* position — the two 2×2 bodies facing each other along a full edge, never corner to corner or one cell off the lane — because a shot travels along the firing robot's facing; when no lane-aligned position is reachable, any edge-touching position will do;
+- Search & Destroy against robots falls back only when no hostile robot remains (a robot whose only weapon is nuclear keeps hunting but never fires, §16.2; owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)). While a hostile robot exists, the robot closes on the nearest one and engages it, even when no route exists right now (it then steps directly toward it, or waits). It closes to a *lane-aligned* position — the two 2×2 bodies facing each other along a full edge, never corner to corner or one cell off the lane — because a shot travels along the firing robot's facing; when no lane-aligned position is reachable, any edge-touching position will do;
 - Search & Destroy against a factory or war base requires a nuclear weapon; a robot without one falls back. It also falls back when no such structure exists or an electronic robot finds no route.
 
 Stop & Defend engages the nearest hostile robot; so does Search & Capture while it holds position (on its capture cell, or with nothing to take). Search & Destroy (robots) engages its chosen target. Advance, Retreat, a Search & Capture robot on its way, and a Search & Destroy robot heading for a structure do not engage. A robot engages with the first fitted normal weapon (cannon, missile, phaser, in that order) whose range, plus the electronics bonus, reaches the target's anchor (Manhattan distance).
@@ -504,7 +505,7 @@ with integer floor division, and default multipliers:
 
 `robot_height` is the target's stack height (§12). `ground_height` is the highest surface (terrain piece, structure or scenery) under the target's 2×2 body: 2–3 on rough, 6 on mountains, 3 on debris, 0 on normal and ditch cells. A robot on high ground therefore takes less damage. A phaser hit on a tracks + cannon robot on flat ground deals 44.
 
-Robots start with strength 100. A hit that brings strength to 0 or below destroys the robot at once. Every hit that connects deals damage: there is no hit roll, no component damage, and electronics affects range only.
+Robots start with strength 100. A hit that brings strength to 0 or below destroys the robot at once: it is removed immediately, without the original's short blink before removal (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)). Every hit that connects deals damage: there is no hit roll, no component damage, and electronics affects range only.
 
 The formula is isolated behind one engine function; multipliers are centralized config. Further combat-fidelity research is tracked in [open-questions.md](open-questions.md).
 
@@ -515,7 +516,7 @@ Nuclear detonation is separate from normal projectiles. It creates no projectile
 Blast shapes, from the Spectrum code, measured from the carrier before anything is destroyed:
 
 - **Robots:** every robot, of either player, whose anchor is inside a 9×9 window centred on the carrier with trimmed corners (row widths 5, 7, 9, 9, 9, 9, 9, 7, 5) is destroyed.
-- **Buildings:** at most **one** building is destroyed per detonation. War bases are checked first, then factories, each in map order; the first building in range is destroyed, whoever owns it. Distances are measured to the building's capture cell: dx = |carrier.x − building.x|, dy = |carrier.y + 1 − building.y| (a war base adds 4 to carrier.y first).
+- **Buildings:** at most **one** building is destroyed per detonation. War bases are checked first, then factories, each in map order (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)); the first building in range is destroyed, whoever owns it. Distances are measured to the building's capture cell: dx = |carrier.x − building.x|, dy = |carrier.y + 1 − building.y| (a war base adds 4 to carrier.y first).
   - A war base is in range when dx < 7, dy < 7, and dx + dy < 10.
   - A factory is in range when dx < 5, dy < 5, and dx + dy < 7.
 - **Carrier:** always destroyed.
@@ -536,7 +537,7 @@ Runtime behavior in v1:
 - a reconnecting player receives the current authoritative snapshot;
 - the match resumes only when every human player is connected;
 - a player whose grace expires while the opponent is still eligible to win — connected, or disconnected with a later grace deadline — forfeits;
-- if both players are disconnected, each has its own grace deadline; the one that expires first forfeits, and only when both expire at the same moment does the match end as no-contest;
+- if both players are disconnected, each has its own grace deadline; the one that expires first forfeits, and only when both expire at the same moment does the match end as no-contest (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending));
 - in a solo match the computer seat never disconnects, so the human's expiry is always a forfeit;
 - no manual pause in v1.
 

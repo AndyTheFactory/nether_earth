@@ -311,7 +311,9 @@ Abbreviations: FS = [functional-spec.md](functional-spec.md), TS = [technical-sp
 
 ### Disconnect and reconnect rules
 
-- **Decision:** a disconnect pauses the match at once and the simulation stops while paused. Grace period 60 s (configurable). A reconnect receives the current snapshot; the match resumes only when both players are connected. A player whose grace expires while the opponent is still eligible (connected, or within a later grace deadline) forfeits. Only when both deadlines expire together does the match end as no-contest. No manual pause. Reconnect state never mutates engine state.
+- **Decision (as locked):** a disconnect pauses the match at once and the simulation stops while paused. Grace period 60 s (configurable). A reconnect receives the current snapshot; the match resumes only when both players are connected. Grace expiry makes the disconnected player forfeit when an opponent remains eligible to win. If both are disconnected, each has an independent deadline, and if both expire without either returning the match ends as no-contest. No manual pause. Reconnect state never mutates engine state.
+- **Implemented:** `ReconnectCoordinator._resolve_expiry` (`backend/app/match/reconnect.py`) compares deadline values: the player whose deadline expires first forfeits while the other is still within grace, even if that player never returns; no-contest only on an exact tie of the deadlines.
+- **Status:** the both-disconnected case is pending owner decision (spec/code disagreement 4, [open-questions.md](open-questions.md#3-owner-decisions-pending)).
 - **Source:** initial specification lock; solo matches added by CR004 (owner decision 2026-09-25: same as PvP for the human).
 - **Evidence:** project rule; `backend/app/match/reconnect.py`.
 - **Rule:** [FS §18](functional-spec.md#18-disconnect-and-reconnect), [TS §20](technical-spec.md#20-disconnectreconnect-runtime-policy).

@@ -535,7 +535,7 @@ SearchDestroy(target)                       # target: robot | factory | war_base
 
 `orders.evaluate_orders` evaluates every robot that holds an order and is not docked, in canonical robot order; evaluations are pure reads of one entry state, applied afterwards. Each yields the order to hold, a lifecycle status (`ACTIVE`, `COMPLETED`, `FALLBACK`), an optional move request and an optional engagement intent. Invalid or impossible orders revert to Stop & Defend.
 
-`SearchCapture` never completes or falls back. Each evaluation re-selects the nearest matching structure (by Manhattan distance to its capture cell, ties by structure id) that no other same-owner robot with the same target type holds (`orders.claimed_structures`; a robot that retargets earlier in the same tick is seen by later robots), except that a robot standing on its current target's capture cell keeps that target. On that cell it holds with the defensive intent, turning to face out of the structure (`capture.outward_facing`); with no match it holds. `structure_id` is serialized in snapshots/replays and cleared on order assignment; the order-command payload is unchanged.
+`SearchCapture` never completes or falls back. Each evaluation re-selects (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)) the nearest matching structure (by Manhattan distance to its capture cell, ties by structure id) that no other same-owner robot with the same target type holds (`orders.claimed_structures`; a robot that retargets earlier in the same tick is seen by later robots), except that a robot standing on its current target's capture cell keeps that target. On that cell it holds with the defensive intent, turning to face out of the structure (`capture.outward_facing`); with no match it holds. `structure_id` is serialized in snapshots/replays and cleared on order assignment; the order-command payload is unchanged.
 
 `SearchDestroy` against structures requires a nuclear module and selects the nearest factory/war base not owned by the robot's owner; it completes on the tick the robot stands on the target's capture cell, with a structure intent that detonates (§18).
 
@@ -557,7 +557,7 @@ Projectile:
     first_advance_tick
 ```
 
-Fire validation (`combat.validate_fire`, then `combat.apply_fire`): the robot exists, belongs to the requesting player, has the weapon fitted; for a normal weapon, its channel is free (`CHANNEL_OCCUPIED`), it is not mid-turn (`TURNING`) and it has not fired in this fire cycle `tick // robot_fire_cycle_ticks` (`ALREADY_FIRED_THIS_CYCLE`). Nuclear passes straight to detonation. `FireCommand` is accepted for any robot the player owns; the client sends it only for the docked robot.
+Fire validation (`combat.validate_fire`, then `combat.apply_fire`): the robot exists, belongs to the requesting player, has the weapon fitted; for a normal weapon, its channel is free (`CHANNEL_OCCUPIED`), it is not mid-turn (`TURNING`) and it has not fired in this fire cycle `tick // robot_fire_cycle_ticks` (`ALREADY_FIRED_THIS_CYCLE`). Nuclear passes straight to detonation. `FireCommand` is accepted for any robot the player owns; the client sends it only for the docked robot (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)).
 
 A robot has at most one active normal projectile. Default normal projectile altitude: **10** for cannon, missile, and phaser, independent of robot height. Projectile lifecycle is authoritative world logic and never depends on viewport dimensions.
 
@@ -594,7 +594,7 @@ Do not duplicate combat math outside the engine. Remaining combat-fidelity resea
 Blast shapes follow the Spectrum code (FS §17.3). They are not a uniform radius. `destruction.execute_nuclear_detonation`, measured from the carrier's position before any destruction:
 
 1. robots: every other robot whose anchor is inside the carrier-centred window with row widths `nuclear_robot_window_row_widths`;
-2. buildings: scan war bases, then factories, in map order; destroy the **first** one in range, measured to its capture cell (war base: dx<7, dy<7, dx+dy<10; factory: dx<5, dy<5, dx+dy<7; dy measured from carrier.y+1, plus 4 for war bases); at most one building per detonation;
+2. buildings: scan war bases, then factories, in map order (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)); destroy the **first** one in range, measured to its capture cell (war base: dx<7, dy<7, dx+dy<10; factory: dx<5, dy<5, dx+dy<7; dy measured from carrier.y+1, plus 4 for war bases); at most one building per detonation;
 3. scenery: every `destructible` blocker whose bottom-left (anchor) cell is inside the robot window becomes debris (`GameState.scenery_debris`); fences are not destructible;
 4. destruction order: carrier, then robots in canonical order, then the building;
 5. victory is evaluated when a war base was destroyed.
@@ -652,7 +652,7 @@ This is runtime/session policy (`ReconnectCoordinator`), not deterministic game-
 - default grace period = 60 wall-clock seconds, configurable per coordinator;
 - reconnect (the `reconnect` message with the session token) cancels the player's deadline and sends a `resync` with the current authoritative snapshot;
 - the simulation resumes only when every human player is connected;
-- when a deadline expires, the deadline values are compared, not a fresh clock reading: if the opponent is connected or its deadline is later, the expiring player forfeits; if the opponent's deadline is equal or earlier, the match ends as no-contest;
+- when a deadline expires, the deadline values are compared, not a fresh clock reading: if the opponent is connected or its deadline is later, the expiring player forfeits; if the opponent's deadline is equal or earlier, the match ends as no-contest (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending));
 - the AI seat is never disconnected, so a solo human's expiry is a forfeit;
 - no manual pause in v1.
 
@@ -660,7 +660,7 @@ The engine state is unchanged during a disconnect pause. A `leave` message is tr
 
 ## 21. Protocol
 
-JSON Schema (`protocol/schemas/*.schema.json`) is the protocol source of truth. Generated TS types (`protocol/generated/types.ts`) and backend Pydantic models (`backend/app/protocol/`) must remain synchronized; CI regenerates the types and fails on drift. Every message carries `protocolVersion`.
+JSON Schema (`protocol/schemas/*.schema.json`) is the protocol source of truth. The message names below follow the schemas (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)). Generated TS types (`protocol/generated/types.ts`) and backend Pydantic models (`backend/app/protocol/`) must remain synchronized; CI regenerates the types and fails on drift. Every message carries `protocolVersion`.
 
 Client messages:
 
@@ -731,7 +731,7 @@ Only human-submitted commands are persisted; AI commands are re-derived by stepp
 
 Writes run on a single worker thread so they never block the event loop and each match's lines stay in order. At most `MAX_PENDING_WRITES` (10,000) writes may be queued; beyond that a write is dropped and reported (`replay_write_failed`, action `backlog`), which `verify_replay` would then detect as a mismatch.
 
-Artifact status: `in_progress` at start, `finished` at the end. At startup every artifact still `in_progress` is marked `interrupted` (its process died). When `NETHER_EARTH_REPLAY_RETENTION_DAYS` is set, `finished`/`interrupted` artifacts older than that (by `meta.json` modification time) are deleted hourly; unset, nothing is deleted. Whether production should prune by default is an operational choice for the owner and is not yet made.
+Artifact status: `in_progress` at start, `finished` at the end. At startup every artifact still `in_progress` is marked `interrupted` (its process died). When `NETHER_EARTH_REPLAY_RETENTION_DAYS` is set, `finished`/`interrupted` artifacts older than that (by `meta.json` modification time) are deleted hourly; unset, nothing is deleted. Whether production should prune by default is not yet decided (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)).
 
 Replay contract (`backend/app/replay/verify.py`):
 
@@ -771,7 +771,7 @@ Spectrum presentation (FS §19):
 
 ## 24. Deployment and supply chain
 
-Environment-only settings (`backend/app/config.py`), all optional in development; `NETHER_EARTH_ENV=production` (set by the image) turns a missing required value into a startup failure:
+Environment-only settings (`backend/app/config.py`, names as implemented (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending))), all optional in development; `NETHER_EARTH_ENV=production` (set by the image) turns a missing required value into a startup failure:
 
 ```text
 NETHER_EARTH_ENV                               production | development
