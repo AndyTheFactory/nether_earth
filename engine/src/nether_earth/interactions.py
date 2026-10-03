@@ -57,7 +57,7 @@ def _interaction_kind_from_raw(value: Any, *, context: str) -> InteractionKind:
 
 
 # Which structure kind each interaction kind is semantically allowed to
-# attach to, per `_specs/functional-spec.md` §8.6/§9.3/§9.4: heli-pads and
+# attach to, per `_specs/functional-spec.md` §§7-9: heli-pads and
 # exits are war-base concepts, factory capture applies to factories, and
 # war-base capture (optional, `_specs/resolved-questions.md`) applies only to
 # war bases.
@@ -86,7 +86,7 @@ def parse_interaction_points(
     ``kind`` attaches only to the structure kind it is semantically valid
     for: ``HELI_PAD``/``EXIT``/``WARBASE_CAPTURE`` require a war base id,
     ``FACTORY_CAPTURE`` requires a factory id (`_specs/functional-spec.md`
-    §8.6/§9.3/§9.4). ``width``/``height`` bound-check every footprint cell
+    §§7-9). ``width``/``height`` bound-check every footprint cell
     against the map dimensions, mirroring ``terrain.parse_terrain_grid``.
 
     Validates duplicate ids, unknown kind strings, dangling ``structure_id``

@@ -446,7 +446,7 @@ class Robot:
     #: `robot_launch.py` and `orders.py`.
     exit_steps_remaining: int = 0
     #: The cardinal direction this robot's body faces (owner request,
-    #: 2026-09-23). Presentation only -- see :class:`RobotFacing`. A robot
+    #: 2026-09-23). Feeds turning and fire direction -- see :class:`RobotFacing`. A robot
     #: is launched facing south, the direction it walks out of its war
     #: base's doorway (`La6c8` sets ``ROBOT_STRUCT_DIRECTION`` 4, "down",
     #: before the walk-out; see `robot_launch.py`).

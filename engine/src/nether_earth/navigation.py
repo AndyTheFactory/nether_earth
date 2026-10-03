@@ -816,7 +816,7 @@ class NonElectronicNavigation:
     :attr:`NavigationStatus.BLOCKED`.
 
     Steps 2 and 3 are the Spectrum's own behavior, not an improvement on it
-    (`_specs/resolved-questions.md` "Dumb vs electronic navigation"/§22.6). ``Lb222_choose_direction_to_move``
+    (`_specs/resolved-questions.md` "Dumb vs electronic navigation"). ``Lb222_choose_direction_to_move``
     intersects the directions that point at the target with the directions
     the robot may actually move in (``Lb513_get_robot_movement_possibilities``)
     and picks one at random; when that intersection is empty it falls through

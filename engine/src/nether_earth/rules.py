@@ -343,7 +343,7 @@ class EngineRules:
       shot uses up one time step, so neither fires twice in a cycle.
     - ``dumb_wander_commit_ticks``: how long, in ticks, a non-electronic
       robot keeps trying the same detour direction when its greedy step
-      toward the target is blocked (`_specs/resolved-questions.md` "Dumb vs electronic navigation"/§22.6).
+      toward the target is blocked (`_specs/resolved-questions.md` "Dumb vs electronic navigation").
       The Spectrum's dumb AI commits to a randomly chosen direction for
       ``rand & 3 + 3`` = 3-6 game cycles
       (``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING``, ``Lb1f5``) before
