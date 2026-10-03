@@ -10,12 +10,14 @@ Agents must treat the specifications as the product contract and must not invent
 
 Read these files before planning or implementing work:
 
-1. `_specs/functional-spec.md` — gameplay and product behavior
+1. `_specs/functional-spec.md` — gameplay and product behavior (the current rules)
 2. `_specs/technical-spec.md` — architecture and implementation constraints
 3. `_specs/open-questions.md` — unresolved decisions that must not be guessed
-4. `_specs/references.md` — authoritative reference material
-5. `_specs/agentic-programming-prd.md` — agentic development workflow
-6. `_specs/milestones/` — milestone specifications and acceptance gates
+4. `_specs/resolved-questions.md` — decided questions: the decision, its source and evidence
+5. `_specs/deviations-from-original.md` — intentional differences from the ZX Spectrum, not to be "fixed"
+6. `_specs/references.md` — authoritative reference material
+7. `_specs/agentic-programming-prd.md` — agentic development workflow
+8. `docs/mechanics/` — how the engine implements each rule, module by module, with constants and the tests that pin them
 
 When documents conflict, stop and surface the conflict rather than silently choosing an interpretation.
 
@@ -57,11 +59,11 @@ It is acceptable to build interfaces, data structures, fixtures, or placeholders
 If not specified otherwise use git worktrees for task branches.
 Clean up your worktree after finishing a task to avoid clutter and potential conflicts.
 
-Milestone specifications are planning documents. When implementation of a milestone begins, its candidate tasks are turned into GitHub issues.
+The original milestones (M0–M10) and change requests CR001–CR005 are complete; their decisions now live in the specifications above. New work arrives as change requests tracked as GitHub issues: the owner's request and decisions go in the issue, the work is split into task issues that reference it, and the specifications are updated in the same pull request as the behaviour they describe.
 
-If milestone tasks are created, try to implement them in a parallel (if possible) and incremental manner, ensuring that each task can be independently verified and integrated.
+Implement change-request tasks in a parallel (where possible) and incremental manner, ensuring that each task can be independently verified and integrated.
 
-Milestone planning should result in clear GitHub issues tagged with the relevant milestone and any necessary context.
+Change-request planning should result in clear GitHub issues that link the parent change request and carry the context a task needs.
 
 Implement the issue on a dedicated branch/worktree where practical.
 Create commits after relevant changes have been made and tested.

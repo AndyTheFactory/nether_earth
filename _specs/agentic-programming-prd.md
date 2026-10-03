@@ -11,7 +11,11 @@ This PRD governs **how the software is built**. The game behavior itself remains
 - `_specs/functional-spec.md`
 - `_specs/technical-spec.md`
 - `_specs/open-questions.md`
+- `_specs/resolved-questions.md`
+- `_specs/deviations-from-original.md`
 - `_specs/references.md`
+
+How the engine implements the rules is explained in `docs/mechanics/`.
 
 When this PRD conflicts with those files on game behavior or architecture, the functional and technical specifications take precedence.
 
@@ -21,7 +25,7 @@ When this PRD conflicts with those files on game behavior or architecture, the f
 
 Create a repeatable agentic development flow in which a human can give a high-level instruction such as:
 
-> Implement the next safe milestone from the Nether Earth specs.
+> Implement the next change request from the Nether Earth specs.
 
 The system should then be able to:
 
@@ -127,7 +131,7 @@ The agentic flow covers:
 
 - repository inspection;
 - spec parsing and requirement extraction;
-- milestone planning;
+- change-request planning;
 - task decomposition;
 - dependency analysis;
 - parallel task execution;
@@ -166,7 +170,7 @@ The project owner/developer supervising the Nether Earth implementation.
 
 The primary user wants to:
 
-- specify intent at milestone or feature level rather than micromanaging individual files;
+- specify intent at change-request or feature level rather than micromanaging individual files;
 - run multiple agents safely in parallel;
 - minimize repeated explanation of project rules;
 - receive explicit escalation only when a genuine decision is required;
@@ -195,10 +199,12 @@ Before planning work, the orchestrator must inspect at minimum:
 1. `_specs/functional-spec.md`
 2. `_specs/technical-spec.md`
 3. `_specs/open-questions.md`
-4. `_specs/references.md`
-5. current repository tree;
-6. current branch and outstanding changes;
-7. existing tests and CI configuration once present.
+4. `_specs/resolved-questions.md` and `_specs/deviations-from-original.md`
+5. `_specs/references.md`
+6. `docs/mechanics/` pages for the areas the work touches;
+7. current repository tree;
+8. current branch and outstanding changes;
+9. existing tests and CI configuration.
 
 As the repository grows, repository-local agent instructions such as `AGENTS.md` or equivalent must also be loaded before implementation.
 
@@ -235,24 +241,20 @@ and:
 
 The agentic flow uses four levels.
 
-### 8.1 Milestone
+### 8.1 Change request
 
-A meaningful end-to-end capability or architecture stage.
+A meaningful capability or change the owner requests, tracked as a GitHub issue that records the request and the owner's decisions. The original milestones (M0–M10: skeleton, engine foundation, map, commander, construction, orders, combat, multiplayer, frontend, PvP slice, release hardening) and change requests CR001–CR005 are complete, and their decisions are folded into the specifications.
 
 Examples:
 
-- project skeleton and quality gates;
-- deterministic engine foundation;
-- map/world model;
-- commander movement and collision;
-- robot construction;
-- multiplayer match transport;
-- frontend rendering/input;
-- PvP vertical slice.
+- a fidelity correction from new disassembly evidence;
+- a playtest fix list;
+- a new mode such as the AI opponent;
+- a hardening or operations change.
 
 ### 8.2 Workstream
 
-A coherent technical area within a milestone.
+A coherent technical area within a change request.
 
 Typical workstreams:
 
@@ -311,7 +313,7 @@ One physical agent/runtime may perform more than one role, but responsibilities 
 Responsibilities:
 
 - inspect specs and repository state;
-- choose the next implementation-ready milestone;
+- choose the next implementation-ready change request;
 - decompose work;
 - detect dependencies;
 - identify safe parallelism;
@@ -399,11 +401,11 @@ OPEN_BLOCKING
 ALREADY_IMPLEMENTED
 ```
 
-### Step 3 — Select a milestone
+### Step 3 — Select a change request
 
-Prefer the smallest milestone that creates a useful, testable capability and unblocks later work.
+Prefer the smallest change request that creates a useful, testable capability and unblocks later work.
 
-Early milestones should favor architecture and deterministic engine foundations before presentation polish.
+Engine and determinism changes come before presentation polish when both are pending.
 
 ### Step 4 — Decompose into tasks
 
@@ -486,7 +488,7 @@ Each implementation task should execute on an isolated branch/worktree.
 Recommended naming:
 
 ```text
-agent/<milestone>/<task-slug>
+agent/<change-request>/<task-slug>
 ```
 
 Examples:
@@ -594,11 +596,11 @@ Required for frontend changes:
 
 ### Integration gate
 
-Required before a milestone is considered complete:
+Required before a change request is considered complete:
 
 - all included task-level tests pass together;
 - backend and frontend agree on protocol schema/version;
-- at least one milestone-level scenario test passes;
+- at least one scenario test covering the change request passes;
 - no newly introduced TODO represents a hidden product decision;
 - spec traceability is intact.
 
@@ -780,10 +782,10 @@ The report is evidence for review, not a substitute for inspecting the diff.
 
 The orchestrator should present progress by capability rather than by raw file count.
 
-Recommended milestone status:
+Recommended change-request status:
 
 ```text
-Milestone: Deterministic engine foundation
+Change request: Deterministic engine foundation
 Status: 4/6 tasks integrated
 
 Integrated
@@ -870,7 +872,9 @@ Refactors should be separately justified and bounded.
 
 ---
 
-## 25. Suggested first implementation milestones
+## 25. Original implementation sequence (complete)
+
+The first milestones as originally planned, kept as a record. Milestones M0–M10 are complete; new work follows §8.1.
 
 The exact task plan should be generated from current repository state, but the following is a reasonable initial sequence for the currently spec-only repository.
 
@@ -952,13 +956,13 @@ Subsequent milestones should expand rules in a dependency-aware sequence while c
 
 The agentic development flow is successful when:
 
-1. a human can request milestone-level work without re-explaining repository architecture;
+1. a human can request change-request-level work without re-explaining repository architecture;
 2. agents reliably distinguish locked requirements from unresolved questions;
 3. implementation tasks are independently reviewable and resumable;
 4. multiple safe tasks can run concurrently without sharing mutable workspaces;
 5. gameplay rules remain centralized in the deterministic engine;
 6. every completed task provides objective verification evidence;
-7. integration failures are detected before milestone completion;
+7. integration failures are detected before a change request is completed;
 8. open questions remain visible and explicitly managed rather than becoming accidental implementation decisions;
 9. a new agent can reconstruct why a piece of code exists from repository artifacts rather than chat history;
 10. the project can progress incrementally from specifications to a complete PvP v1 without architectural drift.
@@ -970,14 +974,14 @@ The agentic development flow is successful when:
 This PRD is considered implemented when the repository has an agent workflow that can demonstrate the following end-to-end behavior:
 
 1. inspect the specs and repository;
-2. propose an implementation-ready milestone;
+2. propose an implementation-ready change request;
 3. generate a dependency-aware task plan;
 4. mark tasks touching unresolved rules as blocked/research rather than inventing behavior;
 5. run at least two independent tasks in isolated branches/worktrees where safe;
 6. require tests and completion reports;
 7. run an independent review step;
 8. integrate verified work;
-9. run milestone-level verification;
+9. run change-request-level verification;
 10. report remaining blocked decisions and implemented spec coverage.
 
 The specific orchestration framework or coding-agent vendor is intentionally not locked by this PRD. The workflow contract should remain usable with different agent runtimes.

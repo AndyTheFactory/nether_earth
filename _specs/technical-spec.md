@@ -1,5 +1,7 @@
 # Nether Earth Clone — Technical Specification
 
+This document states the implemented architecture and its constraints. Gameplay rules are in [functional-spec.md](functional-spec.md); the engine algorithms are explained, module by module, in [docs/mechanics/](../docs/mechanics/README.md).
+
 ## 1. Architecture summary
 
 Version 1 is a browser-based, server-authoritative multiplayer game running on one VPS with Docker Compose.
@@ -7,95 +9,91 @@ Version 1 is a browser-based, server-authoritative multiplayer game running on o
 ```text
 Browser
   |
-  | HTTPS / WSS
+  | HTTP(S) / WS(S)
   v
-Nginx
-  |---------------------> frontend static app
+gateway (Nginx, the only published port)
+  |---------------------> frontend (Nginx serving the static app)
   |
-  +---------------------> FastAPI backend
+  +--- /ws, /api/ ------> backend (FastAPI + uvicorn, one process)
                               |
-                              +-- MatchManager
-                              |     +-- Match #1
-                              |     +-- Match #2
+                              +-- MatchManager (lobby, sessions, sweep)
+                              |     +-- Match #1 --- MatchRuntime (20 Hz loop)
+                              |     +-- Match #2 --- MatchRuntime
                               |     +-- ...
-                              |
+                              +-- ReconnectCoordinator (pause/grace/forfeit)
                               +-- pure-Python deterministic engine
-                              +-- replay/debug writer
+                              +-- ReplayWriter (one worker thread) -> host replay directory
 ```
 
-No database, Redis, broker, Kubernetes, or per-match container is required for v1.
+No database, Redis, broker, Kubernetes, or per-match container is required for v1. Active matches live in memory and end with the process.
 
 ## 2. Locked stack
 
 Frontend:
 
-- TypeScript
-- Vite
-- PixiJS
+- TypeScript, Vite, PixiJS
 - plain HTML/CSS
 - plain-JSON WebSocket client
 - no React in v1
+- built with Node 22; served as static files
 
 Backend:
 
-- Python
-- FastAPI
-- asyncio
-- WebSockets
+- Python 3.12
+- FastAPI on uvicorn, asyncio, WebSockets
 - one process hosting multiple matches
 
 Engine:
 
-- separate pure-Python package
-- no FastAPI/network dependency
+- separate pure-Python package (`engine/src/nether_earth`)
+- no FastAPI/network/I/O dependency
 - deterministic fixed-tick simulation
-- authoritative integer X/Y
-- authoritative integer altitude/Z
+- authoritative integer X/Y and integer altitude
 
 Deployment:
 
-- VPS
-- Docker Compose
-- Nginx
-- mounted filesystem replay/debug storage
+- one VPS, Docker Compose, Nginx gateway
+- host-mounted replay/debug directory
 
 Map data:
 
-- versioned YAML
-- pre-saved original ZX Spectrum map
+- versioned YAML (`data/maps/zx-spectrum-original.yaml`), decoded from the ZX Spectrum map by `data/maps/decode_zx_terrain.py`; provenance in `data/maps/zx-spectrum-original.md`
 
 Protocol:
 
 - plain JSON over WebSocket
-- shared JSON Schema source of truth
-- generated TypeScript types
+- shared JSON Schema source of truth (`protocol/schemas/`)
+- generated TypeScript types (`protocol/generated/`)
 - backend Pydantic validation
 
 ## 3. Repository responsibilities
 
 The engine owns all gameplay rules. It must not depend on FastAPI, WebSockets, browser/rendering concerns, or deployment code.
 
-Conceptual API:
+API:
 
 ```python
-state = engine.new_game(map_data, scenario, players, seed, rules)
-state, events = engine.step(state, commands)
+world = map_overlay.apply_overlay(map.load_world_map(path), map_overlay.default_pvp_overlay(...))
+state = scenario.create_initial_state(scenario, world, seed=seed)   # commanders, pools, ownership
+state, events = engine.step(state, commands, world=world)
 ```
+
+`engine.new_game(map_data, scenario, players, seed, commanders)` builds a bare tick-0 state for tests and fixtures. `world` is the scenario-overlaid `WorldMap`; `engine.step` derives every per-tick world view (ownership overrides, destruction, debris) from it and the state.
 
 The match layer owns orchestration only:
 
 - fixed-tick scheduling
-- command queues
-- player sessions
+- command queues and client sequence checks
+- player sessions and the lobby
 - ready/join lifecycle
 - reconnect/pause runtime state
-- snapshots/broadcasts
+- snapshot broadcasts
 - replay logging
 - finalization
 
 FastAPI owns transport/session APIs only.
 
-Frontend owns rendering, interpolation, input collection, menus, and connection state. It must never decide gameplay legality or authoritative outcomes.
+The frontend owns rendering, interpolation, input collection, menus, and connection state. It must never decide gameplay legality or authoritative outcomes.
 
 ## 4. Simulation timing and determinism
 
@@ -103,12 +101,13 @@ Authoritative simulation: **20 Hz**.
 
 ```text
 1 tick = 50 ms
+1 Spectrum game cycle = 4 ticks
 1 in-game hour = 120 ticks
 12 in-game hours = 1,440 ticks
 1 in-game day = 2,880 ticks
 ```
 
-All gameplay timers derive from tick count.
+All gameplay timers derive from the tick count (`clock.py`); nothing in the engine reads wall-clock time.
 
 Determinism requirement:
 
@@ -119,67 +118,38 @@ same map/scenario/rules
 = same resulting state
 ```
 
-All randomness must use one match-local seeded engine RNG. Never use wall-clock/process randomness for gameplay.
+All randomness comes from one match-local seed. Each consumer derives its own stream with `rng.derive_seed(...)` (a 64-bit mix of integers and CRC-32 of strings) and builds a fresh `rng.MatchRandom` from it: destination contention per tick, the non-electronic detour draw per robot and window, and the AI planner per seat and decision tick. No RNG state is stored in `GameState`. Never use wall-clock/process randomness for gameplay. Iteration that can influence outcomes uses canonical (id-sorted) order.
+
+`engine.step` runs one tick in this fixed order (details in [docs/mechanics/timing-and-determinism.md](../docs/mechanics/timing-and-determinism.md)):
+
+1. AI seats plan and append their commands to the batch; the batch is validated and sorted by `(player, sequence)`.
+2. Commander horizontal moves that are due complete, then the tick's commander move and vertical-intent commands apply.
+3. Robot moves and turns that are due complete.
+4. Order assignments apply; every standing order is evaluated; order moves are gated on the robot update.
+5. The tick's robot moves (orders, walk-outs, direct control) start as one deconflicted batch.
+6. Combat: projectiles advance and damage, direct fire and nuclear detonation, autonomous fire.
+7. Capture progress; victory check after a war-base capture.
+8. Undocking, commander vertical physics, auto-docking, docked commanders follow their robots.
+9. Heli-pad landing opens construction; construction commands apply (enter, select, deselect, cancel, launch).
+10. Daily production at a day boundary; the tick counter advances.
 
 ## 5. Centralized game-rule configuration
 
-Spectrum defaults and tunable values must live in one engine-owned, versioned rules/config object so replays record exactly which values were used.
+Spectrum defaults and tunable values live in one engine-owned, frozen, versioned object, `rules.EngineRules` (`DEFAULT_RULES`), so replays record exactly which values were used. Every gameplay constant that governs legality is a field there, never a literal at its point of use. The full field list, with values, is in [docs/mechanics/README.md](../docs/mechanics/README.md#rule-constants). Groups:
 
-Representative fields:
+- commander envelope and timing (`commander_min_altitude` 0, `commander_max_altitude` 48, `commander_vertical_update_ticks` 4, `commander_ascent_step` 2, `commander_descent_step` 2, `commander_height` 4, `commander_horizontal_move_ticks` 4, `commander_exit_elevate_updates` 5);
+- module heights (`module_height_*`) and costs (`module_cost_*`), `starting_general_resources` 20, `factory_production_amount` 2, `war_base_production_amount` 5, `max_robots_per_player` 24;
+- robot movement ticks per (chassis, terrain) (`robot_move_ticks_<chassis>_<terrain>`), `robot_turn_ticks` 4, `dumb_wander_commit_ticks` 16, `robot_hunt_replan_ticks` 20, `robot_launch_exit_steps` 5;
+- capture (`capture_duration_ticks` 1440);
+- weapons (`cannon_range_cells` 10, `missile_range_cells` 14, `phaser_range_cells` 10, `electronics_range_bonus_cells` 2, `normal_projectile_altitude` 10, damage multipliers 2/3/4, `projectile_advance_ticks` 4, `projectile_cells_per_advance` 2, `robot_fire_cycle_ticks` 4);
+- nuclear blast shape (`nuclear_robot_window_row_widths`, `nuclear_building_dy_offset`, `nuclear_war_base_extra_dy_offset`, axis and sum limits per building kind);
+- AI cadence (`ai_decision_interval_ticks` 4).
 
-```python
-GameRules:
-    simulation_hz = 20
-    ticks_per_game_hour = 120
-    ticks_per_game_day = 2880
+The mile is a unit definition, not a tunable: `rules.CELLS_PER_MILE = 2`, converted only through `rules.miles_to_cells`. Terrain permissions per chassis are legality tables in `movement.py`. AI strategy weights live in the `ai/` package, not in `EngineRules`: they change what the AI chooses, never what is legal.
 
-    miles_to_cells = 2
+Not every gameplay value should be an environment variable. Gameplay configuration is versioned game data. Environment configuration is deployment-only (§24).
 
-    factory_capture_ticks = 1440
-    warbase_capture_ticks = 1440
-
-    max_robots_per_player = 24
-
-    starting_general_resources = 20
-    factory_daily_production = 2
-    warbase_daily_general_production = 5
-
-    component_costs = {
-        "bipod": 3,
-        "tracks": 5,
-        "anti_grav": 10,
-        "cannon": 2,
-        "missile": 4,
-        "phaser": 4,
-        "nuclear": 20,
-        "electronics": 3,
-    }
-
-    commander_min_altitude = 0
-    commander_max_altitude = 48
-    commander_vertical_update_ticks = 4
-    commander_ascent_step = 2
-    commander_descent_step = 2  # owner deviation from the Spectrum's 1 (CR003.1)
-    commander_exit_elevate_updates = 5  # lift after construction exit and undock
-
-    normal_projectile_altitude = 10
-    projectile_advance_ticks = 4
-    projectile_cells_per_advance = 2
-    robot_fire_cycle_ticks = 4
-    robot_launch_exit_steps = 5
-
-    weapon_damage_multipliers = {
-        "cannon": 2,
-        "missile": 3,
-        "phaser": 4,
-    }
-
-    reconnect_grace_seconds = 60  # runtime/server default, not engine tick state
-```
-
-Not every gameplay value should be an environment variable. Gameplay configuration is versioned game data. Environment configuration remains deployment-only.
-
-Rules identity: `nether_earth.rules.RULES_VERSION` names the rule set, and `rules_content_hash()` hashes the `EngineRules` values. Both are recorded in every replay. Replay verification rejects an artifact whose version or hash differs from the running engine's (`ReplayRulesMismatchError`) before it replays anything. The hash catches value changes by itself; a change to rule logic or rule-bearing map data must bump `RULES_VERSION`. CR002 changed rule logic and map data, so it bumps the version to `cr002` once (CR002.16); `cr001` replays are rejected. CR003 changed rule logic and values (descent step, capture orders, piece heights, Search & Destroy approach, commander step order), so it bumps the version to `cr003` once (CR003.8); `cr002` replays are rejected.
+Rules identity: `rules.RULES_VERSION` (currently `"cr005"`) names the rule set, and `rules.rules_content_hash()` is the SHA-256 of the canonical JSON of the `EngineRules` values. Both are recorded in every replay. Replay verification rejects an artifact whose version or hash differs from the running engine's (`ReplayRulesMismatchError`) before it replays anything. The hash catches value changes by itself; a change to rule logic or rule-bearing map data must bump `RULES_VERSION`.
 
 ## 6. Scenario and victory model
 
@@ -188,31 +158,38 @@ Scenario data is separate from map geometry.
 ```python
 Scenario:
     id
+    map_id
+    map_version
     player_starting_warbases
-    neutral_warbases
-    factory_initial_ownership
-    rules_overrides
-    victory_rule
+    starting_general_resources = 20
+    factory_initial_ownership = "neutral"
+    victory_rule = "zero_war_bases"
+    player_one_controller = "human"   # "human" | "ai"
+    player_two_controller = "human"
 ```
 
-Default PvP scenario:
+Default PvP scenario overlay (`map_overlay.default_pvp_overlay`):
 
 ```text
-P1 war base = extreme-left
-P2 war base = extreme-right
+P1 war base = extreme-left (smallest min-x)
+P2 war base = extreme-right (largest max-x)
 two interior war bases = neutral/capturable
-factories = neutral unless overridden
-starting general resources = 20
+factories = neutral
+P1 commander = P1 war-base capture cell + (-5, +1)
+P2 commander = P2 war-base capture cell + (+5, +1)
+starting general resources = 20, type-specific pools 0
 victory = opponent owns zero war bases
 ```
 
-Victory is checked in the same engine step after any war-base capture/destruction event.
+A solo match uses the same scenario with `player_two_controller = "ai"`: that seat gets an `AiMemory` and no commander.
+
+`victory.evaluate_victory` is called in the same step after a war-base capture or a nuclear destruction of a war base; it reports a winner when exactly one player still owns a war base. `engine.step` emits at most one victory event per tick.
 
 ## 7. Map/world representation
 
 ### 7.1 Grid
 
-Authoritative X/Y are integers. Rendering may interpolate visually.
+Authoritative X/Y are integers; the original map is 512 × 16. Rendering may interpolate visually.
 
 Shared conversion:
 
@@ -221,11 +198,11 @@ Shared conversion:
 1 cell = 0.5 miles
 ```
 
-The conversion must exist once in engine helper/rule code and be reused by orders, combat, nuclear effects, UI serialization, and replays.
+The conversion exists once (`rules.miles_to_cells`) and is reused wherever a mile distance appears (Advance/Retreat). Weapon ranges and blast shapes are cell values.
 
 ### 7.2 Terrain
 
-Required terrain types:
+Terrain types:
 
 ```python
 NORMAL
@@ -234,173 +211,164 @@ MOUNTAIN
 DITCH
 ```
 
-Terrain is cell metadata, not a solid occupant.
+Terrain is cell metadata (`terrain.TerrainGrid`), not a solid occupant. Each decoded terrain cell carries its Spectrum piece height (`Ld7bc_map_piece_heights`: normal and ditch 0, rough 2 or 3, mountain 6), and `terrain.debris_height` (3) applies to debris cells. `TerrainGrid.height_at` exposes them.
 
 ### 7.3 Static structures
 
-Do not model factories/war bases as one generic rectangle.
-
-Recommended model:
+Factories and war bases are not one generic rectangle.
 
 ```python
-Structure:
+WarBase / Factory / Blocker:
     id
-    kind
-    owner
-    components: list[StructureComponent]
-    interaction_zones
-    destroyed
+    components: tuple[Component(x, y, height), ...]
+    owner            # war bases and factories; None = neutral
+    factory_type     # factories only
+    kind, destructible   # blockers only
 
-StructureComponent:
-    relative_x
-    relative_y
-    height
-    blocks_movement
-    semantic_role | None
+InteractionPoint:
+    id
+    kind: HELI_PAD | EXIT | WARBASE_CAPTURE | FACTORY_CAPTURE
+    structure_id
+    footprint
 ```
 
-War-base semantic metadata includes heli-pad, exit, capture zone, ownership/resource behavior.
+The war-base heli-pad is the 2×2 area on the roof anchored at (anchor.x, anchor.y − 4); the map lists its four cells. The commander lands when its whole 2×2 body is over the pad at an altitude equal to the highest component under it (15). The exit and the capture cell are the anchor cell: a launched robot's anchor starts there.
 
-The war-base heli-pad is the 2×2 area on the roof anchored at (anchor.x, anchor.y − 4); the map lists its four cells. The commander lands when its whole 2×2 body is over the pad at an altitude equal to the highest component under it (15). The exit is the anchor cell: a launched robot's anchor starts there (`open-questions.md` §18, §21).
+Scenery is map data (`blockers`): one entry per 2×2 Spectrum element with its cells, height, an opaque `kind` (`box_low`, `box_high`, `fence`) and `destructible: true` for boxes. The engine treats blockers as static components and never branches on `kind`; the frontend maps `kind` to an asset.
 
-Scenery is map data (`blockers` in `data/maps/zx-spectrum-original.yaml`, generated by `data/maps/decode_zx_terrain.py`): one entry per 2×2 Spectrum element with its cells, height, an opaque `kind` (`box_low`, `box_high`, `fence`) and `destructible: true` for boxes. The engine treats blockers as static components and never branches on `kind`; the frontend maps `kind` to an asset. A nuclear blast records destroyed boxes in `GameState.scenery_debris`; a robot killed in combat on plain ground records its anchor in `GameState.robot_debris` (CR005.3). `destruction.scenery_world`/`effective_world` derive a world where debris blockers and destroyed buildings are gone, and their cells and each robot-debris 2×2 are rough at `terrain.debris_height`, memoized, without mutating the base `WorldMap` (§18).
+Runtime changes never mutate the base `WorldMap`. They are recorded in `GameState` and layered on by memoized derivations:
 
-Terrain piece heights (CR002.21 #203): each terrain cell in the map data carries the height of its Spectrum map piece (`Ld7bc_map_piece_heights`: normal and ditch 0, rough 2 or 3, mountain 6), and `terrain.debris_height` (3) applies to debris cells. `TerrainGrid.height_at` exposes them. One surface-height function, `collision.surface_height_at` (the highest component or terrain piece on a cell) with `collision.unit_surface_height` (its 2×2 maximum), serves commander collision, landing and gravity, projectile termination, the damage `ground_height` (`combat.ground_height_at`) and the heli-pad rest altitude. Frontend shadows read the same map heights; terrain is drawn flat.
+- `capture.effective_world`: ownership overrides (`structure_ownership`);
+- `destruction.effective_world`: ownership plus destruction — destroyed structures and debris blockers removed, their cells and every robot-debris 2×2 turned into rough terrain at `terrain.debris_height`;
+- `destruction.scenery_world`: debris only, no ownership overrides; the physical world for robot move validation and commander collision.
 
-Robots on terrain (CR002.25 #214): `collision.robot_top(world, robot)` is the static surface under the robot's 2×2 body at its authoritative anchor (`unit_surface_height` in `scenery_world`) plus its stack height. The anchor moves when a move completes, so the altitude follows it then. `RobotFixture.altitude`/`top` (`engine._robot_fixtures`) carry the top to commander collision and landing, `docking.attempt_auto_dock` and the docked commander's riding (`follow_docked_robot`). The same top is used by `movement.commander_blocks_robot_cell` (a commander below a robot's top blocks its move, `Lb513`), by `destruction.destroy_robot` (the ejected commander is left at the top) and by the undock lift start. The projectile hit gate compares the top (§16). No schema change: the frontend derives the altitude from map heights and the anchor (`render/robot.ts` `robotGround`), draws the robot raised by it and draws a docked commander on the drawn top.
-
-Factory metadata includes production type and capture zone.
-
-Physical component/cell heights may vary within one structure.
+One surface-height function, `collision.surface_height_at` (the highest component or terrain piece on a cell), with `collision.unit_surface_height` (its 2×2 maximum, the Spectrum's `Lb5d6_map_altitude_2x2`), serves commander collision, landing and gravity, projectile termination, the damage `ground_height`, robot altitude (`collision.robot_top` = altitude + stack height) and the heli-pad rest altitude. Frontend shadows read the same map heights.
 
 ## 8. Occupancy and reservations
 
-World state should distinguish:
+World state distinguishes:
 
 - terrain;
-- static physical occupancy/components;
+- static physical occupancy (structure and blocker components);
 - robots;
 - commander collision volumes;
 - robot destination reservations.
 
-Robots, the commander and projectiles are 2×2 bodies (`open-questions.md` §21). A unit's `(x, y)` is the anchor of the body covering `x..x+1`, `y−1..y`; the whole body stays on the map. Two bodies collide when they overlap, which is the Spectrum's 3×3 anchor scan (`occupancy.unit_footprint_cells`, `unit_footprints_overlap`). Snapshots carry the anchor; clients derive the body.
+Robots, the commander and projectiles are 2×2 bodies. A unit's `(x, y)` is the anchor of the body covering `x..x+1`, `y−1..y`; the whole body stays on the map. Two bodies collide when they overlap, which is the Spectrum's 3×3 anchor scan (`occupancy.unit_footprint_cells`, `unit_footprints_overlap`). Snapshots carry the anchor; clients derive the body.
 
-A robot move reserves its whole destination body as soon as the move is accepted.
-
-Recommended state:
+Robot occupancy is not stored: `movement.folded_robot_occupancy` folds every live robot's body into the static grid. Reservations are not stored either: `reservations.reservations_from_state` derives them from every robot's in-flight `RobotMoveTransition` destination. A robot mid-move occupies its origin body and reserves its destination body.
 
 ```python
-GridTransition:
+RobotMoveTransition:
     entity_id
-    from_cell
-    to_cell
+    from_x, from_y
+    to_x, to_y
     started_tick
     duration_ticks
-
-Reservation:
-    cell
-    entity_id
 ```
 
-Target reservation blocks other robots from starting a conflicting move.
+A reserved destination blocks other robots from starting a conflicting move.
 
-If multiple valid robots contend for overlapping unreserved destination bodies during the same authoritative tick, choose the winner of each contention group (in canonical destination-anchor, entity-id order) using the match-local deterministic RNG:
+If several valid robots claim overlapping unreserved destination bodies on the same tick, `reservations.apply_robot_move_batch` groups them in canonical (destination anchor, entity id) order and picks each group's winner with `MatchRandom(derive_seed(match_seed, tick))`:
 
 - 2 contenders: 50/50;
 - N contenders: uniform choice.
 
-The RNG decision must be replay-recordable through initial seed + deterministic execution order.
+The outcome is reproducible from the initial seed and deterministic execution order, and is also recorded as a `DestinationContentionResolvedEvent`.
 
 ## 9. Commander model
-
-Recommended authoritative state:
 
 ```python
 Commander:
     player_id
     mode: FREE | DOCKED
-    x
-    y
+    x, y
     altitude
     docked_robot_id
+    rising                     # held rise intent
+    horizontal_transition      # GridTransition | None
+    vertical_transition        # for interpolation
     elevate_updates_remaining  # automatic lift, 0 when idle
 ```
 
-Vertical physics runs every `commander_vertical_update_ticks` simulation ticks.
+Vertical physics runs on ticks that are positive multiples of `commander_vertical_update_ticks`.
 
-Default behavior (Spectrum-compatible except gravity):
+Defaults:
 
 ```text
 min altitude = 0
 max altitude = 48
 vertical cadence = every 4 ticks
 ascent = +2
-fall/gravity = -2   (Spectrum: -1; owner decision CR003.1 #216, open-questions.md §13)
+fall/gravity = -2
+vertical extent (collision) = 4
+horizontal move = 4 ticks per cell
 ```
 
 Gravity descends one altitude unit at a time up to `commander_descent_step` and stops at the last legal altitude, so it lands exactly on a surface at an odd altitude (static component, terrain, robot top or another commander) rather than skipping past it or stopping a step above it (`commander_movement._gravity_landing_altitude`).
 
 Horizontal and vertical movement may occur simultaneously.
 
-Step order (CR003.10 #232, `open-questions.md` §23): `engine.step` resolves due commander horizontal transitions before it applies the tick's commander commands, so a `commander_move` on the completion tick starts at once and held moves take exactly `commander_horizontal_move_ticks` (4) per cell with no idle tick. Robots already resolve due moves before starting new ones.
+Step order: `engine.step` resolves due commander horizontal transitions before it applies the tick's commander commands, so a `commander_move` on the completion tick starts at once and held moves take exactly `commander_horizontal_move_ticks` per cell with no idle tick. Robots also resolve due moves before starting new ones.
 
-Automatic lift: leaving the construction screen (EXIT MENU or a successful START ROBOT, `construction_session.exit_construction`) and undocking from a robot (CR002.24 #207) set `elevate_updates_remaining = commander_exit_elevate_updates` (5); `docking.apply_undock` sets it without moving the commander, and the ascent runs on the following cadence ticks. While it is above 0, each vertical update ascends by `commander_ascent_step` whatever the rise intent, and consumes one, even if the ascent is clamped or blocked (Spectrum `Lfd30_player_elevate_timer`). Horizontal moves do not consume it (owner decision 2026-09-21). Neither construction entry nor auto-dock (`docking.attempt_auto_dock`, `engine.step` Step 7) is checked while the lift runs; a commander that falls back onto the same friendly robot's anchor after it docks again.
+Automatic lift: leaving the construction screen (EXIT MENU or a successful START ROBOT, `construction_session.exit_construction`) and undocking (`docking.apply_undock`) set `elevate_updates_remaining = commander_exit_elevate_updates`; the ascent runs on the following cadence ticks. While it is above 0, each vertical update ascends by `commander_ascent_step` whatever the rise intent and consumes one, even if the ascent is clamped or blocked. Horizontal moves do not consume it. Neither construction entry nor auto-dock is checked while the lift runs; a commander that falls back onto the same friendly robot's anchor afterwards docks again.
 
-Construction is modal per player: while a player has an open construction session, that player's commander moves and vertical physics are no-ops (rise intent is still recorded). Other players and all robots keep running (PvP adaptation of the Spectrum's whole-game pause, owner decision 2026-09-21).
+Construction is modal per player: while a player has an open construction session, that player's commander moves and vertical physics are no-ops (rise intent is still recorded). Other players and all robots keep running.
+
+A seat may have no commander (the AI seat): `state.commanders` holds only the commanders that exist, and every lookup (`commander_for`) tolerates there being none.
 
 ### 9.1 Collision
 
-Commander collision is a 3D-ish X/Y + vertical-range test.
+Commander collision is an X/Y + half-open vertical-range test (`collision.py`): touching is resting, overlapping is blocked.
 
 - commanders collide with robots, structures, scenery and each other, using the 2×2 body: the highest surface (structure, scenery, terrain) under the four body cells, and every robot or commander whose body overlaps;
+- a commander occupies `[altitude, altitude + commander_height)`; a robot occupies `[0, top)`; a component `[0, height)`;
 - same X/Y is permitted only when vertical ranges are disjoint;
 - overlapping opposing commanders block horizontal and vertical movement;
-- commander is never targetable/damageable/destructible.
+- the commander is never targetable/damageable/destructible.
 
 ### 9.2 Docking
 
-Descending onto the top of a friendly robot, with the commander's anchor on the robot's anchor, transitions:
+A FREE commander whose altitude equals a friendly robot's top, with the same anchor, transitions:
 
 ```text
 FREE -> DOCKED(robot_id)
 ```
 
-Rising away undocks and starts the automatic lift (§9). Docking on a robot that is walking out of its war base ends the walk-out.
+While docked it follows the robot each tick and the robot's standing order is not evaluated. Holding rise undocks and starts the automatic lift (§9). Docking on a robot that is walking out of its war base ends the walk-out; docking also clears a cached hunt route.
 
-Descending onto an enemy robot stops at the top of its physical stack. No docking, control transfer, or contact damage occurs.
+Descending onto an enemy robot stops at the top of its physical stack. No docking, control transfer, or contact damage occurs. If a robot is destroyed with a commander docked on it, the commander is freed at the robot's last top.
 
 ## 10. Capture model
 
-Factory and war-base capture use continuous occupation by default.
+Factory and war-base capture use continuous occupation.
 
 ```python
 CaptureProgress:
     structure_id
-    capturing_player_id
+    capturing_player
     robot_id
     elapsed_ticks
-    required_ticks
 ```
 
-Default `required_ticks = 1440`.
+`rules.capture_duration_ticks` defaults to 1440.
 
-A robot qualifies when its anchor is on the structure's capture cell (Spectrum `Ladb7_building_loop`).
+A robot qualifies when its anchor is on the structure's capture cell and it does not belong to the current owner (any robot qualifies for a neutral structure); with several, the lowest entity id counts (Spectrum `Ladb7_building_loop`).
 
-If the qualifying occupation condition becomes false, reset immediately to zero.
+If the qualifying robot changes or the cell is vacated, progress resets to zero.
 
-On completion:
+On completion, in the same step:
 
-1. change ownership;
-2. emit ownership event;
-3. recompute relevant resource/ownership counts;
-4. evaluate victory in the same simulation step.
+1. change ownership (`StructureOwnership` override);
+2. emit `StructureCapturedEvent`;
+3. evaluate victory when a war base changed hands.
+
+Production and every later step of the tick read the new ownership.
 
 ## 11. Economy model
 
-Player state:
-
 ```python
-ResourcePool:
+PlayerResourcePool:
     general
     chassis
     electronics
@@ -410,50 +378,45 @@ ResourcePool:
     nuclear
 ```
 
-Default start:
+Start: `general = 20`, every type-specific pool 0. Pools have no cap.
 
-```text
-general = 20
-all specific pools = scenario/original defaults
-```
-
-Production every 2,880 ticks:
+At every day boundary (2,880 ticks, detected by integer day counts, `resource_production.apply_daily_production`):
 
 - owned factory: +2 to its production pool;
 - owned war base: +5 general.
 
 ### 11.1 Construction spending algorithm
 
-Preserve the Spectrum algorithm:
+The Spectrum algorithm (`construction_economy.py`):
 
 ```python
-def spend_for_component(buffer, resource_type, cost):
-    specific_used = min(buffer[resource_type], cost)
-    buffer[resource_type] -= specific_used
-    remaining = cost - specific_used
-
-    if buffer.general < remaining:
+def spend_module(buffer, category, cost):
+    if buffer[category] >= cost:
+        buffer[category] -= cost
+        return
+    shortfall = cost - buffer[category]
+    if buffer.general < shortfall:
         reject_selection()
+    buffer[category] = 0
+    buffer.general -= shortfall
 
-    buffer.general -= remaining
+def refund_module(buffer, category, cost, amount_at_entry):
+    restore = min(cost, max(0, amount_at_entry - buffer[category]))
+    buffer[category] += restore
+    buffer.general += cost - restore
 ```
 
-Construction uses a temporary resource buffer copied from actual player resources.
+Construction uses a temporary resource buffer copied from the player's resources when the session opens; refunds are capped by the category amount recorded at that moment (`entry_snapshot`).
 
-Deselection must restore resources using reversible original semantics: restore the specific pool up to its original amount, and return any excess to general resources.
-
-Actual resources are copied/committed back only when `construction_start_robot` succeeds. `construction_exit` before launch performs no permanent spend.
+The buffer replaces the player's pool only when `LaunchRobotCommand` succeeds. `CancelConstructionCommand` (EXIT MENU) performs no spend.
 
 ## 12. Robot build model
 
 ```python
 RobotBuild:
     chassis
-    cannon: bool
-    missile: bool
-    phaser: bool
-    nuke: bool
-    electronics: bool
+    weapons: tuple[...]   # 1-3, canonical order cannon, missile, phaser, nuclear
+    electronics | None
 ```
 
 Validation:
@@ -464,11 +427,28 @@ Validation:
 - at most one electronics;
 - nuke may be the only weapon.
 
-Maximum robots/player: 24.
+Maximum robots alive per player: 24.
+
+```python
+Robot:
+    entity_id, owner
+    x, y                    # anchor
+    build, stack, height
+    strength = 100
+    facing = SOUTH
+    order
+    movement | turning      # at most one in flight
+    active_projectile_id
+    last_fire_tick
+    exit_steps_remaining
+    hunt_route
+```
+
+Robot ids are `robot-<owner>-<n>`, where `n` comes from a monotonic per-owner launch counter (`GameState.robot_launches`), so an id is never reused within a match.
 
 ### 12.1 Canonical stack
 
-One engine function derives physical/render order and total height:
+One engine function (`robot_stack.derive_stack_and_height`) derives physical/render order and total height:
 
 ```text
 chassis
@@ -480,27 +460,25 @@ electronics
 commander (when docked)
 ```
 
-Missing components are omitted while preserving relative order.
-
-Renderer, collision, docking, construction preview, and projectile interaction consume the same stack metadata.
+Missing components are omitted while preserving relative order. Renderer, collision, docking, construction preview, and projectile interaction consume the same stack metadata.
 
 ## 13. Robot movement
 
-All movement sources call one shared low-level movement layer:
+All movement sources call one shared validation and start point:
 
 ```python
-try_move_robot(robot_id, direction, state, rules) -> MoveResult
+movement.validate_robot_move(request, state, world, rules, destination_check) -> RobotMoveResult
+movement.apply_robot_move(...)          # one move, used inside the batch
+reservations.apply_robot_move_batch(requests, state, world, tick, rules, sequencer)
 ```
 
 Used by:
 
-- direct human control;
-- autonomous robot orders;
+- direct human control (`DirectRobotMoveCommand`, docked commander required);
+- autonomous robot orders and launch walk-outs;
 - the AI opponent's planner (§28), through the same ordinary `Command`s a human issues.
 
-Locked terrain permissions:
-
-Locked ticks per cell (`-` = blocked), from `open-questions.md` §4:
+Ticks per cell (`-` = blocked):
 
 ```text
             normal  rough  mountain  ditch
@@ -509,62 +487,59 @@ Tracks:       16      24     28        -
 Anti-grav:    12      12     16       12
 ```
 
-These are per-(chassis, terrain) integer tick fields in `EngineRules`, not multipliers. Terrain classes: `NORMAL`, `ROUGH`, `MOUNTAIN`, `DITCH`.
+These are per-(chassis, terrain) integer fields in `EngineRules`; the blocked pairs are `movement.CHASSIS_TERRAIN_PERMISSIONS`.
 
-Relative ordinary-terrain speed:
+The terrain for a move is the highest-ranked class under the destination 2×2 body (`movement.unit_move_terrain`: mountain > rough > ditch > normal). A move is legal only when the robot has no move or turn in flight, every destination body cell is on the map and enterable by the chassis, no structure or blocker cell and no other robot is in it, no commander overlaps it below the robot's top, and no other robot's reservation overlaps it.
 
-```text
-bipod < tracks < anti-grav
-```
+Turning: a step in a direction the robot does not face starts a `RobotTurnTransition` of `robot_turn_ticks` instead of a move (`RobotFacing.rotate_toward`: one 90-degree rotation per turn, a reversal takes two). The facing changes when the turn completes.
 
-The terrain for a move is the highest piece under the destination 2×2 body (`movement.unit_move_terrain`: mountain > rough > ditch > normal). A move is legal only when every destination body cell is on the map and enterable by the chassis, no structure or blocker cell is in it, and no other robot, commander or reservation overlaps it.
+Robot updates: an order-driven robot acts only on its own update. It is at an update when no move is in flight and at least one period has passed since its `last_fire_tick`; the period is the move duration for the terrain under its body (`autonomous_combat.autonomous_update_due`, `autonomous_update_period_ticks`). On an update it fires if it has a shot (the move is dropped by `gate_order_requests`), and otherwise moves.
 
-Robot updates (CR002.19 #197): an order-driven robot acts only on its own update. It is at an update when no move is in flight and at least one period has passed since its `last_fire_tick`; the period is `move_duration_ticks` for the terrain under its body (`autonomous_combat.autonomous_update_due`, `autonomous_update_period_ticks`). On an update it fires if it has a shot (the move is dropped by `gate_order_requests`), and otherwise moves.
-
-Launch walk-out: a launched robot holds Stop & Defend with `Robot.exit_steps_remaining = robot_launch_exit_steps` (5). On each of its updates, starting the tick after launch, it requests one step south (+y) through the normal move batch (`orders.walk_out_request`); the counter drops when the step starts. It ends at 0 when a step is illegal or loses contention, when the update fires, when a commander docks on the robot, or when an order is assigned (`autonomous_combat.settle_walk_outs`).
+Launch walk-out: a launched robot holds Stop & Defend with `Robot.exit_steps_remaining = robot_launch_exit_steps`. On each of its updates, starting the tick after launch, it requests one step south (+y) through the normal move batch (`orders.walk_out_request`); the counter drops when the step starts. It ends at 0 when a step is illegal or loses contention, when the update fires, when a commander docks on the robot, or when an order is assigned (`autonomous_combat.settle_walk_outs`).
 
 ## 14. Navigation policies
 
-Navigation is separated from movement legality.
+Navigation is separated from movement legality: a policy proposes a step that `validate_robot_move` has already accepted, and the step is executed only through the tick's move batch.
 
 ```python
 NavigationPolicy:
-    choose_next_move(robot, world) -> Direction | None
+    next_step(robot, target_x, target_y, state, world, rules) -> NavigationDecision
+    next_step_to_body(robot, target_x, target_y, state, world, rules) -> NavigationDecision
 ```
 
-Non-electronic policy:
+`navigation.navigation_policy_for` picks the policy from the build: electronics fitted → `ElectronicNavigation`, otherwise `NonElectronicNavigation`.
 
-- deliberately limited/original-style local routing;
-- may get stuck despite an available longer path.
+Non-electronic policy: candidate steps in order — the primary-axis step, the robot's current facing (momentum), the two perpendicular steps in an order shuffled by `MatchRandom(derive_seed(match_seed, tick // dumb_wander_commit_ticks, robot_id))`, then any other step. The first legal step is taken; `BLOCKED` only when no cardinal step is legal. It never reports `UNREACHABLE`.
 
-Electronic policy:
-
-- deterministic proper pathfinding/replanning;
-- routes around obstacles when a chassis-compatible path exists.
+Electronic policy: uniform-cost search (Dijkstra) over 2×2 body anchors with the move duration as edge cost, re-planned on every call; neighbours in fixed canonical order and ties broken by insertion order. `UNREACHABLE` when no route exists. The planner and the executor share one traversability predicate (`navigation.cell_is_enterable`).
 
 Electronics never overrides terrain restrictions.
 
-Robot targets (CR003.4 #219): a Search & Destroy (robots) goal is another robot's occupied anchor, so navigation closes on the target's body (`navigation.next_hunt_step`). Electronic robots plan to the anchors lane-aligned with the target's body, else to any anchor from which their 2×2 body touches it (`body_alignment_anchors`, `body_contact_anchors`, `plan_route_to_any`), instead of reporting the occupied goal `UNREACHABLE`; non-electronic robots keep greedy steps and stop beside the target when the overlapping step is refused.
+Robot targets: a Search & Destroy (robots) goal is another robot's occupied anchor, so navigation closes on the target's body (`navigation.next_hunt_step`). Robots plan to the anchors lane-aligned with the target's body, else to any anchor from which their 2×2 body touches it along an edge (`body_alignment_anchors`, `body_contact_anchors`, `plan_route_to_any`); non-electronic robots take greedy steps toward the nearest aligned anchor.
 
-Hunts keep their order (CR004.13 #299, owner decision 2026-09-27): a Search & Destroy (robots) order never falls back because no route exists; its only fallbacks are "no enemy robot" and "no weapon capable against robots". An electronic hunter caches its route on the robot (`Robot.hunt_route`: target id, planned tick, origin, one `E`/`W`/`S`/`N` letter per step, or no route) and follows it between re-plans. It re-plans every `EngineRules.robot_hunt_replan_ticks` ticks (default 20), and early when the route is exhausted, the robot is off its cached route, the next cell is no longer enterable (occupied, reserved or impassable terrain), or target selection picks a different robot. With no route it takes one greedy primary step toward the target's nearest aligned anchor through normal move legality, and waits when that step is illegal. Any order change, a fallback, or docking clears the cache.
+Hunt route cache: an electronic hunter stores its route on the robot (`Robot.hunt_route`: target id, planned tick, origin, one `E`/`W`/`S`/`N` letter per step, or no route) and follows it between re-plans. It re-plans every `robot_hunt_replan_ticks` ticks, and early when the route is exhausted, the robot is off its cached route, the next cell is no longer enterable (occupied, reserved or impassable terrain), or target selection picks a different robot. With no route it takes one greedy primary step toward the target's nearest aligned anchor through normal move legality, and waits when that step is illegal. Any order change, a fallback, or docking clears the cache. A Search & Destroy (robots) order never falls back because no route exists.
+
+Performance: per-(state, world) traversal views, per-world static-blocked grids and per-(terrain, chassis, rules) step-cost tables are memoized by object identity; they are pure derivations and never change outcomes.
 
 ## 15. Robot orders
 
-Recommended domain model:
-
 ```python
 StopAndDefend
-Advance(distance_miles)
-Retreat(distance_miles)
-SearchCapture(target_type, structure_id)  # structure_id: engine-bound current target
-SearchDestroy(target_type)
+Advance(distance_miles, target_x=None)      # target_x bound on first evaluation
+Retreat(distance_miles, target_x=None)
+SearchCapture(target, structure_id=None)    # target: neutral_factory | enemy_factory | enemy_war_base
+SearchDestroy(target)                       # target: robot | factory | war_base
 ```
 
-`Advance`/`Retreat`: 0–50 miles, converted using shared 2-cells-per-mile rule.
+`Advance`/`Retreat`: 0–50 miles, converted with the shared 2-cells-per-mile rule; the goal column is bound on the first evaluation and clamped to the map.
 
-Impossible orders revert to Stop & Defend.
+`orders.evaluate_orders` evaluates every robot that holds an order and is not docked, in canonical robot order; evaluations are pure reads of one entry state, applied afterwards. Each yields the order to hold, a lifecycle status (`ACTIVE`, `COMPLETED`, `FALLBACK`), an optional move request and an optional engagement intent. Invalid or impossible orders revert to Stop & Defend.
 
-`SearchCapture` never completes or falls back (CR003.2 #217, Spectrum `Lb289`). Each evaluation keeps `structure_id` while its live ownership still matches the order, and otherwise selects the nearest matching structure that no other same-owner robot with the same `SearchCapture` target type holds (`Lb36c`), ties broken by structure id. On an uncaptured target's capture cell the robot holds with the Stop & Defend intent while `capture.py` counts the occupation; once captured it retargets and leaves. With no match it holds and resumes when a structure matches again. `structure_id` is serialized in snapshots/replays and cleared on order assignment; the order-command payload is unchanged.
+`SearchCapture` never completes or falls back. Each evaluation re-selects (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)) the nearest matching structure (by Manhattan distance to its capture cell, ties by structure id) that no other same-owner robot with the same target type holds (`orders.claimed_structures`; a robot that retargets earlier in the same tick is seen by later robots), except that a robot standing on its current target's capture cell keeps that target. On that cell it holds with the defensive intent, turning to face out of the structure (`capture.outward_facing`); with no match it holds. `structure_id` is serialized in snapshots/replays and cleared on order assignment; the order-command payload is unchanged.
+
+`SearchDestroy` against structures requires a nuclear module and selects the nearest factory/war base not owned by the robot's owner; it completes on the tick the robot stands on the target's capture cell, with a structure intent that detonates (§18).
+
+Engagement intents name a target and the robot's capable weapons; they fire nothing by themselves (§16).
 
 ## 16. Projectiles and firing
 
@@ -572,38 +547,34 @@ Normal projectiles:
 
 ```python
 Projectile:
-    owner_robot_id
-    weapon_type
-    x
-    y
-    altitude
-    direction
-    remaining_range
+    id, owner, source_robot_id, weapon
+    x, y                 # 2x2 body anchor
+    z                    # normal_projectile_altitude
+    dx, dy               # the firing robot's facing
+    travelled_cells
+    max_range_cells
+    created_tick
     first_advance_tick
 ```
 
-A robot has at most one active normal projectile channel. A new normal shot is rejected while its current projectile is active. The channel is per robot, a documented deviation from the Spectrum's per-side bullet slots (`open-questions.md` §8).
+Fire validation (`combat.validate_fire`, then `combat.apply_fire`): the robot exists, belongs to the requesting player, has the weapon fitted; for a normal weapon, its channel is free (`CHANNEL_OCCUPIED`), it is not mid-turn (`TURNING`) and it has not fired in this fire cycle `tick // robot_fire_cycle_ticks` (`ALREADY_FIRED_THIS_CYCLE`). Nuclear passes straight to detonation. `FireCommand` is accepted for any robot the player owns; the client sends it only for the docked robot (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)).
 
-Default normal projectile altitude: **10** for cannon, missile, and phaser, independent of robot height.
+A robot has at most one active normal projectile. Default normal projectile altitude: **10** for cannon, missile, and phaser, independent of robot height. Projectile lifecycle is authoritative world logic and never depends on viewport dimensions.
 
-Projectile lifecycle must be authoritative world logic. It must not depend on browser viewport dimensions.
+A projectile advances `projectile_cells_per_advance = 2` cells on ticks that are positive multiples of `projectile_advance_ticks = 4`, and ends after 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Its first move is made by `apply_fire` on the fire tick, with the same checks as every later advance. Its next move is at `first_advance_tick`: the cadence tick that closes the fire cycle for an autonomous shot, one cycle later for a direct shot. Later advances keep the cadence, so the range is unchanged.
 
-Resolved from the Spectrum code (`open-questions.md` §8): a projectile advances `projectile_cells_per_advance = 2` cells every `projectile_advance_ticks = 4` ticks and ends after 10 cells (cannon, phaser) or 14 cells (missile), +2 with electronics. Buildings use the generic altitude collision; there is no separate building rule.
+At each landing position it terminates, in order, when it is off the map, when the highest static surface under its body is `>= normal_projectile_altitude`, or when it hits the first robot (scan order rows y−1, y, y+1, west to east) whose body overlaps and whose top (`collision.robot_top`) is `>= normal_projectile_altitude`. Range exhaustion is checked before each move. Commanders and projectiles never stop it. Terminating releases the firing robot's channel; a hit applies damage (§17).
 
-Decided (`open-questions.md` §8, CR002.2 #169): as in the Spectrum, a projectile makes its first move on the fire tick, with the same checks as every later advance. A robot fires at most one normal weapon per game cycle (`robot_fire_cycle_ticks = 4`). An autonomous shot moves again at the cadence tick that closes its fire cycle; a direct shot is held one cycle longer (`Projectile.first_advance_tick`). Later advances keep the cadence above, so the range is unchanged.
-
-A projectile is a 2×2 body. Each advance walks up to 2 cells; at each landing position it is stopped by bounds, then when the highest static surface under its body is `>= normal_projectile_altitude`, then it hits the first robot (scan order rows y−1, y, y+1, west to east) whose body overlaps and whose top (`collision.robot_top`: terrain altitude + stack height) is `>= normal_projectile_altitude` (owner decision 2026-09-22). Commanders and projectiles never stop it (documented deviation 1 in `open-questions.md`).
-
-Nuclear detonation is modeled separately.
+Autonomous fire (`autonomous_combat.consume_engagement_intents`) re-validates each intent on the robot's update: the source and target still exist, then the first capable normal weapon whose range (+ electronics bonus) reaches the target's anchor by Manhattan distance is chosen. If the robot does not face the target (dominant axis, east/west on a tie) it starts a turn instead; otherwise the shot goes through the same `apply_fire` path as direct fire. Nuclear is never chosen against a robot.
 
 ## 17. Damage and robot strength
 
-Central engine function:
+Central engine function (`combat.calculate_weapon_damage`):
 
 ```python
-def compute_normal_weapon_damage(robot_height, ground_height, weapon, rules):
-    base = spectrum_integer_semantics((60 - (robot_height + ground_height)) / 4)
-    return base * rules.weapon_damage_multipliers[weapon]
+def calculate_weapon_damage(weapon, robot_height, ground_height, rules):
+    base = (60 - (robot_height + ground_height)) // 4
+    return base * multiplier(weapon, rules)
 ```
 
 Canonical multipliers:
@@ -614,137 +585,161 @@ missile = 3
 phaser = 4
 ```
 
-Remaining research:
+`ground_height` is `collision.unit_surface_height` under the target's body. Strength starts at 100; `combat.apply_damage` subtracts the damage and destroys the robot (`destruction.destroy_robot`) at ≤ 0, after recording combat debris when its four cells are plain ground. Destruction drops the robot's capture progress, frees a commander docked on it and removes it; its in-flight projectile keeps flying.
 
-- exact Z80 truncation/rounding path;
-- hit probability/accuracy;
-- range impact on accuracy;
-- strength representation;
-- component damage, if any;
-- electronics resistance/accuracy/range details.
-
-Do not duplicate combat math outside the engine.
+Do not duplicate combat math outside the engine. Remaining combat-fidelity research is tracked in [open-questions.md](open-questions.md).
 
 ## 18. Nuclear detonation
 
-Blast shapes follow the Spectrum code (`functional-spec.md` §17.3, `open-questions.md` §20). They are not a uniform radius.
+Blast shapes follow the Spectrum code (FS §17.3). They are not a uniform radius. `destruction.execute_nuclear_detonation`, measured from the carrier's position before any destruction:
 
-On detonation:
+1. robots: every other robot whose anchor is inside the carrier-centred window with row widths `nuclear_robot_window_row_widths`;
+2. buildings: scan war bases, then factories, in map order (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)); destroy the **first** one in range, measured to its capture cell (war base: dx<7, dy<7, dx+dy<10; factory: dx<5, dy<5, dx+dy<7; dy measured from carrier.y+1, plus 4 for war bases); at most one building per detonation;
+3. scenery: every `destructible` blocker whose bottom-left (anchor) cell is inside the robot window becomes debris (`GameState.scenery_debris`); fences are not destructible;
+4. destruction order: carrier, then robots in canonical order, then the building;
+5. victory is evaluated when a war base was destroyed.
 
-1. robots: destroy every robot inside the carrier-centred 9×9 window with trimmed corners (row widths 5/7/9/9/9/9/9/7/5);
-2. buildings: scan war bases, then factories, in canonical order; destroy the **first** one in range (war base: dx<7, dy<7, dx+dy<10; factory: dx<5, dy<5, dx+dy<7; dy measured from carrier.y+1, plus 4 for war bases); at most one building per detonation;
-3. destroy carrier robot;
-4. scenery: every map blocker marked `destructible` whose bottom-left (anchor) cell is inside the robot window becomes debris. `GameState.scenery_debris` records its id (canonical order, snapshotted). The effective world drops the blocker and makes its cells rough terrain, and the base `WorldMap` is not mutated. Fences are not `destructible`;
-5. update ownership/victory;
-6. emit deterministic events.
+A destroyed structure is recorded in `GameState.structure_destruction`; the derived worlds drop it and turn its cells into debris. The base `WorldMap` is never mutated.
 
-The shape parameters are `EngineRules` data.
-
-Autonomous detonation happens only on arrival at the target cell of a Search & Destroy factory/war-base order (`functional-spec.md` §16). No weapon-selection path may choose nuclear for any other autonomous order.
+Autonomous detonation happens only on arrival at the target cell of a Search & Destroy factory/war-base order. No weapon-selection path may choose nuclear for any other autonomous order.
 
 Nuclear is the only way to destroy factories/war bases.
 
 ## 19. Match runtime and command ordering
 
-Recommended runtime:
+`MatchRuntime` (`backend/app/match/runtime.py`) runs one asyncio task per active match:
 
 ```python
-class Match:
-    engine_state
-    command_queue
-    players
-    tick_task
-    replay_writer
-    connection_state
+class MatchRuntime:
+    match            # Match: state, players, game_state, seed
+    world            # scenario-overlaid WorldMap
+    _pending         # queued commands for the next tick
+    _last_accepted_sequence[player]
+    on_tick_commands # replay recorder
+    on_tick          # snapshot broadcast, then victory finalizer
 ```
 
 Per active tick:
 
-1. drain commands eligible for next tick;
-2. apply deterministic command ordering;
-3. call engine step;
-4. record accepted commands/events;
-5. broadcast authoritative snapshot/delta;
-6. finalize when completed.
+1. drain the queued commands;
+2. call `engine.step` (which orders them by `(player, sequence)` and appends AI commands);
+3. record the drained commands and events in the replay artifact;
+4. broadcast a full authoritative snapshot to every connection of the match;
+5. finalize when a victory event appears.
 
-Scheduler drift compensation must never change integer simulation-time semantics.
+Command acceptance: `submit_command` rejects a command whose client sequence is not greater than the player's last accepted one (duplicates and replays); it makes no gameplay decision. Gameplay rejections happen in the engine and are silent (no extra event).
+
+Scheduling: ticks are paced by the event-loop clock. When a tick overruns its 50 ms budget the next tick starts at once and the schedule is re-based to now (no catch-up burst); repeated overruns are logged. While a match is not `ACTIVE` (waiting, paused) the loop only polls. Scheduler drift never changes integer simulation-time semantics.
+
+Match lifecycle (`MatchManager`): `WAITING` → `ACTIVE` when every human slot is ready (the engine state is created then) → `PAUSED_DISCONNECTED` ↔ `ACTIVE` → `FINISHED`. A sweep every 15 s disposes:
+
+- finished matches after `finished_retention_s` (default 300 s);
+- waiting lobbies after `waiting_timeout_s` (default 900 s);
+- waiting lobbies with no attached socket after `abandoned_lobby_grace_s` (default 30 s);
+
+and tells a disposed lobby's sockets `match_expired`. `ACTIVE`/`PAUSED` matches are never swept. At most `max_matches` (default 200) matches are held; beyond that `create` is refused (`ServerBusyError`).
+
+Solo matches (`MatchManager.create_solo_match`): created `WAITING` with one human slot and no join code; the AI seat (`Match.ai_player_id`) is not a `PlayerSlot`, never appears in the roster, ready list or reconnect bookkeeping, and is always ready. The human's ready starts the match.
+
+Nicknames (`match.manager._validate_nickname`): stripped; rejected when empty, when containing control (`Cc`), format (`Cf`, except U+200D between two `So`/`Sk`/`Mn` characters), surrogate, private-use or unassigned characters, bidirectional controls, or blank look-alikes (U+115F, U+1160, U+3164, U+FFA0, U+2800, U+034F), or when no character is a letter, number, punctuation or symbol. The schema limits length to 32. A join whose nickname equals the creator's after `unicodedata.normalize("NFKC", …).casefold()` is rejected with `invalid_nickname`. Join codes are 6 characters from `A–Z0–9` (`secrets.choice`); session tokens are `secrets.token_urlsafe(32)`.
 
 ## 20. Disconnect/reconnect runtime policy
 
-This is runtime/session policy, not deterministic game-state progression.
+This is runtime/session policy (`ReconnectCoordinator`), not deterministic game-state progression; it uses monotonic wall-clock deadlines, never engine ticks.
 
-- any player disconnect pauses the match immediately;
+- any human player's disconnect pauses the match immediately;
 - while paused, engine ticks/gameplay timers do not advance;
-- default grace period = 60 wall-clock seconds, configurable server/match value;
-- reconnect sends current authoritative snapshot;
-- simulation resumes only when both players are connected;
-- grace expiry causes forfeit when the opponent remains eligible to win;
-- if both disconnect, each gets an independent deadline;
-- if both expire without either returning, finalize as abandoned/no-contest;
+- default grace period = 60 wall-clock seconds, configurable per coordinator;
+- reconnect (the `reconnect` message with the session token) cancels the player's deadline and sends a `resync` with the current authoritative snapshot;
+- the simulation resumes only when every human player is connected;
+- when a deadline expires, the deadline values are compared, not a fresh clock reading: if the opponent is connected or its deadline is later, the expiring player forfeits; if the opponent's deadline is equal or earlier, the match ends as no-contest (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending));
+- the AI seat is never disconnected, so a solo human's expiry is a forfeit;
 - no manual pause in v1.
 
-The engine state remains unchanged during disconnect pause.
+The engine state is unchanged during a disconnect pause. A `leave` message is treated as a disconnect.
 
 ## 21. Protocol
 
-Client commands include:
+JSON Schema (`protocol/schemas/*.schema.json`) is the protocol source of truth. The message names below follow the schemas (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)). Generated TS types (`protocol/generated/types.ts`) and backend Pydantic models (`backend/app/protocol/`) must remain synchronized; CI regenerates the types and fails on drift. Every message carries `protocolVersion`.
+
+Client messages:
 
 ```text
-ready
-commander_input
-construction_action
-robot_control_action
-robot_order
-robot_fire
+create      { nickname, opponent?: "human" | "computer" }
+join        { joinCode, nickname }
+ready       { matchId, playerId, sessionToken, ready }
+leave       { matchId, playerId, sessionToken }
+reconnect   { matchId, playerId, sessionToken }
+command     { matchId, playerId, sessionToken, clientSequence, payload }
 ```
 
-Server messages include:
+Command payloads (`kind` plus):
 
 ```text
-match_joined
-match_started
-snapshot
-state_delta
-event
-command_rejected
-match_paused
-match_resumed
-match_ended
+commander_move                  { dx, dy }      one cardinal cell
+commander_set_vertical_intent   { rising }
+direct_robot_move               { dx, dy }      one cardinal cell
+robot_fire                      { entityId, weapon }
+set_robot_order                 { entityId, order: stop_and_defend | advance | retreat | search_capture | search_destroy }
+select_module / deselect_module { module }
+launch_robot
+cancel_construction
 ```
 
-JSON Schema is the protocol source of truth. Generated TS types and backend Pydantic validation must remain synchronized.
+Server messages:
+
+```text
+created      (joinCode null and opponent "computer" for a solo match)
+joined
+ready_state
+started
+snapshot     (full state, every tick)
+paused / resumed / resync
+finished / forfeit / no_contest
+error        { code, message, details? }
+```
+
+Engine events are not transmitted; clients derive presentation (sounds, effects) from consecutive snapshots.
 
 ## 22. Snapshot/replay requirements
 
-Snapshot minimum:
+Snapshot (`nether_earth.snapshot.to_snapshot`) contents:
 
-- tick/game clock;
-- players/resources;
-- commander states (including `elevate_updates_remaining`);
-- robots + transitions/reservations (including `last_fire_tick` and `exit_steps_remaining`);
-- ownership/capture progress;
+- tick and match seed;
+- players, resource pools and open construction sessions;
+- commander states (including transitions and `elevate_updates_remaining`);
+- robots with transitions, turns, `facing`, `strength`, `last_fire_tick`, `exit_steps_remaining` and `hunt_route` (elided when `None`);
+- structure ownership, capture progress, structure destruction;
 - projectiles (including `first_advance_tick`);
-- scenery debris (`scenery_debris`);
-- robot launches (`robot_launches`, per-owner monotonic id counters, §28.2);
-- robot hunt routes (`hunt_route` on a robot, CR004.13 §14): additive, elided when `None`;
-- map/scenario/rules versions;
-- match result;
-- AI planner memory (`AiMemory`), when a seat is computer-controlled (§28).
+- scenery debris and robot debris;
+- robot launch counters (`robot_launches`, elided while empty);
+- AI planner memory (`ai_memories`), when a seat is computer-controlled.
 
-Replay/debug log minimum:
+Additive keys are appended and elided while empty so older consumers keep working.
 
-- map version;
-- scenario version;
-- game-rules version/content hash;
-- RNG seed;
-- accepted commands in authoritative order;
-- important engine events;
-- final result.
-
-Replay contract:
+Replay artifact (`backend/app/replay/writer.py`), one directory per match:
 
 ```text
-initial state + rules + accepted commands + RNG seed => same result
+<replay_dir>/<match_id>/meta.json        header: schema version, rules version + hash,
+                                         scenario, map id/version/size, seed, nicknames,
+                                         seat controllers, status, final tick/result/snapshot
+<replay_dir>/<match_id>/commands.jsonl   one line per tick: accepted human commands + event summary
+<replay_dir>/<match_id>/lifecycle.jsonl  pause/resume/forfeit/no-contest with wall-clock time
+```
+
+Only human-submitted commands are persisted; AI commands are re-derived by stepping the engine. Session tokens are never written. `meta.json` is rewritten atomically (temp file + `os.replace`).
+
+Writes run on a single worker thread so they never block the event loop and each match's lines stay in order. At most `MAX_PENDING_WRITES` (10,000) writes may be queued; beyond that a write is dropped and reported (`replay_write_failed`, action `backlog`), which `verify_replay` would then detect as a mismatch.
+
+Artifact status: `in_progress` at start, `finished` at the end. At startup every artifact still `in_progress` is marked `interrupted` (its process died). When `NETHER_EARTH_REPLAY_RETENTION_DAYS` is set, `finished`/`interrupted` artifacts older than that (by `meta.json` modification time) are deleted hourly; unset, nothing is deleted. Whether production should prune by default is not yet decided (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)).
+
+Replay contract (`backend/app/replay/verify.py`):
+
+```text
+rules identity check
++ initial state from scenario, map, seed and seat controllers
++ accepted human commands per tick
+=> same final snapshot and result
 ```
 
 ## 23. Frontend rendering/state
@@ -759,55 +754,75 @@ local_menu_state
 connection_state
 ```
 
-No client-authoritative movement or outcome prediction in v1.
-
-PixiJS scene layers may include:
-
-```text
-terrain
-static structures
-robots
-commanders
-projectiles/effects
-selection/highlights
-HUD/menus
-```
+No client-authoritative movement or outcome prediction in v1. Held commander moves are scheduled so each next `commander_move` reaches the server by the tick the current move completes.
 
 Renderer assets identify semantic types; they do not encode gameplay rules.
 
-Spectrum presentation (CR002; `functional-spec.md` §19):
+Spectrum presentation (FS §19):
 
 - `render/projection.ts`: the Spectrum isometric axes (`AXIS_X` = (8, −4), `AXIS_Y` = (4, 8) px per cell, `Z_PX` = 1 px per height unit; world units are Spectrum pixels) and its exact inverse for picking. `VIEW_SPAN_PX` sets the zoom.
 - One depth-sorted scene holds structure cells, scenery slices, robots, commanders and projectiles (occlusion). Units are drawn as 2×2 bodies from their snapshot anchor.
-- `render/surface.ts` gives the highest surface under a footprint for shadows, from the same heights the engine uses.
-- Scenery: `frontend/public/assets/manifest.json` maps each blocker `kind` (and `debris`) to a sprite asset; changing the mapping needs no code change. A kind without a valid mapping draws as a placeholder prism.
-- Ownership flags (`render/flags.ts`), the radar (`ui/radar.ts`: 128-column scrolling window, white only, own commander only), the full-screen construction screen (`ui/construction.ts`) and the self-hosted Spectrum fonts are presentation only.
+- `render/surface.ts` gives the highest surface under a footprint for shadows and robot elevation, from the same heights the engine uses; ground heights are drawn ×`GROUND_LIFT` (3).
+- Sprites: `frontend/public/assets/manifest.json` maps each blocker `kind` (and `debris`) and structure wall to a sprite asset, with an optional pixel `offset`; changing the mapping needs no code change. A kind without a valid mapping draws as a placeholder prism. Robot, commander and wall sprites are decoded from the disassembly by scripts under `frontend/scripts/`.
+- Ownership flags (`render/flags.ts`), the radar (`ui/radar.ts`), the full-screen construction screen (`ui/construction.ts`), the right-hand robot menu and the self-hosted Spectrum fonts are presentation only.
 - Construction costs shown in the UI come from `src/generated/rules/construction.json`, a build-time export of the `EngineRules.module_cost_*` defaults (`npm run rules:generate`). CI fails on drift; costs are not in the protocol. The UI never decides spending, weapon caps or launch validity.
-- Audio (`src/audio/`, #272): `title-score.ts` is the title music lifted from the disassembly by `frontend/scripts/decode-music.py`; `score.ts` interprets that bytecode one 50 Hz frame at a time; `spectrum.ts` and `sfx.ts` reproduce the original routines' T-state timing, so pitches and durations are derived rather than invented; `engine.ts` plays them through WebAudio; `events.ts` derives the in-game sounds from consecutive snapshots. No protocol, engine or backend change: audio never crosses the boundary. The noise routines' ROM reads are replaced by a seeded PRNG, the one deliberate deviation. Mute is per viewer in `localStorage` (key `M`).
-- Structure labels and robot strength numbers are an optional overlay, off by default (`ui.labels`, key `L`, saved per viewer in `localStorage`).
+- Audio (`src/audio/`): the title music is lifted from the disassembly by `frontend/scripts/decode-music.py` and interpreted one 50 Hz frame at a time; the sound routines reproduce the original T-state timing; in-game sounds are derived from consecutive snapshots. The noise routines' ROM reads are replaced by a seeded PRNG. Mute is per viewer in `localStorage` (key `M`). No protocol, engine or backend involvement.
+- Structure labels and robot strength numbers are an optional overlay, off by default (key `L`, saved per viewer in `localStorage`).
 
-## 24. Deployment configuration
+## 24. Deployment and supply chain
 
-Environment-only settings may include:
-
-```text
-HOST
-PORT
-REPLAY_DIR
-PUBLIC_BASE_URL
-```
-
-Gameplay rules are versioned engine/scenario data, not arbitrary environment variables.
-
-Single-host Docker Compose:
+Environment-only settings (`backend/app/config.py`, names as implemented (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending))), all optional in development; `NETHER_EARTH_ENV=production` (set by the image) turns a missing required value into a startup failure:
 
 ```text
-nginx
-frontend
-backend
+NETHER_EARTH_ENV                               production | development
+NETHER_EARTH_PUBLIC_BASE_URL                   required in production; its origin is the only one allowed on /ws
+NETHER_EARTH_REPLAY_DIR                        required in production
+NETHER_EARTH_MAP_DIR                           map data directory (image default /opt/nether-earth/data/maps)
+NETHER_EARTH_MAX_MATCHES                       default 200
+NETHER_EARTH_FINISHED_MATCH_RETENTION_SECONDS  default 300
+NETHER_EARTH_WAITING_MATCH_TIMEOUT_SECONDS     default 900
+NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS     default 30
+NETHER_EARTH_REPLAY_RETENTION_DAYS             default unset (keep all)
+NETHER_EARTH_LOG_LEVEL                         default INFO
+NETHER_EARTH_LOG_FORMAT                        json (production) | text
+NETHER_EARTH_COMMIT                            baked into the image, logged at startup
 ```
 
-Nginx terminates HTTPS and proxies API/WebSocket traffic.
+Gameplay rules are versioned engine/scenario data, never environment variables.
+
+Docker Compose (`deploy/docker-compose.yml`), one host:
+
+```text
+gateway          nginx-unprivileged; the only published port; TLS via docker-compose.tls.yml
+frontend         static build served by nginx-unprivileged
+backend          uvicorn app.main:app, uid 10001, /ws and /health, /ready
+replay-dir-init  one-shot chown of the host replay directory
+```
+
+All containers run read-only with all capabilities dropped and `no-new-privileges`; logs are size-capped. The backend gets memory and CPU limits.
+
+Gateway (`deploy/nginx/`): proxies `/ws` (WebSocket, 120 s idle timeout) and `/api/` (GET only) to the backend and everything else to the frontend; per-IP limits (30 WebSocket handshakes/min, 10 API requests/s, 32 concurrent connections); security headers including a strict Content-Security-Policy; `/healthz` for its own liveness.
+
+Backend transport bounds (`backend/app/transport/`):
+
+- the WebSocket handshake is refused (1008) when its `Origin` is present and not the configured public origin;
+- inbound frames over 16 KiB close the socket (1009); uvicorn runs with the same `--ws-max-size`;
+- 40 messages/s sustained with a burst of 80 per connection (token bucket), else close;
+- a socket with no bound session after 30 s is closed (`bind_timeout`);
+- a session violation (bad or foreign token, a second create/join) closes with 1008; a malformed message only gets an `error`;
+- 5 failed joins close the connection;
+- a newer socket for the same session replaces the old one, which is closed with 4000;
+- a send that cannot complete in 5 s closes that socket, so the disconnect policy takes over instead of the tick loop blocking.
+
+Health: `/health` is liveness. `/ready` returns 503 while shutting down or when the replay directory is not writable; match, runtime and connection counts are included outside production, and in production only for a loopback client. The image's health check calls `/ready`.
+
+Supply chain:
+
+- base images are pinned by SHA-256 digest; GitHub Actions are pinned by commit SHA;
+- Python runtime dependencies are installed from `backend/requirements.lock` with `--require-hashes` (`make lock` regenerates it);
+- Dependabot opens weekly update PRs for pip, npm, Docker, Compose and Actions;
+- the "Dependency audit" workflow runs `pip-audit --strict` on the lock and `npm audit --audit-level=high` weekly and on dependency changes;
+- CI (`.github/workflows/ci.yml`) runs ruff, mypy and pytest; schema validation, generated-artifact drift, typecheck, vitest and build; then the Compose/Nginx config check and a production-image deployment smoke test (`deploy/smoke.sh`).
 
 ## 25. Testing priorities
 
@@ -829,17 +844,19 @@ Required coverage includes:
 - direct control/orders;
 - projectile firing gate/altitude/lifecycle;
 - damage/nuclear destruction;
+- AI seat determinism and strength (`engine/tests/ai_harness.py`, `scripts/ai_strength.py`);
 - replay determinism.
 
 Backend/runtime tests:
 
-- create/join/ready;
-- WebSocket ownership/session validation;
+- create/join/ready, solo matches;
+- WebSocket ownership/session validation and transport limits;
 - disconnect pause/reconnect snapshot/resume;
 - grace-timeout forfeit;
 - both-disconnected no-contest;
 - multiple matches/process;
-- cleanup.
+- sweep and cleanup;
+- replay artifacts, retention and verification.
 
 Protocol tests:
 
@@ -847,18 +864,11 @@ Protocol tests:
 - generated TS current;
 - representative messages validate.
 
-Integration test should run a scripted deterministic match end-to-end and produce identical final replay hashes across repeated runs.
+An integration test runs a scripted deterministic match end-to-end and produces identical final replay hashes across repeated runs (`backend/tests/acceptance/test_m9_full_match.py`).
 
-## 26. Remaining fidelity research
+## 26. Open questions
 
-Remaining gameplay research areas:
-
-1. exact combat accuracy, integer rounding, strength handling, and electronics modifiers;
-2. the autonomous fire-decision scan distance (`open-questions.md` §8).
-
-Movement timing and scenery blockers (§4), projectile speed, range, lifetime and fire-cycle timing (§8), and the 2×2 bodies (§21) are resolved: projectiles advance 2 cells every 4 ticks, with the first move on the fire tick; ranges are 10/14/10 cells, +2 with electronics. The deviations from the original that the owner kept are recorded in `open-questions.md`.
-
-Until verified from the fidelity evidence chain, keep these behind isolated engine policies/configuration and do not silently treat guesses as canonical defaults.
+The remaining open gameplay questions are listed in [open-questions.md](open-questions.md). Until one is decided, keep the value or algorithm it covers behind an isolated engine policy or rule field and do not treat a guess as canonical.
 
 ## 27. v1 non-goals
 
@@ -875,84 +885,24 @@ Do not add unless scope explicitly changes:
 - generic ECS migration without a concrete need;
 - a backend-hosted or difficulty-configurable AI (§28 is the only AI in scope).
 
-## 28. AI opponent (CR004)
+## 28. AI opponent
 
 The computer-controlled seat is an engine-side deterministic planner, not a backend bot session.
 
-- It runs inside `engine.step` and emits ordinary `Command`s for its `PlayerId`, through the same
-  `validate_command`/`order_commands` path a human's commands take. No privileged path, no direct
-  state mutation, no new rule.
-- Its carry-over state (`AiMemory`: build intent, per-robot assignments, threat bookkeeping) lives
-  in `GameState` and round-trips through `snapshot.py` and `replay.py` (§22); a replay never
-  records the AI's commands, it re-derives them by re-simulating from scenario + map version +
-  seed + the human's command stream alone.
-- `nether_earth.ai.planner.plan(state, memory, world, rules, seed)` is a pure function of
-  `(GameState, AiMemory, EngineRules)`. The engine derives its per-decision `seed` as
-  `rng.derive_seed(match_seed, "ai", player_id, tick)`; `plan` derives one further seed per
-  sub-planner (`derive_seed(seed, name)`) from it, so each sub-planner's `MatchRandom` stream is
-  independent. Iteration order is canonical, never set/dict order.
-- It decides on a fixed cadence, `ai_decision_interval_ticks` (default 4), a centralized rules
-  constant rather than an emergent property of loop speed.
-- It has no commander: the AI seat simply has no entry in `state.commanders` (a tuple of the
-  commanders that exist), not a `None` placeholder standing in for one. Every site that looks up a
-  commander for a given seat must tolerate there being none.
+- It runs inside `engine.step` (`ai.seat.issue_ai_commands`) on ticks that are multiples of `ai_decision_interval_ticks` (4), and emits ordinary `Command`s for its `PlayerId`, numbered after any command already submitted for that seat. They go through the same `validate_command_batch` and per-command engine rules as a human's: no privileged path, no direct state mutation, no new rule.
+- Its carry-over state (`AiMemory`: last war base built at, defence assignments, enemy sightings) lives in `GameState` and round-trips through snapshots and replays; a replay never records the AI's commands, it re-derives them by re-simulating from scenario + map version + seed + the human's command stream.
+- `ai.planner.plan(state, memory, world, rules, seed)` is a pure function. The engine derives its per-decision `seed` as `rng.derive_seed(match_seed, "ai", player_id, tick)`; `plan` derives one further seed per sub-planner (`derive_seed(seed, name)`). Iteration order is canonical, never set/dict order. The current sub-planners draw no random numbers.
+- The AI seat has no entry in `state.commanders`. Every site that looks up a commander for a given seat tolerates there being none.
 
-### 28.1 Planner structure (shipped)
+### 28.1 Planner structure
 
-`nether_earth.ai.planner.plan(state, memory, world, rules, seed)` chains two sub-planners, each
-owning its own slice of `AiMemory` and drawing from its own seeded `MatchRandom`
-(`derive_seed(seed, name)`, so their draws never interfere with each other):
+`ai.planner.plan` chains two sub-planners, construction first, each owning its slice of `AiMemory`:
 
-- **`ai.construction`** — economic/build policy. Picks the best design the current pool can
-  afford (`DESIGNS`, `choose_design`), keeps a weapon-count floor and a defence reserve of
-  general resources, builds a nuclear robot on a fixed army-size cadence, and rotates over every
-  owned war base (skipping one whose exit is blocked). It enters construction through
-  `EnterConstructionRemotelyCommand` — a second, commander-less entry into the shared
-  `construction_session` layer alongside the human's heli-pad entry — then issues the same
-  `SelectModule`/`LaunchRobot` commands a human's construction screen would, so cost, the spend
-  rule, and the robot cap are all enforced by the existing engine code, never duplicated.
-- **`ai.robot_orders`** — per-robot order policy. Predicts what the engine's own
-  `select_capture_target`/`select_destroy_target`/exclusivity rule (`orders.claimed_structures`,
-  CR003.2) will choose, and issues `SetRobotOrderCommand`s that value-rank capture targets
-  (production value, distance, contestation), detect an enemy robot closing on an owned war base
-  or factory and divert or hold a defender, and send nuclear carriers only at opponent-owned
-  targets. It never picks a specific building directly; the engine's own nearest-unclaimed rule
-  still does that.
+- **`ai.construction`** — scores every legal design (`DESIGNS`, `design_value`) and picks the best the current pool can pay for (`choose_design`, using the engine's own spend rule), subject to a weapon-count floor that rises with army size (`min_weapons`), a defence reserve of general resources (`defence_reserve`), and a nuclear role (`wants_nuclear`). A threatened war base (`threatened_war_bases`) releases the floor and the reserve. It tries owned war bases threatened-first, then round robin (`war_base_order`), skipping one whose exit the launch rule refuses (`robot_launch.resolve_launch_exit`). It opens the session with `EnterConstructionRemotelyCommand` — a second, commander-less entry into the shared `construction_session` layer, accepted for AI seats only — then issues the same `SelectModuleCommand`s and `LaunchRobotCommand` a human's construction screen would, all in one tick. A session still open at the next decision is cancelled.
+- **`ai.robot_orders`** — in priority order: defence (an enemy robot closing on an owned capture cell within the threat radius gets one defender, chosen by `matchup`), nuclear carriers to opponent-owned structures, capture allocation by value-per-distance score (`capture_score`, `structure_value`), and hunting with robots that win their matchup. It predicts what the engine's own `select_capture_target` / `select_destroy_target` / exclusivity rule (`orders.claimed_structures`) will choose and issues `SetRobotOrderCommand`s; it never picks a building directly. An order is re-issued only when it differs in kind (`same_order`).
 
-Both planners read only information a player's own client would render (own resources, both
-sides' structure ownership and robot positions); neither reads the opponent's resource pool,
-construction session or orders. Neither planner changes what any command does — every command it
-issues is validated exactly like a human's, so no new gameplay rule was added to support the AI.
+Both planners read only information a player's own client renders (own resources, both sides' structure ownership and robot positions and builds); neither reads the opponent's resource pool, construction session or orders. AI strategy weights are module constants in `ai/`, outside `EngineRules` and the rules hash.
 
-### 28.2 Match lifecycle (shipped)
+### 28.2 Match lifecycle and wire protocol
 
-A solo match (`MatchManager.create_solo_match`) is created `WAITING` with one human slot and no
-join code; the AI seat (`Match.ai_player_id`) is not a `PlayerSlot` and never appears in the
-roster, ready list, or reconnect bookkeeping, so it can never itself pause the match or contribute
-to a no-contest. It is always ready, so the human's own `ClientSetReady` is the only step left
-before the match starts. Reconnect behaves exactly like PvP for the human: a disconnect pauses
-with the usual grace window, and letting it expire forfeits to the AI.
-
-Robot ids (CR004.12, #295 — a pre-existing PvP bug pulled into CR004 because
-solo matches crash without it): each robot's id is `robot-<owner>-<n>`, where
-`n` comes from a monotonic per-owner counter (`RobotLaunchCount`, carried in
-`GameState.robot_launches`) rather than the owner's live robot count. The
-counter only ever grows — a robot's death never lowers it — so an id is never
-reused within a match, even after every robot a player ever launched has
-died (the AI, which can rebuild its whole army repeatedly in one match, hits
-this far more than PvP ever did). `robot_launches` is an additive snapshot
-key, appended last: it is elided from the wire while no player has launched
-a robot yet (empty), and present once one has, the same elision convention
-as `ai_memories`. Because it is additive, a replay
-recorded before CR004.12 has no `robot_launches` entries; the engine rejects
-it as incompatible via the recorded rules version (`RULES_VERSION`) rather
-than guessing a counter for it.
-
-Wire protocol: `createMatch.opponent: "human" | "computer"` (absent means `"human"`, so an
-existing PvP `create` is byte-for-byte unchanged); `created.joinCode` is nullable (`null` for a
-solo match, since there is no second human slot to join) but still required as a key, in its
-declared position; `created.opponent` mirrors the request only when it is `"computer"`. Only
-human-submitted commands are persisted to `commands.jsonl`; a replay artifact records which seats
-are AI-controlled (`meta.json`'s `seat_controllers`, e.g. `{"p1": "human", "p2": "ai"}`) and the
-AI's commands are re-derived by stepping the engine, never recorded. An artifact from before
-`seat_controllers` existed is treated as all-human.
+A solo match is described in §19. Wire protocol: `create.opponent: "human" | "computer"` (absent means `"human"`, so an existing PvP `create` is unchanged); `created.joinCode` is `null` for a solo match but still present; `created.opponent` is present only when it is `"computer"`. A replay artifact records which seats are AI-controlled (`meta.json` `seat_controllers`, e.g. `{"p1": "human", "p2": "ai"}`); an artifact without it is treated as all-human.
