@@ -1,4 +1,4 @@
-import { test } from 'vitest';
+import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { Store } from '../state/store.ts';
 import { GameController, CURSOR_REPEAT_MS } from './controller.ts';
@@ -335,4 +335,60 @@ test('PvP create (no opponent field) never auto-sends ready', () => {
   });
   assert.deepEqual(controller.recorded!.sent, []);
   assert.equal(store.get().connection.session?.vsComputer, false);
+});
+
+
+// ---- live transport: close-code handling (security review follow-up) ----
+
+class FakeWebSocket {
+  static OPEN = 1;
+  static instances: FakeWebSocket[] = [];
+  readyState = 0;
+  onopen: (() => void) | null = null;
+  onmessage: ((ev: { data: unknown }) => void) | null = null;
+  onclose: ((ev: { code: number }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor(readonly url: string) {
+    FakeWebSocket.instances.push(this);
+  }
+  send(): void {}
+  close(): void {}
+}
+
+function liveWithSession() {
+  FakeWebSocket.instances = [];
+  vi.stubGlobal('WebSocket', FakeWebSocket);
+  vi.useFakeTimers();
+  const store = new Store();
+  store.setConnection({
+    session: { matchId: 'm', playerId: 'player_one', sessionToken: 't', joinCode: null, nickname: 'a', vsComputer: false },
+  });
+  const controller = new GameController(store, () => 0);
+  controller.startLive('ws://test/ws');
+  const first = FakeWebSocket.instances[0]!;
+  first.readyState = FakeWebSocket.OPEN;
+  first.onopen?.();
+  return { store, first };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+test('a 4000 "replaced" close does not reconnect and tells the player why', () => {
+  const { store, first } = liveWithSession();
+  first.onclose?.({ code: 4000 });
+  vi.advanceTimersByTime(60_000);
+  assert.equal(FakeWebSocket.instances.length, 1);
+  assert.equal(store.get().connection.status, 'disconnected');
+  assert.equal(store.get().connection.lastError?.message, 'Session opened in another tab or window');
+});
+
+test('an abnormal (1006) close still schedules a reconnect', () => {
+  const { store, first } = liveWithSession();
+  first.onclose?.({ code: 1006 });
+  assert.equal(store.get().connection.status, 'reconnecting');
+  vi.advanceTimersByTime(500);
+  assert.equal(FakeWebSocket.instances.length, 2);
 });

@@ -4,7 +4,7 @@
 import type { Store, Session, MenuMode } from '../state/store.ts';
 import { dockedRobot, myCommander, myConstruction } from '../state/store.ts';
 import { saveLabels } from '../state/labels.ts';
-import { WebSocketClient, defaultWsUrl, type GameClient, type InboundMessage, RecordingClient } from '../net/client.ts';
+import { WebSocketClient, defaultWsUrl, type GameClient, type InboundMessage, RecordingClient, REPLACED_CLOSE_CODE } from '../net/client.ts';
 import { CommandSender } from '../net/commands.ts';
 import type { InputSink, MoveIntent } from '../input/keyboard.ts';
 import { findFixture } from '../fixtures/index.ts';
@@ -66,7 +66,7 @@ export class GameController implements InputSink {
         }
       },
       onMessage: (msg) => this.handleInbound(msg),
-      onClose: () => this.onClosed(),
+      onClose: (code) => this.onClosed(code),
     });
     this.client = ws;
     this.sender = new CommandSender(ws);
@@ -119,7 +119,17 @@ export class GameController implements InputSink {
     }
   }
 
-  private onClosed(): void {
+  private onClosed(code: number): void {
+    if (code === REPLACED_CLOSE_CODE) {
+      // A newer socket took over this session (another tab/window holds the
+      // same token). Reconnecting would evict it in turn and the two would
+      // evict each other forever; the player can take over with "Reconnect now".
+      this.store.setConnection({
+        status: 'disconnected',
+        lastError: { code: 'session_replaced', message: 'Session opened in another tab or window' },
+      });
+      return;
+    }
     const s = this.store.get();
     const terminal = ['finished', 'forfeit', 'no_contest'].includes(s.lifecycle.phase);
     if (!s.connection.session || terminal) {
@@ -135,6 +145,7 @@ export class GameController implements InputSink {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectAttempts = 0;
     if (this.store.get().connection.status === 'fixture') return;
+    if (this.store.get().connection.lastError?.code === 'session_replaced') this.store.setConnection({ lastError: null });
     this.client.connect();
   }
 

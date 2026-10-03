@@ -19,10 +19,14 @@ export interface GameClient {
 export interface ClientEvents {
   onMessage(msg: InboundMessage): void;
   onOpen(): void;
-  onClose(): void;
+  /** `code` is the WebSocket close code (see `REPLACED_CLOSE_CODE`). */
+  onClose(code: number): void;
 }
 
 export const PROTOCOL_VERSION = 1 as const;
+
+/** Close code the backend sends a socket superseded by a newer one for the same session. */
+export const REPLACED_CLOSE_CODE = 4000;
 
 /** Default WebSocket URL: same origin, `/ws` (matches deploy/nginx.conf). */
 export function defaultWsUrl(loc: { protocol: string; host: string } = window.location): string {
@@ -65,9 +69,9 @@ export class WebSocketClient implements GameClient {
       const msg = parseInbound(String(ev.data));
       if (msg) this.events.onMessage(msg);
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       if (this.ws === ws) this.ws = null;
-      if (!this.closedByUser) this.events.onClose();
+      if (!this.closedByUser) this.events.onClose(ev.code);
     };
     ws.onerror = () => {
       /* onclose follows; nothing to add */
