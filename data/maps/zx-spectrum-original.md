@@ -9,7 +9,7 @@ what tier of evidence supports it, per the fidelity priority in `AGENTS.md`:
 4. observed gameplay recordings / the speccy.cz map image
 5. other ports/remakes (not used for any value here)
 
-Issue: #25 (M2.7). Milestone: `_specs/milestones/02-map-world-model.md`.
+Issue: #25 (M2.7). Rules: `_specs/functional-spec.md` §7 and `docs/mechanics/world-and-map.md`.
 
 ## Summary — needs human review before merge
 

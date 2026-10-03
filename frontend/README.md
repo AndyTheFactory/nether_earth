@@ -84,7 +84,7 @@ recorded from the engine; the schema test is what keeps them aligned.
 entries render as procedural Spectrum-palette prisms (see
 `public/assets/README.md` for provenance rules). Presentation conventions:
 
-- Spectrum orientation (`_specs/milestones/cr002/main-screen.png`): the map
+- Spectrum orientation (`docs/reference-screens/cr002/main-screen.png`): the map
   runs lower-left to upper-right; one cell step is (8,-4) px along +x and
   (4,8) px along +y, 1 px per height unit, in Spectrum pixels.
 - Zoom: the shorter side of the view shows `VIEW_SPAN_PX` (168) Spectrum
@@ -139,7 +139,7 @@ canonical `pvp-v1` scenario and the original map (Milestone 9).
 
 Landing on a war-base heli-pad opens the full-screen ROBOT CONSTRUCTION screen
 (`src/ui/construction.ts`), laid out after the original (reference
-`_specs/milestones/cr002/construction-screen.png`). RESOURCES AVAILABLE is the
+`docs/reference-screens/cr002/construction-screen.png`). RESOURCES AVAILABLE is the
 authoritative session buffer; the module costs come from
 `src/generated/rules/construction.json`, a format-only export of the engine's
 `EngineRules.module_cost_*` defaults (the protocol does not carry costs), so

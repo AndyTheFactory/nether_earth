@@ -72,6 +72,15 @@ It may be useful for:
 
 Gameplay rules should not be inferred from this source when they conflict with the ZX Spectrum version, original instructions, or disassembly.
 
+## 5. Project research notes
+
+These are derived from the sources above and kept in the repository:
+
+- [docs/mechanics/](../docs/mechanics/README.md) — how the engine implements each rule, with the disassembly labels it relies on.
+- [docs/cr004/spectrum-ai-notes.md](../docs/cr004/spectrum-ai-notes.md) — a reading of the original's enemy computer player and the verdict per mechanic.
+- [data/maps/zx-spectrum-original.md](../data/maps/zx-spectrum-original.md) — provenance of every decoded map cell.
+- [docs/reference-screens/](../docs/reference-screens/cr002/) — reference screenshots of the original (play view, construction screen, robot menu).
+
 ## Reference priority
 
 When sources disagree, use the following priority unless a specific project decision explicitly overrides the original behavior:

@@ -217,7 +217,7 @@ generates them at runtime as 24x24 1-bit sprites from a few isometric
 primitives (2:1 blocks with dithered faces, discs, lines). They are an
 original drawing made for this project in the style of the original's icons
 (one ink colour on black, isometric, measured from
-`_specs/milestones/cr002/construction-screen.png`); no sprite data was copied
+`docs/reference-screens/cr002/construction-screen.png`); no sprite data was copied
 from the game or its disassembly. Same terms as the rest of this repository.
 Colours follow the original's code (`Lcc1f` in the disassembly): fitted
 modules white, the others yellow.
@@ -237,7 +237,7 @@ table kept in that script; regenerate with
 
 The glyphs are a recreation of the *style* of the Nether Earth (ZX Spectrum,
 1987) in-game lettering, measured from the CR002 reference screenshots
-(`_specs/milestones/cr002/*.png`): capitals only, 7x7 body in an 8x8 cell,
+(`docs/reference-screens/cr002/*.png`): capitals only, 7x7 body in an 8x8 cell,
 3-pixel stems cut by 1-pixel gaps, titles drawn at double height. No font
 data, ROM character set or bitmap was copied from the original game or the
 Spectrum ROM: every glyph was drawn by hand for this project. At 7x7 with
