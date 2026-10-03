@@ -187,3 +187,24 @@ test('the commander follows the same own/enemy brightness rule', () => {
   assert.deepEqual(tintOf(true), new Set([PALETTE.brightWhite]));
   assert.deepEqual(tintOf(false), new Set([PALETTE.white]));
 });
+
+// Destroyed-robot blink (owner decision 2026-10-03): drawn only on the cycles
+// the snapshot marks visible; the explosion goes off when the blink starts.
+const { robotDeaths, robotDrawn } = await import('./robot.ts');
+
+test('a blinking robot is drawn only on its visible cycles', () => {
+  assert.equal(robotDrawn({ entity_id: 'r' }), true);
+  const phases = [4, 3, 2, 1, 0].map((n) => robotDrawn({ entity_id: 'r', blink: { visible: n % 2 === 0 } }));
+  assert.deepEqual(phases, [true, false, true, false, true]);
+});
+
+test('a robot dies once: when its blink starts, not when it is removed', () => {
+  const live = { entity_id: 'a' };
+  const blinking = { entity_id: 'a', blink: { visible: true } };
+  assert.deepEqual(robotDeaths([live], [blinking]), [live]);
+  assert.deepEqual(robotDeaths([blinking], [{ ...blinking, blink: { visible: false } }]), []);
+  assert.deepEqual(robotDeaths([blinking], []), []);
+  // A nuclear blast removes a live robot outright.
+  assert.deepEqual(robotDeaths([live], []), [live]);
+  assert.deepEqual(robotDeaths([live], [live]), []);
+});

@@ -41,7 +41,7 @@ from nether_earth.robot_build import ModuleIdentity, RobotBuild
 from nether_earth.robot_stack import derive_stack_and_height
 from nether_earth.rules import DEFAULT_RULES
 from nether_earth.scenario import Scenario
-from nether_earth.snapshot import snapshot_to_json_string
+from nether_earth.snapshot import snapshot_to_json_string, to_snapshot
 from nether_earth.state import GameState
 from nether_earth.structures import Component, Factory, FactoryType, Footprint, WarBase
 from nether_earth.terrain import TerrainGrid
@@ -389,7 +389,16 @@ def test_a_second_kill_while_blinking_is_a_no_op() -> None:
     assert again is state and events == ()
 
 
-# -- determinism ----------------------------------------------------
+# -- snapshot and determinism ----------------------------------------------------
+
+
+def test_the_snapshot_carries_the_blink_only_while_it_runs() -> None:
+    live = _robot("robot-a", PLAYER_ONE, X, Y)
+    assert "blink" not in to_snapshot(_state(live))["robots"][0]
+    shown = to_snapshot(_state(_dying(live)))["robots"][0]
+    assert shown["blink"] == {"cycles_remaining": 4, "visible": True}
+    hidden = to_snapshot(_state(_dying(live, cycles=3)))["robots"][0]
+    assert hidden["blink"] == {"cycles_remaining": 3, "visible": False}
 
 
 def test_a_kill_and_its_blink_replay_identically() -> None:

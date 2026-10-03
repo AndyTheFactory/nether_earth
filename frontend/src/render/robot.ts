@@ -32,6 +32,35 @@ import { COMMANDER_SPRITES } from './commander-sprites.ts';
  */
 export const UNIT_SIZE = 2;
 
+/** The snapshot fields the destroyed-robot blink reads. */
+type BlinkingRobot = { entity_id: string; blink?: { visible: boolean } };
+
+/**
+ * Whether a robot is drawn this frame. A destroyed robot blinks for four game
+ * cycles before it is removed (owner decision 2026-10-03): the Spectrum draws
+ * a map cell's object only while its mark is set (`Lcd18_draw_map_cell`),
+ * and `Lb0fa_robot_update` toggles that mark once per cycle. The engine
+ * decides the phase; this only reads `blink.visible`.
+ */
+export function robotDrawn(robot: BlinkingRobot): boolean {
+  return robot.blink?.visible ?? true;
+}
+
+/**
+ * Robots that died between two snapshots, for the explosion effect: those
+ * that started blinking, and those that vanished without blinking (a nuclear
+ * blast removes robots outright). A blinking robot's later removal is not a
+ * second death.
+ */
+export function robotDeaths<R extends BlinkingRobot>(previous: readonly R[], next: readonly R[]): R[] {
+  const now = new Map(next.map((r) => [r.entity_id, r]));
+  return previous.filter((was) => {
+    if (was.blink) return false;
+    const r = now.get(was.entity_id);
+    return !r || !!r.blink;
+  });
+}
+
 /** Ground-plane centre of the 2×2 body anchored at (x, y), for labels, effects and the camera. */
 export function unitCentre(x: number, y: number): { x: number; y: number } {
   return { x: x + (UNIT_SIZE - 1) / 2, y: y - (UNIT_SIZE - 1) / 2 };

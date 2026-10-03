@@ -402,6 +402,16 @@
                 },
                 "required": ["target_id", "planned_tick", "origin_x", "origin_y", "steps"],
                 "additionalProperties": false
+              },
+              "blink": {
+                "description": "A destroyed robot blinking before removal (owner decision 2026-10-03, open question 3.6): cycles_remaining counts down once per game cycle and the robot is removed on the cycle after it reaches 0; visible says whether it is drawn (and on the map) this cycle. Omitted for a live robot -- deliberately NOT in required below, matching to_snapshot's own elision.",
+                "type": "object",
+                "properties": {
+                  "cycles_remaining": { "type": "integer", "minimum": 0 },
+                  "visible": { "type": "boolean" }
+                },
+                "required": ["cycles_remaining", "visible"],
+                "additionalProperties": false
               }
             },
             "required": [

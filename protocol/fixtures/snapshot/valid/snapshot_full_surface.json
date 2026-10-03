@@ -87,6 +87,24 @@
         "exit_steps_remaining": 0,
         "facing": "south",
         "turning": null
+      },
+      {
+        "entity_id": "robot-2",
+        "owner": "p2",
+        "x": 9,
+        "y": 4,
+        "build": { "chassis": "bipod", "weapons": ["cannon"], "electronics": null },
+        "stack": ["bipod", "cannon"],
+        "height": 12,
+        "movement": null,
+        "order": { "kind": "stop_and_defend" },
+        "active_projectile_id": null,
+        "strength": 0,
+        "last_fire_tick": null,
+        "exit_steps_remaining": 0,
+        "facing": "west",
+        "turning": null,
+        "blink": { "cycles_remaining": 3, "visible": false }
       }
     ],
     "structure_ownership": [
