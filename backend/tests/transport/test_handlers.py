@@ -1,8 +1,9 @@
-"""Unit tests for the per-message ``/ws`` handlers, without a TestClient.
+"""Unit tests for the per-message ``/ws`` handlers.
 
-Each handler runs against a ``Connection`` built on a fake WebSocket and the
-real ``MatchManager`` / ``MatchRuntimeRegistry`` / ``ConnectionRegistry``,
-so these exercise the handler code directly: no app, no network.
+Each handler test runs against a ``Connection`` built on a fake WebSocket and
+the real ``MatchManager`` / ``MatchRuntimeRegistry`` / ``ConnectionRegistry``,
+with no TestClient and no network. The fail-safe (1011) test is the exception:
+that path lives in the endpoint loop, so it drives the router via a TestClient.
 """
 
 from __future__ import annotations
