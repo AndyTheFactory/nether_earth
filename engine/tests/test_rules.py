@@ -30,7 +30,7 @@ def test_default_rules_match_evidence_backed_ordinary_terrain_movement_ticks() -
     disassembly's own documented cadence (``MIN_INTERRUPTS_PER_GAME_CYCLE:
     equ 10 ; game maximum speed is 5 frames per second``, i.e. one game
     cycle = 200ms = 4 ticks at the locked 20Hz simulation rate). See
-    `rules.py`'s module docstring and `_specs/open-questions.md` §4 for the
+    `rules.py`'s module docstring and `_specs/resolved-questions.md` "Exact movement speeds and terrain penalties" for the
     full evidence trail, and the per-terrain values
     resolved by CR001.
     """
@@ -40,7 +40,7 @@ def test_default_rules_match_evidence_backed_ordinary_terrain_movement_ticks() -
 
 
 def test_default_rules_match_locked_terrain_tick_table() -> None:
-    """CR001.4 (#151), `_specs/open-questions.md` §4: rugged 8/6/3 and
+    """CR001.4 (#151), `_specs/resolved-questions.md` "Exact movement speeds and terrain penalties": rugged 8/6/3 and
     mountains 9/7/4 cycles at 4 ticks/cycle; ditch uses anti-grav's flat row."""
     assert DEFAULT_RULES.robot_move_ticks_bipod_rough == 32
     assert DEFAULT_RULES.robot_move_ticks_tracks_rough == 24
@@ -158,7 +158,7 @@ def test_default_rules_match_locked_combat_range_and_effect_defaults() -> None:
     """Issue #70 (M6.1), ranges revised by CR001 (#150).
 
     Weapon ranges are the Spectrum code values defined directly in cells
-    (`_specs/open-questions.md` §8): cannon 10, missile 14, phaser 10,
+    (`_specs/resolved-questions.md` "Exact projectile mechanics"): cannon 10, missile 14, phaser 10,
     electronics +2.
     """
     assert DEFAULT_RULES.cannon_range_cells == 10
@@ -212,7 +212,7 @@ def test_engine_rules_rejects_non_positive_combat_fields(field_name: str) -> Non
 
 
 def test_default_rules_nuclear_blast_shape_matches_spectrum_code() -> None:
-    """CR001.2 (#149), `_specs/open-questions.md` §20, `Lb99f_fire_nuclear_bomb`."""
+    """CR001.2 (#149), `_specs/resolved-questions.md` "Nuclear blast shape", `Lb99f_fire_nuclear_bomb`."""
     assert DEFAULT_RULES.nuclear_robot_window_row_widths == (5, 7, 9, 9, 9, 9, 9, 7, 5)
     assert DEFAULT_RULES.nuclear_building_dy_offset == 1
     assert DEFAULT_RULES.nuclear_war_base_extra_dy_offset == 4

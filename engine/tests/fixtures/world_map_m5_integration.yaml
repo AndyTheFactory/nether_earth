@@ -6,7 +6,7 @@
 # integration scenario without any lane's robots/terrain/structures
 # interfering with another's.
 #
-# CR002.3/CR002.4 (open-questions.md §21): robots and commanders are 2×2
+# CR002.3/CR002.4 (resolved-questions.md "2×2 robots, commander, projectiles and heli-pad"): robots and commanders are 2×2
 # bodies anchored at their (x, y); a body covers x..x+1, y-1..y. The lanes
 # are laid out for 2×2 bodies:
 #

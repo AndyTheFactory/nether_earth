@@ -7,7 +7,7 @@ Defend; the construction screen already faces it down. `Lb154` ->
 `Lb1e9_no_enemy_robots_in_sight` then walks it one step per robot update
 while the step is possible, and a blocked step falls through to
 `Lb1f5`/`Lb222`, which picks no direction for Stop & Defend. Leaving the
-robot's menu zeroes its steps. See `_specs/open-questions.md` §21.
+robot's menu zeroes its steps. See `_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad".
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ Evidence (`santiontanon/netherearth-disassembly` @ 762e33e,
   `Lb6d6_weapon_fire`), so height-7 boxes are overflown and 15/99 stop it.
 
 Robots, the commander and projectiles are 2×2 bodies anchored at their
-``(x, y)`` (CR002.3/CR002.4, `_specs/open-questions.md` §21), so the
+``(x, y)`` (CR002.3/CR002.4, `_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"), so the
 approach positions below are body anchors.
 """
 

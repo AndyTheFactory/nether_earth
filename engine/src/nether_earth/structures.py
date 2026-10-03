@@ -106,7 +106,7 @@ class Component:
     """A single physical map cell belonging to a structure's composition.
 
     ``height`` is per-component, not a uniform value for the whole
-    structure — this is the crux of the resolved open-questions.md §15
+    structure — this is the crux of the resolved resolved-questions.md "Static-object composition and footprints"
     model. It must be a positive integer.
     """
 

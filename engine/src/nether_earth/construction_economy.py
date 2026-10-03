@@ -1,6 +1,6 @@
 """Original ZX Spectrum construction-resource spend/refund algorithm.
 
-`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED" locks
+`_specs/resolved-questions.md` "Resource spending rules" "Resource spending rules -- RESOLVED" locks
 the original Spectrum construction economy: every player has one *general*
 resource pool plus one pool per resource category (the same six
 :class:`~nether_earth.structures.FactoryType` categories a factory produces

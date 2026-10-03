@@ -1,7 +1,7 @@
 """Tests for nuclear detonation and structure destruction (issue #78, M6.8).
 
 Blast shapes follow the Spectrum code (CR001.2, issue #149,
-`_specs/open-questions.md` §20, `Lb99f_fire_nuclear_bomb`).
+`_specs/resolved-questions.md` "Nuclear blast shape", `Lb99f_fire_nuclear_bomb`).
 """
 
 from __future__ import annotations
@@ -194,7 +194,7 @@ def test_mixed_detonation_destroys_carrier_robot_and_one_building_in_order() -> 
 
 
 # Carrier at (20, 20). War-base dy is measured from carrier.y + 1 + 4 = 25,
-# factory dy from carrier.y + 1 = 21 (`_specs/open-questions.md` §20).
+# factory dy from carrier.y + 1 = 21 (`_specs/resolved-questions.md` "Nuclear blast shape").
 @pytest.mark.parametrize(
     ("dx", "dy", "hit"),
     [

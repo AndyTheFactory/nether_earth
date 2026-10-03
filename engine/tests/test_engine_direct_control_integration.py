@@ -313,7 +313,7 @@ def test_direct_move_cannot_bypass_terrain_legality() -> None:
 def test_direct_move_uses_the_locked_terrain_tick_table(
     chassis: ModuleIdentity, terrain: TerrainType, ticks: int | None
 ) -> None:
-    """`_specs/open-questions.md` §4 table through ``engine.step`` (``None`` = blocked)."""
+    """`_specs/resolved-questions.md` "Exact movement speeds and terrain penalties" table through ``engine.step`` (``None`` = blocked)."""
     robot = _robot(chassis=chassis)
     commander = _docked_commander()
     world = _world(terrain_cells={(6, 5): terrain})

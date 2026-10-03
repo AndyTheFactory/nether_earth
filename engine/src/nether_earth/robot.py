@@ -82,7 +82,7 @@ would be circular -- the same pattern `state.py` already uses for
 
 Strength state: the ``Robot.strength`` field is
 the robot's authoritative damage counter, defaulting to ``100`` -- the
-evidence-backed starting value confirmed by `_specs/open-questions.md` §9's
+evidence-backed starting value confirmed by `_specs/resolved-questions.md` "Damage, accuracy, and electronics effects"'s
 disassembly research (both robot spawn sites in the original set
 ``ROBOT_STRUCT_STRENGTH`` to exactly ``100``, and that research pass found
 no scale mismatch between this constant and the locked
@@ -440,8 +440,8 @@ class Robot:
     active_projectile_id: EntityId | None = None
     strength: int = 100
     last_fire_tick: int | None = None
-    #: Steps left in the launch walk-out (`_specs/open-questions.md`
-    #: "Remaining research" item 5 resolved): a new robot walks south out of
+    #: Steps left in the launch walk-out (`_specs/resolved-questions.md`,
+    #: Launched robots stuck in the doorway): a new robot walks south out of
     #: its war base's doorway before settling into Stop & Defend. See
     #: `robot_launch.py` and `orders.py`.
     exit_steps_remaining: int = 0

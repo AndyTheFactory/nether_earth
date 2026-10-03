@@ -129,8 +129,8 @@ def test_fixture_interaction_points_query() -> None:
     # A 2×2 pad (CR002.4): the four cells a landed commander's body covers.
     assert heli_pads[0].footprint.cells == frozenset({(4, 1), (5, 1), (4, 0), (5, 0)})
 
-    # warbase-p2 declares no warbase_capture point: open-questions.md §6 is
-    # unresolved, so the schema must not require one.
+    # warbase-p2 declares no warbase_capture point: the schema does not require one
+    # (`_specs/resolved-questions.md`, War-base capture mechanics).
     warbase_p2_captures = world_map.interaction_points_for(
         EntityId("warbase-p2"), kind=InteractionKind.WARBASE_CAPTURE
     )

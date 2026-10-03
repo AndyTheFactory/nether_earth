@@ -26,7 +26,7 @@ stops on the surface under the ship at an odd altitude
 (``commander_movement._gravity_landing_altitude``).
 The *tick cadence* of a vertical "update" (``commander_vertical_update_ticks``)
 is a documented canonical default of ``4``, but the Spectrum-timing research
-behind it is not independently verified (`_specs/open-questions.md` §13
+behind it is not independently verified (`_specs/resolved-questions.md` "Commander vertical limits and speed"
 flags it as not fully closed), so it is an overridable named constant that
 later evidence can correct in one place.
 
@@ -78,7 +78,7 @@ the original Spectrum's cap of 24 robots per player at a time, enforced by
 
 Robot movement timing (`docs/mechanics/movement.md`):
 one integer field per enterable (chassis, terrain) pair,
-``robot_move_ticks_<chassis>_<terrain>``, per `_specs/open-questions.md` §4
+``robot_move_ticks_<chassis>_<terrain>``, per `_specs/resolved-questions.md` "Exact movement speeds and terrain penalties"
 ("Exact movement speeds and terrain penalties -- RESOLVED", owner decision
 2026-09-21) and `_specs/technical-spec.md` §13. The values come straight
 from ``netherearth-annotated.asm``'s ``Lb61d_robot_movement_speed_table``
@@ -98,11 +98,10 @@ pairs (``-``) are chassis terrain *legality*, owned by `movement.py`'s
 ``CHASSIS_TERRAIN_PERMISSIONS``; they have no field here.
 
 Combat (`docs/mechanics/combat.md`): weapon ranges are the Spectrum code values defined directly in
-cells (`_specs/open-questions.md` §8): cannon 10, missile 14, phaser 10,
-electronics +2. The nuclear blast shape follows `_specs/open-questions.md`
-§20. Projectile altitude and damage multipliers are locked Spectrum
+cells (`_specs/resolved-questions.md` "Exact projectile mechanics"): cannon 10, missile 14, phaser 10,
+electronics +2. The nuclear blast shape follows `_specs/resolved-questions.md` "Nuclear blast shape". Projectile altitude and damage multipliers are locked Spectrum
 defaults. ``projectile_advance_ticks`` is evidence-backed
-(`_specs/open-questions.md` §8): bullets and robots share the same
+(`_specs/resolved-questions.md` "Exact projectile mechanics"): bullets and robots share the same
 per-game-cycle dispatcher, and one game cycle is 4 ticks at the locked
 20 Hz tick rate. Per-weapon range (``combat.weapon_range_cells`` plus the
 electronics bonus) is what gates projectile range/termination; see
@@ -133,7 +132,7 @@ RULES_VERSION = "cr005"
 
 #: How many grid cells one in-game *mile* spans.
 #:
-#: `_specs/open-questions.md` §3 locks this as a resolved rule: "1 mile = 2
+#: `_specs/resolved-questions.md` "Miles-to-grid-cell conversion" locks this as a resolved rule: "1 mile = 2
 #: cells". Spec-facing order distances are stated in miles (``Advance 0-50
 #: miles``) while every engine-facing distance is stated in cells, so the
 #: conversion is needed by more than one subsystem. Weapon ranges are the
@@ -194,7 +193,7 @@ class EngineRules:
       ascending (locked Spectrum default ``2``).
     - ``commander_descent_step``: altitude lost per vertical update while
       descending/falling (default ``2``, owner deviation from the
-      Spectrum's ``1``, `_specs/open-questions.md` §13).
+      Spectrum's ``1``, `_specs/resolved-questions.md` "Commander vertical limits and speed").
     - ``commander_height``: the commander's physical vertical extent, in the
       same altitude units as ``commander_min_altitude``/``commander_max_altitude``,
       used by height-aware collision (`collision.py`) to turn an
@@ -230,22 +229,22 @@ class EngineRules:
       docstring.
     - ``starting_general_resources``: each player's general resource pool at
       the start of a match (locked Spectrum default ``20``, per
-      `_specs/open-questions.md` §10).
+      `_specs/resolved-questions.md` "Resource spending rules").
     - ``module_cost_bipod`` / ``module_cost_tracks`` / ``module_cost_anti_grav``
       / ``module_cost_cannon`` / ``module_cost_missile`` / ``module_cost_phaser``
       / ``module_cost_nuclear`` / ``module_cost_electronics``: the construction
       resource cost of each :class:`~nether_earth.robot_build.ModuleIdentity`
       module, spent from the module's resource category first and then from
       general resources for any shortfall (`construction_economy.py`).
-      Locked Spectrum defaults, per `_specs/open-questions.md` §10:
+      Locked Spectrum defaults, per `_specs/resolved-questions.md` "Resource spending rules":
       bipod ``3``, tracks ``5``, anti-grav ``10``, cannon ``2``, missile
       ``4``, phaser ``4``, nuclear ``20``, electronics ``3``.
     - ``factory_production_amount``: type-specific resource units an owned
       factory produces per in-game day (locked Spectrum default ``2``, per
-      `_specs/open-questions.md` §10).
+      `_specs/resolved-questions.md` "Resource spending rules").
     - ``war_base_production_amount``: general resource units an owned war
       base produces per in-game day (locked Spectrum default ``5``, per
-      `_specs/open-questions.md` §10).
+      `_specs/resolved-questions.md` "Resource spending rules").
     - ``max_robots_per_player``: maximum number of robots a player may have
       launched and alive at once (locked Spectrum default ``24``, per
       `_specs/technical-spec.md` §7 (``GameRules.max_robots_per_player``)
@@ -254,7 +253,7 @@ class EngineRules:
     - ``robot_move_ticks_<chassis>_<terrain>`` (nine fields, one per
       enterable pair): simulation ticks a robot with that chassis takes to
       move one cell into a cell of that terrain class. Locked,
-      evidence-backed defaults per `_specs/open-questions.md` §4 (see the
+      evidence-backed defaults per `_specs/resolved-questions.md` "Exact movement speeds and terrain penalties" (see the
       module docstring): bipod normal ``24`` / rough ``32``; tracks normal
       ``16`` / rough ``24`` / mountain ``28``; anti-grav normal ``12`` /
       rough ``12`` / mountain ``16`` / ditch ``12``. Bipod on mountain or
@@ -277,7 +276,7 @@ class EngineRules:
       full capture time").
     - ``cannon_range_cells``: the maximum firing range of a cannon-equipped
       robot, in grid cells.
-      Spectrum code value: 10 cells (`_specs/open-questions.md` §8:
+      Spectrum code value: 10 cells (`_specs/resolved-questions.md` "Exact projectile mechanics":
       ``Lb6d6_weapon_fire`` range counter 5 x 2 cells per bullet update).
       Defined directly in cells, not via :func:`miles_to_cells`.
     - ``missile_range_cells``: the maximum firing range of a
@@ -290,7 +289,7 @@ class EngineRules:
       electronics module when fitted, in grid cells. Spectrum code value:
       2 cells (range counter +1 x 2 cells per update). Exact electronics
       accuracy and resistance mechanics remain research-owned.
-    - Nuclear blast shape (`_specs/open-questions.md` §20, from
+    - Nuclear blast shape (`_specs/resolved-questions.md` "Nuclear blast shape", from
       `Lb99f_fire_nuclear_bomb`):
 
       - ``nuclear_robot_window_row_widths``: row widths, top to bottom, of
@@ -320,7 +319,7 @@ class EngineRules:
       Locked Spectrum default: ``4``.
     - ``projectile_advance_ticks``: the number of simulation ticks between
       projectile-advance cadence updates (per
-      `_specs/open-questions.md` §8 "Advance cadence"). The disassembly
+      `_specs/resolved-questions.md` "Exact projectile mechanics" "Advance cadence"). The disassembly
       evidence shows bullets and robots are
       driven from the same per-game-cycle dispatcher
       (`Lb0ca_update_robots_bullets_and_ai`), with the same outer
@@ -333,18 +332,18 @@ class EngineRules:
       evidence-backed default (``4``), not an independent placeholder.
     - ``projectile_cells_per_advance``: how many cells a projectile moves
       along its firing axis on each advance (per
-      `_specs/open-questions.md` §8 resolution: ``Lb724_bullet_update_internal``
+      `_specs/resolved-questions.md` "Exact projectile mechanics" resolution: ``Lb724_bullet_update_internal``
       moves a bullet 2 map cells per update on either axis). Default ``2``.
     - ``robot_fire_cycle_ticks``: the length, in ticks, of the game cycle in
       which a robot may fire at most one normal weapon (owner
-      decision 2026-09-21, `_specs/open-questions.md` §8). Fire cycles are
+      decision 2026-09-21, `_specs/resolved-questions.md` "Exact projectile mechanics"). Fire cycles are
       the aligned windows ``tick // robot_fire_cycle_ticks``. Default ``4``
       (1 game cycle). On the Spectrum an AI robot fires only inside its
       update in ``Lb0ca_update_robots_bullets_and_ai`` and a combat-mode
       shot uses up one time step, so neither fires twice in a cycle.
     - ``dumb_wander_commit_ticks``: how long, in ticks, a non-electronic
       robot keeps trying the same detour direction when its greedy step
-      toward the target is blocked (`_specs/open-questions.md` §5/§22.6).
+      toward the target is blocked (`_specs/resolved-questions.md` "Dumb vs electronic navigation"/§22.6).
       The Spectrum's dumb AI commits to a randomly chosen direction for
       ``rand & 3 + 3`` = 3-6 game cycles
       (``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING``, ``Lb1f5``) before
@@ -354,7 +353,7 @@ class EngineRules:
       the Spectrum's range. Must be a positive integer.
     - ``robot_launch_exit_steps``: how many steps south a newly launched
       robot walks out of its war base before settling into Stop & Defend
-      (owner decision 2026-09-21, `_specs/open-questions.md` §21).
+      (owner decision 2026-09-21, `_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad").
       ``La6c8``, right after ``Lc849_robot_construction_if_possible``, sets
       ``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING`` to 5 ("walk 5 steps
       after exiting the base, and stop"). Default ``5``; ``0`` disables it.
@@ -427,8 +426,7 @@ class EngineRules:
     #: for the Spectrum's per-robot "keep walking" counter.
     dumb_wander_commit_ticks: int = 16
     #: An AI seat's planner runs only on ticks divisible by this
-    #: interval -- one Spectrum game cycle (4 ticks, `open-questions.md`
-    #: "One game cycle"), the cadence the original updates its AI at
+    #: interval -- one Spectrum game cycle (4 ticks, `docs/mechanics/timing-and-determinism.md`), the cadence the original updates its AI at
     #: (`Lb0ca_update_robots_bullets_and_ai`). Bounds per-tick planner cost.
     ai_decision_interval_ticks: int = 4
     #: Owner decision 2026-09-27: an electronics robot on
@@ -437,7 +435,7 @@ class EngineRules:
     #: between. It re-plans early when the route runs out, its next cell is
     #: no longer enterable, or the selected target changes. Default ``20``
     #: ticks = 1 s = 5 game cycles, a controller's choice the owner may
-    #: retune (`_specs/open-questions.md` §5).
+    #: retune (`_specs/resolved-questions.md` "Dumb vs electronic navigation").
     robot_hunt_replan_ticks: int = 20
 
     def __post_init__(self) -> None:

@@ -24,11 +24,11 @@ and its "lanes" rationale.
 Fidelity disclosures (this scenario deliberately exercises, and does not
 overclaim, every M6 policy choice still flagged non-canonical by Task 3
 (#72) or Task 5 (#74) -- see the milestone's own "Fidelity gate" and
-`_specs/open-questions.md` §8/§9):
+`_specs/resolved-questions.md` "Exact projectile mechanics"/§9):
 
 - Nuclear blast eligibility follows the Spectrum code's per-kind shapes
   (``destruction.py``'s ``execute_nuclear_detonation``, CR001.2 / issue
-  #149, `_specs/open-questions.md` §20): a trimmed 9x9 robot window and a
+  #149, `_specs/resolved-questions.md` "Nuclear blast shape"): a trimmed 9x9 robot window and a
   per-kind building range test destroying at most one building.
 - Fire direction is resolved by a dominant-axis-with-x-tiebreak rule
   (``combat.resolve_fire_direction``) because this engine's ``Robot`` has
@@ -39,23 +39,23 @@ overclaim, every M6 policy choice still flagged non-canonical by Task 3
   engine has no per-robot elevation field) -- see ``combat.py``'s module
   docstring for the full reasoning.
 - Destruction in this engine is immediate: Task 5's research
-  (`_specs/open-questions.md` §9) found the disassembly stages destruction
+  (`_specs/resolved-questions.md` "Damage, accuracy, and electronics effects") found the disassembly stages destruction
   behind a negative-strength "blink" grace state before removal
   (``Lb0fa_robot_update``/``Lb116_robot_destroyed``), which this milestone
   deliberately does not implement (`destroy_robot`'s own docstring) -- a
   documented simplification, not a fidelity claim.
 - This scenario's range-exhaustion assertions (Lanes C/D3, 10/14 cells)
   rest on the Spectrum code-derived ranges and the 2-cells-per-advance
-  projectile speed adopted by CR001 (#150, `_specs/open-questions.md` §8
+  projectile speed adopted by CR001 (#150, `_specs/resolved-questions.md` "Exact projectile mechanics"
   resolution).
 - This scenario hardcodes ``strength=100`` and asserts exact damage values
-  off it; `_specs/open-questions.md` §9 records the starting-strength
+  off it; `_specs/resolved-questions.md` "Damage, accuracy, and electronics effects" records the starting-strength
   figure as resolved only "subject to the scale-reconciliation caveat" that
   ``robot_height``/``ground_height`` be confirmed on the same disassembly-
   native raw scale once wired to real data -- a noted caveat, not a
   silently-assumed fact.
 - Projectile collision checks each cell entered, in travel order (single-
-  cell point collision per cell), not `_specs/open-questions.md` §8's
+  cell point collision per cell), not `_specs/resolved-questions.md` "Exact projectile mechanics"'s
   evidenced ordered 3x3 first-hit-wins scan
   (``Lb7a7_potentially_hit_a_robot``'s preceding neighborhood check) -- see
   ``combat.py``'s module docstring for the full disclosure and rationale;
@@ -247,7 +247,7 @@ D3_SHOOTER_X = 10
 D3_BLOCKER_X = 15
 
 # Lane I geometry: exactly at the blast-shape boundary in each direction
-# (`_specs/open-questions.md` §20). The window tests robot anchors (CR002.3).
+# (`_specs/resolved-questions.md` "Nuclear blast shape"). The window tests robot anchors (CR002.3).
 # The two robots' 2×2 bodies must not overlap, so the excluded one stands two
 # rows above the carrier, where the window row is just as wide (9).
 I_CARRIER_X = 100

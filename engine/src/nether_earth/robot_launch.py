@@ -54,7 +54,7 @@ Exit-cell resolution (deterministic, single cell)
 --------------------------------------------------
 
 The resolved exit cell is the new robot's **anchor**: the robot is a 2×2
-body (`_specs/open-questions.md` §21) covering the anchor, the
+body (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad") covering the anchor, the
 cell to its right and the two cells above them. The launch is refused as
 :data:`LaunchRejectionReason.EXIT_BLOCKED` when that body would leave the
 map, or when any of its cells is occupied or reserved. On the Spectrum the

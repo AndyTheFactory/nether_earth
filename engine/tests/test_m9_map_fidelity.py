@@ -4,7 +4,7 @@ Real-map checks only (``data/maps/zx-spectrum-original.yaml`` with the
 standard PvP overlay). Each assertion is tied to evidence recorded in
 ``docs/milestone-9/map-fidelity-pass.md`` and ``data/maps/zx-spectrum-original.md``;
 anything the evidence does not settle (scenery) is deliberately *not*
-asserted here. The roof-top heli-pad is resolved by open-questions §18.
+asserted here. The roof-top heli-pad is resolved by resolved-questions.md "War-base heli-pad location and landing height".
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ COMPONENT_HEIGHTS = {7, 15}
 #: `Ld7bc_map_piece_heights` for scenery element types 17/18/21 (CR002.1).
 BLOCKER_HEIGHTS = {7, 15, 99}
 
-#: Disassembly evidence (open-questions §18): construction is entered at
+#: Disassembly evidence (resolved-questions.md "War-base heli-pad location and landing height"): construction is entered at
 #: altitude exactly 15 (`cp 15`), the war-base roof.
 ROOF_PAD_ALTITUDE = 15
 
@@ -133,13 +133,13 @@ def test_each_war_base_declares_one_capture_one_exit_on_free_ground_and_a_roof_h
         for kind in (InteractionKind.WARBASE_CAPTURE, InteractionKind.EXIT):
             for x, y in by_kind[kind][0].footprint.cells:
                 # A robot's 2×2 body must be able to stand anchored on the
-                # capture/exit cell (CR002.3, open-questions.md §21).
+                # capture/exit cell (CR002.3, resolved-questions.md "2×2 robots, commander, projectiles and heli-pad").
                 assert unit_footprint_in_bounds(x, y, world.width, world.height)
                 assert not occupancy.blocks_unit(x, y), f"{by_kind[kind][0].id.value} on solid geometry"
         # Evidence: the robot leaves construction at the anchor cell
         # (pad.y + 4 = anchor.y), i.e. exit == capture anchor.
         assert by_kind[InteractionKind.EXIT][0].footprint.cells == by_kind[InteractionKind.WARBASE_CAPTURE][0].footprint.cells
-        # Evidence (open-questions §18): the "H" pad is at (anchor.x,
+        # Evidence (resolved-questions.md "War-base heli-pad location and landing height"): the "H" pad is at (anchor.x,
         # anchor.y - 4), on the roof of the 15-high block.
         anchor_x, anchor_y = WAR_BASE_ANCHORS[base.id.value]
         # CR002.4: the pad is the 2×2 area anchored there, all on the roof.
@@ -218,7 +218,7 @@ def test_commander_spawn_is_free_ground_next_to_its_own_war_base(world: WorldMap
     pad_cell = min(pad.footprint.cells)
     assert spawn != pad_cell, "spawning on the pad would open construction at tick 0"
     # The roof pad is unreachable on the ground; the commander flies at roof
-    # height to it and settles there (open-questions §18).
+    # height to it and settles there (resolved-questions.md "War-base heli-pad location and landing height").
     assert not _reachable_at_altitude(world, spawn, pad_cell, 0)
     assert _reachable_at_altitude(world, spawn, pad_cell, ROOF_PAD_ALTITUDE), "commander cannot fly to its heli-pad"
 

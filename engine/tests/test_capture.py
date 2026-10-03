@@ -407,7 +407,7 @@ def test_war_base_with_no_capture_interaction_point_is_not_capturable() -> None:
 #
 # Regression coverage for a spec violation found in review: a neutral war
 # base must go through the same continuous-occupation countdown as an
-# enemy-owned one (`_specs/open-questions.md` §6, "War-base capture uses
+# enemy-owned one (`_specs/resolved-questions.md` "War-base capture mechanics", "War-base capture uses
 # the same continuous-occupation rule as factory capture by default") --
 # only a neutral *factory* gets instant acquisition
 # (`_specs/functional-spec.md` §9). Every other test in this module's

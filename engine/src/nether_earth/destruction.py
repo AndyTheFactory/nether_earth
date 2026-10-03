@@ -83,7 +83,7 @@ that would need one, and a check that can never fire would be dead code.
 Nuclear blast shapes: the Spectrum code
 ---------------------------------------
 :func:`execute_nuclear_detonation` follows ``Lb99f_fire_nuclear_bomb``
-(`_specs/open-questions.md` §20, `functional-spec.md` §17.3,
+(`_specs/resolved-questions.md` "Nuclear blast shape", `functional-spec.md` §17.3,
 `technical-spec.md` §18): a trimmed 9x9 robot window around the carrier and
 a per-kind building range test that destroys at most one building. All
 shape parameters are :class:`~nether_earth.rules.EngineRules` fields.
@@ -216,7 +216,7 @@ def destroy_robot(
     ``rules`` is accepted (and currently unused) for signature symmetry
     with `combat.py`'s :func:`~nether_earth.combat.apply_damage` (its own
     caller) and to keep this function's shape stable for a rules-driven
-    destruction refinement (e.g. `_specs/open-questions.md` §9's
+    destruction refinement (e.g. `_specs/resolved-questions.md` "Damage, accuracy, and electronics effects"'s
     documented "blink" grace-period mechanic -- destruction here is
     immediate, not staged).
     """
@@ -531,7 +531,7 @@ def _in_robot_window(carrier: Robot, robot: Robot, rules: EngineRules) -> bool:
 
     The window tests robot *anchors* (the Spectrum scans the map marks,
     which sit on each robot's anchor cell), so a 2×2 robot counts only
-    when its anchor is inside (`_specs/open-questions.md` §21).
+    when its anchor is inside (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad").
     """
     return _cell_in_window(carrier, robot.x, robot.y, rules)
 
@@ -656,7 +656,7 @@ def execute_nuclear_detonation(
     with no events -- when ``carrier_id`` no longer names a live robot in
     ``state.robots`` (defensive, mirroring :func:`destroy_robot`).
 
-    Blast shapes follow the Spectrum code (`_specs/open-questions.md` §20),
+    Blast shapes follow the Spectrum code (`_specs/resolved-questions.md` "Nuclear blast shape"),
     all measured from the carrier's position BEFORE any destruction:
 
     - **Robots:** every other robot, of either side, inside the trimmed

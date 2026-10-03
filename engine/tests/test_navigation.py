@@ -447,7 +447,7 @@ def test_non_electronic_detours_are_per_robot_not_in_lockstep() -> None:
 
 
 def test_non_electronic_detours_around_a_wall_instead_of_stalling_against_it() -> None:
-    """`_specs/open-questions.md` §5/§22.6: erratic, not immobile (``Lb33e``)."""
+    """`_specs/resolved-questions.md` "Dumb vs electronic navigation"/§22.6: erratic, not immobile (``Lb33e``)."""
     world = _walled_world()
     robot = _navigating_robot(electronics=None)
 

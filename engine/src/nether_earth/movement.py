@@ -13,7 +13,7 @@ What this module owns
 ----------------------
 - chassis/terrain capability (:data:`CHASSIS_TERRAIN_PERMISSIONS`,
   :func:`chassis_can_enter`), locked by
-  `_specs/functional-spec.md` §13 / `_specs/open-questions.md` §4: bipod
+  `_specs/functional-spec.md` §13 / `_specs/resolved-questions.md` "Exact movement speeds and terrain penalties": bipod
   may enter ``NORMAL`` and ``ROUGH``; tracks additionally ``MOUNTAIN``;
   anti-grav may enter all four classes including ``DITCH``;
 - the integer per-cell movement duration (:func:`move_duration_ticks`),
@@ -69,7 +69,7 @@ travel is the navigation layer issuing successive single-cell moves, not a
 longer transition. Diagonals are rejected structurally (``ValueError`` in
 ``__post_init__``), not as a gameplay rejection.
 
-2×2 bodies (`_specs/open-questions.md` §21): a robot's
+2×2 bodies (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"): a robot's
 ``x``/``y`` is the anchor of its 2×2 body (`occupancy.py`). A move is legal
 only if the whole destination body is on the map, every one of its four
 cells is terrain the chassis may enter, and no structure, other robot,
@@ -159,7 +159,7 @@ __all__ = [
 #: configuration, so it lives here (the one module that owns movement
 #: legality) rather than in `rules.py`, which is deliberately a flat set of
 #: tunable numeric scalars. Electronics never appears in this table:
-#: `_specs/open-questions.md` §5 locks that electronics improves routing
+#: `_specs/resolved-questions.md` "Dumb vs electronic navigation" locks that electronics improves routing
 #: intelligence only and never changes chassis terrain permissions.
 CHASSIS_TERRAIN_PERMISSIONS: Mapping[ModuleIdentity, frozenset[TerrainType]] = MappingProxyType(
     {
@@ -238,7 +238,7 @@ def move_duration_ticks(
     """Return the integer tick duration of one ``chassis`` move into ``terrain``.
 
     The duration is ``rules``' ``robot_move_ticks_<chassis>_<terrain>``
-    field (`_specs/open-questions.md` §4; see `rules.py`). No movement
+    field (`_specs/resolved-questions.md` "Exact movement speeds and terrain penalties"; see `rules.py`). No movement
     call site may inline a tick literal instead of calling this.
 
     Raises ``ValueError`` if ``chassis`` cannot enter ``terrain`` at all

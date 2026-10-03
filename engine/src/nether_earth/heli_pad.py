@@ -48,7 +48,7 @@ on an invariant defined in another module), with its whole 2×2 body over
 one of its own war base's ``HELI_PAD`` interaction-point footprints, and at
 an altitude *exactly equal* to the pad's surface height.
 
-The heli-pad is on the war-base roof (`_specs/open-questions.md` §18):
+The heli-pad is on the war-base roof (`_specs/resolved-questions.md` "War-base heli-pad location and landing height"):
 the original game places the "H" decoration at (anchor.x,
 anchor.y − 4) and enters construction only when the ship is over it at
 altitude exactly 15 (`cp 15`), the roof of the 15-high war-base block. The
@@ -64,7 +64,7 @@ construction entry.
 -------
 
 The commander is a 2×2 body anchored at its ``(x, y)`` (`occupancy.py`,
-`_specs/open-questions.md` §21), and the pad is the 2×2 area of the "H"
+`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"), and the pad is the 2×2 area of the "H"
 decoration: the map declares all four pad cells, anchored at the §18 roof
 location. The Spectrum's game loop only starts construction when the ship's
 anchor cell *is* the "H" decoration's cell (``La6c8``:
@@ -144,7 +144,7 @@ def heli_pad_surface_altitude(
 
     That is the highest static surface under the commander's 2×2 body
     (:func:`~nether_earth.collision.unit_surface_height`; 15 on the original
-    war-base roof, `_specs/open-questions.md` §18), and never below
+    war-base roof, `_specs/resolved-questions.md` "War-base heli-pad location and landing height"), and never below
     ``rules.commander_min_altitude`` -- the top of the surface 2×2
     height-aware collision rests the commander on.
     """

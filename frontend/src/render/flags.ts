@@ -9,7 +9,7 @@
 //   carry no flag.
 // - Owner 0 starts with war base 0 (leftmost), owner 1 with war base 3
 //   (rightmost); this clone gives p1 the leftmost and p2 the rightmost base
-//   (open-questions §2), so p1 ↔ human flag and p2 ↔ Insignian flag.
+//   (resolved-questions.md "PvP treatment of the remaining war bases"), so p1 ↔ human flag and p2 ↔ Insignian flag.
 // - Decorations 7/8 draw sprites #2a/#2b (L86b4_iso_graphic_40 and
 //   L8752_iso_graphic_42): a pole with its cloth to the right; the human
 //   flag's cloth is striped, the Insignian one's checkered.

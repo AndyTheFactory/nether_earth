@@ -1,6 +1,6 @@
 """Deterministic factory/war-base daily resource production.
 
-`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED" locks
+`_specs/resolved-questions.md` "Resource spending rules" "Resource spending rules -- RESOLVED" locks
 the original Spectrum production rule: on each authoritative game-day
 boundary, every player-owned factory produces
 ``rules.factory_production_amount`` (locked default ``2``) units of its own

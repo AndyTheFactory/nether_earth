@@ -405,7 +405,7 @@ def test_detonation_destroys_carrier_neighbours_and_structures_but_never_command
     cell = _cell(world, "warbase-2", InteractionKind.WARBASE_CAPTURE)
     # One row below and two columns east of the anchor, so its 2×2 body
     # clears the capturing robot's (CR002.3): war-base dy = |y + 1 + 4 -
-    # anchor.y| = 6 < 7, dx = 2, dx + dy = 8 < 10 (open-questions §20).
+    # anchor.y| = 6 < 7, dx = 2, dx + dy = 8 < 10 (resolved-questions.md "Nuclear blast shape").
     carrier = _robot("carrier", PLAYER_ONE, cell[0] + 2, cell[1] + 1, weapons=(ModuleIdentity.NUCLEAR,))
     near = _robot("near", PLAYER_TWO, cell[0] + 5, cell[1] + 1)
     far = _robot("far", PLAYER_TWO, cell[0] + 40, cell[1] + 1)
@@ -448,7 +448,7 @@ def test_detonation_destroys_carrier_neighbours_and_structures_but_never_command
 
 
 def test_launched_robot_appears_at_the_anchor_exit_while_the_commander_stays_on_the_roof_pad(world: WorldMap) -> None:
-    """Roof pad at (anchor.x, anchor.y - 4); the robot exits at the anchor (open-questions §18).
+    """Roof pad at (anchor.x, anchor.y - 4); the robot exits at the anchor (resolved-questions.md "War-base heli-pad location and landing height").
 
     Both are 2×2 (CR002.3/CR002.4): the pad anchor is its west column,
     bottom row, and the robot's body never overlaps the commander's.

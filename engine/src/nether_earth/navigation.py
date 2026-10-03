@@ -1,6 +1,6 @@
 """Non-electronic and electronic robot navigation policies.
 
-`_specs/open-questions.md` §5 (RESOLVED) locks the rules this module owns:
+`_specs/resolved-questions.md` "Dumb vs electronic navigation" locks the rules this module owns:
 
 - non-electronic robots use deliberately limited/original-style *local*
   routing and may become blocked even when a longer valid route exists;
@@ -424,7 +424,7 @@ def _enterable(
 ) -> bool:
     """Return whether ``robot``'s 2×2 body could stand anchored at ``(x, y)`` given ``view``.
 
-    Whole-body checks (`_specs/open-questions.md` §21): the body is
+    Whole-body checks (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"): the body is
     on the map, its four cells are terrain the chassis may enter, and no
     structure, other robot, commander, or other robot's reserved destination
     body overlaps it. The robot itself never blocks its own next body.
@@ -726,7 +726,7 @@ def body_alignment_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int
 
 
 class NavigationPolicy(Protocol):
-    """The one engine navigation interface, per `_specs/open-questions.md` §5.
+    """The one engine navigation interface, per `_specs/resolved-questions.md` "Dumb vs electronic navigation".
 
     A policy is a pure decision function: given a robot and a target cell it
     returns a :class:`NavigationDecision`, never touching
@@ -816,7 +816,7 @@ class NonElectronicNavigation:
     :attr:`NavigationStatus.BLOCKED`.
 
     Steps 2 and 3 are the Spectrum's own behavior, not an improvement on it
-    (`_specs/open-questions.md` §5/§22.6). ``Lb222_choose_direction_to_move``
+    (`_specs/resolved-questions.md` "Dumb vs electronic navigation"/§22.6). ``Lb222_choose_direction_to_move``
     intersects the directions that point at the target with the directions
     the robot may actually move in (``Lb513_get_robot_movement_possibilities``)
     and picks one at random; when that intersection is empty it falls through

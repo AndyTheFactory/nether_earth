@@ -16,7 +16,7 @@ condition so that layer has something to react to.
 
 Generalized statement of the locked rule
 ------------------------------------------
-`_specs/open-questions.md` §2 locks v1 as an exactly-2-player match, so
+`_specs/resolved-questions.md` "PvP treatment of the remaining war bases" locks v1 as an exactly-2-player match, so
 "opponent owns zero war bases" and "exactly one player owns any war base"
 are equivalent for v1. :func:`evaluate_victory` is written the second way
 (one player owns at least one war base, every *other* participant owns
@@ -25,8 +25,7 @@ simply returns ``None`` (no victory yet) for any player count where that
 exact-one-nonzero-owner condition does not hold, which is always true for
 today's exactly-2-player matches until one side is fully captured out.
 It is the same single locked condition, stated so it does not hard-code a
-player count
-that `_specs/open-questions.md` never actually restricts this check to.
+player count that the specs never restrict this check to.
 """
 
 from __future__ import annotations

@@ -43,7 +43,7 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "world_map_basic.yaml"
 
 P1_HELI_PAD_CELL = (4, 1)  # 2×2 pad anchor (CR002.4)
 # The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
-# commander lands at that component height (open-questions.md §18).
+# commander lands at that component height (resolved-questions.md "War-base heli-pad location and landing height").
 PAD_ROOF_ALTITUDE = 3
 
 
@@ -131,7 +131,7 @@ def test_second_move_command_while_in_progress_is_gameplay_rejected() -> None:
 
 
 def test_held_move_chains_cells_without_an_idle_tick() -> None:
-    """CR003.10 (#232, open-questions §23): a commander_move sent on every
+    """CR003.10 (#232, resolved-questions.md "Idle tick between commander cells"): a commander_move sent on every
     tick starts a new cell on the tick the previous one completes, so the
     cells start at ticks 1, 5, 9, ... (4 ticks per cell, no idle tick)."""
     state = _base_state((_free_commander(PLAYER_ONE, x=0, y=1, altitude=0),))

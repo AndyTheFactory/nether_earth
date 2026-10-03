@@ -48,7 +48,7 @@ class Settings:
     abandoned_lobby_grace_s: int = DEFAULT_ABANDONED_LOBBY_GRACE_S
     #: Days a finished/interrupted replay artifact is kept before the
     #: backend deletes it; ``None`` keeps everything (owner decision pending,
-    #: see _specs/open-questions.md).
+    #: see `_specs/open-questions.md`, Replay retention default).
     replay_retention_days: int | None = None
     log_level: str = "INFO"
     #: ``json`` (one object per line; production default) or ``text``.
