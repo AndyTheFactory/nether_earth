@@ -501,7 +501,7 @@ export interface SnapshotState {
       steps: string | null;
     };
     /**
-     * A destroyed robot blinking before removal (owner decision 2026-10-03, open question 3.6): cycles_remaining counts down once per game cycle and the robot is removed on the cycle after it reaches 0; visible says whether it is drawn (and on the map) this cycle. Omitted for a live robot -- deliberately NOT in required below, matching to_snapshot's own elision.
+     * A destroyed robot blinking before removal (destroyed-robot blink, resolved 2026-10-03): cycles_remaining counts down once per game cycle and the robot is removed on the cycle after it reaches 0; visible says whether it is drawn (and on the map) this cycle. Omitted for a live robot -- deliberately NOT in required below, matching to_snapshot's own elision.
      */
     blink?: {
       cycles_remaining: number;
