@@ -1,4 +1,4 @@
-"""Engine victory -> match ``FINISHED`` + ``finished`` broadcast (M7 gap fixed in M9.1).
+"""Engine victory -> match ``FINISHED`` + ``finished`` broadcast.
 
 ``engine.step`` announces the v1 victory rule as a
 ``nether_earth.victory.VictoryEvent`` and deliberately carries no "match

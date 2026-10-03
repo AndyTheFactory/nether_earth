@@ -1,4 +1,4 @@
-"""Robot destruction service, shared by projectile damage and (later) nuclear effects (issue #76, M6.6).
+"""Robot destruction service, shared by projectile damage and nuclear effects.
 
 Why a dedicated module
 -----------------------
@@ -10,8 +10,8 @@ authoritative step. `_specs/milestones/06-combat-damage-victory.md`'s
 "Destruction service" is explicitly meant to be the *one* place this
 cleanup logic lives, because it must be reachable identically from more
 than one caller: `combat.py`'s per-hit :func:`~nether_earth.combat.apply_damage`
-(this task) today, and a later task's nuclear-detonation area-destruction
-effect (#78) tomorrow. Centralizing it here means those two callers can
+and the nuclear-detonation area-destruction effect
+(:func:`execute_nuclear_detonation`). Centralizing it here means those two callers can
 never silently diverge on what "a robot is destroyed" actually cleans up --
 the same architectural reasoning `capture.py`'s module docstring gives for
 centralizing ownership-transfer logic in one place rather than letting
@@ -35,17 +35,17 @@ What this module deliberately does NOT do
   ``active_projectile_id``) from ``state.projectiles``. A normal-weapon
   projectile is a physical object already travelling independently of its
   firer per the locked rules; `combat.py`'s own
-  :func:`~nether_earth.combat.advance_projectiles` (Task 4, M6.4) already
+  :func:`~nether_earth.combat.advance_projectiles` already
   handles a missing source robot safely when that projectile eventually
   terminates (its channel-release step becomes a no-op). Deleting the
   projectile here would silently despawn a still-in-flight shot the moment
   its firer dies, which the locked rules do not call for.
 
-Structure destruction and nuclear detonation (issue #78, M6.8)
--------------------------------------------------------------------
-This task extends the module with the structure-side half of destruction
+Structure destruction and nuclear detonation
+--------------------------------------------
+The structure-side half of destruction
 (:func:`destroy_structure`) and the nuclear area-effect that is this
-codebase's only caller of it (:func:`execute_nuclear_detonation`), mirroring
+codebase's only caller of it (:func:`execute_nuclear_detonation`) mirror
 ``destroy_robot``'s own shape one level further: a war base/factory needs
 the exact same "leave no stale reference anywhere else in ``GameState``"
 discipline a destroyed robot does (a mid-capture attempt naming it, a
@@ -60,7 +60,7 @@ Exactly like `capture.py`'s :class:`~nether_earth.capture.StructureOwnership`
 ``WorldMap``" section), ``WorldMap.war_bases``/``WorldMap.factories`` are
 plain, externally-held, never-mutated-in-place values -- so "this structure
 has been destroyed" cannot live on ``WorldMap`` itself without changing that
-established API shape mid-milestone. It is instead recorded as a
+established API shape. It is instead recorded as a
 ``GameState``-attached fact (``state.structure_destruction``, a canonical
 sorted tuple of ids -- see `state.py`), and :func:`effective_world` below
 layers it over ``capture.py``'s own ownership-layering
@@ -81,8 +81,8 @@ cannon/missile/phaser-only robot. This function therefore does not add a
 redundant runtime weapon-check of its own -- there is no reachable code path
 that would need one, and a check that can never fire would be dead code.
 
-Nuclear blast shapes: the Spectrum code (CR001.2, issue #149)
--------------------------------------------------------------------
+Nuclear blast shapes: the Spectrum code
+---------------------------------------
 :func:`execute_nuclear_detonation` follows ``Lb99f_fire_nuclear_bomb``
 (`_specs/open-questions.md` §20, `functional-spec.md` §17.3,
 `technical-spec.md` §18): a trimmed 9x9 robot window around the carrier and
@@ -189,7 +189,7 @@ def destroy_robot(
        the commander's altitude immediately before this forced transition,
        ``to_altitude`` is the robot's last physical top surface, which the
        commander was resting on: :func:`~nether_earth.collision.robot_top`
-       in ``world`` (terrain altitude plus stack height, CR002.25), or
+       in ``world`` (terrain altitude plus stack height), or
        ``robot.height`` when no ``world`` is given (the world-less unit-test
        path, where robots stand at altitude 0). The commander itself
        is never damaged or destroyed -- only relocated to a safe ``FREE``
@@ -216,10 +216,10 @@ def destroy_robot(
 
     ``rules`` is accepted (and currently unused) for signature symmetry
     with `combat.py`'s :func:`~nether_earth.combat.apply_damage` (its own
-    caller) and to keep this function's shape stable for a later rules-
-    driven destruction refinement (e.g. `_specs/open-questions.md` §9's
-    documented "blink" grace-period mechanic, deliberately out of this
-    task's scope -- destruction here is immediate, not staged).
+    caller) and to keep this function's shape stable for a rules-driven
+    destruction refinement (e.g. `_specs/open-questions.md` §9's
+    documented "blink" grace-period mechanic -- destruction here is
+    immediate, not staged).
     """
     robot = state.robot_for(entity_id)
     if robot is None:
@@ -279,7 +279,7 @@ def destroy_robot(
 
 
 # --------------------------------------------------------------------------
-# Structure destruction and nuclear detonation (issue #78, M6.8)
+# Structure destruction and nuclear detonation
 # --------------------------------------------------------------------------
 
 
@@ -398,17 +398,8 @@ def effective_world(base_world: WorldMap, state: GameState) -> WorldMap:
     unchanged" optimization.
 
     This is the single composed entry point every destruction-aware
-    subsystem should read structure existence through going forward -- in
-    particular, a later integration task (M6.10) is expected to switch
-    `engine.py`'s per-tick world resolution, and any other current direct
-    caller of ``capture.effective_world`` for a subsystem that should also
-    respect destruction (e.g.
-    `resource_production.py`'s ``apply_daily_production``,
-    `heli_pad.py`/`construction_session.py` entry, `orders.py`'s
-    ``select_capture_target``/``select_destroy_target``), from
-    ``capture.effective_world`` to this function. This task does not modify
-    any of those callers itself -- it only builds and documents this one
-    composable function; wiring it in is later tasks' scope.
+    subsystem reads structure existence through; `engine.py`'s per-tick
+    world resolution uses it rather than ``capture.effective_world``.
     """
     ownership_applied = _capture_effective_world(base_world, state)
     if not (state.structure_destruction or state.scenery_debris or state.robot_debris):
@@ -435,9 +426,9 @@ def scenery_world(base_world: WorldMap, state: GameState) -> WorldMap:
     """Return the physical world: ``base_world`` with every kind of debris applied.
 
     For the physical checks `engine.py` runs against the base map -- robot
-    move validation and commander collision. Nuclear debris (CR002.18), the
+    move validation and commander collision. Nuclear debris, the
     rubble of a nuked building and the debris a robot killed in combat left
-    (CR005.3) are all rough, 3 high and no longer blocking; ownership
+    are all rough, 3 high and no longer blocking; ownership
     overrides are not applied. Returns ``base_world`` itself when there is no
     debris; memoized like :func:`effective_world`.
     """
@@ -457,16 +448,16 @@ def scenery_world(base_world: WorldMap, state: GameState) -> WorldMap:
 def _apply_debris(world: WorldMap, state: GameState) -> WorldMap:
     """Return ``world`` with ``state``'s debris applied.
 
-    Each debris blocker (``state.scenery_debris``, CR002.18) and each
+    Each debris blocker (``state.scenery_debris``) and each
     destroyed building (``state.structure_destruction``) leaves the world,
     and every cell it covered becomes rough debris: `Lbc27_replace_building_by_debris`
     stamps a random type 6/7 piece over every part of a nuked building, as
     `Lba44_robots_handled` does over a box. Each ``state.robot_debris``
-    anchor turns its 2×2 into debris the same way (`Lb116_robot_destroyed`,
-    CR005.3). Debris cells are :attr:`~nether_earth.terrain.TerrainType.ROUGH`
+    anchor turns its 2×2 into debris the same way (`Lb116_robot_destroyed`).
+    Debris cells are :attr:`~nether_earth.terrain.TerrainType.ROUGH`
     -- the class of the native rough pieces of types 6/7 (type < 8, so no
     chassis is blocked) -- with the map's ``terrain.debris_height`` (3, the
-    ``Ld7bc_map_piece_heights`` entry of types 6/7, CR002.21). Ids no longer
+    ``Ld7bc_map_piece_heights`` entry of types 6/7). Ids no longer
     naming a blocker or building are ignored.
     """
     gone = set(state.scenery_debris) | set(state.structure_destruction)
@@ -500,7 +491,7 @@ def _apply_debris(world: WorldMap, state: GameState) -> WorldMap:
 
 
 def robot_debris_anchor(world: WorldMap, robot: Robot) -> tuple[int, int] | None:
-    """Return where ``robot``, just killed in combat, leaves debris, or ``None`` (CR005.3).
+    """Return where ``robot``, just killed in combat, leaves debris, or ``None``.
 
     `Lb116_robot_destroyed` adds a random type 6/7 piece over the robot's
     2×2 only when all four map cells are empty (element type 0): plain
@@ -541,7 +532,7 @@ def _in_robot_window(carrier: Robot, robot: Robot, rules: EngineRules) -> bool:
 
     The window tests robot *anchors* (the Spectrum scans the map marks,
     which sit on each robot's anchor cell), so a 2×2 robot counts only
-    when its anchor is inside (CR002.3, `_specs/open-questions.md` §21).
+    when its anchor is inside (`_specs/open-questions.md` §21).
     """
     return _cell_in_window(carrier, robot.x, robot.y, rules)
 
@@ -572,7 +563,7 @@ def _blocker_anchor(blocker: Blocker) -> tuple[int, int]:
 def _blockers_in_blast(world: WorldMap, carrier: Robot, rules: EngineRules) -> tuple[EntityId, ...]:
     """Return the destructible blockers whose anchor cell lies in the nuclear window.
 
-    `Lba44_robots_handled` (CR002.18, #196) walks the same trimmed window
+    `Lba44_robots_handled` walks the same trimmed window
     as the robot scan and replaces each element of type 17-20 anchored there
     with rough debris; the type-21 fence survives. The map marks those
     elements ``destructible``. ``world`` must already exclude earlier debris.
@@ -676,8 +667,8 @@ def execute_nuclear_detonation(
       already-destroyed structures are skipped.
     - **Carrier:** always destroyed.
     - **Scenery:** every ``destructible`` blocker anchored in the same window
-      becomes rough debris (``state.scenery_debris``; `Lba44_robots_handled`,
-      CR002.18). Fences are not destructible.
+      becomes rough debris (``state.scenery_debris``; `Lba44_robots_handled`).
+      Fences are not destructible.
 
     Destruction order: carrier, then robots, then the building. ``state`` is
     threaded through each :func:`destroy_robot`/:func:`destroy_structure`
@@ -738,7 +729,7 @@ def evaluate_victory_after_nuclear_detonation(
 ) -> VictoryEvent | None:
     """Trigger `victory.py`'s one authoritative victory check after a nuclear detonation.
 
-    Mirrors `engine.py`'s existing Step 2d pattern for M5 capture (see that
+    Mirrors `engine.py`'s Step 2d pattern for capture (see that
     module's ``step``, where a ``StructureCapturedEvent`` naming a war
     base gates a single
     :func:`~nether_earth.victory.evaluate_victory` call) -- just for the
@@ -766,8 +757,8 @@ def evaluate_victory_after_nuclear_detonation(
     destroyed war base must be excluded from that count entirely (not merely
     "owned by nobody"), which :func:`effective_world` already guarantees by
     filtering destroyed structures out of the returned ``WorldMap.war_bases``
-    tuple. This is why `victory.py` itself needs zero code changes for the
-    nuclear-destruction case: a destroyed war base is simply absent from the
+    tuple. This is why `victory.py` itself has no nuclear-specific code: a
+    destroyed war base is simply absent from the
     list ``evaluate_victory`` iterates, so nobody's owned-count includes it --
     exactly the correct effect of "this player now effectively owns one fewer
     war base."

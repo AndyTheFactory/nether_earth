@@ -1,10 +1,10 @@
 """Canonical, JSON-compatible serialization of :class:`~nether_earth.state.GameState`.
 
 This module implements the "Snapshot" half of the "Snapshot and replay
-fixtures" workstream (`_specs/milestones/01-deterministic-engine-foundation.md`,
-issue #8). It gives regression tests and future backend/frontend fixture
-tooling a stable, plain-data view of engine state, independent of the
-``GameState`` dataclass's Python representation.
+fixtures" workstream (`_specs/milestones/01-deterministic-engine-foundation.md`).
+It gives regression tests and backend/frontend fixture tooling a stable,
+plain-data view of engine state, independent of the ``GameState``
+dataclass's Python representation.
 
 Canonical form convention: :func:`to_snapshot` returns a structure built only
 from JSON-safe primitives (``dict``, ``list``, ``str``, ``int``, ``bool``,
@@ -26,25 +26,18 @@ because:
   the existing canonical id->JSON-primitive conversion, rather than a second,
   ad hoc reimplementation.
 
-No generic ``GameState``-from-snapshot deserializer is provided: this issue's
-scope is canonical serialization (proving "equivalent states serialize
+No generic ``GameState``-from-snapshot deserializer is provided: the
+contract is canonical serialization ("equivalent states serialize
 identically and reproducibly"), not a full round-trip loader. ``replay.py``
 does not need one either -- fixtures reconstruct state via
 ``engine.new_game``/``engine.step``, not by deserializing a snapshot.
 
-Commanders (added by issue #37): each entry of ``GameState.commanders`` is
-serialized to a JSON-safe ``dict`` via :func:`_commander_snapshot`, in
-whatever order ``GameState.commanders`` already holds it in -- ``state.py``
-guarantees that order is canonical (sorted by ``player_id.value``) for any
-two dataclass-equal states, matching the ``players`` convention documented
-above.
-
-Milestone 5 integration (issue #67, M5.8) completes the snapshot's coverage
-of the authoritative state M5 introduced. Three things were still missing
-and are added here: :attr:`~nether_earth.robot.Robot.order` (issue #64),
-``GameState.structure_ownership`` and ``GameState.capture_progress`` (issue
-#66). Two further pieces of M5 state are deliberately *not* given snapshot
-keys of their own, because they are not authoritative state:
+Every authoritative ``GameState`` collection (commanders, robots, structure
+ownership, capture progress, projectiles, destruction, debris, ...) is
+serialized in whatever order ``GameState`` already holds it in, which
+``state.py`` guarantees is canonical. New keys are appended after existing
+keys. Two pieces of state are deliberately *not* given snapshot keys of
+their own, because they are not authoritative state:
 
 - **Destination reservations.** `reservations.py`'s ``ReservationTable`` is
   a pure projection of ``state.robots`` --
@@ -67,48 +60,26 @@ keys of their own, because they are not authoritative state:
   positions/builds/orders and world ownership -- all of which this module
   serializes) rather than something a snapshot can or should carry.
 
-Projectiles (added by issue #73, M6.4): ``GameState.projectiles`` is
-serialized by :func:`_projectile_snapshot`, appended after
-``capture_progress`` following this module's own "new keys are appended
-after existing keys" precedent. An in-flight projectile is authoritative
-state (not a derived/recomputed value like the two exclusions above), so
-it gets a snapshot key of its own.
+``"structure_destruction"`` and ``"scenery_debris"`` are plain lists of ids
+in canonical order (no per-entry helper, since each entry is a bare id).
+``"robot_debris"`` is a list of ``{"x", "y"}`` 2×2 debris anchors in the
+order the robots fell, elided while empty like ``robot_launches``.
 
-Structure destruction (added by issue #78, M6.8): ``GameState.structure_destruction``
-is serialized as ``"structure_destruction"``, a plain list of
-``EntityId.to_json()`` values, appended after ``projectiles`` following the
-same "new keys are appended after existing keys" precedent. No dedicated
-per-entry snapshot helper is needed (unlike ``structure_ownership``/
-``capture_progress``/``projectiles``) because each entry is a bare id, not a
-multi-field record.
+``"ai_memories"`` is appended last, **only when the match has an AI seat**,
+so an all-human state (and every replay fixture recorded from one) has no
+such key. :func:`ai_memory_from_snapshot` is the inverse of one entry, the
+planner state a reconnect or replay tool would restore. Each sub-planner's
+memory has its own serializer pair, so they extend independently.
 
-Scenery debris (CR002.18, #196): ``GameState.scenery_debris`` is serialized
-as ``"scenery_debris"``, a plain list of blocker ids in canonical order,
-appended after ``structure_destruction`` the same way.
+``"robot_launches"`` is appended last, **only once some player has launched
+a robot** (an empty list is elided, so absent means ``[]``). Each entry is
+``{"player_id", "launched"}``; the count only grows, so robot ids are never
+reused after a robot dies. :func:`robot_launch_count_from_snapshot` is the
+inverse of one entry.
 
-Robot debris (CR005.3): ``GameState.robot_debris`` is serialized as
-``"robot_debris"``, a list of ``{"x", "y"}`` 2×2 debris anchors in the order
-the robots fell, elided while empty like ``robot_launches``.
-
-AI memories (CR004.3, #284): ``GameState.ai_memories`` is serialized as
-``"ai_memories"``, appended last, **only when the match has an AI seat**. An
-all-human state has no AI memory and no such key, so every PvP snapshot (and
-every replay fixture recorded from one) is byte-identical to before.
-:func:`ai_memory_from_snapshot` is the inverse of one entry, the planner
-state a reconnect or replay tool would restore. Each sub-planner's memory
-has its own serializer pair, so CR004.4/CR004.5 extend them independently.
-
-Robot launch counts (CR004.12, #295): ``GameState.robot_launches`` is
-serialized as ``"robot_launches"``, appended last, **only once some player
-has launched a robot** (an empty list is elided, so absent means ``[]``).
-Each entry is ``{"player_id", "launched"}``; the count only grows, so robot
-ids are never reused after a robot dies. Snapshots from before the first
-launch are byte-identical to before. :func:`robot_launch_count_from_snapshot`
-is the inverse of one entry.
-
-Hunt routes (CR004.13, #299): a robot's cached Search & Destroy (robots)
-route, :attr:`~nether_earth.robot.Robot.hunt_route`, is serialized as the
-robot's ``"hunt_route"`` key, appended last and **only when set**, the same
+A robot's cached Search & Destroy (robots) route,
+:attr:`~nether_earth.robot.Robot.hunt_route`, is serialized as the robot's
+``"hunt_route"`` key, appended last and **only when set**, the same
 elision. :func:`robot_hunt_route_from_snapshot` is its inverse.
 """
 
@@ -185,11 +156,8 @@ def _vertical_transition_snapshot(
 def _commander_snapshot(commander: Commander) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of a single ``Commander``.
 
-    Extended by issue #42 (M3.6) to also serialize the movement fields added
-    by issue #38 (``rising``, ``horizontal_transition``, ``vertical_transition``)
-    -- new keys are appended after the existing #37 keys so any existing
-    snapshot-shape test that checks key order can be extended additively
-    rather than reshuffled.
+    New keys are appended after existing keys so any snapshot-shape test
+    that checks key order can be extended additively rather than reshuffled.
     """
     return {
         "player_id": commander.player_id.to_json(),
@@ -328,7 +296,7 @@ def _order_snapshot(order: Order | None) -> dict[str, Any] | None:
     ``Advance`` that has already bound its goal column is a different state
     from a freshly assigned one, and `orders.py`'s ``PENDING`` -> ``ACTIVE``
     transition is exactly that difference. ``SearchCapture``'s stored
-    ``structure_id`` (CR003.2) is serialized for the same reason.
+    ``structure_id`` is serialized for the same reason.
     """
     if order is None:
         return None
@@ -362,54 +330,21 @@ def _order_snapshot(order: Order | None) -> dict[str, Any] | None:
 def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of a single ``Robot``.
 
-    Extended by issue #60 (M5.1) to also serialize the in-progress move
-    transition added by that task -- a new key appended after the existing
-    #57 keys, matching ``_commander_snapshot``'s own additive precedent.
-    Without it, a snapshot/restore round-trip would silently drop an
-    in-flight move, so movement could not be replay-safe.
+    Every per-robot authoritative field is serialized, new keys appended
+    last. Dropping any of them would break a snapshot/restore round-trip:
+    ``movement`` (an in-flight move), ``order`` (``StopAndDefend`` vs. a
+    ``SearchCapture`` in progress), ``active_projectile_id`` (an occupied
+    combat channel), ``strength`` (accumulated damage), ``last_fire_tick``
+    (the one-shot-per-game-cycle fire rule), ``exit_steps_remaining`` (a
+    launch walk-out), ``turning`` (a robot mid-turn neither moves nor fires)
+    and ``facing`` (presentation-only, picks one of the four per-piece
+    Spectrum sprites; see :class:`~nether_earth.robot.RobotFacing`; without
+    it a restored robot would face south again).
 
-    Extended again by issue #67 (M5.8) with ``order`` (added to the entity by
-    issue #64), appended after ``movement`` for the same additive reason:
-    the standing autonomous order is per-robot authoritative state, and a
-    snapshot that dropped it could not distinguish a robot holding ground
-    under ``StopAndDefend`` from one halfway through a ``SearchCapture``.
-
-    Extended again by issue #73 (M6.4) with ``active_projectile_id``
-    (added to the entity by issue #71, M6.2), appended after ``order`` for
-    the same additive reason: it is the robot's authoritative combat-channel
-    occupancy flag, and now that M6.4 gives it real load-bearing meaning (a
-    live in-flight ``Projectile`` may reference it), a snapshot/restore
-    round-trip that dropped it would silently free an occupied combat
-    channel.
-
-    Extended again by M6.10 with ``strength`` (added to the entity by issue
-    #76, M6.6), appended last for the same additive reason: accumulated
-    damage is per-robot authoritative state, so a snapshot that dropped it
-    could not distinguish an undamaged robot from one a hit away from
-    destruction.
-
-    Extended again by CR002.2 (#169) with ``last_fire_tick``, appended last:
-    it gates the one-shot-per-game-cycle fire rule.
-
-    Extended again by CR002.3 (#170) with ``exit_steps_remaining``, appended
-    last: the steps left in a launched robot's walk out of its war base.
-
-    Extended again (owner decision, 2026-09-23) with ``turning``, appended
-    last: an in-progress 90-degree turn. A robot mid-turn neither moves nor
-    fires, so a snapshot that dropped it would let a restored robot act a
-    turn early.
-
-    Extended again (owner request, 2026-09-23) with ``facing``, appended
-    last: the cardinal direction the robot's body faces, which the frontend
-    needs to pick the right one of the four per-piece Spectrum sprites. It
-    is presentation-only state (see :class:`~nether_earth.robot.RobotFacing`)
-    but still authoritative per-robot state, so a snapshot that dropped it
-    would make a restored robot face south again.
-
-    Extended again by CR004.13 (#299) with ``hunt_route``, appended last and
-    **only when the robot holds one** (absent means ``None``), so a snapshot
-    without a Search & Destroy (robots) hunter is byte-identical to before.
-    See :func:`_robot_hunt_route_snapshot` for its compact form.
+    ``hunt_route`` is appended last and **only when the robot holds one**
+    (absent means ``None``), so snapshots without a hunter stay
+    byte-identical (no ``hunt_route`` key). See :func:`_robot_hunt_route_snapshot` for its
+    compact form.
     """
     snapshot: dict[str, Any] = {
         "entity_id": robot.entity_id.to_json(),
@@ -438,7 +373,7 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
 
 
 def _robot_hunt_route_snapshot(route: RobotHuntRoute) -> dict[str, Any]:
-    """Return a robot's cached hunt route as JSON-safe data (CR004.13, #299).
+    """Return a robot's cached hunt route as JSON-safe data.
 
     The route is a string of one direction letter per step from the origin
     rather than a list of cells: a route across the 512-wide map is a few
@@ -492,9 +427,8 @@ def _capture_progress_snapshot(progress: CaptureProgress) -> dict[str, Any]:
 def _projectile_snapshot(projectile: Projectile) -> dict[str, Any]:
     """Return a canonical, JSON-safe snapshot of a single ``Projectile``.
 
-    Added by issue #73 (M6.4), which introduced ``GameState.projectiles``.
     Serializes every field ``combat.Projectile`` carries, matching this
-    module's existing "every stored field gets a snapshot key" convention.
+    module's "every stored field gets a snapshot key" convention.
     """
     return {
         "id": projectile.id.to_json(),
@@ -514,7 +448,7 @@ def _projectile_snapshot(projectile: Projectile) -> dict[str, Any]:
 
 
 def _ai_construction_memory_snapshot(memory: AiConstructionMemory) -> dict[str, Any]:
-    """Return the construction sub-planner's memory as JSON-safe data (CR004.4)."""
+    """Return the construction sub-planner's memory as JSON-safe data."""
     last = memory.last_war_base_id
     return {"last_war_base_id": None if last is None else last.to_json()}
 
@@ -526,7 +460,7 @@ def _ai_construction_memory_from_snapshot(data: dict[str, Any]) -> AiConstructio
 
 
 def _ai_order_memory_snapshot(memory: AiOrderMemory) -> dict[str, Any]:
-    """Return the robot-order sub-planner's memory as JSON-safe data (CR004.5)."""
+    """Return the robot-order sub-planner's memory as JSON-safe data."""
     return {
         "defences": [
             {
@@ -603,35 +537,24 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
     snapshot; two states that differ in any field produce a detectably
     different snapshot.
 
-    ``resource_pools``/``construction_sessions``/``robots`` (added by issue
-    #57, M4.7) are appended after the existing #37/#42 keys -- new keys are
-    appended after existing keys so any existing snapshot-shape test can be
-    extended additively, matching ``_commander_snapshot``'s own stated
-    precedent. ``structure_ownership``/``capture_progress`` (added to
-    ``GameState`` by issue #66 and wired in here by issue #67, M5.8) follow
-    the same rule and are appended last. Each is serialized in whatever
-    order ``GameState`` already holds it in (canonical per ``state.py``'s
-    own ordering guarantees for each field -- both M5 collections sort by
-    ``structure_id.value``), not re-sorted by this module.
+    Later keys (``resource_pools``, ``construction_sessions``, ``robots``,
+    ``structure_ownership``, ``capture_progress``, ``projectiles``,
+    ``structure_destruction``, ``scenery_debris``) are each appended after
+    the existing keys so any snapshot-shape test can be extended
+    additively. Each is serialized in whatever order ``GameState`` already
+    holds it in (canonical per ``state.py``'s own ordering guarantees), not
+    re-sorted by this module. ``scenery_debris`` holds the ids of map
+    blockers a nuclear blast turned into rough debris.
 
-    ``projectiles`` (added to ``GameState`` by issue #73, M6.4) is appended
-    last, following the same additive-key convention.
+    ``ai_memories``: appended last, and only when the state has an AI seat
+    (see the module docstring).
 
-    ``structure_destruction`` (added to ``GameState`` by issue #78, M6.8) is
-    appended last, following the same additive-key convention.
+    ``robot_launches``: appended last, and only once a robot has been
+    launched (see the module docstring).
 
-    ``scenery_debris`` (CR002.18, #196): the ids of map blockers a nuclear
-    blast turned into rough debris, appended last the same way.
-
-    ``ai_memories`` (CR004.3): appended last, and only when the state has an
-    AI seat (see the module docstring).
-
-    ``robot_launches`` (CR004.12): appended last, and only once a robot has
-    been launched (see the module docstring).
-
-    Every field of ``GameState`` is now serialized; see the module docstring
-    for why reservations and engagement intent, which M5 also introduced,
-    correctly have no keys of their own.
+    Every field of ``GameState`` is serialized; see the module docstring
+    for why reservations and engagement intent correctly have no keys of
+    their own.
     """
     snapshot: dict[str, Any] = {
         "tick": state.tick,
@@ -666,7 +589,7 @@ def to_snapshot(state: GameState) -> dict[str, Any]:
             _robot_launch_count_snapshot(count) for count in state.robot_launches
         ]
     if state.robot_debris:
-        # Elided until a robot leaves debris (CR005.3), like robot_launches.
+        # Elided until a robot leaves debris, like robot_launches.
         snapshot["robot_debris"] = [{"x": x, "y": y} for x, y in state.robot_debris]
     return snapshot
 

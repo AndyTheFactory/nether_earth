@@ -1,4 +1,4 @@
-"""Authoritative per-player resource pool type (issue #54, M4.4).
+"""Authoritative per-player resource pool type.
 
 `_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED" locks
 the original Spectrum construction economy: every player has one *general*
@@ -8,8 +8,7 @@ into -- chassis, electronics, nuclear, missile, phaser, cannon). This
 module defines the single authoritative, ``GameState``-attached value type
 for that per-player pool: :class:`PlayerResourcePool`.
 
-Design ruling (see the M4.4 task brief and Task 3/#34's code review):
-``construction_economy.ResourcePool`` is ``Mapping[FactoryType, int]``-backed
+Design ruling: ``construction_economy.ResourcePool`` is ``Mapping[FactoryType, int]``-backed
 and, as a result, not hashable -- inconsistent with every other
 ``GameState``-attached type in this codebase (``EngineRules``,
 ``GameState``, ``Commander``, ``RobotBuild`` are all frozen dataclasses with
@@ -23,12 +22,11 @@ category" idiom exactly, plus the owning ``player_id`` field, mirroring
 ``Commander``'s "the entity carries its own owning player id" convention
 used for ``GameState.commanders``.
 
-Conversion to/from ``construction_economy.ResourcePool`` (chosen boundary,
-per the task brief's explicit either/or): :meth:`PlayerResourcePool.to_resource_pool`
-and :meth:`PlayerResourcePool.from_resource_pool` perform a trivial, lossless
-field-for-field conversion. This module performs the conversion itself
-(rather than deferring it entirely to Task 5) so that Task 5's construction
-session can call :func:`~nether_earth.construction_economy.spend_module`/
+Conversion to/from ``construction_economy.ResourcePool``:
+:meth:`PlayerResourcePool.to_resource_pool` and
+:meth:`PlayerResourcePool.from_resource_pool` perform a trivial, lossless
+field-for-field conversion. This module performs the conversion itself so
+that the construction session can call :func:`~nether_earth.construction_economy.spend_module`/
 :func:`~nether_earth.construction_economy.refund_module` against a
 ``ResourcePool`` snapshot derived from a real ``PlayerResourcePool`` without
 having to invent its own conversion first -- but the *authoritative*,

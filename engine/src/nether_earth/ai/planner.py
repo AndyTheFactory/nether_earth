@@ -1,4 +1,4 @@
-"""AI planner entry point (CR004.3).
+"""AI planner entry point.
 
 :func:`plan` is a pure function of ``(state, memory, world, rules, seed)``:
 it reads the same ``GameState`` any client sees and returns the commands its
@@ -8,17 +8,16 @@ seat issues this decision tick plus the seat's updated :class:`AiMemory`
 It chains the sub-planners in :data:`_SUB_PLANNERS`, in a fixed order, each
 seeing the memory the previous one returned. A sub-planner lives in its own
 module and owns its own sub-record of :class:`AiMemory`, so construction
-(CR004.4) and robot orders (CR004.5) plug in without editing each other's
-code. Each sub-planner draws from its own
+and robot orders plug in without editing each other's code. Each sub-planner draws from its own
 ``MatchRandom(derive_seed(seed, name))``, so how many draws one makes never
 shifts another's stream.
 
-``world`` is not in the CR004.3 brief's signature; it is added because every
-sub-planner needs the map (structures, ownership) to decide anything. It is
-the effective world (captures and destruction applied) at the start of the
-tick. ``seed`` (the seat's per-decision seed, from
-:func:`nether_earth.ai.seat.issue_ai_commands`) replaces the brief's single
-``MatchRandom`` so each sub-planner can get an independent stream.
+``world`` is passed because every sub-planner needs the map (structures,
+ownership) to decide anything. It is the effective world (captures and
+destruction applied) at the start of the tick. ``seed`` (the seat's
+per-decision seed, from :func:`nether_earth.ai.seat.issue_ai_commands`) is
+used instead of a single ``MatchRandom`` so each sub-planner can get an
+independent stream.
 """
 
 from __future__ import annotations

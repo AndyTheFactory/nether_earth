@@ -1,12 +1,12 @@
-"""Consume M5 engagement intent for autonomous firing (issue #77, M6.7).
+"""Consume order engagement intent for autonomous firing.
 
-`orders.py` (M5.5, issue #64) produces :class:`~nether_earth.orders.EngagementIntent`
+`orders.py` produces :class:`~nether_earth.orders.EngagementIntent`
 every tick a robot's standing order (``StopAndDefend``/``SearchDestroy``) has
 a valid hostile target and at least one structurally capable weapon -- but,
 by that module's own explicit design, an intent is only ever a *statement*:
 producing one fires nothing, spends nothing, and mutates nothing (see
 `orders.py`'s module docstring, "What this module decides, and what it
-deliberately does not"). This module is Milestone 6's consumer of that
+deliberately does not"). This module is the combat-side consumer of that
 boundary: it turns a qualifying intent into the exact same
 :class:`~nether_earth.combat.FireRequest`/:func:`~nether_earth.combat.validate_fire`
 call direct control uses, so autonomous fire and direct fire are provably
@@ -24,15 +24,15 @@ between the two -- consuming ``EngagementIntent`` without touching order
 lifecycle, and calling into `combat.py`/`destruction.py` without
 duplicating either.
 
-Re-validation scope -- what changes between M5's intent and this tick
-------------------------------------------------------------------------
+Re-validation scope -- what changes between the intent and this tick
+---------------------------------------------------------------------
 `orders.py` computes ``EngagementIntent`` from the SAME entry ``state``
-every other tick-start subsystem reads, but Milestone 6's own combat
-effects (projectile hits, nuclear detonations) execute in this same
+every other tick-start subsystem reads, but combat effects (projectile
+hits, nuclear detonations) execute in this same
 authoritative step and can destroy the very source robot or target an
-intent named before this function ever runs. Per the task's locked scope,
-this function re-validates only the combat-time facts that may have
-changed since M5 computed the intent -- source robot still alive, target
+intent named before this function ever runs. This function re-validates
+only the combat-time facts that may have
+changed since the intent was computed -- source robot still alive, target
 still alive/valid, weapon still in range (including the electronics range
 bonus), and channel availability (via the ordinary ``validate_fire``/
 ``apply_fire`` path, not re-implemented here) -- and never re-selects a
@@ -54,8 +54,8 @@ the first weapon that is still eligible under this tick's re-validation,
 so the outcome never depends on iteration order and is always the same for
 the same inputs.
 
-Nuclear is never part of that walk (`_specs/open-questions.md` §19,
-CR001.1): against a robot target only cannon/missile/phaser are considered,
+Nuclear is never part of that walk (`_specs/open-questions.md` §19):
+against a robot target only cannon/missile/phaser are considered,
 so Stop & Defend and Search & Destroy (robots) never detonate. The only
 autonomous detonation is a structure intent (factory/war base), which
 `orders.py` emits solely on the tick a Search & Destroy carrier stands on
@@ -79,8 +79,8 @@ calls direct control uses. Neither this module nor `combat.py` branches on
 ``FireRequest`` for the same effective robot/weapon/target produce the same
 :class:`~nether_earth.combat.FireResult`/event shape).
 
-Autonomous fire happens only on the robot's own update (CR002.19, #197)
-------------------------------------------------------------------------
+Autonomous fire happens only on the robot's own update
+------------------------------------------------------
 `Lb154_robot_ai_update` decrements ``ROBOT_STRICT_CYCLES_TO_NEXT_UPDATE``
 every game cycle and returns until it reaches 0. On the update it either
 fires (``Lb6d6_weapon_fire``, then ``ROBOT_STRUCT_DESIRED_MOVE_DIRECTION``
@@ -181,10 +181,10 @@ def _target_still_valid(
     still resolves it. A structure target (factory/war base) is valid when
     it still appears in `destruction.py`'s
     :func:`~nether_earth.destruction.effective_world` -- which already
-    excludes destroyed structures -- for the matching kind. Per the task's
-    locked scope, existence is the only combat-time fact re-validated here
-    for structures; ownership re-checking is M5's target-selection concern
-    and is not repeated.
+    excludes destroyed structures -- for the matching kind. Existence is
+    the only combat-time fact re-validated here for structures; ownership
+    re-checking is `orders.py`'s target-selection concern and is not
+    repeated.
     """
     if intent.target_kind is EngagementTargetKind.ROBOT:
         return state.robot_for(intent.target_id) is not None
@@ -242,9 +242,9 @@ def consume_engagement_intent(
     In order:
 
     1. **Source re-check**: ``state.robot_for(intent.robot_id)`` must still
-       resolve. A robot destroyed since M5 computed this intent (by an
+       resolve. A robot destroyed since this intent was computed (by an
        earlier combat effect this same tick) can no longer fire.
-    1b. **Update gate** (CR002.19): :func:`autonomous_update_due` must hold;
+    1b. **Update gate**: :func:`autonomous_update_due` must hold;
        an autonomous robot fires only on its own update.
     2. **Target re-check**: see :func:`_target_still_valid`.
     3. **Weapon selection**: the first weapon in ``intent.weapons``
@@ -335,7 +335,7 @@ def autonomous_update_period_ticks(
     ``Lb5f3_determine_speed_based_on_terrain`` reloads the counter from the
     terrain the robot stands on after the update; a firing update does not
     move, so that is the highest piece under the robot's own 2×2 body
-    (``Lb5d6_map_altitude_2x2``, CR002.3; see
+    (``Lb5d6_map_altitude_2x2``; see
     :func:`~nether_earth.movement.unit_move_terrain`). The value is the same
     per-(chassis, terrain) table the move duration uses
     (`_specs/open-questions.md` §4).

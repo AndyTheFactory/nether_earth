@@ -1,4 +1,4 @@
-"""Original ZX Spectrum construction-resource spend/refund algorithm (issue #34, M4.3).
+"""Original ZX Spectrum construction-resource spend/refund algorithm.
 
 `_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED" locks
 the original Spectrum construction economy: every player has one *general*
@@ -28,29 +28,21 @@ and :func:`refund_module` -- operating on an explicit :class:`ResourcePool`
 snapshot. Steps 5-7 (the construction-session temporary buffer that tracks
 "pre-construction" category amounts across a sequence of selections/
 deselections, and atomic commit-on-launch of a *player's* actual resources)
-are Task 5 (M4.5, construction session state) and Task 6 (M4.6, launch)'s
-scope, not this module's -- :func:`spend_module`/:func:`refund_module` are
-the pure, composable primitives those later systems build session logic on
-top of. In particular, :func:`refund_module` takes the "pre-construction"
-category amount as an explicit parameter rather than tracking it itself,
-because *remembering* that value across a sequence of selections is exactly
-the session-buffer responsibility this task intentionally does not own.
+live in `construction_session.py` and `robot_launch.py` --
+:func:`spend_module`/:func:`refund_module` are the pure, composable
+primitives that session logic builds on. In particular,
+:func:`refund_module` takes the "pre-construction" category amount as an
+explicit parameter rather than tracking it itself, because *remembering*
+that value across a sequence of selections is the session buffer's
+responsibility.
 
-Resource-pool type note for Task 4 (M4.4, `_specs/milestones/04-robots-
-construction-economy.md`): Task 4 is separately responsible for the
-authoritative, ``GameState``-attached, per-player resource-pool type. This
-module needs *some* concrete resource-pool value to spend/refund against
-today, before Task 4 lands, so it defines :class:`ResourcePool` here as a
-minimal, immutable value type (one ``general`` int plus one int per
-:class:`~nether_earth.structures.FactoryType` category). This is a
-deliberate, flagged integration point, not a second permanently-parallel
-resource-pool representation: Task 4 is expected to either adopt this exact
-type as (or provide a trivial, lossless conversion to/from) its
-``GameState``-attached per-player pool, so :func:`spend_module`/
-:func:`refund_module` keep working unmodified against real player state. If
-Task 4's implementer finds a reason ``ResourcePool`` cannot serve that role
-unchanged, that is a design conflict to raise explicitly, not to route
-around silently in a duplicate type.
+Resource-pool type (`_specs/milestones/04-robots-construction-economy.md`):
+:class:`ResourcePool` is a minimal, immutable value type (one ``general``
+int plus one int per :class:`~nether_earth.structures.FactoryType`
+category). The authoritative ``GameState``-attached per-player pool
+(`resource_pool.py`) converts losslessly to and from it, so
+:func:`spend_module`/:func:`refund_module` work unmodified against real
+player state; it is not a second, parallel resource-pool representation.
 
 No cost numbers are (re)defined here: they are read from
 :class:`~nether_earth.rules.EngineRules`'s ``module_cost_*`` fields (the one
@@ -115,7 +107,7 @@ class ResourcePool:
     non-negative amount per :class:`~nether_earth.structures.FactoryType`
     resource category (chassis, electronics, nuclear, missile, phaser,
     cannon). See the module docstring for why this type exists and how
-    Task 4 (M4.4) is expected to relate to it.
+    `resource_pool.py` relates to it.
 
     Construct via :func:`starting_resource_pool` for a fresh player pool, or
     directly (e.g. in tests) with an explicit ``category`` mapping; a
@@ -253,7 +245,7 @@ def refund_module(
     pre-construction level first, then general resources absorb whatever
     does not fit.
 
-    ``pre_construction_category_amount`` is supplied by the caller (Task 5's
+    ``pre_construction_category_amount`` is supplied by the caller (the
     construction-session state) rather than tracked here, since remembering
     it across a sequence of selections/deselections is exactly the session
     responsibility this module does not own -- see the module docstring.

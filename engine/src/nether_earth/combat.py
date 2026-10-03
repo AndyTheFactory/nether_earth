@@ -1,37 +1,33 @@
-"""Canonical combat metadata, fire requests, projectiles, and rejection reasons (issue #70, M6.1).
+"""Canonical combat metadata, fire requests, projectiles, and rejection reasons.
 
-This module defines the stable engine-level types consumed by later combat
-tasks: :class:`FireRequest`/:class:`FireResult` form the boundary for firing
+This module defines the stable engine-level combat types:
+:class:`FireRequest`/:class:`FireResult` form the boundary for firing
 eligibility and projectile creation, :class:`Projectile` represents an
 in-flight projectile's authoritative state, and :class:`FireRejectionReason`
 enumerates the stable rejection codes for an invalid fire attempt.
 
 Construction-time validation enforces basic invariants (dx/dy direction,
-projectile altitude and lifetime bounds) but defers all gameplay legality
-logic (weapon fitted, channel availability, range checks, accuracy) to
-later tasks, per `_specs/milestones/06-combat-damage-victory.md`. Task 2
-implements :func:`validate_fire`, the single authoritative fire-validation
-point; this task only defines the data shapes.
+projectile altitude and lifetime bounds); gameplay legality (ownership,
+weapon fitted, channel availability) lives in :func:`validate_fire`, the
+single authoritative fire-validation point. Range bounds projectile travel
+(:func:`apply_fire`/:func:`advance_projectiles`) and autonomous engagement
+(``autonomous_combat._weapon_eligible``).
 
 All combat rules (weapon ranges, damage multipliers, projectile altitude)
 live in the centralized :class:`~nether_earth.rules.EngineRules` and are
-never duplicated here, so a future rule change affects every task identically.
+never duplicated here.
 
-Fire execution and projectile advancement (issue #73, M6.4)
---------------------------------------------------------------
-This task adds the fire-execution entry point (:func:`apply_fire`) and the
-projectile-advancement executor (:func:`advance_projectiles`), mirroring
+Fire execution and projectile advancement
+-----------------------------------------
+:func:`apply_fire` is the fire-execution entry point and
+:func:`advance_projectiles` the projectile-advancement executor, mirroring
 `movement.py`'s "validate, then execute" shape and
 `commander_movement.py`'s cadence-gated advance pattern
 (:func:`is_projectile_advance_tick` mirrors
 :func:`~nether_earth.commander_movement.is_vertical_update_tick` exactly).
-
-Like `docking.py` (M3.4) and `commander_movement.py` (M3.2) before it, these
-functions were built as a pure, directly testable reference implementation
-first; M6.10 has since threaded them into ``engine.step()``'s Step 2c2 (see
-`engine.py`), alongside :class:`FireCommand`, the player-facing command type
-that produces a :class:`FireRequest`. Tests still call :func:`apply_fire`/
-:func:`advance_projectiles` directly for unit-level coverage.
+Both are pure and directly testable; ``engine.step()``'s Step 2c2 (see
+`engine.py`) wires them in, alongside :class:`FireCommand`, the
+player-facing command type that produces a :class:`FireRequest`.
 
 Height-collision semantics (read this before touching termination logic)
 -----------------------------------------------------------------------------
@@ -45,7 +41,7 @@ Per `_specs/open-questions.md` §8's disassembly evidence
 an obstacle or robot blocks a projectile whenever its height is
 **greater than or equal to** the projectile's flight altitude. This is a
 direct ``>=`` comparison against ``structures.Component.height`` /
-a robot's top (CR002.25, owner decision 2026-09-22: the terrain altitude
+a robot's top (owner decision 2026-09-22: the terrain altitude
 under its 2×2 body plus its stack height, :func:`~nether_earth.collision.robot_top`)
 -- it deliberately does **not** go through
 `collision.py`'s :class:`~nether_earth.collision.VerticalRange`/
@@ -55,8 +51,8 @@ a surface but wrong for a projectile's collision rule. Do not "fix" this by
 routing through ``VerticalRange`` -- that would silently reintroduce the
 wrong (exclusive) semantics.
 
-Collision footprint -- the Spectrum's 2×2 bullet (CR002.3 #170)
----------------------------------------------------------------
+Collision footprint -- the Spectrum's 2×2 bullet
+------------------------------------------------
 Owner decision (2026-09-21): projectiles follow the original's 2×2 map-area
 checks. A projectile's ``x``/``y`` is the anchor of a 2×2 body, like a
 robot's (`occupancy.py`, `_specs/open-questions.md` §21). Each advance moves
@@ -67,7 +63,7 @@ position, as ``Lb724_bullet_update_internal`` does:
    ``cp MAP_WIDTH``; fences close the long axis);
 2. the highest static surface under the four body cells
    (``Lb5d6_map_altitude_2x2``, :func:`~nether_earth.collision.unit_surface_height`:
-   structures, scenery, and terrain pieces, CR002.21) stops it when ``>=``
+   structures, scenery, and terrain pieces) stops it when ``>=``
    its altitude, so a projectile passing right beside a high box or fence
    stops. Terrain pieces are at most 6 high (mountains) and debris 3, all
    below the bullet altitude 10, so terrain never stops a bullet;
@@ -90,8 +86,9 @@ uniform logical cells -- there is no raw-pixel/doubled-coordinate
 distinction anywhere in this project's own coordinate representation -- so
 :func:`advance_projectiles` advances a projectile the same
 ``projectile_cells_per_advance`` (2) logical cells per advance-tick,
-symmetrically, regardless of which axis it travels along (CR001 confirmed
-one raw coordinate unit is one map cell on both axes). This makes the original's X/Y raw-unit scale distinction moot for
+symmetrically, regardless of which axis it travels along (one raw
+coordinate unit is one map cell on both axes). This makes the original's X/Y raw-unit
+scale distinction moot for
 this engine's own grid: there is no second, smaller-scale axis to reconcile
 against. This is a deliberate policy decision, not an oversight, and per the
 §8 reviewer's own note, no additional ``EngineRules`` field is needed to
@@ -107,16 +104,9 @@ same with :attr:`~nether_earth.robot.Robot.facing` (owner decision,
 turn, which costs ``rules.robot_turn_ticks`` per 90 degrees, and a robot
 mid-turn cannot fire at all (:attr:`FireRejectionReason.TURNING`).
 
-Until that decision :class:`FireRequest` carried a target cell and a
-dominant-axis-with-x-tiebreak rule derived a direction from it, because
-``Robot`` had no facing to copy. That was flagged in this docstring as a
-deliberate simplification rather than a fidelity claim; it is now gone,
-along with the target cell itself.
-
-Damage, strength, and destruction (issue #76, M6.6)
--------------------------------------------------------
-This task adds the damage-calculation and damage-application half of
-combat: :func:`calculate_base_damage`/:func:`calculate_weapon_damage`
+Damage, strength, and destruction
+---------------------------------
+:func:`calculate_base_damage`/:func:`calculate_weapon_damage`
 implement the locked, evidence-backed formula
 (`_specs/open-questions.md` §9), and :func:`apply_damage` is the single
 point that reads a hit robot's current strength, applies computed damage,
@@ -136,8 +126,8 @@ time the robot moves (`Lb5d6_map_altitude_2x2`, "update the altitude of the
 robot based on the terrain underneath").
 
 This engine's :class:`~nether_earth.robot.Robot` has no equivalent field;
-the value is derived from the robot's position instead. Since CR002.21
-(#203) terrain pieces carry their ``Ld7bc_map_piece_heights`` height, so
+the value is derived from the robot's position instead. Terrain pieces
+carry their ``Ld7bc_map_piece_heights`` height, so
 :func:`ground_height_at` is :func:`~nether_earth.collision.unit_surface_height`
 at the robot's anchor -- the same ``Lb5d6`` 2×2 reading the robot's
 altitude comes from: 0 on normal ground, 2 or 3 on rough, 6 on mountains,
@@ -196,8 +186,7 @@ class FireRejectionReason(str, Enum):
     A dedicated enum (rather than reusing a generic rejection reason) because
     fire eligibility is its own gameplay concern -- weapon legality, channel
     occupancy, and range validation are distinct from command legality or
-    movement legality. Task 2 implements the validation logic that produces
-    these reasons; this task defines the codes only.
+    movement legality. :func:`validate_fire` produces these reasons.
     """
 
     NO_SUCH_ROBOT = "no_such_robot"
@@ -269,8 +258,7 @@ class FireCommand(Command):
     player-facing command that produces a
     :class:`~nether_earth.movement.RobotMoveRequest`. ``FireRequest`` itself
     is the internal currency :func:`validate_fire`/:func:`apply_fire`
-    consume; nothing produced one from player input before this type
-    existed.
+    consume.
 
     Unlike ``DirectRobotMoveCommand`` (which deliberately has no
     ``entity_id`` because exactly one robot is ever directly controllable),
@@ -280,8 +268,8 @@ class FireCommand(Command):
     their own robots, not only the one their commander is docked to, and
     ownership is enforced downstream by :func:`validate_fire`'s
     ``request.player == robot.owner`` check rather than by artificially
-    restricting the command's shape. Any presentation-level restriction
-    (M7/M8) is a UI-availability concern, not an engine rule.
+    restricting the command's shape. Any presentation-level restriction is
+    a UI-availability concern, not an engine rule.
 
     The command carries no target cell (owner decision, 2026-09-23): a
     shot travels in the robot's own facing, so "aim" means "turn the robot
@@ -311,7 +299,7 @@ class Projectile:
     exactly one is nonzero. Diagonal travel is rejected structurally in
     ``__post_init__`` rather than as a gameplay rejection reason.
 
-    ``first_advance_tick`` (CR002.2 #169) is the earliest tick at which
+    ``first_advance_tick`` is the earliest tick at which
     :func:`advance_projectiles` moves the projectile; cadence ticks before it
     leave it in place. :func:`apply_fire` sets it to the cadence tick that
     closes the fire cycle for an autonomous (AI) shot, and one cycle later
@@ -396,7 +384,7 @@ def validate_fire(request: FireRequest, state: GameState) -> FireResult:
 
 
 # --------------------------------------------------------------------------
-# Fire direction resolution (issue #73, M6.4)
+# Fire direction resolution
 # --------------------------------------------------------------------------
 
 
@@ -417,11 +405,11 @@ def weapon_range_cells(weapon: ModuleIdentity, rules: EngineRules) -> int:
 
     One dict, one place, mirroring ``robot_build.MODULE_RESOURCE_CATEGORY``'s
     "one dict, one place" convention -- see :func:`apply_fire`. Nuclear is
-    deliberately absent: it does not create a :class:`Projectile` at all (a
-    later task's scope), so it never reaches this lookup.
+    deliberately absent: it does not create a :class:`Projectile` at all, so
+    it never reaches this lookup.
 
     Public (rather than module-private) because `autonomous_combat.py`
-    (issue #77, M6.7) needs the exact same weapon-range lookup to
+    needs the exact same weapon-range lookup to
     re-validate an autonomous engagement intent's range eligibility, and two
     independent spellings of "how far can this weapon reach" could silently
     drift apart -- see that module's own docstring.
@@ -435,7 +423,7 @@ def weapon_range_cells(weapon: ModuleIdentity, rules: EngineRules) -> int:
 
 
 # --------------------------------------------------------------------------
-# Fire execution (issue #73, M6.4)
+# Fire execution
 # --------------------------------------------------------------------------
 
 
@@ -466,9 +454,9 @@ class ProjectileTerminationReason(str, Enum):
     A dedicated enum (rather than a bare string) for the same reason
     :class:`FireRejectionReason`/:class:`~nether_earth.movement.MovementRejectionReason`
     are dedicated enums: termination reason is part of this module's public,
-    replay-relevant contract, and later tasks (Task 6's damage application)
-    branch on ``"robot_hit"`` specifically to know whether ``hit_robot_id``
-    is meaningful.
+    replay-relevant contract, and damage application branches on
+    ``"robot_hit"`` specifically to know whether ``hit_robot_id`` is
+    meaningful.
     """
 
     RANGE_EXHAUSTED = "range_exhausted"
@@ -485,16 +473,14 @@ class ProjectileTerminatedEvent(Event):
     :attr:`~ProjectileTerminationReason.ROBOT_HIT`; it is ``None`` for every
     other termination reason. This event does not itself apply any damage --
     it only identifies the collision and releases the firing robot's combat
-    channel; `engine.py`'s combat step (M6.10) consumes ``hit_robot_id``
+    channel; `engine.py`'s combat step consumes ``hit_robot_id``
     plus ``weapon`` from this event and calls :func:`apply_damage`.
 
-    ``weapon`` (added by M6.10) is the terminated projectile's own
+    ``weapon`` is the terminated projectile's own
     :attr:`Projectile.weapon`. It is carried here because
     :func:`apply_damage` needs it to select the right damage multiplier, and
     the projectile itself is removed from ``state.projectiles`` on the very
     tick this event is emitted -- so a consumer could not look it back up.
-    This completes the "enough info for the damage layer" intent M6.4 stated
-    for this event but did not finish.
 
     For a :attr:`~ProjectileTerminationReason.OUT_OF_BOUNDS` termination,
     the reported ``x``/``y`` is the off-map coordinate the projectile would
@@ -535,7 +521,7 @@ def apply_fire(
 
     1. A nuclear fire request is accepted by :func:`validate_fire` and
        passed through unchanged here -- ``(state, result, None)`` -- since
-       nuclear detonation execution is a later task's (M6.8's) scope; this
+       nuclear detonation is executed by `destruction.py`; this
        function only lets it clear the accept boundary without creating a
        :class:`Projectile` or touching the combat channel.
     2. A normal-weapon (cannon/missile/phaser) request from a robot that is
@@ -546,8 +532,7 @@ def apply_fire(
        fire cycle (``tick // rules.robot_fire_cycle_ticks`` equals that of
        its ``last_fire_tick``) is rejected with
        :attr:`FireRejectionReason.ALREADY_FIRED_THIS_CYCLE`: at most one
-       normal-weapon shot per robot per game cycle (CR002.2 #169, owner
-       decision; §8).
+       normal-weapon shot per robot per game cycle (owner decision; §8).
     3. Otherwise, a new :class:`Projectile` is created at the firing
        robot's own cell, travelling in the resolved direction, with
        ``max_range_cells`` from ``rules`` for ``request.weapon`` plus
@@ -555,7 +540,7 @@ def apply_fire(
        electronics fitted (``robot.build.electronics is
        ModuleIdentity.ELECTRONICS``), and a :class:`ProjectileFiredEvent`
        (at the firing cell) is emitted. The projectile then makes its first
-       advance immediately, on the fire tick (CR002.2 #169, matching the
+       advance immediately, on the fire tick (matching the
        Spectrum's ``Lb6d6_weapon_fire``, which calls
        ``Lb724_bullet_update_internal`` before returning), with the same
        checks as every later advance (:func:`_advance_one`). Later advances
@@ -635,7 +620,7 @@ def apply_fire(
         tick=tick,
     )
 
-    # First move on the fire tick (CR002.2 #169; `Lb6d6_weapon_fire` calls
+    # First move on the fire tick (`Lb6d6_weapon_fire` calls
     # `Lb724_bullet_update_internal` before returning).
     moved, termination = _advance_one(projectile, state, world, rules)
     fired_robot = replace(robot, last_fire_tick=tick)
@@ -677,7 +662,7 @@ def _first_advance_tick(tick: int, autonomous: bool, rules: EngineRules) -> int:
 
 
 # --------------------------------------------------------------------------
-# Projectile advancement (issue #73, M6.4)
+# Projectile advancement
 # --------------------------------------------------------------------------
 
 
@@ -700,9 +685,9 @@ def _components_at_inclusive_blocking(
     """Return whether the static surface under the 2×2 body at ``(x, y)`` blocks a projectile.
 
     ``(x, y)`` is the projectile's anchor; the four body cells are read as
-    ``Lb5d6_map_altitude_2x2`` reads them (CR002.3), through `collision.py`'s
+    ``Lb5d6_map_altitude_2x2`` reads them, through `collision.py`'s
     :func:`~nether_earth.collision.unit_surface_height` (structures, scenery
-    and terrain pieces, CR002.21) so this module's static geometry can never
+    and terrain pieces) so this module's static geometry can never
     diverge from the commander's. It blocks when ``>=
     rules.normal_projectile_altitude`` -- see the module docstring's "Height-
     collision semantics" section for why this is a direct ``>=`` comparison
@@ -722,9 +707,9 @@ def _robot_hit_at(
     """Return the ``entity_id`` of the first robot hit by a projectile body anchored at ``(x, y)``.
 
     A robot is a candidate when its 2×2 body overlaps the projectile's 2×2
-    body (CR002.3; the Spectrum's 3×3 scan of robot anchors around the
+    body (the Spectrum's 3×3 scan of robot anchors around the
     bullet), its top ``robot_top(world, robot) >= rules.normal_projectile_altitude``
-    (terrain altitude plus stack height; owner decision 2026-09-22, CR002.25:
+    (terrain altitude plus stack height; owner decision 2026-09-22:
     a short robot on a mountain is hit, the same robot on flat ground is flown
     over; see the module docstring's "Height-collision semantics" section), and it is not
     the projectile's own firer (defensive: a landing position never
@@ -826,8 +811,8 @@ def _terminate_projectile(
     robot with its combat channel cleared (via
     :meth:`~nether_earth.robot.Robot.with_active_projectile`), or ``None``
     if the source robot no longer exists in ``state`` (destroyed mid-flight
-    by a later task's logic -- treated as "channel already released", per
-    the task brief, not an error), plus the terminated event. Callers are
+    -- treated as "channel already released", not an error), plus the
+    terminated event. Callers are
     responsible for actually removing ``projectile`` from
     ``state.projectiles`` and applying the returned robot update -- this
     function does not mutate ``state`` itself, so :func:`advance_projectiles`
@@ -866,8 +851,8 @@ def _advance_one(
     """Apply ONE advance to ``projectile``: ``(moved, None)`` or ``(None, termination)``.
 
     The single advance rule, shared by :func:`advance_projectiles` (every
-    cadence tick) and :func:`apply_fire` (the first move on the fire tick,
-    CR002.2 #169). ``termination`` is ``(reason, hit_robot_id, x, y)``.
+    cadence tick) and :func:`apply_fire` (the first move on the fire tick).
+    ``termination`` is ``(reason, hit_robot_id, x, y)``.
 
     1. Range exhaustion is checked FIRST, against the projectile's current
        (not-yet-incremented) ``travelled_cells`` via :func:`_range_exhausted`
@@ -875,7 +860,7 @@ def _advance_one(
        CURRENT ``x``/``y`` (no move is attempted). See
        :func:`_projectile_terminal_reason`'s docstring for why.
     2. Otherwise, it moves along its firing axis by
-       ``rules.projectile_cells_per_advance`` cells (default 2, CR001 /
+       ``rules.projectile_cells_per_advance`` cells (default 2,
        `_specs/open-questions.md` §8), capped so ``travelled_cells`` never
        exceeds ``max_range_cells``, and its 2×2 body is checked at the
        landing position only via :func:`_projectile_terminal_reason`
@@ -926,7 +911,7 @@ def advance_projectiles(
     ``rules.projectile_cells_per_advance`` cells checked at its landing
     position). A projectile's
     FIRST advance is not made here but by :func:`apply_fire` on its fire
-    tick (CR002.2 #169); ``engine.step()`` runs this function before firing,
+    tick; ``engine.step()`` runs this function before firing,
     so a projectile never advances twice on its fire tick. A projectile is
     left in place while ``tick < first_advance_tick`` (a direct shot for the
     rest of its fire cycle, §8).
@@ -934,8 +919,8 @@ def advance_projectiles(
     A terminated projectile is dropped from the result and its firing
     robot's combat channel is cleared (unless that robot no longer exists
     -- see :func:`_terminate_projectile`); a projectile that does not
-    terminate this step is kept, at its new position. This task applies no
-    damage -- see :class:`ProjectileTerminatedEvent`'s docstring.
+    terminate this step is kept, at its new position. This function applies
+    no damage -- see :class:`ProjectileTerminatedEvent`'s docstring.
 
     All updates are collected into exactly one new ``GameState`` (one
     :meth:`~nether_earth.state.GameState.with_projectiles` call, one
@@ -978,7 +963,7 @@ def advance_projectiles(
 
 
 # --------------------------------------------------------------------------
-# Damage calculation, application, and destruction (issue #76, M6.6)
+# Damage calculation, application, and destruction
 # --------------------------------------------------------------------------
 
 
@@ -988,7 +973,7 @@ def ground_height_at(world: WorldMap, x: int, y: int) -> int:
     See the module docstring's "``ground_height_at``" section: the highest
     static surface under the robot's 2×2 body
     (:func:`~nether_earth.collision.unit_surface_height`, ``Lb5d6``),
-    including terrain piece heights (CR002.21).
+    including terrain piece heights.
     """
     return unit_surface_height(world, x, y)
 
@@ -1031,7 +1016,7 @@ def calculate_weapon_damage(
 
     Raises ``ValueError`` for :attr:`~nether_earth.robot_build.ModuleIdentity.NUCLEAR`
     or any non-weapon identity -- nuclear damage is an area-destruction
-    event with no per-hit formula (a later task's scope, #78), so a caller
+    event with no per-hit formula, so a caller
     passing it here is a caller bug, not a gameplay rejection this function
     should model as a normal return value.
     """
@@ -1115,7 +1100,7 @@ def apply_damage(
     new_strength = robot.strength - damage
 
     if new_strength <= 0:
-        # A robot killed in combat leaves debris on plain ground (CR005.3, `Lb116`).
+        # A robot killed in combat leaves debris on plain ground (`Lb116`).
         debris = robot_debris_anchor(world, robot)
         if debris is not None:
             state = state.with_robot_debris((*state.robot_debris, debris))

@@ -1,4 +1,4 @@
-"""Filesystem replay/debug logging (M7 Task 8, issue #97).
+"""Filesystem replay/debug logging.
 
 Public surface: :class:`~app.replay.writer.ReplayWriter` (the artifact
 writer, wired into ``app.main``'s composition root as

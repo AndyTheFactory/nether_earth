@@ -1,8 +1,8 @@
-"""AI robot-order sub-planner (CR004.5, #286).
+"""AI robot-order sub-planner.
 
 Decides which order each of the AI seat's robots holds and when to change it.
 It never picks a structure for a robot: the engine's own order semantics
-(CR003.2, `orders.py`) do that -- orders persist, a Search & Capture retargets
+(`orders.py`) do that -- orders persist, a Search & Capture retargets
 after each capture, and capture targets are exclusive between same-owner
 robots holding the same order. The planner *predicts* what the engine will pick
 by calling the same public selection functions (:func:`select_capture_target`,
@@ -119,7 +119,7 @@ CONTEST_RADIUS_CELLS = 16
 #: Extra value of a war base for the victory rule (`victory.py` counts them).
 #: Large enough that the opponent's war bases outrank its factories. At 10 the
 #: AI out-built the scripted baseline but often never took its last war base
-#: (CR004.10 harness, seeds 1-10 x both seats, 30000-tick cap: 11/20 wins,
+#: (AI-vs-scripted harness, seeds 1-10 x both seats, 30000-tick cap: 11/20 wins,
 #: 9 capped with the AI ahead); at 50 it won 17/20, 3 capped, 0 losses, and
 #: 100 played the same games.
 VICTORY_VALUE = 50
@@ -188,7 +188,7 @@ def hit_damage(attacker: Robot, target: Robot, rules: EngineRules) -> int:
 def matchup(own: Robot, enemy: Robot, rules: EngineRules) -> int:
     """Return +1 when ``own`` beats ``enemy``, -1 when it loses, 0 when even.
 
-    The composition response (CR004 improvement 3): reach decides who fires
+    The composition response: reach decides who fires
     first, then per-hit damage (which already folds in both heights). There is
     no armour stat. A robot that cannot hurt the enemy always loses; one the
     enemy cannot hurt always wins.

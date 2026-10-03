@@ -1,4 +1,4 @@
-"""Filesystem replay/debug artifact writer (M7 Task 8, issue #97).
+"""Filesystem replay/debug artifact writer.
 
 Scope: this module owns the *backend-only* filesystem I/O side of replay
 persistence. It never touches ``nether_earth.engine``/``GameState`` mutation
@@ -134,7 +134,7 @@ def _package_relative_default_replay_dir() -> Path:
     repository-skeleton workstream, and `replays/.gitkeep`, which already
     exists at the repo root).
 
-    Deliberately *not* CWD-relative (M7 Task 8 review, Important I6): this
+    Deliberately *not* CWD-relative: this
     repo's own ``README.md`` documents launching the backend for local dev
     as ``uvicorn app.main:app --app-dir backend --reload`` -- run from the
     *repo root*, which never changes the process CWD, only the import path.
@@ -203,7 +203,7 @@ def _epoch_ms() -> int:
 
 #: `command.__class__.__name__` -> the JSON `kind` tag `_command_to_json`
 #: writes for it, matching `app.protocol.common`'s `CommandPayload` `kind`
-#: tokens one for one (issue #98) so a persisted command and the transport
+#: tokens one for one so a persisted command and the transport
 #: payload that produced it are always spelled identically on disk/wire.
 _COMMAND_KIND_BY_CLASS: dict[type[Command], str] = {
     CommanderMoveCommand: "commander_move",
@@ -223,7 +223,7 @@ def _command_to_json(command: Command) -> dict[str, Any]:
 
     Covers the base ``player``/``sequence`` contract every ``Command``
     carries, plus every one of the nine concrete gameplay ``Command``
-    subclasses ``engine.step`` dispatches on (issue #98) -- see
+    subclasses ``engine.step`` dispatches on -- see
     :data:`_COMMAND_KIND_BY_CLASS`. Each subclass's own gameplay-specific
     fields are appended after ``kind``, using the exact same ``kind`` tokens
     as ``app.protocol.common``'s ``CommandPayload``/``app.transport.commands``'
@@ -234,14 +234,12 @@ def _command_to_json(command: Command) -> dict[str, Any]:
     never spelled differently for the same logical command.
 
     Raises ``NotImplementedError`` for anything other than the bare
-    ``Command`` contract or one of the nine known subclasses (M7 Task 8
-    review, Important I3, extended by Task 9 rather than relaxed): a
+    ``Command`` contract or one of the nine known subclasses: a
     silently-dropped gameplay-specific field would produce a persisted
     artifact that *looks* fine but has quietly lost information -- a
-    corrupted replay with no error anywhere. A *new* tenth ``Command``
-    subclass added by a future milestone must extend this function (and
-    ``app.replay.verify``'s ``_command_from_json``) explicitly, the same way
-    this task extended it for the first nine.
+    corrupted replay with no error anywhere. A *new* ``Command`` subclass
+    must extend this function (and ``app.replay.verify``'s
+    ``_command_from_json``) explicitly.
     """
     if type(command) is Command:
         return {"player": command.player.to_json(), "sequence": command.sequence}
@@ -304,7 +302,7 @@ def _meta_players(match: Match) -> dict[str, str]:
 
 
 def meta_seat_controllers(scenario: Scenario) -> dict[str, str]:
-    """Return ``{player_id: "human" | "ai"}`` -- who drives each seat (CR004.7).
+    """Return ``{player_id: "human" | "ai"}`` -- who drives each seat.
 
     Only human commands are recorded; replay re-derives an AI seat's
     commands by stepping the engine, so the verifier must rebuild the
@@ -318,8 +316,8 @@ def meta_seat_controllers(scenario: Scenario) -> dict[str, str]:
 def _result_to_json(match: Match) -> dict[str, Any] | None:
     """Return ``match.result`` (forfeit/no-contest) as JSON, or ``None`` for a normal engine finish.
 
-    ``match.result`` is only ever set by ``ReconnectCoordinator`` (M7 Task
-    7) for the two runtime-level outcomes it can produce; a normal in-game
+    ``match.result`` is only ever set by ``ReconnectCoordinator`` for the
+    two runtime-level outcomes it can produce; a normal in-game
     engine victory leaves it ``None`` and is read from the persisted final
     snapshot's own victory-bearing fields instead (see ``Match.result``'s
     own docstring) -- this function never invents a result neither side
@@ -584,7 +582,7 @@ class ReplayWriter:
         path = match_dir(self._base_dir, match_id) / filename
         # One raw O_APPEND write per line (called every tick for every match):
         # same per-tick durability as a buffered text handle, a fraction of
-        # its setup cost (M10.6 profiling).
+        # its setup cost.
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
         try:
             os.write(fd, (json.dumps(line) + "\n").encode("utf-8"))

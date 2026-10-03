@@ -1,9 +1,8 @@
 """Base engine command contract, deterministic ordering, and validation model.
 
-This module defines the *shape* that all future gameplay commands (commander
-movement, robot orders, fire, construction, ...) will extend. No concrete
-gameplay command exists yet; those are introduced by later milestones on top
-of the :class:`Command` base.
+This module defines the *shape* that all gameplay commands (commander
+movement, robot orders, fire, construction, ...) extend; the concrete
+commands live in their own modules on top of the :class:`Command` base.
 
 Ordering convention: wall-clock/arrival order is never authoritative. Every
 command carries an explicit, caller-supplied ``sequence`` alongside the
@@ -17,7 +16,7 @@ Validation convention: :func:`validate_command` is a pure function of
 has no side effects; a rejected command never touches any mutation path
 because none is invoked to compute the result in the first place. Concrete
 gameplay validation (movement legality, capture rules, ...) is layered on top
-by later milestones; this module only defines the generic, structural
+by those modules; this module only defines the generic, structural
 contract every command must satisfy (a known issuing player and a
 non-negative sequence number) plus per-tick batch uniqueness.
 """
@@ -34,7 +33,7 @@ from nether_earth.state import GameState
 class Command:
     """Base contract for all engine-level commands.
 
-    Concrete gameplay commands (not defined in this milestone) subclass
+    Concrete gameplay commands (defined in their own modules) subclass
     ``Command`` and add their own fields. Every command must carry:
 
     - ``player``: the issuing :class:`~nether_earth.ids.PlayerId`.
@@ -123,14 +122,13 @@ def validate_command(command: Command, state: GameState) -> CommandResult:
     other observable side effect. The same ``(command, state)`` pair always
     yields the same result.
 
-    Only generic, gameplay-agnostic checks live here, since no concrete
-    gameplay command type exists in this milestone:
+    Only generic, gameplay-agnostic checks live here:
 
     - ``sequence`` must be non-negative.
     - ``player`` must be a participant in ``state``.
 
     Concrete gameplay commands layer additional legality checks on top of
-    this in later milestones.
+    this.
     """
     if command.sequence < 0:
         return CommandResult.reject(command, RejectionReason.INVALID_SEQUENCE)

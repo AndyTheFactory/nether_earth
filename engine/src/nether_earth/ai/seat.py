@@ -1,4 +1,4 @@
-"""The ``engine.step`` hook that runs every AI seat's planner (CR004.3).
+"""The ``engine.step`` hook that runs every AI seat's planner.
 
 Cadence: the planner runs only when the tick being simulated
 (``state.tick + 1``) is a multiple of ``rules.ai_decision_interval_ticks``.

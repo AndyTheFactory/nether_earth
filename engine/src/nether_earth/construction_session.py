@@ -1,25 +1,25 @@
-"""Construction-session lifecycle and reversible build editing (issue #55, M4.5).
+"""Construction-session lifecycle and reversible build editing.
 
-`_specs/milestones/04-robots-construction-economy.md` (M4.5) and
+`_specs/milestones/04-robots-construction-economy.md` and
 `_specs/functional-spec.md` §10.3/§11 describe the player-facing construction
-flow: a commander lands on its own war base's heli-pad (M3's
+flow: a commander lands on its own war base's heli-pad (the
 ``heli_pad.CommanderConstructionEntryEligible`` event, see ``heli_pad.py``),
 enters construction, selects/deselects modules against a temporary resource
-buffer, and either launches (Task 6, M4.6, not this module's scope) or
+buffer, and either launches (`robot_launch.py`) or
 cancels/scraps before launch with zero permanent resource impact.
 
-This module implements the *session* layer on top of two already-landed
-primitives, reusing both rather than reimplementing any of their logic:
+This module implements the *session* layer on top of two primitives,
+reusing both rather than reimplementing any of their logic:
 
-- Task 1's build model (`robot_build.py`) -- :data:`~nether_earth.robot_build.CHASSIS_MODULES`/
+- the build model (`robot_build.py`) -- :data:`~nether_earth.robot_build.CHASSIS_MODULES`/
   :data:`~nether_earth.robot_build.WEAPON_MODULES`/
   :data:`~nether_earth.robot_build.ELECTRONICS_MODULES` for incremental
   build-validity checks, and :class:`~nether_earth.robot_build.RobotBuild`
   itself once a build-in-progress is structurally complete;
-- Task 3's spend/refund algorithm (`construction_economy.py`) --
+- the spend/refund algorithm (`construction_economy.py`) --
   :func:`~nether_earth.construction_economy.spend_module`/
   :func:`~nether_earth.construction_economy.refund_module`, called against a
-  ``ResourcePool`` snapshot derived from Task 4's authoritative
+  ``ResourcePool`` snapshot derived from the authoritative
   :class:`~nether_earth.resource_pool.PlayerResourcePool` via
   :meth:`~nether_earth.resource_pool.PlayerResourcePool.to_resource_pool`/
   :meth:`~nether_earth.resource_pool.PlayerResourcePool.from_resource_pool`.
@@ -41,7 +41,7 @@ the moment a complete build is asked for), and an optional electronics
 module. :meth:`BuildInProgress.to_robot_build` converts to a real
 :class:`~nether_earth.robot_build.RobotBuild` once (and only once) the
 build-in-progress is structurally complete (one chassis, one to three
-weapons); callers (Task 6's launch logic) are expected to check
+weapons); callers (the launch logic) are expected to check
 :meth:`BuildInProgress.is_complete` first, or handle the
 :class:`~nether_earth.robot_build.BuildValidationError` that an incomplete
 conversion attempt raises.
@@ -49,29 +49,12 @@ conversion attempt raises.
 Design choice: pure functions, not ``Command`` subclasses
 -------------------------------------------------------------
 
-`commands.py` defines the generic ``Command``/``CommandResult`` contract,
-and `commander_movement.py` layers concrete ``Command`` subclasses
-(``CommanderMoveCommand``, ``CommanderSetVerticalIntentCommand``) on top of
-it, wired into ``engine.step``'s per-tick command-batch pipeline. This
-module deliberately does **not** follow that pattern yet, for the same
-reason `heli_pad.py` and `docking.py` did not: M4's own task breakdown
-explicitly assigns ``engine.step``/command-pipeline wiring to a later,
-dedicated task (Task 7, M4.7), and every M3 module that predates its own
-integration task (`heli_pad.py`, `docking.py`) shipped as plain pure
-functions taking explicit state and returning new state, not premature
-``Command`` subclasses. Defining ``Command`` subclasses here now would mean
-guessing at Task 7's eventual per-tick batching/validation shape (e.g.
-whether construction commands share ``CommandResult``'s reason-code style,
-or need their own richer rejection payload for "insufficient resources"
-specifically) before that task has actually decided it. This module's
-functions (:func:`enter_construction`, :func:`select_module`,
-:func:`deselect_module`, :func:`cancel_construction`) are therefore plain,
-pure, directly testable functions of ``(state, ...) -> new state`` (or a
-rejection outcome), exactly mirroring ``heli_pad.detect_heli_pad_landing``'s
-and ``docking.py``'s own "reference implementation, not yet threaded into
-the tick loop" shape. Task 7 remains free to wrap these functions inside
-``Command`` subclasses without this module changing, if that is the
-integration shape it settles on.
+This module's functions (:func:`enter_construction`, :func:`select_module`,
+:func:`deselect_module`, :func:`cancel_construction`) are plain, pure,
+directly testable functions of ``(state, ...) -> new state`` (or a
+rejection outcome), like ``heli_pad.detect_heli_pad_landing`` and
+``docking.py``. The ``Command`` subclasses that wrap them live in
+`construction_commands.py`, and ``engine.step`` applies them.
 
 Session state and ``GameState`` attachment
 ---------------------------------------------
@@ -96,14 +79,14 @@ Temporary buffer type and the entry-time refund baseline
 -------------------------------------------------------------
 
 The temporary resource buffer is stored as a
-:class:`~nether_earth.construction_economy.ResourcePool` (Task 3's pure
+:class:`~nether_earth.construction_economy.ResourcePool` (the pure
 operand type), not a second
 :class:`~nether_earth.resource_pool.PlayerResourcePool` -- it is exactly the
 type :func:`~nether_earth.construction_economy.spend_module`/
 :func:`~nether_earth.construction_economy.refund_module` already operate on,
 so no conversion is needed on every select/deselect call (only once, at
 entry, converting the player's actual ``PlayerResourcePool`` in, and once,
-at successful-launch time -- Task 6's scope, not this module's -- converting
+at successful-launch time -- in `robot_launch.py` -- converting
 back out). The entry-time baseline needed by
 :func:`~nether_earth.construction_economy.refund_module`'s
 ``pre_construction_category_amount`` parameter is captured once, at session
@@ -256,7 +239,7 @@ class ConstructionSession:
     convention). ``war_base_id`` is the id of the war base whose heli-pad
     landing (the triggering
     :class:`~nether_earth.heli_pad.CommanderConstructionEntryEligible` event)
-    opened this session -- carried here so Task 6's launch logic has it
+    opened this session -- carried here so the launch logic has it
     without a second lookup. ``entry_tick`` records the tick the triggering
     event fired on (replay/debugging aid, mirrors the event's own ``tick``
     field). ``build`` is the current :class:`BuildInProgress`. ``buffer`` is
@@ -333,7 +316,7 @@ def enter_construction(
     (from ``heli_pad.detect_heli_pad_landing``) rather than this function
     re-deriving landing eligibility itself -- see the module docstring.
     ``for_player`` must equal ``event.player``; this is a defensive
-    re-check (not a re-derivation of heli-pad ownership -- the M3 event's
+    re-check (not a re-derivation of heli-pad ownership -- the event's
     own invariant already guarantees ``event.player`` owns
     ``event.war_base_id``) against a forged/mismatched call where a caller
     passes another player's event, since trusting ``event.player`` alone
@@ -376,9 +359,9 @@ def enter_construction_remotely(
     war_base_id: EntityId,
     tick: int,
 ) -> ConstructionEntryResult:
-    """Open a construction session at ``war_base_id`` for an AI seat, with no commander (CR004.4).
+    """Open a construction session at ``war_base_id`` for an AI seat, with no commander.
 
-    The AI seat has no commander (CR004 owner decision 2026-09-25), so it can
+    The AI seat has no commander (owner decision 2026-09-25), so it can
     never raise :class:`~nether_earth.heli_pad.CommanderConstructionEntryEligible`.
     This is its entry instead, keyed on *owning* the war base rather than
     landing on it. It opens exactly the session :func:`enter_construction`
@@ -442,8 +425,8 @@ class SelectModuleRejectionReason(str, Enum):
 class SelectModuleResult:
     """Outcome of :func:`select_module`. Accept/reject shape, mirrors :class:`ConstructionEntryResult`.
 
-    ``removed_chassis`` is set when picking a chassis replaced a fitted one
-    (CR002.20). The Spectrum removes and refunds the old chassis *before*
+    ``removed_chassis`` is set when picking a chassis replaced a fitted one.
+    The Spectrum removes and refunds the old chassis *before*
     trying to pay for the new one, so a swap whose new chassis is then
     unaffordable is a rejection that still carries a ``state``: the old
     chassis removed and refunded, the new one not fitted. That is the only
@@ -496,7 +479,7 @@ def select_module(
     result from that call is surfaced as
     :data:`SelectModuleRejectionReason.INSUFFICIENT_RESOURCES` here.
 
-    Picking a chassis while another is fitted swaps it (CR002.20), exactly
+    Picking a chassis while another is fitted swaps it, exactly
     as the Spectrum's ``Lca0f_waiting_for_key_press_loop`` does: the fitted
     chassis is first refunded into the buffer
     (``Lcac1_update_resources_buffer_when_removing_a_piece``, i.e.
@@ -604,7 +587,7 @@ def deselect_module(
     session's temporary buffer, always passing the session's fixed
     ``entry_snapshot`` category amount (never the live buffer's current
     amount) as the ``pre_construction_category_amount`` baseline -- this is
-    the exact reversal rule Task 3 locked, reused verbatim (see the module
+    the exact reversal rule `construction_economy.py` locks, reused verbatim (see the module
     docstring for why the baseline must never drift across the session).
 
     Never touches ``state.resource_pools`` (the player's actual pool); only
@@ -657,7 +640,7 @@ def exit_construction(
 ) -> GameState:
     """Leave ``player_id``'s construction screen: drop the session and start the exit ascent.
 
-    Spectrum semantics (CR002.12/CR002.13): EXIT MENU
+    Spectrum semantics: EXIT MENU
     (``Lcb8e_construction_screen_exit``) discards the build-in-progress
     (the resource buffer is only copied to the player on START ROBOT) and
     sets ``Lfd30_player_elevate_timer`` to 5, so the ship automatically

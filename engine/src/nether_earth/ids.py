@@ -4,7 +4,7 @@ Conventions:
 
 - Ids are frozen, slotted dataclasses wrapping a single JSON-safe primitive
   (``str``). This keeps them hashable and equality-comparable by value, and
-  trivially serializable for canonical snapshot work (see issue #8) without
+  trivially serializable for canonical snapshots without
   embedding any non-serializable object on the id itself.
 - v1 scope is a 2-player PvP match. ``PlayerId`` is not hardcoded to the
   literal strings "p1"/"p2" scattered around calling code; the canonical
@@ -39,11 +39,7 @@ PLAYER_TWO = PlayerId("p2")
 
 @dataclass(frozen=True, slots=True, order=True)
 class EntityId:
-    """Stable identifier for a future game entity (robot, factory, war base, ...).
-
-    This issue defines only the id type. No entity types exist yet; later
-    milestones compose on top of this identifier.
-    """
+    """Stable identifier for a game entity (robot, factory, war base, ...)."""
 
     value: str
 

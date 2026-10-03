@@ -2,15 +2,15 @@
 
 This module is the single source of truth for tunable gameplay numeric
 constants that would otherwise be scattered as magic-number literals across
-the engine. Issue #37 (`_specs/milestones/03-commander-movement-docking.md`)
-introduces the first five values here: the commander vertical-movement
-envelope. Later milestones are expected to extend :class:`EngineRules`
-(rather than reintroduce ad hoc literals elsewhere) as more gameplay systems
-gain configurable numeric constants.
+the engine. New gameplay constants extend :class:`EngineRules` rather than
+reintroducing ad hoc literals elsewhere. Each module identity gets its own
+named field (rather than one dict-valued field) to keep ``EngineRules``
+trivially hashable/equatable.
 
-Locked defaults (`_specs/open-questions.md` §13, `_specs/technical-spec.md`
-§9, `_specs/functional-spec.md` §8.2) are Spectrum-compatible except the
-descent step:
+Commander vertical envelope (`_specs/milestones/03-commander-movement-docking.md`,
+`_specs/open-questions.md` §13, `_specs/technical-spec.md` §9,
+`_specs/functional-spec.md` §8.2) -- Spectrum-compatible except the descent
+step:
 
 - ``commander_min_altitude = 0``
 - ``commander_max_altitude = 48``
@@ -18,116 +18,66 @@ descent step:
 - ``commander_ascent_step = 2``
 - ``commander_descent_step = 2``
 
-Open-question note (`_specs/open-questions.md` §13): the minimum/maximum
-altitude and the +2/-2 ascent/descent step sizes are RESOLVED and locked.
-The Spectrum's gravity is -1 per game cycle (``Lafc3_gravity``); the owner
-changed it to -2 (CR003.1 #216, owner decision 2026-09-22), a deliberate
-deviation so 48 -> 0 takes 4.8 s like the ascent. Gravity still stops on
-the surface under the ship at an odd altitude
+The minimum/maximum altitude and the +2/-2 ascent/descent step sizes are
+RESOLVED and locked. The Spectrum's gravity is -1 per game cycle
+(``Lafc3_gravity``); the owner changed it to -2 (owner decision 2026-09-22),
+a deliberate deviation so 48 -> 0 takes 4.8 s like the ascent. Gravity still
+stops on the surface under the ship at an odd altitude
 (``commander_movement._gravity_landing_altitude``).
 The *tick cadence* of a vertical "update" (``commander_vertical_update_ticks``)
-is recorded here as its documented canonical default of ``4`` (matching the
-value milestone issue #43 references as locked), but the underlying
-Spectrum-timing research behind that exact cadence is not independently
-verified in `_specs/open-questions.md` §13 -- the spec explicitly flags it as
-not fully closed. It is therefore represented as a named, documented,
-overridable configuration constant (not a bare literal inlined at call
-sites) precisely so that later evidence can correct it in one place without
-an architecture change, rather than being silently treated as ground truth.
+is a documented canonical default of ``4``, but the Spectrum-timing research
+behind it is not independently verified (`_specs/open-questions.md` §13
+flags it as not fully closed), so it is an overridable named constant that
+later evidence can correct in one place.
 
-Issue #39 (`_specs/milestones/03-commander-movement-docking.md`, M3.3) adds
-``commander_height``: none of `_specs/functional-spec.md` §8,
-`_specs/technical-spec.md` §9, or `_specs/open-questions.md` §12-§14 give the
-commander an explicit physical vertical extent in altitude units -- they
-describe the collision *rules* (height-aware, vertical-range overlap) but
-not a concrete height constant. Height-aware collision cannot be implemented
-against a zero-thickness point, so this field supplies a documented,
-overridable default (``4``, deliberately small relative to the 0..48
-altitude envelope and the +2/-2 step sizes) rather than silently hardcoding
-an unverified number inside ``collision.py``. Like
-``commander_vertical_update_ticks``, this is a "documented default, not
-independently verified" constant: later Spectrum sprite-geometry evidence
-may correct it in this one place without an architecture change.
+``commander_height`` (`_specs/milestones/03-commander-movement-docking.md`):
+no spec gives the commander an explicit physical vertical extent, but
+height-aware collision cannot be implemented against a zero-thickness point.
+The documented, overridable default (``4``, small relative to the 0..48
+envelope and the +2/-2 steps) is likewise not independently verified.
 
-Issue #38 adds ``commander_horizontal_move_ticks``: the number of
-simulation ticks a single cell-to-cell horizontal commander move takes to
-resolve. `_specs/technical-spec.md` §7.2 defines the generic
-``GridTransition`` shape (``started_tick``/``duration_ticks``) that a
-cell-to-cell move uses, but -- unlike the vertical envelope above -- no
-spec section independently verifies the exact tick duration for a
-commander's horizontal move specifically. Following the exact same pattern
-as ``commander_vertical_update_ticks``, it is recorded here as a named,
-documented, overridable canonical default (``4``, matching the vertical
-cadence for a round, easy-to-reason-about default) rather than a bare
-literal, so later Spectrum-timing evidence can correct it in one place
-without an architecture change.
+``commander_horizontal_move_ticks``: ticks a single cell-to-cell horizontal
+commander move takes (`_specs/technical-spec.md` §7.2 ``GridTransition``).
+No spec section verifies the exact duration, so it is a documented
+overridable default (``4``, matching the vertical cadence).
 
-Issue #53 (M4.2, `_specs/milestones/04-robots-construction-economy.md`)
-adds the eight ``module_height_*`` fields: the per-physical-vertical-extent
-of each :class:`~nether_earth.robot_build.ModuleIdentity` module, consumed
-by `robot_stack.py` to derive a robot build's total physical height as the
-sum of its stacked components' heights. `_specs/functional-spec.md` §11-13
-and `_specs/technical-spec.md` §12.1 lock the bottom-to-top *order* of the
-stack (chassis, cannon, missile, phaser, nuke, electronics). CR003.3 (#218,
-`_specs/milestones/cr003-playtest-fixes.md`) locks each module's extent to
-the Spectrum's ``Ld7b4_piece_heights`` table: bipod ``11``, tracks ``7``, anti-grav ``8``,
-cannon ``6``, missile ``6``, phaser ``7``, nuclear ``7``, electronics
-``7``. The disassembly's header notes confirm the consequences: the
-shortest robot is tracks + cannon = 13 and the tallest bipod + missile +
+``module_height_*`` (`_specs/milestones/04-robots-construction-economy.md`):
+the physical vertical extent of each
+:class:`~nether_earth.robot_build.ModuleIdentity` module, summed by
+`robot_stack.py` into a build's total height. `_specs/functional-spec.md`
+§11-13 and `_specs/technical-spec.md` §12.1 lock the bottom-to-top *order*
+(chassis, cannon, missile, phaser, nuke, electronics);
+`_specs/milestones/cr003-playtest-fixes.md` locks each extent to the
+Spectrum's ``Ld7b4_piece_heights`` table: bipod ``11``, tracks ``7``,
+anti-grav ``8``, cannon ``6``, missile ``6``, phaser ``7``, nuclear ``7``,
+electronics ``7``. The disassembly's header notes confirm the consequences:
+the shortest robot is tracks + cannon = 13 and the tallest bipod + missile +
 phaser + nuclear + electronics = 38, and weapon damage is
 ``(60 - (robot height + ground height)) // 4`` times the weapon multiplier
 (so a phaser hit on a tracks + cannon robot at ground 0 deals 44). The
 tallest robot on the highest walkable ground (38 + 6 = 44) stays below
 ``commander_max_altitude`` (48), so the ship can always rest on any robot.
-These replace the earlier placeholder magnitudes (chassis 4, others 2).
-Each module identity gets its own named field (rather than one dict-valued
-field) to match this module's existing flat-scalar-field convention and
-keep ``EngineRules`` trivially hashable/equatable.
 
-Issue #34 (M4.3, `_specs/milestones/04-robots-construction-economy.md`,
-`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED") adds
-``starting_general_resources`` and the eight ``module_cost_*`` fields: the
-canonical original-Spectrum construction economy. Unlike the "documented
-placeholder, not independently verified" fields above
-(``commander_vertical_update_ticks``, ``commander_height``), these nine values are RESOLVED and locked exactly by
-`_specs/open-questions.md` §10's disassembly-derived table -- starting
-general resources 20; bipod 3; tracks 5; anti-grav 10; cannon 2; missile 4;
-phaser 4; nuclear 20; electronics 3 -- and are still represented as named,
-documented, overridable ``EngineRules`` fields (rather than bare literals)
-so the one Spectrum-locked source of truth for construction cost lives here
-and nowhere else in the engine, following the exact "one field per module
-identity" convention the ``module_height_*`` fields established in Task 2
-(M4.2) rather than a dict-valued field. The spend/refund algorithm that
-consumes these fields lives in `construction_economy.py` (issue #34); this
-module owns only the numeric configuration, not the spending logic.
+``starting_general_resources`` and ``module_cost_*``
+(`_specs/milestones/04-robots-construction-economy.md`,
+`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED"): the
+locked disassembly-derived construction economy -- starting general
+resources 20; bipod 3; tracks 5; anti-grav 10; cannon 2; missile 4;
+phaser 4; nuclear 20; electronics 3. The spend/refund algorithm lives in
+`construction_economy.py`; this module owns only the numbers.
 
-Issue #54 (M4.4, `_specs/milestones/04-robots-construction-economy.md`,
-`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED") adds
-``factory_production_amount`` and ``war_base_production_amount``: the
-per-game-day production the original Spectrum economy grants each owned
-structure. Locked Spectrum defaults per §10: an owned factory produces
-``2`` units of its own type-specific resource category per in-game day, and
-an owned war base produces ``5`` general resources per in-game day. The
-day-length interval itself is *not* duplicated here -- it is already the
-single authoritative ``clock.TICKS_PER_GAME_DAY`` constant
-(`clock.py`) and production code (`resource_production.py`) imports it
-directly rather than this module redeclaring a second day-length value.
+``factory_production_amount`` / ``war_base_production_amount``
+(`_specs/milestones/04-robots-construction-economy.md`, §10): an owned
+factory produces ``2`` units of its type-specific resource per in-game day
+and an owned war base ``5`` general resources. The day length is not
+duplicated here; it is the single ``clock.TICKS_PER_GAME_DAY`` constant.
 
-Issue #56 (M4.6, `_specs/milestones/04-robots-construction-economy.md`)
-adds ``max_robots_per_player``: the per-player robot launch cap enforced by
-`robot_launch.py`. `_specs/functional-spec.md` locks this at the original
-ZX Spectrum's cap of 24 robots per player at a time -- represented as a
-named, documented, overridable ``EngineRules`` field (rather than a bare
-``24`` literal inlined at the launch call site) following this module's
-established convention for every other rule-legality constant.
+``max_robots_per_player`` (`_specs/milestones/04-robots-construction-economy.md`):
+the original Spectrum's cap of 24 robots per player at a time, enforced by
+`robot_launch.py`.
 
-Issue #60 (M5.1, `_specs/milestones/05-orders-navigation-capture.md`)
-introduced the robot-movement timing fields that `movement.py`'s shared
-movement executor consumes; issue #61 (M5.2) derived the ordinary-terrain
-values from the disassembly.
-
-CR001.4 (issue #151) replaces the earlier base-ticks x terrain-multiplier
-shape with one integer field per enterable (chassis, terrain) pair,
+Robot movement timing (`_specs/milestones/05-orders-navigation-capture.md`):
+one integer field per enterable (chassis, terrain) pair,
 ``robot_move_ticks_<chassis>_<terrain>``, per `_specs/open-questions.md` §4
 ("Exact movement speeds and terrain penalties -- RESOLVED", owner decision
 2026-09-21) and `_specs/technical-spec.md` §13. The values come straight
@@ -147,41 +97,18 @@ have height 0 and the speed row is chosen by altitude (§4). The blocked
 pairs (``-``) are chassis terrain *legality*, owned by `movement.py`'s
 ``CHASSIS_TERRAIN_PERMISSIONS``; they have no field here.
 
-Issue #70 (M6.1, `_specs/milestones/06-combat-damage-victory.md`, "Locked
-combat rules") adds the nine combat metadata fields: ``cannon_range_cells``,
-``missile_range_cells``, ``phaser_range_cells``,
-``electronics_range_bonus_cells``, ``nuclear_radius_cells`` (replaced by
-per-kind blast-shape fields in CR001.2, `_specs/open-questions.md` §20),
-``normal_projectile_altitude``, ``cannon_damage_multiplier``,
-``missile_damage_multiplier``, ``phaser_damage_multiplier``. These are the
-canonical locked Spectrum weapon range/effect defaults from the milestone
-spec's "Canonical default ranges/effects" section, converted from miles to
-cells via the shared ``miles_to_cells`` helper already defined in this
-module. CR001 (#150, `_specs/open-questions.md` §8 resolution) superseded
-the mile-derived weapon ranges (20/28/20 cells, +6 electronics) with the
-Spectrum code values defined directly in cells: cannon 10, missile 14,
-phaser 10, electronics +2. Projectile altitude and damage multipliers are explicitly
-locked Spectrum defaults per the milestone spec. Together these form the
-authoritative rule set for all later combat tasks.
-
-Issue #73 (M6.4, `_specs/milestones/06-combat-damage-victory.md`) adds
-``projectile_advance_ticks``: the cadence (in simulation ticks) at which
-in-flight projectiles advance one cell, consumed by `combat.py`'s
-``is_projectile_advance_tick``/``advance_projectiles``. This value is
-evidence-backed: issue #72's disassembly research
-(`_specs/open-questions.md` §8) found bullets and robots share the same
-per-game-cycle dispatcher, and issue #61 (M5.2) already mapped that shared
-game-cycle boundary onto this project's locked 20 Hz tick rate as "1 cycle
-= 4 ticks" -- reused here unchanged, default ``4``.
-
-(Issue #70's original placeholder field ``projectile_max_range_cells`` --
-an as-yet-unresolved projectile-lifetime rule -- was removed as dead code
-during the M6 final review: the final per-weapon range design
-(`combat.weapon_range_cells()` plus the electronics range bonus) made it
-obsolete before anything ever consumed it. Per-weapon range is what
-actually gates projectile range/termination; see `combat.py`'s
+Combat (`_specs/milestones/06-combat-damage-victory.md`, "Locked combat
+rules"): weapon ranges are the Spectrum code values defined directly in
+cells (`_specs/open-questions.md` §8): cannon 10, missile 14, phaser 10,
+electronics +2. The nuclear blast shape follows `_specs/open-questions.md`
+§20. Projectile altitude and damage multipliers are locked Spectrum
+defaults. ``projectile_advance_ticks`` is evidence-backed
+(`_specs/open-questions.md` §8): bullets and robots share the same
+per-game-cycle dispatcher, and one game cycle is 4 ticks at the locked
+20 Hz tick rate. Per-weapon range (``combat.weapon_range_cells`` plus the
+electronics bonus) is what gates projectile range/termination; see
 :func:`~nether_earth.combat.weapon_range_cells` and
-:func:`~nether_earth.combat.advance_projectiles`.)
+:func:`~nether_earth.combat.advance_projectiles`.
 """
 
 import hashlib
@@ -211,7 +138,7 @@ RULES_VERSION = "cr005"
 #: cells". Spec-facing order distances are stated in miles (``Advance 0-50
 #: miles``) while every engine-facing distance is stated in cells, so the
 #: conversion is needed by more than one subsystem. Weapon ranges are the
-#: exception: since CR001 (§8) they are defined directly in cells from the
+#: exception: they are defined directly in cells (§8) from the
 #: Spectrum code and do not go through this helper. §3 requires it to exist exactly once
 #: in shared game-rule/helper code -- this module -- rather than being
 #: re-spelled as a literal ``* 2`` at each call site. `orders.py`
@@ -268,10 +195,10 @@ class EngineRules:
       ascending (locked Spectrum default ``2``).
     - ``commander_descent_step``: altitude lost per vertical update while
       descending/falling (default ``2``, owner deviation from the
-      Spectrum's ``1``, CR003.1 #216 and `_specs/open-questions.md` §13).
+      Spectrum's ``1``, `_specs/open-questions.md` §13).
     - ``commander_height``: the commander's physical vertical extent, in the
       same altitude units as ``commander_min_altitude``/``commander_max_altitude``,
-      used by height-aware collision (`collision.py`, issue #39) to turn an
+      used by height-aware collision (`collision.py`) to turn an
       ``altitude`` scalar into an occupied vertical range
       ``[altitude, altitude + commander_height)``. Documented default ``4``,
       not independently verified against Spectrum sprite geometry -- see the
@@ -284,8 +211,8 @@ class EngineRules:
     - ``commander_exit_elevate_updates``: number of vertical
       updates for which a commander automatically ascends
       (``commander_ascent_step`` each) after leaving the construction screen
-      by EXIT MENU or START ROBOT (CR002.12/CR002.13) or leaving a robot it
-      was docked on (CR002.24). Spectrum evidence: both
+      by EXIT MENU or START ROBOT or leaving a robot it
+      was docked on. Spectrum evidence: both
       ``Lcb8e_construction_screen_exit`` and the robot HUD's EXIT option
       (``#a7fd``--``#a80f``, falling through to ``La812_exit_robot``) set
       ``Lfd30_player_elevate_timer`` to 5, and
@@ -297,8 +224,8 @@ class EngineRules:
       ``module_height_nuclear`` / ``module_height_electronics``: the
       physical vertical extent (altitude units) of each
       :class:`~nether_earth.robot_build.ModuleIdentity` module, used by
-      `robot_stack.py` (issue #53) to derive a robot build's total physical
-      height. Spectrum ``Ld7b4_piece_heights`` values (CR003.3): bipod
+      `robot_stack.py` to derive a robot build's total physical
+      height. Spectrum ``Ld7b4_piece_heights`` values: bipod
       ``11``, tracks ``7``, anti-grav ``8``, cannon ``6``, missile ``6``,
       phaser ``7``, nuclear ``7``, electronics ``7`` -- see the module
       docstring.
@@ -310,8 +237,8 @@ class EngineRules:
       / ``module_cost_nuclear`` / ``module_cost_electronics``: the construction
       resource cost of each :class:`~nether_earth.robot_build.ModuleIdentity`
       module, spent from the module's resource category first and then from
-      general resources for any shortfall (`construction_economy.py`, issue
-      #34). Locked Spectrum defaults, per `_specs/open-questions.md` §10:
+      general resources for any shortfall (`construction_economy.py`).
+      Locked Spectrum defaults, per `_specs/open-questions.md` §10:
       bipod ``3``, tracks ``5``, anti-grav ``10``, cannon ``2``, missile
       ``4``, phaser ``4``, nuclear ``20``, electronics ``3``.
     - ``factory_production_amount``: type-specific resource units an owned
@@ -324,8 +251,7 @@ class EngineRules:
       launched and alive at once (locked Spectrum default ``24``, per
       `_specs/technical-spec.md` §7 (``GameRules.max_robots_per_player``)
       and `_specs/functional-spec.md` §11 "Construction cannot launch
-      when: player already has 24 robots"). Enforced by `robot_launch.py`
-      (issue #56).
+      when: player already has 24 robots"). Enforced by `robot_launch.py`.
     - ``robot_move_ticks_<chassis>_<terrain>`` (nine fields, one per
       enterable pair): simulation ticks a robot with that chassis takes to
       move one cell into a cell of that terrain class. Locked,
@@ -337,7 +263,7 @@ class EngineRules:
     - ``capture_duration_ticks``: the number of continuous authoritative
       ticks a qualifying enemy robot must occupy a factory's or war base's
       canonical capture interaction location before ownership transfers
-      (`capture.py`, issue #66, M5.7). RESOLVED and locked by
+      (`capture.py`). RESOLVED and locked by
       `_specs/open-questions.md` §6 ("War-base capture mechanics") -- default
       duration 12 in-game hours = 1,440 simulation ticks at the locked 20 Hz
       tick rate = 72 real seconds -- and applies identically to enemy
@@ -350,7 +276,7 @@ class EngineRules:
       acquisition (`_specs/functional-spec.md` §9) is instantaneous for the
       first qualifying robot and does not consume this field at all.
     - ``cannon_range_cells``: the maximum firing range of a cannon-equipped
-      robot, in grid cells (issue #70, M6.1; value from CR001, #150).
+      robot, in grid cells.
       Spectrum code value: 10 cells (`_specs/open-questions.md` §8:
       ``Lb6d6_weapon_fire`` range counter 5 x 2 cells per bullet update).
       Defined directly in cells, not via :func:`miles_to_cells`.
@@ -364,9 +290,8 @@ class EngineRules:
       electronics module when fitted, in grid cells. Spectrum code value:
       2 cells (range counter +1 x 2 cells per update). Exact electronics
       accuracy and resistance mechanics remain research-owned.
-    - Nuclear blast shape (CR001.2, issue #149, `_specs/open-questions.md`
-      §20, from `Lb99f_fire_nuclear_bomb`), replacing the former uniform
-      ``nuclear_radius_cells``:
+    - Nuclear blast shape (`_specs/open-questions.md` §20, from
+      `Lb99f_fire_nuclear_bomb`):
 
       - ``nuclear_robot_window_row_widths``: row widths, top to bottom, of
         the carrier-centred robot window; default ``(5, 7, 9, 9, 9, 9, 9, 7,
@@ -382,24 +307,24 @@ class EngineRules:
         ``dx + dy < sum`` (all exclusive). At most one building is destroyed.
     - ``normal_projectile_altitude``: the fixed altitude at which normal
       (cannon/missile/phaser) projectiles travel, in the same altitude units
-      as the commander vertical envelope (issue #70, M6.1). Locked Spectrum
+      as the commander vertical envelope. Locked Spectrum
       default: ``10``. This altitude is independent of the firing robot's
       height and applies uniformly to all three normal weapon types.
     - ``cannon_damage_multiplier``: the damage multiplier for cannon hits
-      (issue #70, M6.1). Locked Spectrum default: ``2``. Final damage is
+      Locked Spectrum default: ``2``. Final damage is
       computed as ``base_damage * multiplier`` where ``base_damage`` is
       derived from the target robot's height, stack height, and ground height.
     - ``missile_damage_multiplier``: the damage multiplier for missile hits
-      (issue #70, M6.1). Locked Spectrum default: ``3``.
+      Locked Spectrum default: ``3``.
     - ``phaser_damage_multiplier``: the damage multiplier for phaser hits
-      (issue #70, M6.1). Locked Spectrum default: ``4``.
+      Locked Spectrum default: ``4``.
     - ``projectile_advance_ticks``: the number of simulation ticks between
-      projectile-advance cadence updates (issue #73, M6.4, per
+      projectile-advance cadence updates (per
       `_specs/open-questions.md` §8 "Advance cadence"). The disassembly
-      evidence found by issue #72's research shows bullets and robots are
+      evidence shows bullets and robots are
       driven from the same per-game-cycle dispatcher
       (`Lb0ca_update_robots_bullets_and_ai`), with the same outer
-      game-cycle boundary already mapped by issue #61 (M5.2) onto this
+      game-cycle boundary that maps onto this
       project's locked 20 Hz tick rate as "1 cycle = 200 ms = 4 ticks" --
       unlike a robot's per-cycle movement (which is additionally throttled
       by its own chassis/terrain-speed skip counter), a bullet has no such
@@ -407,11 +332,11 @@ class EngineRules:
       "1 cycle = 4 ticks" conversion factor here is therefore an
       evidence-backed default (``4``), not an independent placeholder.
     - ``projectile_cells_per_advance``: how many cells a projectile moves
-      along its firing axis on each advance (CR001, #150, per
+      along its firing axis on each advance (per
       `_specs/open-questions.md` §8 resolution: ``Lb724_bullet_update_internal``
       moves a bullet 2 map cells per update on either axis). Default ``2``.
     - ``robot_fire_cycle_ticks``: the length, in ticks, of the game cycle in
-      which a robot may fire at most one normal weapon (CR002.2 #169, owner
+      which a robot may fire at most one normal weapon (owner
       decision 2026-09-21, `_specs/open-questions.md` §8). Fire cycles are
       the aligned windows ``tick // robot_fire_cycle_ticks``. Default ``4``
       (1 game cycle). On the Spectrum an AI robot fires only inside its
@@ -429,7 +354,7 @@ class EngineRules:
       the Spectrum's range. Must be a positive integer.
     - ``robot_launch_exit_steps``: how many steps south a newly launched
       robot walks out of its war base before settling into Stop & Defend
-      (CR002.3, owner decision 2026-09-21, `_specs/open-questions.md` §21).
+      (owner decision 2026-09-21, `_specs/open-questions.md` §21).
       ``La6c8``, right after ``Lc849_robot_construction_if_possible``, sets
       ``ROBOT_STRUCT_NUMBER_OF_STEPS_TO_KEEP_WALKING`` to 5 ("walk 5 steps
       after exiting the base, and stop"). Default ``5``; ``0`` disables it.
@@ -501,12 +426,12 @@ class EngineRules:
     #: See the class docstring: the detour-coherence window that stands in
     #: for the Spectrum's per-robot "keep walking" counter.
     dumb_wander_commit_ticks: int = 16
-    #: CR004: an AI seat's planner runs only on ticks divisible by this
+    #: An AI seat's planner runs only on ticks divisible by this
     #: interval -- one Spectrum game cycle (4 ticks, `open-questions.md`
     #: "One game cycle"), the cadence the original updates its AI at
     #: (`Lb0ca_update_robots_bullets_and_ai`). Bounds per-tick planner cost.
     ai_decision_interval_ticks: int = 4
-    #: CR004.13 (#299, owner decision 2026-09-27): an electronics robot on
+    #: Owner decision 2026-09-27: an electronics robot on
     #: Search & Destroy (robots) re-plans its cached route to the target at
     #: most once per this many ticks, and follows the cached route in
     #: between. It re-plans early when the route runs out, its next cell is

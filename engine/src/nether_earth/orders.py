@@ -1,4 +1,4 @@
-"""Autonomous robot orders, target selection, and engagement intent (issue #64, M5.5).
+"""Autonomous robot orders, target selection, and engagement intent.
 
 `_specs/functional-spec.md` §16 and `_specs/technical-spec.md` §15 lock the
 order catalog this module owns::
@@ -34,15 +34,14 @@ This is the "why" layer above `navigation.py`'s "which way" and
    that a robot has a valid hostile target, which weapons it could bring to
    bear, and how far away the target is.
 
-Milestone 5 explicitly stops there: no firing, no projectile, no damage, no
-nuclear detonation (`_specs/milestones/05-orders-navigation-capture.md`,
-"Out of scope"). Milestone 6 consumes :class:`EngagementIntent` and owns
+This module stops there: no firing, no projectile, no damage, no nuclear
+detonation (`_specs/milestones/05-orders-navigation-capture.md`, "Out of
+scope"). `autonomous_combat.py` consumes :class:`EngagementIntent` and owns
 every one of those. That is also why :class:`EngagementIntent` carries
-``distance_cells`` rather than a boolean "in range": weapon ranges are an
-M6 concern and are not yet locked, so deciding "close enough to shoot" here
-would be inventing a rule `_specs/open-questions.md` has not resolved.
-``weapons`` is likewise "weapons structurally capable against this target
-kind", not "weapons that will fire".
+``distance_cells`` rather than a boolean "in range": range eligibility is
+re-validated by the combat layer, not decided here. ``weapons`` is likewise
+"weapons structurally capable against this target kind", not "weapons that
+will fire".
 
 Orders are per-robot state; evaluation is stateless
 ----------------------------------------------------
@@ -56,7 +55,7 @@ selects a different target (or falls back to Stop & Defend when none
 remains) on the very next evaluation. That mirrors `navigation.py`'s
 plan-free policies for the same reason; the one cached plan is an
 electronics hunter's route to its selected robot, which is re-planned as
-soon as the selection changes (CR004.13, see below).
+soon as the selection changes (see below).
 
 Two pieces of order state *are* retained on the order itself:
 
@@ -66,7 +65,7 @@ Two pieces of order state *are* retained on the order itself:
   ``ACTIVE`` lifecycle transition) and stored back on the order.
   Recomputing it from the robot's current position every tick would make
   the robot advance forever.
-- :attr:`SearchCapture.structure_id` (CR003.2): the Spectrum's
+- :attr:`SearchCapture.structure_id`: the Spectrum's
   ``ROBOT_STRUCT_ORDERS_ARGUMENT``. It is kept while its live ownership
   still matches the order and re-selected otherwise, and it is what makes
   capture targets exclusive between same-owner robots with the same order
@@ -75,7 +74,7 @@ Two pieces of order state *are* retained on the order itself:
 
 One piece of navigation state is retained on the robot rather than the
 order: an electronics hunter's cached route
-(:attr:`~nether_earth.robot.Robot.hunt_route`, CR004.13). Evaluation returns
+(:attr:`~nether_earth.robot.Robot.hunt_route`). Evaluation returns
 it on :attr:`OrderEvaluation.hunt_route` and :func:`apply_order_evaluations`
 writes it back; any order change clears it.
 
@@ -100,7 +99,7 @@ Every order has the same explicit three-phase lifecycle, reported by
 
 :class:`StopAndDefend` itself never completes; it is the terminal order.
 
-``SearchCapture`` never completes or falls back either (CR003.2, Spectrum
+``SearchCapture`` never completes or falls back either (Spectrum
 ``Lb289``): it stays ``ACTIVE`` for as long as the player leaves it. While
 its target is uncaptured it walks to the target's capture footprint and
 then holds there, with the Stop & Defend intent, so `capture.py` -- not
@@ -125,14 +124,14 @@ rather than silently abandoning its order:
 - a ``SearchDestroy`` order for which the world currently offers **no**
   candidate target at all;
 - a ``SearchDestroy`` against a structure by a robot carrying no nuclear
-  module -- structures require a nuke (issue #64's scope note), so such a
+  module -- structures require a nuke, so such a
   robot can never complete the order however far it walks;
 - a goal :class:`~nether_earth.navigation.ElectronicNavigation` has
   *proved* unreachable (:attr:`~nether_earth.navigation.NavigationStatus.UNREACHABLE`),
   except under ``SearchCapture``, which holds and retries instead, and
   under ``SearchDestroy`` against robots, which never asks: its hunt
-  navigation (:func:`~nether_earth.navigation.next_hunt_step`, CR004.13,
-  owner decision 2026-09-27) steps greedily toward a target it has no route
+  navigation (:func:`~nether_earth.navigation.next_hunt_step`, owner
+  decision 2026-09-27) steps greedily toward a target it has no route
   to and re-plans periodically, because a moving target that plugs a
   corridor for one tick is not an impossible goal.
 
@@ -327,7 +326,7 @@ class Retreat:
 
 @dataclass(frozen=True, slots=True)
 class SearchCapture:
-    """Keep capturing ``target`` structures, one after another (CR003.2).
+    """Keep capturing ``target`` structures, one after another.
 
     The order never completes (Spectrum ``Lb289``: the order byte is never
     rewritten for a player robot). ``structure_id`` is the Spectrum's
@@ -363,7 +362,7 @@ class SearchDestroy:
 
     Against robots, movement closes on the target and
     :class:`EngagementIntent` is produced every tick a valid target is
-    selected and the robot carries a capable weapon; Milestone 6 decides
+    selected and the robot carries a capable weapon; the combat layer decides
     whether the reported ``distance_cells`` is within the chosen weapon's
     range and resolves the firing. Such an order has no completion state: it
     re-selects a new target as targets are destroyed until no candidate
@@ -563,10 +562,9 @@ class EngagementTargetKind(str, Enum):
 #: here automatically instead of being silently omitted.
 _ROBOT_CAPABLE_WEAPONS: tuple[ModuleIdentity, ...] = CANONICAL_WEAPON_ORDER
 
-#: Weapons structurally capable against a factory or war base. Issue #64's
-#: scope note locks this: "Factory/war-base destruction targets requiring a
-#: nuke should only produce valid engagement intent when the robot has
-#: suitable capability". Milestone 6 owns detonation itself.
+#: Weapons structurally capable against a factory or war base: destroying a
+#: structure requires a nuke, so only a nuclear-capable robot produces a
+#: structure engagement intent. Detonation itself lives in `destruction.py`.
 _STRUCTURE_CAPABLE_WEAPONS: tuple[ModuleIdentity, ...] = (ModuleIdentity.NUCLEAR,)
 
 
@@ -574,16 +572,14 @@ _STRUCTURE_CAPABLE_WEAPONS: tuple[ModuleIdentity, ...] = (ModuleIdentity.NUCLEAR
 class EngagementIntent:
     """One robot's deterministic intent to engage one hostile entity.
 
-    The stable Milestone 6 contract this milestone is required to expose
-    (`_specs/milestones/05-orders-navigation-capture.md`: "Combat-capable
-    orders expose a stable engagement-intent contract for Milestone 6").
+    The stable engagement-intent contract combat-capable orders expose
+    (`_specs/milestones/05-orders-navigation-capture.md`).
     It is a *statement*, not an action: producing one fires nothing, spends
     nothing, and mutates nothing.
 
     ``distance_cells`` is Manhattan distance from the robot's authoritative
-    cell to ``target_x``/``target_y`` -- reported rather than thresholded,
-    because weapon ranges are an M6 concern and are not locked yet (see the
-    module docstring). ``weapons`` lists the robot's own fitted weapons that
+    cell to ``target_x``/``target_y`` -- reported rather than thresholded
+    (see the module docstring). ``weapons`` lists the robot's own fitted weapons that
     are structurally capable against ``target_kind``, in
     `robot_build.py`'s canonical order, and is never empty: an intent with
     no capable weapon is not produced at all.
@@ -614,8 +610,7 @@ class RobotEngagementIntentEvent(Event):
     *stale* intent is exactly the failure mode the module docstring's
     stateless target selection exists to prevent -- an intent is only ever
     true of the tick that computed it. Consumers wanting the values without
-    the event stream call :func:`engagement_intent_for` directly, which is
-    what Milestone 6 is expected to do.
+    the event stream call :func:`engagement_intent_for` directly.
     """
 
     intent: EngagementIntent
@@ -795,7 +790,7 @@ def select_capture_target(
     :func:`~nether_earth.capture.capture_footprint` helper so the order can
     never walk a robot to a cell that does not start a capture.
 
-    Returns ``None`` when no candidate exists; the order then idles (CR003.2).
+    Returns ``None`` when no candidate exists; the order then idles.
     """
     structure_kind, _interaction = _capture_structure_kinds(target)
     candidates: list[_StructureCandidate] = []
@@ -824,10 +819,9 @@ def claimed_structures(
     retarget in the same tick see each other's new choice exactly as the
     Spectrum's sequential robot update does.
 
-    Public (CR004.6, #287): the CR004.5 robot-order planner reuses this
-    exclusivity rule so two AI robots do not converge on the same capture
-    target (see the CR004 design doc's "Valued targets" heuristic) rather
-    than forking its own copy.
+    Public: the AI robot-order planner reuses this exclusivity rule so two
+    AI robots do not converge on the same capture target, rather than
+    forking its own copy.
     """
     claimed: list[EntityId] = []
     for other in state.robots:
@@ -861,9 +855,9 @@ def select_destroy_target(
     goal cell is the target robot's own authoritative anchor. That anchor is
     occupied by the target's body, so the caller navigates with
     :func:`~nether_earth.navigation.next_hunt_step`, which closes on the
-    body rather than the cell (CR003.4): electronic robots plan to any
-    anchor touching it (following a cached route between re-plans,
-    CR004.13), and greedy robots stop beside it when `movement.py` refuses
+    body rather than the cell: electronic robots plan to any
+    anchor touching it (following a cached route between re-plans),
+    and greedy robots stop beside it when `movement.py` refuses
     the final overlapping step.
 
     For the structure kinds the candidates are every factory/war base not
@@ -985,8 +979,8 @@ class OrderEvaluation:
     independent of ``request``: a robot may close on a target and intend to
     engage it in the same tick.
 
-    ``hunt_route`` is the cached hunt route the robot should now hold
-    (CR004.13): set by a Search & Destroy (robots) evaluation, ``None`` for
+    ``hunt_route`` is the cached hunt route the robot should now hold:
+    set by a Search & Destroy (robots) evaluation, ``None`` for
     every other order, so a stale cache never outlives its hunt.
     """
 
@@ -1083,10 +1077,10 @@ def _evaluate_hunt(
 ) -> OrderEvaluation:
     """Close on the selected target robot; the order always stays ``ACTIVE``.
 
-    Owner decision (2026-09-27, CR004.13): a hunt never falls back because
+    Owner decision (2026-09-27): a hunt never falls back because
     no route exists right now. :func:`~nether_earth.navigation.next_hunt_step`
     steps toward the target anyway and re-plans periodically, and it
-    touches the target's body rather than its occupied anchor (CR003.4).
+    touches the target's body rather than its occupied anchor.
     Touching the target (``ARRIVED``) never completes a robot hunt.
     """
     hunt = next_hunt_step(robot, target_id, goal[0], goal[1], state, world, rules)
@@ -1140,7 +1134,7 @@ def _linear_goal(
     sign = 1 if isinstance(order, Advance) else -1
     if order.target_x is None:
         raw = robot.x + sign * miles_to_cells(order.distance_miles)
-        # The last on-map anchor column of a 2×2 body is width - 2 (CR002.3).
+        # The last on-map anchor column of a 2×2 body is width - 2.
         target_x = max(0, min(world.width - 2, raw))
         if target_x != robot.x:
             return replace(order, target_x=target_x), target_x
@@ -1212,7 +1206,7 @@ def _evaluate_capture(
     rules: EngineRules,
     claimed: frozenset[EntityId],
 ) -> OrderEvaluation:
-    """Evaluate a ``SearchCapture`` order (Spectrum ``Lb289``, CR003.2).
+    """Evaluate a ``SearchCapture`` order (Spectrum ``Lb289``).
 
     Re-selects the nearest matching target on every evaluation, skipping
     ``claimed``, so a structure that changes hands nearer to the robot than
@@ -1221,8 +1215,7 @@ def _evaluate_capture(
     order -- Spectrum-faithful (``Lb289`` only retargets once the stored
     target's ownership stops matching), but on a 512-cell map it meant a
     robot could walk hundreds of cells past structures that became valid
-    targets behind it. The order itself is still never dropped or completed
-    (CR003.2 is unchanged in that respect).
+    targets behind it. The order itself is still never dropped or completed.
 
     The one case that keeps the stored target regardless is a capture
     already under way: a robot standing on its target's capture footprint
@@ -1307,7 +1300,7 @@ def evaluate_order(
 
     Returns ``None`` when the robot holds no order at all -- there is
     nothing autonomous to decide. (A freshly launched robot holds Stop &
-    Defend and walks out of its war base first, CR002.3; see
+    Defend and walks out of its war base first; see
     :func:`walk_out_request`.) Otherwise returns exactly one
     :class:`OrderEvaluation`; see that class and the module docstring for
     how the caller must apply it.
@@ -1420,7 +1413,7 @@ def evaluate_orders(
 
     Every evaluation reads the same entry ``state``: this is a pure
     read-only pass whose results the caller applies afterwards. The one
-    exception is a ``SearchCapture`` target claim (CR003.2): a robot that
+    exception is a ``SearchCapture`` target claim: a robot that
     selects a new capture target makes it unavailable to later robots in
     canonical order within the same tick, as the Spectrum's sequential
     robot update does (``Lb36c``). Without it two robots with the same
@@ -1457,8 +1450,8 @@ def apply_order_evaluations(
     mutates nothing.
 
     Also writes back each evaluation's
-    :attr:`~OrderEvaluation.hunt_route` where it differs from the robot's
-    (CR004.13). That is navigation state, not an order change, so it emits
+    :attr:`~OrderEvaluation.hunt_route` where it differs from the robot's.
+    That is navigation state, not an order change, so it emits
     no event; a hunter following its cached route leaves ``state`` as it is.
 
     Emits one :class:`RobotOrderChangedEvent` per changed order followed by

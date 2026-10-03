@@ -1,4 +1,4 @@
-"""War-base heli-pad landing detection (issue #41, M3.5).
+"""War-base heli-pad landing detection.
 
 Per `_specs/functional-spec.md` §8 ("[the commander] is used to enter
 construction by landing on the player's war-base heli-pad.") and §10.3
@@ -6,18 +6,17 @@ construction by landing on the player's war-base heli-pad.") and §10.3
 `_specs/technical-spec.md` §9 (commander model) / `_specs/milestones/
 03-commander-movement-docking.md` ("War-base heli-pad interaction" —
 "Detect valid landing on the owning player's heli-pad and emit the
-state/event needed to enter construction"), this module is the M3 half of
-the heli-pad contract: it *detects* a valid landing and *signals*
+state/event needed to enter construction"), this module is the detection
+half of the heli-pad contract: it *detects* a valid landing and *signals*
 construction-entry eligibility. It does not implement anything downstream
 of that signal — no construction menus, no resource spending, no build
-creation. That is M4's scope
-(`_specs/milestones/04-robots-construction-economy.md`), which explicitly
-lists "Milestone 3 heli-pad/commander interaction contract" as its input.
+creation; that is `construction_session.py`'s job
+(`_specs/milestones/04-robots-construction-economy.md`).
 
 Canonical heli-pad metadata, not inferred geometry
 ---------------------------------------------------
 
-M2 (`interactions.py`/`map.py`) already establishes one canonical
+The map model (`interactions.py`/`map.py`) establishes one canonical
 representation for structure interaction locations — including heli-pads —
 so that later systems "can be represented and queried by later engine
 systems independently of physical geometry"
@@ -26,8 +25,8 @@ resolves a war base's heli-pad cells via
 ``WorldMap.interaction_points_for(war_base.id, kind=InteractionKind.HELI_PAD)``
 and never by inspecting ``WarBase.components`` directly — the war base's
 physical footprint and its heli-pad footprint are independent concepts (a
-heli-pad cell need not even coincide with a physical component cell), and
-issue #41 is explicit that inferring one from the other is out of scope.
+heli-pad cell need not even coincide with a physical component cell), so
+one is never inferred from the other.
 
 Ownership, not just "any war base"
 -----------------------------------
@@ -44,15 +43,15 @@ Landing = resting on a heli-pad cell's surface
 
 "Landing" means the commander is ``FREE`` (a ``DOCKED`` commander is
 already attached to a robot, not flying itself onto a pad — checked
-explicitly here even though #37's invariants make ``DOCKED`` +
+explicitly here even though ``commander.py``'s invariants make ``DOCKED`` +
 "independently landing" a contradictory combination, for clarity and so
 this function's precondition list is self-documenting rather than relying
 on an invariant defined in another module), with its whole 2×2 body over
 one of its own war base's ``HELI_PAD`` interaction-point footprints, and at
 an altitude *exactly equal* to the pad's surface height.
 
-The heli-pad is on the war-base roof (`_specs/open-questions.md` §18,
-CR001): the original game places the "H" decoration at (anchor.x,
+The heli-pad is on the war-base roof (`_specs/open-questions.md` §18):
+the original game places the "H" decoration at (anchor.x,
 anchor.y − 4) and enters construction only when the ship is over it at
 altitude exactly 15 (`cp 15`), the roof of the 15-high war-base block. The
 surface height of a pad cell is therefore the height of the static
@@ -63,8 +62,8 @@ cell with no component is at ground level, ``rules.commander_min_altitude``.
 Anything above the surface is still airborne and does not trigger
 construction entry.
 
-2×2 pad (CR002.4 #171)
-----------------------
+2×2 pad
+-------
 
 The commander is a 2×2 body anchored at its ``(x, y)`` (`occupancy.py`,
 `_specs/open-questions.md` §21), and the pad is the 2×2 area of the "H"
@@ -125,16 +124,14 @@ class CommanderConstructionEntryEligible(Event):
     commander landed and the ``war_base_id`` of the war base whose heli-pad
     it landed on, plus the authoritative ``tick`` the landing was detected
     on (so replay/log consumers can correlate this event with the exact
-    simulation step, matching the "replay/snapshot state is sufficient to
-    reproduce the same interaction outcome" acceptance criterion without
-    requiring any change to ``snapshot.py`` — see issue #41's scope notes).
+    simulation step, so replay/snapshot state is sufficient to reproduce
+    the same interaction outcome without any ``snapshot.py`` support).
 
     Everything downstream — opening a construction menu, spending
-    resources, creating a build — is explicitly out of scope here and owned
-    by M4 (`_specs/milestones/04-robots-construction-economy.md`). Nothing
-    in this module or ``engine.py`` currently consumes this event; it exists
-    so a future integration point (and M4) has a concrete, documented
-    signal to react to.
+    resources, creating a build — is out of scope here
+    (`_specs/milestones/04-robots-construction-economy.md`): ``engine.step``
+    reacts to this event by calling
+    :func:`~nether_earth.construction_session.enter_construction`.
     """
 
     player: PlayerId
@@ -151,7 +148,7 @@ def heli_pad_surface_altitude(
     (:func:`~nether_earth.collision.unit_surface_height`; 15 on the original
     war-base roof, `_specs/open-questions.md` §18), and never below
     ``rules.commander_min_altitude`` -- the top of the surface 2×2
-    height-aware collision rests the commander on (CR002.4, CR002.21).
+    height-aware collision rests the commander on.
     """
     return max(unit_surface_height(world, x, y), rules.commander_min_altitude)
 
@@ -192,7 +189,7 @@ def detect_heli_pad_landing(
       (``WarBase.owner == commander.player_id`` — neither ``None``
       (neutral) nor a different player's id qualifies);
     - every cell of the commander's 2×2 body lies in one of that war base's
-      ``HELI_PAD`` interaction-point footprints (CR002.4), resolved via
+      ``HELI_PAD`` interaction-point footprints, resolved via
       ``world.interaction_points_for(war_base.id, kind=InteractionKind.HELI_PAD)``
       — never inferred from ``WarBase.components``;
     - ``commander.altitude`` equals the pad's surface height (see

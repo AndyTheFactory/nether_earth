@@ -1,8 +1,8 @@
-"""Shared robot movement executor and terrain legality (issue #60, M5.1).
+"""Shared robot movement executor and terrain legality.
 
 This module is the single authoritative low-level robot movement path.
-Every robot control source -- direct player control (M5.4) and autonomous
-orders/navigation (M5.5/M5.7) alike -- must go through
+Every robot control source -- direct player control and autonomous
+orders/navigation alike -- must go through
 :func:`validate_robot_move`/:func:`apply_robot_move` rather than deciding
 movement legality itself, per `_specs/milestones/05-orders-navigation-capture.md`
 ("All robot movement uses one engine legality/execution path"). Nothing in
@@ -28,34 +28,35 @@ What this module owns
 
 What this module deliberately reuses rather than re-implements
 ---------------------------------------------------------------
-- **occupancy (M2)**: destination occupancy is queried through
+- **occupancy**: destination occupancy is queried through
   `occupancy.py`'s :class:`~nether_earth.occupancy.OccupancyGrid`, built
   by :func:`folded_robot_occupancy` from ``WorldMap.occupancy()`` plus
-  every live robot -- the same fold `robot_launch.py` already performs
-  (that module now delegates to this one, so the fold exists once);
-- **commander blocking (M3)**: queried through `collision.py`'s
+  every live robot -- `robot_launch.py` delegates to this one, so the fold
+  exists once;
+- **commander blocking**: queried through `collision.py`'s
   :func:`~nether_earth.collision.commander_blocks_cell`, the stable query
-  that module's docstring explicitly reserved for M5 robot movement, using
+  that module reserves for robot movement, using
   `collision.py`'s :func:`~nether_earth.collision.robot_top` (the robot's
-  top on the terrain under it, CR002.25) rather than re-deriving
+  top on the terrain under it) rather than re-deriving
   vertical-range overlap semantics here.
 
 What this module deliberately does NOT own
 -------------------------------------------
-Pathfinding, order logic, and destination reservation/contention are
-separate M5 tasks: reservation/contention is `reservations.py` (M5.3),
-navigation policy and route planning are `navigation.py` (M5.6), and order
-logic is M5.7. None of them is implemented here; instead this module
-exposes the hooks they plug into:
+Pathfinding, order logic, and destination reservation/contention live
+elsewhere: reservation/contention is `reservations.py`, navigation policy
+and route planning are `navigation.py`, and order logic is `orders.py`.
+None of them is implemented here; instead this module exposes the hooks
+they plug into:
 
 - :data:`DestinationAvailabilityCheck` -- a duck-typed callable, defaulting
-  to permissive, consulted as the *last* legality gate. M5.3's reservation
+  to permissive, consulted as the *last* legality gate. The reservation
   manager binds its "is this cell reserved by someone else" query here (via
   ``functools.partial`` or a bound method), exactly as `collision.py`'s
-  queries are bound into `commander_movement.py`'s checks today; a
+  queries are bound into `commander_movement.py`'s checks; a
   rejection surfaces as
   :attr:`MovementRejectionReason.DESTINATION_UNAVAILABLE`.
-- :func:`apply_robot_move` is the single move-start point M5.3 hooks to
+- :func:`apply_robot_move` is the single move-start point the reservation
+  manager hooks to
   take a reservation, and :func:`advance_robot_transition` /
   :func:`cancel_robot_move` are the single completion/cancellation points
   it hooks to release one. A rejected move never starts a transition, so
@@ -68,7 +69,7 @@ travel is the navigation layer issuing successive single-cell moves, not a
 longer transition. Diagonals are rejected structurally (``ValueError`` in
 ``__post_init__``), not as a gameplay rejection.
 
-2×2 bodies (CR002.3 #170, `_specs/open-questions.md` §21): a robot's
+2×2 bodies (`_specs/open-questions.md` §21): a robot's
 ``x``/``y`` is the anchor of its 2×2 body (`occupancy.py`). A move is legal
 only if the whole destination body is on the map, every one of its four
 cells is terrain the chassis may enter, and no structure, other robot,
@@ -307,7 +308,7 @@ def unit_move_terrain(world: WorldMap, x: int, y: int) -> TerrainType:
 
 
 # --------------------------------------------------------------------------
-# Occupancy (M2 contract, shared fold)
+# Occupancy (shared fold)
 # --------------------------------------------------------------------------
 
 
@@ -352,9 +353,9 @@ def folded_robot_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
 
     Robots are folded in canonical ``state.robots`` order (sorted by
     ``entity_id.value``), so the fold never depends on incidental
-    ordering. Each robot occupies its whole 2×2 body (CR002.3). A robot with
+    ordering. Each robot occupies its whole 2×2 body. A robot with
     a move in progress occupies its *authoritative* (origin) body only; its
-    destination is claimed through M5.3's reservation contract, not through
+    destination is claimed through the reservation contract, not through
     this grid.
     """
     key = (id(world), id(state))
@@ -379,12 +380,12 @@ _FOLDED_OCCUPANCY_MEMO_MAX = 8
 
 
 # --------------------------------------------------------------------------
-# Reservation hook (M5.3 plugs in here)
+# Reservation hook
 # --------------------------------------------------------------------------
 
 #: ``(state, robot, dest_x, dest_y) -> available``, where ``(dest_x, dest_y)``
 #: is the destination anchor of the robot's 2×2 body. See the module
-#: docstring: M5.3's destination-reservation manager binds a query of this
+#: docstring: the destination-reservation manager binds a query of this
 #: shape so reservation logic lives in its own module while this module
 #: stays the single legality gate. Returning ``False`` rejects the move
 #: with :attr:`MovementRejectionReason.DESTINATION_UNAVAILABLE`.
@@ -396,9 +397,9 @@ def _permissive_destination_check(
 ) -> bool:
     """Default :data:`DestinationAvailabilityCheck`: always available.
 
-    Used until M5.3 lands, exactly as `commander_movement.py` defaults its
-    own collision checks to permissive stubs until the real queries are
-    bound in.
+    Used when no reservation query is bound, exactly as
+    `commander_movement.py` defaults its own collision checks to permissive
+    stubs.
     """
     return True
 
@@ -414,8 +415,8 @@ class RobotMoveRequest:
 
     Deliberately *not* a :class:`~nether_earth.commands.Command`: a move
     request is the shared internal currency of this executor, issued both
-    by a player command (M5.4) and by an autonomous order (M5.7). The
-    command types that wrap it belong to those tasks' own modules, matching
+    by a player command and by an autonomous order. The
+    command types that wrap it belong to their own modules, matching
     `commander_movement.py`'s separation of gameplay legality from the
     generic command contract.
 
@@ -448,7 +449,7 @@ class MovementRejectionReason(str, Enum):
     because robot movement legality is its own gameplay concern layered on
     top of the generic command contract -- the same rationale
     `commander_movement.py` documents for its own reason enum. Higher-level
-    control (M5.5/M5.7) branches on these codes to decide whether to retry,
+    control branches on these codes to decide whether to retry,
     replan, or abandon an order, so they are part of this module's public
     contract.
     """
@@ -556,8 +557,8 @@ class RobotMoveCancelledEvent(Event):
 
     The robot stays at its authoritative ``(x, y)`` (its origin cell) and
     the transition is cleared. Emitted by :func:`cancel_robot_move`, the
-    single cancellation point M5.3 hooks to release the destination
-    reservation.
+    single cancellation point the reservation manager hooks to release the
+    destination reservation.
     """
 
     entity_id: EntityId
@@ -588,7 +589,7 @@ def commander_blocks_robot_cell(
     """Return whether any commander blocks ``robot``'s 2×2 body from standing at ``(x, y)``.
 
     ``(x, y)`` is the body's anchor; a commander blocks it when their 2×2
-    bodies overlap at overlapping vertical ranges (CR002.3/CR002.4). The
+    bodies overlap at overlapping vertical ranges. The
     Spectrum makes the ship an obstacle exactly when it is lower than the
     robot's top (``Lb513``'s ``e`` mask). A commander docked to ``robot``
     rides on it -- the Spectrum sets the ship's altitude to the robot's top
@@ -602,13 +603,13 @@ def commander_blocks_robot_cell(
     canonical (player-id sorted) order, against the robot's own
     ground-rooted vertical range ``[0, top)``, where ``top`` is
     :func:`~nether_earth.collision.robot_top` at the robot's current anchor
-    (terrain altitude plus stack height, CR002.25; ``Lb513`` subtracts
+    (terrain altitude plus stack height; ``Lb513`` subtracts
     ``ROBOT_STRUCT_HEIGHT`` and ``ROBOT_STRUCT_ALTITUDE``). ``world`` is the
     physical world the move is validated against. No overlap math is
     re-derived here.
 
     Public because it is a *cell* property rather than a move property, so
-    the navigation policy layer (M5.6, `navigation.py`) searches over it
+    the navigation policy layer (`navigation.py`) searches over it
     directly when planning a route through cells it will only later step
     into one at a time -- exactly as `collision.py` exposes
     :func:`~nether_earth.collision.commander_blocks_cell` for this module.
@@ -661,12 +662,12 @@ def validate_robot_move(
     4. the robot's chassis can enter the terrain of all four body cells
        (:attr:`~MovementRejectionReason.TERRAIN_IMPASSABLE`);
     5. no body cell has a ground-solid occupant other than the robot itself
-       -- structure or other robot -- per the M2 occupancy contract
+       -- structure or other robot -- per the occupancy contract
        (:attr:`~MovementRejectionReason.OCCUPIED`);
     6. no commander's body overlaps the destination body at the robot's
-       vertical range, per the M3 collision contract
+       vertical range, per the collision contract
        (:attr:`~MovementRejectionReason.COMMANDER_BLOCKED`);
-    7. ``destination_check`` (M5.3's reservation hook, permissive by
+    7. ``destination_check`` (the reservation hook, permissive by
        default) allows the destination
        (:attr:`~MovementRejectionReason.DESTINATION_UNAVAILABLE`).
 
@@ -828,8 +829,8 @@ def advance_robot_transition(
     Returns ``(robot, None)`` unchanged when there is no transition or it
     has not yet elapsed; otherwise a new :class:`~nether_earth.robot.Robot`
     at the transition's destination with the transition cleared, plus the
-    completion event. This is the one move-completion point (M5.3 releases
-    the destination reservation here).
+    completion event. This is the one move-completion point (the
+    destination reservation is released here).
     """
     transition = robot.movement
     if transition is None or not transition.is_complete(tick):
@@ -911,7 +912,7 @@ def cancel_robot_move(
 
     Returns ``(state, None)`` unchanged when there is no such robot or it
     has no move in flight, so cancelling twice is a safe no-op (no
-    double-release for M5.3's reservation lifecycle to guard against).
+    double-release for the reservation lifecycle to guard against).
     This is the one cancellation point; higher-level control (order
     changes, replanning) must route through it rather than clearing
     ``Robot.movement`` itself.

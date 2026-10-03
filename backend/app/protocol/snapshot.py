@@ -1,6 +1,6 @@
 """Authoritative snapshot envelope mirroring `snapshot.schema.json`.
 
-`state` is the real, fully enumerated `SnapshotState` (issue #98): a thin
+`state` is the real, fully enumerated `SnapshotState`: a thin
 field-shape mirror of `nether_earth.snapshot.to_snapshot`'s own return
 shape, covering every field needed to reconstruct authoritative state on
 reconnect (players/resources/commanders/robots/ownership/capture progress/

@@ -1,9 +1,8 @@
 """Versioned YAML map loading.
 
-M0 (`BootstrapMap`/`load_bootstrap_map`) validates only generic document
-identity/dimension fields and is kept working unchanged — M1 tests depend on
-it. M2 (`WorldMap`/`load_world_map`) is the real versioned world-model
-loader: it composes ``terrain.py``, ``structures.py``, and
+`BootstrapMap`/`load_bootstrap_map` validates only generic document
+identity/dimension fields. `WorldMap`/`load_world_map` is the real
+versioned world-model loader: it composes ``terrain.py``, ``structures.py``, and
 ``interactions.py`` section parsers to build the authoritative battlefield
 representation described by `_specs/technical-spec.md` §§7-8, 10 and
 `_specs/functional-spec.md` §§7, 9.
@@ -57,7 +56,7 @@ def _positive_int(value: Any, field: str) -> int:
 
 
 def load_bootstrap_map(path: str | Path) -> BootstrapMap:
-    """Load only the M0 bootstrap fields from a YAML map document."""
+    """Load only the bootstrap fields from a YAML map document."""
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise MapValidationError("map document must be a mapping")
@@ -109,7 +108,7 @@ class WorldMap:
     """The authoritative battlefield representation loaded from a versioned map YAML.
 
     Composes terrain, structures, and canonical structure interaction
-    metadata behind query helpers so later milestones consume one shared
+    metadata behind query helpers so other systems consume one shared
     world-model contract rather than re-deriving these lookups themselves.
     ``occupancy()`` is computed on demand (never cached as a field) to keep
     this a plain immutable value type — see the module docstring on why
@@ -163,7 +162,7 @@ class WorldMap:
 
 
 def load_world_map(path: str | Path) -> WorldMap:
-    """Load a versioned M2 world map YAML document into a :class:`WorldMap`.
+    """Load a versioned world map YAML document into a :class:`WorldMap`.
 
     Top-level shape::
 

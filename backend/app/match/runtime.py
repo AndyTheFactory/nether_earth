@@ -1,12 +1,12 @@
-"""Fixed-tick asyncio Match runtime and deterministic command queue (M7 Task 4, issue #93).
+"""Fixed-tick asyncio Match runtime and deterministic command queue.
 
 Scope: this module owns the *async* layer that steps the engine at a fixed
 tick rate for one ``ACTIVE`` match at a time and queues player commands for
-the next eligible tick. It does not do WebSocket I/O (Task 5), does not
-drive disconnect/reconnect pause transitions (Task 7 owns writing
-``MatchRuntimeState.PAUSED_DISCONNECTED`` -- this module only *honors* it by
-treating any non-``ACTIVE`` state as a cheap no-op), does not broadcast
-snapshots (Task 6), and does not persist replays (Task 8).
+the next eligible tick. It does not do WebSocket I/O, does not
+drive disconnect/reconnect pause transitions (``app.match.reconnect`` owns
+writing ``MatchRuntimeState.PAUSED_DISCONNECTED`` -- this module only
+*honors* it by treating any non-``ACTIVE`` state as a cheap no-op), does not
+broadcast snapshots, and does not persist replays.
 
 Architecture note (AGENTS.md, non-negotiable): this module never invents
 command ordering or gameplay legality. Every tick's queued commands are
@@ -21,14 +21,14 @@ across ``step`` calls), not a second gameplay-ordering rule.
 Design: ``MatchManager`` (``manager.py``) stays fully synchronous and
 unaware of asyncio -- it owns lifecycle bookkeeping (WAITING/ACTIVE/FINISHED,
 tokens) under a plain ``threading.Lock`` and is still usable/testable with no
-event loop at all, as it is today. This module is a separate, optional layer:
+event loop at all. This module is a separate, optional layer:
 ``MatchRuntimeRegistry`` is wired into ``MatchManager`` via a small
 constructor hook (see ``manager.py``'s ``runtime`` parameter) so that
 lifecycle transitions (``_start_match_locked``/``finish_match``/
 ``dispose_match``) start/cancel a runtime as a side effect, without
 ``MatchManager`` itself ever awaiting anything or importing asyncio. Command
 *submission* is not routed through ``MatchManager`` at all (it has nothing to
-do with session/lifecycle bookkeeping) -- a future transport layer (Task 5)
+do with session/lifecycle bookkeeping) -- the transport layer
 calls ``MatchRuntimeRegistry.submit_command`` directly, keyed by the
 ``match_id`` it already resolved via ``MatchManager.resolve_session``.
 """
@@ -56,35 +56,32 @@ logger = logging.getLogger(__name__)
 #: that tick's resulting `GameState` and `Event` tuple. Generic over only
 #: types this module already imports (`GameState`, `Event`) so this module
 #: never imports `app.transport` -- the transport layer supplies the
-#: concrete callback (M7 Task 6, issue #95; see `manager.py`'s
-#: `on_tick_factory`). Awaited synchronously and serially by the sole tick
+#: concrete callback (see `manager.py`'s `on_tick_factory`). Awaited synchronously and
+#: serially by the sole tick
 #: task (see `_advance_one_tick`), so calls never race or reorder each
 #: other; never invoked for a tick whose `engine.step` raised. This sits on
 #: the tick loop's own critical path -- a slow observer delays every later
 #: tick of this match (see `_advance_one_tick`'s note on that cost).
 TickObserver = Callable[[GameState, tuple[Event, ...]], Awaitable[None]]
 
-#: A second, separate observer (M7 Task 8, issue #97): fires once after
+#: A second, separate observer: fires once after
 #: every successful `engine.step` call, exactly like `TickObserver`, but
 #: also carries the tick number and the exact accepted command batch that
 #: was applied -- the one thing `TickObserver` does not expose (see that
 #: type's own docstring: only the resulting `GameState`/`Event`s). A
-#: second callback rather than widening `TickObserver`'s own tuple was the
-#: deliberate choice here: `TickObserver` is already depended on by Task
-#: 6/7's callers (`app.transport.snapshots.make_tick_broadcaster`,
-#: `MatchManager.on_tick_factory`) with its exact two-argument shape, and
-#: changing it would force every existing call site to change too for a
-#: capability (the command stream) only the replay writer needs. Awaited
+#: second callback rather than widening `TickObserver`'s own tuple:
+#: `TickObserver`'s callers (`app.transport.snapshots.make_tick_broadcaster`,
+#: `MatchManager.on_tick_factory`) depend on its exact two-argument shape,
+#: and only the replay writer needs the command stream. Awaited
 #: synchronously, immediately *before* `TickObserver` (see
-#: `_advance_one_tick`'s Important I1 note on why that order is load-
-#: bearing, not arbitrary), under the same single-owner-task,
-#: no-reordering guarantee.
+#: `_advance_one_tick`'s note on why that order is load-bearing, not
+#: arbitrary), under the same single-owner-task, no-reordering guarantee.
 TickCommandObserver = Callable[
     [int, tuple[Command, ...], GameState, tuple[Event, ...]], Awaitable[None]
 ]
 
 #: Authoritative simulation tick rate (`_specs/technical-spec.md` "Authoritative
-#: simulation: 20 Hz"). Named constant, not a magic literal, per the task brief.
+#: simulation: 20 Hz"). Named constant, not a magic literal.
 TICK_RATE_HZ: float = 20.0
 TICK_INTERVAL_S: float = 1.0 / TICK_RATE_HZ
 
@@ -107,7 +104,7 @@ def _assert_called_from_tasks_loop(task: asyncio.Task[None]) -> None:
     FastAPI sync endpoint running in Starlette's worker threadpool); this
     additionally catches the rarer case of a *different* loop running on the
     calling thread. Both are "you cannot safely touch this task from here"
-    and both must fail loudly, never silently no-op (issue #93 review).
+    and both must fail loudly, never silently no-op.
     """
     running_loop = asyncio.get_running_loop()
     if running_loop is not task.get_loop():
@@ -130,7 +127,7 @@ class MatchRuntime:
     :meth:`_advance_one_tick` (not just the ``engine.step`` call) so that
     guarantee would still hold even if a future caller ever triggered a tick
     from outside the loop task -- the lock's scope must match what it
-    documents to protect, or it is a false guarantee (see issue #93 review).
+    documents to protect, or it is a false guarantee.
     """
 
     def __init__(
@@ -287,8 +284,8 @@ class MatchRuntime:
         **Callers submitting multiple commands for the same player MUST
         serialize those submissions** (`await` each ``submit_command`` call
         to completion before reading/dispatching the next inbound command
-        for that player) rather than firing them concurrently -- a future
-        WebSocket handler (Task 5) should await each inbound frame's
+        for that player) rather than firing them concurrently -- the
+        WebSocket handler awaits each inbound frame's
         ``submit_command`` before reading the connection's next frame, which
         naturally guarantees in-order submission per connection/player. This
         is a transport-layer discipline requirement, not something this
@@ -363,8 +360,7 @@ class MatchRuntime:
                     # `engine.step` is synchronous, so a persistently slow
                     # match's loop would otherwise never yield to the event
                     # loop at all -- starving every other match's tick loop
-                    # (and, once Task 5 lands, every WebSocket task) on the
-                    # same event loop (issue #93 review, Important #1).
+                    # (and every WebSocket task) on the same event loop.
                     consecutive_overruns += 1
                     if consecutive_overruns % _OVERRUN_WARNING_EVERY_N_TICKS == 0:
                         logger.warning(
@@ -385,14 +381,14 @@ class MatchRuntime:
             # silently: nothing in production awaits it (`request_cancel` is
             # fire-and-forget), so asyncio's "Task exception was never
             # retrieved" warning may not fire until GC, `match.state` stays
-            # ACTIVE, and the match freezes forever with zero log output
-            # (issue #93 review, Important #3). Log loudly and re-raise so
+            # ACTIVE, and the match freezes forever with zero log output.
+            # Log loudly and re-raise so
             # the task still ends in an observable failed state for
             # anything that does inspect it (e.g. tests, future
             # monitoring), rather than swallowing the exception outright.
             # Deciding *what* MatchManager/the match layer should do about a
             # crashed runtime (flip match.state, notify clients, ...) is a
-            # lifecycle policy decision left to a later task -- this module
+            # lifecycle policy decision outside this module -- this module
             # only guarantees the failure is loud, not silent.
             logger.exception(
                 "match %s tick loop crashed; ticking has stopped but match.state "
@@ -408,8 +404,7 @@ class MatchRuntime:
         # `_step_lock`, not just the `engine.step` call, so the lock's scope
         # actually matches what its class docstring promises: a future
         # caller triggering a tick from outside the loop task could not
-        # observe or apply a partial/interleaved batch (issue #93 review,
-        # Important #2).
+        # observe or apply a partial/interleaved batch.
         async with self._step_lock:
             commands = await self._drain_queue()
             state = self._match.game_state
@@ -420,13 +415,10 @@ class MatchRuntime:
                 # engine.new_game. Not reachable through the documented
                 # start() call sites.
                 raise RuntimeError("MatchRuntime ticked before match.game_state was initialized")
-            # world=None/robots=() (the current MatchManager call site's
-            # default) means engine.step skips every collision/heli-pad/
-            # launch/robot_moves check this tick -- a pre-existing gap from
-            # M7 Task 2 (manager.py already documents that a real WorldMap
-            # is deferred to whichever task first needs one for
-            # engine.step; this module is that first caller, so it is
-            # tracked here too rather than only in manager.py).
+            # world=None/robots=() means engine.step skips every
+            # collision/heli-pad/launch/robot_moves check this tick; the
+            # production MatchManager supplies a real scenario-overlaid
+            # WorldMap (see manager.py's ``world``).
             new_state, events = engine_module.step(
                 state, commands, world=self._world, robots=self._robots
             )
@@ -443,7 +435,7 @@ class MatchRuntime:
         # no interleaving, even though this call sits outside the lock.
         #
         # `on_tick_commands` fires *before* `on_tick`, deliberately, not
-        # arbitrarily (M7 Task 8 review, Important I1): `request_cancel`
+        # arbitrarily: `request_cancel`
         # (called by `MatchManager.finish_match`) delivers
         # `asyncio.CancelledError` at this task's next suspension point,
         # which -- if `on_tick` (a WebSocket broadcast) ran first -- would
@@ -465,8 +457,8 @@ class MatchRuntime:
         # Cost, not just an ordering guarantee: this `await` is still on the
         # tick loop's own critical path -- a slow/backpressured `on_tick`
         # (e.g. a peer whose `send_text` is stalled) delays every later tick
-        # of *this match*, feeding the same overrun path documented above
-        # (issue #93 review, Important #1). A fix (e.g. a per-connection
+        # of *this match*, feeding the same overrun path documented above.
+        # A fix (e.g. a per-connection
         # queue with drop-oldest, decoupling broadcast speed from tick
         # cadence) is deliberately deferred, not built here -- YAGNI until a
         # real workload shows this coupling matters.
@@ -584,11 +576,9 @@ class MatchRuntimeRegistry:
         Any commands still sitting in the runtime's pending queue at
         disposal time (submitted but not yet applied by a tick) are simply
         discarded along with the rest of the ``MatchRuntime`` object -- no
-        record of them is kept anywhere. Replay persistence (Task 8) logs
+        record of them is kept anywhere. Replay persistence logs
         commands as they are *applied* by ``engine.step``, not as they sit
-        queued, so this is expected and not this task's concern; noted here
-        for Task 8's benefit in case a truly-final tick before disposal is
-        ever desired.
+        queued, so this is expected.
         """
         try:
             self.cancel(match_id)

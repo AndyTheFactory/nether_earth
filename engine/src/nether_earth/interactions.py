@@ -3,7 +3,7 @@
 Per `_specs/milestones/02-map-world-model.md`, the map/world contract must
 expose canonical structure interaction metadata — war-base heli-pad, war-base
 exit, factory capture location, and (if the resolved game rules require one)
-war-base capture location — so later milestones (commander docking,
+war-base capture location — so other systems (commander docking,
 construction, capture, frontend) consume one shared representation instead of
 inventing layer-specific coordinates.
 

@@ -2,16 +2,15 @@
 
 This module implements the "replay fixtures" half of the "Snapshot and
 replay fixtures" workstream (`_specs/milestones/01-deterministic-engine-
-foundation.md`, issue #8). It records everything needed to reproduce a run
+foundation.md`). It records everything needed to reproduce a run
 of the engine end to end -- map, scenario, seed, and a per-tick command
 stream -- and provides a helper that replays that recording through the
 canonical ``engine.new_game``/``engine.step`` contract.
 
 Scope: this module is engine-local and transport-independent. It performs no
 I/O and assumes no file format; "replay fixture" here means the in-memory
-dataclass shape consumed by engine tests, not a persisted replay log (that is
-explicitly out of scope -- see issue #8's non-goals, which defer filesystem
-replay logging and the browser-facing protocol snapshot schema to M7).
+dataclass shape consumed by engine tests, not a persisted replay log
+(filesystem replay logging lives in the backend).
 
 Fixture shape convention: ``commands_by_tick`` is a ``Mapping[int, tuple[
 Command, ...]]`` rather than a flat sorted sequence of ``(tick, Command)``
@@ -59,9 +58,8 @@ class ReplayFixture:
       ``scenario.map_id``/``map_version`` (``new_game`` itself enforces
       this).
     - ``seed``: the match seed recorded on the resulting tick-0
-      ``GameState`` (see ``engine.py``'s module docstring for the current
-      scope of what consumes it -- no gameplay system draws randomness in
-      M1).
+      ``GameState`` (see ``engine.py``'s module docstring for how it is
+      consumed).
     - ``commands_by_tick``: the commands to submit to ``engine.step`` for
       each tick, keyed by the 1-based tick number being advanced *to* (i.e.
       the commands passed to the ``step`` call that produces that tick). A
@@ -69,31 +67,27 @@ class ReplayFixture:
     - ``tick_count``: exactly how many ``engine.step`` calls :func:`run_fixture`
       performs. Explicit rather than inferred from
       ``max(commands_by_tick)`` (see module docstring).
-    - ``commanders``/``initial_robots`` (added by issue #67, M5.8): the
+    - ``commanders``/``initial_robots``: the
       authoritative entities placed on the tick-0 state, so a fixture can
       describe a match that already has commanders and launched robots
       rather than only the empty bootstrap state ``engine.new_game``
       produces on its own. ``commanders`` is forwarded to
       ``engine.new_game``; ``initial_robots`` is applied to the resulting
       state via ``GameState.with_robots`` (which canonicalizes/validates
-      them exactly as ``new_game`` would). Without these, no M5 behavior --
+      them exactly as ``new_game`` would). Without these, no robot behavior --
       movement, reservations/contention, orders, capture -- could be
       expressed as a replay fixture at all, since every one of them needs a
       robot on the map before tick 1.
 
       Note the deliberate distinction from ``robots`` below:
       ``initial_robots`` are real :class:`~nether_earth.robot.Robot`
-      entities living on ``GameState``, whereas ``robots`` is the M3-era
-      :class:`~nether_earth.collision.RobotFixture` stand-in used only for
+      entities living on ``GameState``, whereas ``robots`` are extra
+      :class:`~nether_earth.collision.RobotFixture` surfaces used only for
       commander collision/auto-dock checks.
-    - ``world``/``robots`` (added by issue #42, M3.6): passed straight
-      through to every ``engine.step`` call this fixture drives, matching
-      the optional, backward-compatible parameters #42 added to
-      ``engine.step`` itself. ``world`` defaults to ``None`` (no collision
-      checks applied to any commander, matching every pre-#42 fixture's
-      behavior unchanged) and ``robots`` defaults to ``()``. This is
-      required groundwork for issue #43's full commander scenario replay
-      against a real map/collision setup.
+    - ``world``/``robots``: passed straight through to every
+      ``engine.step`` call this fixture drives, matching ``engine.step``'s
+      own optional parameters. ``world`` defaults to ``None`` (no collision
+      checks applied to any commander) and ``robots`` defaults to ``()``.
     """
 
     scenario: Scenario
@@ -141,7 +135,7 @@ def run_fixture(fixture: ReplayFixture) -> tuple[GameState, tuple[Event, ...]]:
     Same ``fixture`` (by value) always produces an identical
     ``(final_state, events)`` pair -- this is the "replaying the same
     fixture repeatedly yields the same snapshot and event sequence"
-    acceptance criterion from issue #8.
+    guarantee.
     """
     state = engine.new_game(
         fixture.map_data,
@@ -173,8 +167,8 @@ def run_from_state(
     The single replay loop shared by :func:`run_fixture` (hand-composed
     fixtures) and by callers that already hold an authoritative tick-0
     state, e.g. one built by ``scenario.create_initial_state(scenario,
-    world)`` for a persisted real-match artifact (M7 replay verification,
-    M9.6). ``state.tick`` need not be 0; ticks are numbered from
+    world)`` for a persisted real-match artifact (replay verification).
+    ``state.tick`` need not be 0; ticks are numbered from
     ``state.tick + 1`` so ``commands_by_tick`` keys stay absolute.
     """
     all_events: list[Event] = []

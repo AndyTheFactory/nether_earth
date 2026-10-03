@@ -33,16 +33,16 @@ class ServerCreated(ProtocolModel):
     """Mirrors server_messages.schema.json `$defs.created`.
 
     Sent to the creating player only, in response to a client create
-    command. `join_code` is `None` for a solo match (CR004.8, issue #289):
+    command. `join_code` is `None` for a solo match:
     there is no second human slot to join, and it is always emitted
     (`serialize_server_message` special-cases this field so its `None`
     still serializes as JSON `null` rather than being dropped -- the schema
     requires the key). `opponent` names which seat the server actually
     created and is `None` on every PvP path (`app.transport.ws` only ever
     sets it to `"computer"` for a solo match); `None` here *is* dropped on
-    serialization, same as any other unset optional field, so an existing
-    PvP `created` reply carries no new key on the wire and stays
-    byte-compatible with clients that predate CR004.8. A missing `opponent`
+    serialization, same as any other unset optional field, so a PvP
+    `created` reply carries no `opponent` key on the wire and stays
+    byte-compatible with clients that do not know it. A missing `opponent`
     means "human" to any reader, same as the wire's own `createMatch`
     convention.
     """

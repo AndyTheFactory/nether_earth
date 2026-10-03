@@ -1,16 +1,12 @@
-"""Minimal war-base-ownership victory evaluation (issue #66, M5.7).
+"""Minimal war-base-ownership victory evaluation.
 
 `_specs/technical-spec.md` §6 locks the v1 victory condition:
 
     victory = opponent owns zero war bases
 
 and §10 requires it be "evaluated in the same authoritative simulation
-step" as any war-base ownership change. No victory-condition system exists
-yet anywhere in this engine (checked: no other module references
-"victory"), and this milestone's scope is explicitly narrow --
-"implement the minimal hook this milestone needs (do not build out a full
-victory-condition system beyond war-base-capture-triggers-check)" -- so
-this module is deliberately small: one pure evaluation function and one
+step" as any war-base ownership change. This module is deliberately
+small: one pure evaluation function and one
 event. It does not persist a "match is over" flag on ``GameState``, does
 not stop the simulation, and does not decide finalization/session
 lifecycle -- per `_specs/technical-spec.md` §4.1, orchestration (ending a
@@ -28,8 +24,8 @@ zero) so it does not silently assume ``len(state.players) == 2`` -- it
 simply returns ``None`` (no victory yet) for any player count where that
 exact-one-nonzero-owner condition does not hold, which is always true for
 today's exactly-2-player matches until one side is fully captured out.
-This is not "building out a fuller victory system" -- it is the same
-single locked condition, stated so it does not hard-code a player count
+It is the same single locked condition, stated so it does not hard-code a
+player count
 that `_specs/open-questions.md` never actually restricts this check to.
 """
 

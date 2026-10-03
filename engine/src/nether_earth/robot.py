@@ -1,19 +1,11 @@
-"""Authoritative robot entity type (issue #56, M4.6).
+"""Authoritative robot entity type.
 
-Milestones M5 (movement/orders/capture) and M6 (combat) both need a
-concrete, `GameState`-attached robot entity to build on, but neither owns
-defining its shape -- M4's own task breakdown assigns that to this task,
-the convergence point of Tasks 1-5 (`_specs/milestones/
-04-robots-construction-economy.md`, M4.6). :class:`Robot` is therefore
-deliberately minimal: it carries exactly the identity a freshly launched
-robot has and nothing movement/combat-specific (no health, no orders, no
-facing) that would guess at M5/M6's own eventual field additions before
-those milestones have actually decided them -- the same "define only what
-this task's own scope needs, leave the rest to the task that owns it"
-discipline `construction_session.py`'s module docstring follows for
-``Command`` subclassing.
+:class:`Robot` is the concrete, ``GameState``-attached robot entity
+(`_specs/milestones/04-robots-construction-economy.md`). It defines the
+entity's shape only; the rules that change each field live in their own
+modules.
 
-Fields:
+Identity fields:
 
 - ``entity_id``: the robot's stable identifier, reusing
   :class:`~nether_earth.ids.EntityId` (not a second id type -- see
@@ -26,21 +18,21 @@ Fields:
   coordinates, matching every other grid-positioned entity in this
   codebase -- ``Commander``, ``Component``, ``Footprint`` cells).
 - ``build``: the concrete, already-validated
-  :class:`~nether_earth.robot_build.RobotBuild` (Task 1) this robot was
+  :class:`~nether_earth.robot_build.RobotBuild` this robot was
   constructed from.
 - ``stack``: the physical bottom-to-top component stack derived from
-  ``build`` via :func:`~nether_earth.robot_stack.derive_stack` (Task 2),
+  ``build`` via :func:`~nether_earth.robot_stack.derive_stack`,
   carried directly on the entity rather than recomputed by every later
   consumer (rendering, collision, combat) that needs it.
 - ``height``: the total physical height derived from ``build`` via
-  :func:`~nether_earth.robot_stack.derive_height` (Task 2), same
+  :func:`~nether_earth.robot_stack.derive_height`, same
   "computed once at launch, carried on the entity" rationale as ``stack``.
 
 ``stack``/``height`` are not re-derived lazily on every access because
 :class:`Robot` (like every other ``GameState``-attached type in this
 codebase) is a frozen, slotted, structurally-equatable value: ``build``
-never changes after launch within this milestone's scope (no
-upgrade/refit mechanic exists), so ``stack``/``height`` can never drift
+never changes after launch (no upgrade/refit mechanic exists), so
+``stack``/``height`` can never drift
 out of sync with it, and callers that only have a ``Robot`` in hand (not
 also the ``EngineRules`` that produced its stack) can still read its
 physical identity directly. `robot_launch.py` is the only place these
@@ -52,7 +44,7 @@ second place in the engine that could compute them differently.
 and `state.py`'s concern, not this module's -- this module defines only
 the entity shape.
 
-Movement state (added by issue #60, M5.1): :class:`RobotMoveTransition`
+Movement state: :class:`RobotMoveTransition`
 and the ``Robot.movement`` field are the authoritative representation of
 "this robot has an accepted cell-to-cell move in flight". They live here,
 next to the entity they belong to, exactly as
@@ -65,12 +57,12 @@ also avoids a `robot.py` <-> `movement.py` import cycle, since
 this one carries its own ``entity_id``, matching
 `_specs/technical-spec.md` §8's recommended robot ``GridTransition``
 shape: robot moves contend for a shared destination-reservation table
-(M5.3), whose batching/release logic works with transitions detached from
+(`reservations.py`), whose batching/release logic works with transitions detached from
 the robots that own them. ``Robot.with_movement`` enforces that the
 carried ``entity_id`` matches the robot it is attached to, so the
 redundancy can never drift.
 
-Order state (added by issue #64, M5.5): the ``Robot.order`` field carries
+Order state: the ``Robot.order`` field carries
 the robot's current autonomous order (`orders.py`'s :class:`Order` union:
 ``StopAndDefend``/``Advance``/``Retreat``/``SearchCapture``/
 ``SearchDestroy``), or ``None`` for a robot under no autonomous order at
@@ -88,7 +80,7 @@ imported under ``TYPE_CHECKING`` only, because `orders.py` itself imports
 would be circular -- the same pattern `state.py` already uses for
 ``Robot``/``ConstructionSession``/``CaptureProgress``.
 
-Strength state (added by issue #76, M6.6): the ``Robot.strength`` field is
+Strength state: the ``Robot.strength`` field is
 the robot's authoritative damage counter, defaulting to ``100`` -- the
 evidence-backed starting value confirmed by `_specs/open-questions.md` §9's
 disassembly research (both robot spawn sites in the original set
@@ -108,7 +100,7 @@ non-positive ``strength`` is therefore only ever a same-step, pre-removal
 intermediate value (never observed by any other reader), ``__post_init__``
 does not enforce ``strength > 0``.
 
-Combat channel state (added by issue #71, M6.2): the
+Combat channel state: the
 ``Robot.active_projectile_id`` field is the authoritative per-robot gate
 for "this robot already has a normal (cannon/missile/phaser) projectile
 in flight" -- the milestone spec locks each robot to a single active
@@ -120,11 +112,9 @@ state, and keeping it here means ``state.robots``' single canonical
 ordering already orders combat evaluation too, with no second parallel
 ``GameState`` collection to keep in sync. Nuclear fire never touches this
 field -- the nuke has no channel to occupy, since a robot can only ever
-fire it once (`_specs/milestones/06-combat-damage-victory.md`). This
-task (M6.2) only defines and validates against the field; setting it to a
-real :class:`~nether_earth.ids.EntityId` when a normal projectile is
-created, and clearing it back to ``None`` when that projectile
-terminates, are later M6 tasks' jobs (projectile simulation).
+fire it once (`_specs/milestones/06-combat-damage-victory.md`).
+`combat.py` sets it when a normal projectile is created and clears it back
+to ``None`` when that projectile terminates.
 """
 
 from __future__ import annotations
@@ -359,7 +349,7 @@ HUNT_ROUTE_STEP_LETTERS: dict[str, tuple[int, int]] = {
 
 @dataclass(frozen=True, slots=True)
 class RobotHuntRoute:
-    """A Search & Destroy (robots) hunter's cached route (CR004.13, #299).
+    """A Search & Destroy (robots) hunter's cached route.
 
     Owner decision (2026-09-27): an electronics robot hunting robots plans a
     route to its target, follows it for up to
@@ -454,7 +444,7 @@ class Robot:
     active_projectile_id: EntityId | None = None
     strength: int = 100
     last_fire_tick: int | None = None
-    #: Steps left in the launch walk-out (CR002.3, `_specs/open-questions.md`
+    #: Steps left in the launch walk-out (`_specs/open-questions.md`
     #: "Remaining research" item 5 resolved): a new robot walks south out of
     #: its war base's doorway before settling into Stop & Defend. See
     #: `robot_launch.py` and `orders.py`.
@@ -469,8 +459,8 @@ class Robot:
     #: it neither moves nor fires until the turn resolves (owner request,
     #: 2026-09-23). See :class:`RobotTurnTransition`.
     turning: RobotTurnTransition | None = None
-    #: The cached route of a Search & Destroy (robots) hunt, or ``None``
-    #: (CR004.13, #299). See :class:`RobotHuntRoute`. Cleared whenever the
+    #: The cached route of a Search & Destroy (robots) hunt, or ``None``.
+    #: See :class:`RobotHuntRoute`. Cleared whenever the
     #: order changes (:meth:`with_order`) and when a commander docks.
     hunt_route: RobotHuntRoute | None = None
 
@@ -558,13 +548,9 @@ class Robot:
         move the robot, resolving it does (see :meth:`with_position`).
 
         Every other field -- ``active_projectile_id``, ``strength``
-        included -- is carried over unchanged (fixed alongside issue #76,
-        M6.6: this method previously omitted ``active_projectile_id`` from
-        the copy, silently resetting a robot's combat channel to ``None``
-        on every move-transition update; that was a latent bug this task's
-        own "extend every ``with_*`` copy method" work surfaced and fixed
-        in the same pass, since a dropped ``strength`` here would have
-        undone :meth:`with_strength`'s damage tracking the same way).
+        included -- is carried over unchanged; dropping one would silently
+        reset a robot's combat channel or damage on every move-transition
+        update.
         """
         return Robot(
             entity_id=self.entity_id,
@@ -623,11 +609,9 @@ class Robot:
         Passing ``None`` clears the order (e.g. when an order completes and
         no follow-on is assigned). The robot's authoritative ``x``/``y``,
         ``build``, ``movement``, ``active_projectile_id``, and ``strength``
-        are carried over unchanged; see :meth:`with_movement`'s docstring
-        for the same "previously dropped active_projectile_id" latent-bug
-        fix applied here.
+        are carried over unchanged.
 
-        The one field it does not carry over is ``hunt_route`` (CR004.13):
+        The one field it does not carry over is ``hunt_route``:
         a cached hunt route belongs to the order that planned it, so any new
         order -- a player's, a completion, or a fallback -- clears it.
         """
@@ -651,7 +635,7 @@ class Robot:
         )
 
     def with_hunt_route(self, hunt_route: RobotHuntRoute | None) -> Robot:
-        """Return a copy of this robot with its cached hunt route replaced (CR004.13)."""
+        """Return a copy of this robot with its cached hunt route replaced."""
         return Robot(
             entity_id=self.entity_id,
             owner=self.owner,
@@ -701,7 +685,7 @@ class Robot:
     def with_strength(self, strength: int) -> Robot:
         """Return a copy of this robot with ``strength`` replaced.
 
-        Added by issue #76 (M6.6): the authoritative per-hit update point
+        The authoritative per-hit update point
         for `combat.py`'s :func:`~nether_earth.combat.apply_damage`. Every
         other field -- authoritative ``x``/``y``, ``build``, ``movement``,
         ``order``, ``active_projectile_id`` -- is carried over unchanged,

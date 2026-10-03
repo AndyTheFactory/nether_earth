@@ -1,4 +1,4 @@
-"""Deterministic factory/war-base daily resource production (issue #54, M4.4).
+"""Deterministic factory/war-base daily resource production.
 
 `_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED" locks
 the original Spectrum production rule: on each authoritative game-day
@@ -7,10 +7,7 @@ boundary, every player-owned factory produces
 type-specific resource category, and every player-owned war base produces
 ``rules.war_base_production_amount`` (locked default ``5``) general
 resources. This module implements that rule as a standalone, pure,
-callable building block, following `heli_pad.py`'s exact "reference
-detection/production function, not yet threaded into the authoritative
-tick loop" pattern (issue #41's precedent) -- wiring this into
-``engine.step`` is Task 7's (M4.7's) integration scope, not this module's.
+callable building block; ``engine.step`` wires it in (Step 9).
 
 Boundary detection, integer-only
 ---------------------------------
@@ -38,8 +35,8 @@ ownership representation in this codebase (`heli_pad.py` establishes the
 same "reuse the existing ownership field, do not add a second
 representation" precedent). A structure with ``owner is None`` (neutral)
 or an ``owner`` that is not the player being checked produces nothing for
-that player. Capture/ownership-change logic itself is M5's scope, not this
-module's -- ownership is read-only input here.
+that player. Capture/ownership-change logic itself is `capture.py`'s
+concern -- ownership is read-only input here.
 
 Aggregation and determinism
 ------------------------------

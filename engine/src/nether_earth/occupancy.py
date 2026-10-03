@@ -7,7 +7,7 @@ capture) must use rather than re-deriving occupancy from raw structure/robot
 lists.
 
 This module builds and maintains a cell -> entity index and enforces the
-one-solid-per-cell invariant deterministically (issue #23):
+one-solid-per-cell invariant deterministically:
 
 - ``from_structures`` walks war bases/factories/blockers in ``id.value``
   order so a conflict (if any) and the resulting grid never depend on
@@ -23,8 +23,8 @@ one-solid-per-cell invariant deterministically (issue #23):
   byte-for-byte reproducible across independently-built, canonically-equal
   grids, not just set-equal.
 
-2×2 unit bodies (CR002.3 #170, CR002.4 #171)
---------------------------------------------
+2×2 unit bodies
+---------------
 Robots, the commander and projectiles are 2×2 bodies, as in the Spectrum
 (`_specs/open-questions.md` §21). A unit's ``(x, y)`` is its **anchor**: the
 body covers ``(x, y)``, ``(x + 1, y)``, ``(x, y - 1)`` and ``(x + 1, y - 1)``

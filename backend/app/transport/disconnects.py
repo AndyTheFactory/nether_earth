@@ -1,4 +1,4 @@
-"""``app.match.reconnect.DisconnectEvent`` -> protocol-message mapping and broadcast (M7 Task 7, issue #96).
+"""``app.match.reconnect.DisconnectEvent`` -> protocol-message mapping and broadcast.
 
 Scope: a thin field-mapping layer, exactly mirroring
 ``app.transport.snapshots``'s relationship to ``app.match.runtime``'s
