@@ -113,30 +113,20 @@ from app.protocol.server_messages import (
 from app.protocol.snapshot import SnapshotMessage
 from app.transport.commands import CommandPayloadError, payload_to_command
 from app.transport.connections import ConnectionRegistry, broadcast
-from app.transport.limits import MAX_FAILED_JOINS, MAX_MESSAGE_BYTES, TokenBucket
+from app.transport.limits import (
+    INTERNAL_ERROR_CLOSE_CODE,
+    MAX_FAILED_JOINS,
+    MAX_MESSAGE_BYTES,
+    NORMAL_CLOSE_CODE,
+    POLICY_VIOLATION_CLOSE_CODE,
+    REPLACED_CLOSE_CODE,
+    TOO_BIG_CLOSE_CODE,
+    TokenBucket,
+)
 from app.transport.snapshots import build_snapshot_message, empty_snapshot_message
 from app.transport.victory import finished_message
 
 logger = logging.getLogger(__name__)
-
-#: Close code sent for every authentication/session-identity violation
-#: (missing, invalid, or wrong-match/wrong-player session token, or a second
-#: create/join attempt on an already-bound connection). 1008 = "Policy
-#: Violation" per RFC 6455 -- the closest standard code for "you are not who
-#: you claimed to be for this connection".
-_POLICY_VIOLATION_CLOSE_CODE = 1008
-
-#: Close code sent after a client-initiated, well-formed `leave` message.
-_NORMAL_CLOSE_CODE = 1000
-
-#: RFC 6455 "Message Too Big" / "Internal Error" close codes.
-_TOO_BIG_CLOSE_CODE = 1009
-_INTERNAL_ERROR_CLOSE_CODE = 1011
-#: Close code sent to a socket superseded by a newer connection for the same
-#: session (RFC 6455 reserves 4000-4999 for applications). The holder of a
-#: token gets exactly one live socket, so a leaked token cannot be used in
-#: parallel with its owner unnoticed.
-_REPLACED_CLOSE_CODE = 4000
 
 #: Seconds an accepted socket may stay without a bound session (no
 #: successful create/join/ready/leave/command/reconnect) before it is
@@ -185,7 +175,7 @@ def create_websocket_router(
                 "websocket handshake refused: origin not allowed",
                 extra={"event": "ws_origin_refused", "origin": origin},
             )
-            await websocket.close(code=_POLICY_VIOLATION_CLOSE_CODE)
+            await websocket.close(code=POLICY_VIOLATION_CLOSE_CODE)
             return
         await websocket.accept()
         bind_deadline = asyncio.get_running_loop().time() + UNBOUND_SOCKET_TIMEOUT_S
@@ -231,7 +221,7 @@ def create_websocket_router(
             match_id: str | None,
             code: str,
             detail: str = "session rejected; closing connection",
-            close_code: int = _POLICY_VIOLATION_CLOSE_CODE,
+            close_code: int = POLICY_VIOLATION_CLOSE_CODE,
         ) -> None:
             await _send_error(ws, match_id, code, detail)
             await _close(ws, close_code)
@@ -241,7 +231,7 @@ def create_websocket_router(
             replaced = connection_registry.register(match_id, player_id, websocket)
             match_manager.mark_lobby_occupied(match_id)
             if replaced is not None:
-                await _close(replaced, _REPLACED_CLOSE_CODE)
+                await _close(replaced, REPLACED_CLOSE_CODE)
 
         try:
             while True:
@@ -279,7 +269,7 @@ def create_websocket_router(
                         current_match_id,
                         "message_too_large",
                         f"messages are limited to {MAX_MESSAGE_BYTES} bytes; closing",
-                        _TOO_BIG_CLOSE_CODE,
+                        TOO_BIG_CLOSE_CODE,
                     )
                     return
 
@@ -473,7 +463,7 @@ def create_websocket_router(
 
                 if isinstance(message, ClientLeaveMatch):
                     await teardown_connection()
-                    await _close(websocket, _NORMAL_CLOSE_CODE)
+                    await _close(websocket, NORMAL_CLOSE_CODE)
                     return
 
                 if isinstance(message, ClientGameplayCommand):
@@ -601,7 +591,7 @@ def create_websocket_router(
                 "websocket handler failed",
                 extra={"event": "ws_handler_failed", "match_id": bound.match_id if bound else None},
             )
-            await _close(websocket, _INTERNAL_ERROR_CLOSE_CODE)
+            await _close(websocket, INTERNAL_ERROR_CLOSE_CODE)
         finally:
             await teardown_connection()
 
