@@ -1,6 +1,6 @@
 """Canonical robot module catalog and build identity model.
 
-This module (`_specs/milestones/04-robots-construction-economy.md`)
+This module (`docs/mechanics/construction.md`)
 defines the single authoritative identity model for robot modules and
 concrete robot builds. Every other system (stack/height derivation,
 construction economy costs, resource production, construction session

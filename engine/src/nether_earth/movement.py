@@ -4,8 +4,8 @@ This module is the single authoritative low-level robot movement path.
 Every robot control source -- direct player control and autonomous
 orders/navigation alike -- must go through
 :func:`validate_robot_move`/:func:`apply_robot_move` rather than deciding
-movement legality itself, per `_specs/milestones/05-orders-navigation-capture.md`
-("All robot movement uses one engine legality/execution path"). Nothing in
+movement legality itself, per `docs/mechanics/movement.md`
+(all robot movement uses one engine legality/execution path). Nothing in
 here knows *why* a robot wants to move; deciding that is the order/policy
 layer's job.
 
@@ -151,8 +151,7 @@ __all__ = [
 # --------------------------------------------------------------------------
 
 #: The locked per-chassis terrain permissions
-#: (`_specs/milestones/05-orders-navigation-capture.md` "Terrain
-#: capability", `_specs/open-questions.md` §4): bipod traverses ordinary
+#: (`docs/mechanics/movement.md`, `_specs/resolved-questions.md`): bipod traverses ordinary
 #: and rough terrain; tracks also mountain; neither enters a ditch/ravine;
 #: anti-grav traverses every terrain type. (The Spectrum blocks map element
 #: types >= 8 for bipod, >= 12 for tracks, >= 15 for anti-grav, per

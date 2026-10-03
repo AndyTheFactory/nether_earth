@@ -123,8 +123,8 @@ def default_pvp_overlay(world_map: "WorldMap") -> ScenarioOverlay:
     """Return the locked v1 standard-PvP :class:`ScenarioOverlay` for ``world_map``.
 
     Encodes `_specs/open-questions.md` §2 (RESOLVED) /
-    `_specs/milestones/02-map-world-model.md`'s "Locked v1 PvP scenario
-    overlay": Player 1 (``ids.PLAYER_ONE``) owns the extreme-left war base,
+    `docs/mechanics/world-and-map.md`
+    (scenario overlay): Player 1 (``ids.PLAYER_ONE``) owns the extreme-left war base,
     Player 2 (``ids.PLAYER_TWO``) owns the extreme-right war base, and every
     other war base is left out of ``ownership`` entirely — since a war
     base's ``owner`` already defaults to ``None`` (neutral), simply not

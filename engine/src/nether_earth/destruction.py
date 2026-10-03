@@ -6,9 +6,8 @@ Destroying a robot is not just "remove it from ``state.robots``" -- it also
 has to leave no stale reference anywhere else in ``GameState``: an
 in-progress capture attempt naming the robot, and a commander currently
 ``DOCKED`` to it, both need explicit, correct cleanup in the same
-authoritative step. `_specs/milestones/06-combat-damage-victory.md`'s
-"Destruction service" is explicitly meant to be the *one* place this
-cleanup logic lives, because it must be reachable identically from more
+authoritative step. The destruction service (`docs/mechanics/combat.md`) is meant to be the
+*one* place this cleanup logic lives, because it must be reachable identically from more
 than one caller: `combat.py`'s per-hit :func:`~nether_earth.combat.apply_damage`
 and the nuclear-detonation area-destruction effect
 (:func:`execute_nuclear_detonation`). Centralizing it here means those two callers can

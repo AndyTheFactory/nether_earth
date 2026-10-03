@@ -1,8 +1,7 @@
 """Compositional static structure data model and YAML parsing.
 
-Per `_specs/open-questions.md` §15 (RESOLVED) and
-`_specs/milestones/02-map-world-model.md` ("Locked structure-composition
-model"), static geometry is not modeled as one generic rectangular
+Per `_specs/resolved-questions.md` and
+`docs/mechanics/world-and-map.md` (structure-composition model), static geometry is not modeled as one generic rectangular
 "building footprint". War bases and factories are distinct semantic world
 entities, each composed from an explicit list of physical
 :class:`Component` cells. Height is per-component, not one scalar for the

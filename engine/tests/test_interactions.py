@@ -1,7 +1,6 @@
 """Standalone unit tests for `nether_earth.interactions`, independent of `map.py`.
 
-Spec references: `_specs/milestones/02-map-world-model.md`
-("Structure interaction metadata"); `_specs/functional-spec.md` §8.6/§9.3/§9.4
+Spec references: `docs/mechanics/world-and-map.md`; `_specs/functional-spec.md` §8.6/§9.3/§9.4
 (heli-pads/exits belong to war bases, capture applies to factories and
 optionally war bases); `_specs/open-questions.md` §6 (war-base capture is not
 required to be declared, so this module must not force one).

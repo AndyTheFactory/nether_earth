@@ -1,6 +1,6 @@
 """M9.2 -- canonical v1 PvP scenario dataset: drift guard (issue #114).
 
-The M9 acceptance path (`_specs/milestones/09-pvp-vertical-slice.md`) uses one
+The M9 acceptance path (`_specs/functional-spec.md` §4) uses one
 locked scenario: ``scenario.default_pvp_scenario()`` (id ``pvp-v1``) on map
 ``zx-spectrum-original`` v1 with ``map_overlay.default_pvp_overlay`` applied.
 Every value below is fixed by `_specs/functional-spec.md` §4/§10.1,

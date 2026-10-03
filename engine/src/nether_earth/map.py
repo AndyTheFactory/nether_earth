@@ -7,7 +7,7 @@ versioned world-model loader: it composes ``terrain.py``, ``structures.py``, and
 representation described by `_specs/technical-spec.md` §§7-8, 10 and
 `_specs/functional-spec.md` §§7, 9.
 
-Determinism note: `_specs/milestones/02-map-world-model.md` requires that
+Determinism note: `docs/mechanics/world-and-map.md` requires that
 loading the same map twice produces canonical-equivalent world state.
 ``WorldMap`` therefore stores only tuples/immutable mappings (never a
 plain ``list``/``set`` whose contents could depend on insertion history) so

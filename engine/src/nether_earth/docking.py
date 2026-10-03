@@ -35,7 +35,7 @@ landing?" per `_specs/open-questions.md` §14.
 This module, like ``collision.py``, uses
 :class:`~nether_earth.collision.RobotFixture` as its view of "a robot's
 position/height/owner" (see
-`_specs/milestones/03-commander-movement-docking.md`); it does not need a
+`docs/mechanics/commander.md`); it does not need a
 richer robot model.
 
 Purity/determinism

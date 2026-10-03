@@ -3,15 +3,13 @@
 Per `_specs/functional-spec.md` §8 ("[the commander] is used to enter
 construction by landing on the player's war-base heli-pad.") and §10.3
 ("Construction is entered from the player's war-base heli-pad."), and
-`_specs/technical-spec.md` §9 (commander model) / `_specs/milestones/
-03-commander-movement-docking.md` ("War-base heli-pad interaction" —
-"Detect valid landing on the owning player's heli-pad and emit the
-state/event needed to enter construction"), this module is the detection
+`_specs/technical-spec.md` §9 (commander model) / `docs/mechanics/commander.md` (detect a valid landing on the owning
+player's heli-pad and emit the state/event needed to enter construction), this module is the detection
 half of the heli-pad contract: it *detects* a valid landing and *signals*
 construction-entry eligibility. It does not implement anything downstream
 of that signal — no construction menus, no resource spending, no build
 creation; that is `construction_session.py`'s job
-(`_specs/milestones/04-robots-construction-economy.md`).
+(`docs/mechanics/construction.md`).
 
 Canonical heli-pad metadata, not inferred geometry
 ---------------------------------------------------
@@ -20,7 +18,7 @@ The map model (`interactions.py`/`map.py`) establishes one canonical
 representation for structure interaction locations — including heli-pads —
 so that later systems "can be represented and queried by later engine
 systems independently of physical geometry"
-(`_specs/milestones/02-map-world-model.md`). This module therefore always
+(`docs/mechanics/world-and-map.md`). This module therefore always
 resolves a war base's heli-pad cells via
 ``WorldMap.interaction_points_for(war_base.id, kind=InteractionKind.HELI_PAD)``
 and never by inspecting ``WarBase.components`` directly — the war base's
@@ -129,7 +127,7 @@ class CommanderConstructionEntryEligible(Event):
 
     Everything downstream — opening a construction menu, spending
     resources, creating a build — is out of scope here
-    (`_specs/milestones/04-robots-construction-economy.md`): ``engine.step``
+    (`docs/mechanics/construction.md`): ``engine.step``
     reacts to this event by calling
     :func:`~nether_earth.construction_session.enter_construction`.
     """

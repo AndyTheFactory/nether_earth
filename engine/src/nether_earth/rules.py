@@ -7,8 +7,8 @@ reintroducing ad hoc literals elsewhere. Each module identity gets its own
 named field (rather than one dict-valued field) to keep ``EngineRules``
 trivially hashable/equatable.
 
-Commander vertical envelope (`_specs/milestones/03-commander-movement-docking.md`,
-`_specs/open-questions.md` §13, `_specs/technical-spec.md` §9,
+Commander vertical envelope (`docs/mechanics/commander.md`,
+`_specs/resolved-questions.md`, `_specs/technical-spec.md` §9,
 `_specs/functional-spec.md` §8.2) -- Spectrum-compatible except the descent
 step:
 
@@ -30,7 +30,7 @@ behind it is not independently verified (`_specs/open-questions.md` §13
 flags it as not fully closed), so it is an overridable named constant that
 later evidence can correct in one place.
 
-``commander_height`` (`_specs/milestones/03-commander-movement-docking.md`):
+``commander_height`` (`docs/mechanics/commander.md`):
 no spec gives the commander an explicit physical vertical extent, but
 height-aware collision cannot be implemented against a zero-thickness point.
 The documented, overridable default (``4``, small relative to the 0..48
@@ -41,13 +41,13 @@ commander move takes (`_specs/technical-spec.md` §7.2 ``GridTransition``).
 No spec section verifies the exact duration, so it is a documented
 overridable default (``4``, matching the vertical cadence).
 
-``module_height_*`` (`_specs/milestones/04-robots-construction-economy.md`):
+``module_height_*`` (`docs/mechanics/construction.md`):
 the physical vertical extent of each
 :class:`~nether_earth.robot_build.ModuleIdentity` module, summed by
 `robot_stack.py` into a build's total height. `_specs/functional-spec.md`
 §11-13 and `_specs/technical-spec.md` §12.1 lock the bottom-to-top *order*
 (chassis, cannon, missile, phaser, nuke, electronics);
-`_specs/milestones/cr003-playtest-fixes.md` locks each extent to the
+`_specs/resolved-questions.md` locks each extent to the
 Spectrum's ``Ld7b4_piece_heights`` table: bipod ``11``, tracks ``7``,
 anti-grav ``8``, cannon ``6``, missile ``6``, phaser ``7``, nuclear ``7``,
 electronics ``7``. The disassembly's header notes confirm the consequences:
@@ -59,24 +59,24 @@ tallest robot on the highest walkable ground (38 + 6 = 44) stays below
 ``commander_max_altitude`` (48), so the ship can always rest on any robot.
 
 ``starting_general_resources`` and ``module_cost_*``
-(`_specs/milestones/04-robots-construction-economy.md`,
-`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED"): the
+(`docs/mechanics/economy.md`,
+`_specs/resolved-questions.md`): the
 locked disassembly-derived construction economy -- starting general
 resources 20; bipod 3; tracks 5; anti-grav 10; cannon 2; missile 4;
 phaser 4; nuclear 20; electronics 3. The spend/refund algorithm lives in
 `construction_economy.py`; this module owns only the numbers.
 
 ``factory_production_amount`` / ``war_base_production_amount``
-(`_specs/milestones/04-robots-construction-economy.md`, §10): an owned
+(`docs/mechanics/economy.md`): an owned
 factory produces ``2`` units of its type-specific resource per in-game day
 and an owned war base ``5`` general resources. The day length is not
 duplicated here; it is the single ``clock.TICKS_PER_GAME_DAY`` constant.
 
-``max_robots_per_player`` (`_specs/milestones/04-robots-construction-economy.md`):
+``max_robots_per_player`` (`docs/mechanics/construction.md`):
 the original Spectrum's cap of 24 robots per player at a time, enforced by
 `robot_launch.py`.
 
-Robot movement timing (`_specs/milestones/05-orders-navigation-capture.md`):
+Robot movement timing (`docs/mechanics/movement.md`):
 one integer field per enterable (chassis, terrain) pair,
 ``robot_move_ticks_<chassis>_<terrain>``, per `_specs/open-questions.md` §4
 ("Exact movement speeds and terrain penalties -- RESOLVED", owner decision
@@ -97,8 +97,7 @@ have height 0 and the speed row is chosen by altitude (§4). The blocked
 pairs (``-``) are chassis terrain *legality*, owned by `movement.py`'s
 ``CHASSIS_TERRAIN_PERMISSIONS``; they have no field here.
 
-Combat (`_specs/milestones/06-combat-damage-victory.md`, "Locked combat
-rules"): weapon ranges are the Spectrum code values defined directly in
+Combat (`docs/mechanics/combat.md`): weapon ranges are the Spectrum code values defined directly in
 cells (`_specs/open-questions.md` §8): cannon 10, missile 14, phaser 10,
 electronics +2. The nuclear blast shape follows `_specs/open-questions.md`
 §20. Projectile altitude and damage multipliers are locked Spectrum
@@ -263,8 +262,8 @@ class EngineRules:
     - ``capture_duration_ticks``: the number of continuous authoritative
       ticks a qualifying enemy robot must occupy a factory's or war base's
       canonical capture interaction location before ownership transfers
-      (`capture.py`). RESOLVED and locked by
-      `_specs/open-questions.md` §6 ("War-base capture mechanics") -- default
+      (`capture.py`). RESOLVED and locked
+      (`_specs/resolved-questions.md`, war-base capture mechanics) -- default
       duration 12 in-game hours = 1,440 simulation ticks at the locked 20 Hz
       tick rate = 72 real seconds -- and applies identically to enemy
       factory capture per that same section ("War-base capture uses the
@@ -272,9 +271,10 @@ class EngineRules:
       Represented as a named, documented, overridable ``EngineRules`` field
       (rather than a bare ``1440`` literal inlined at any capture call
       site) so scenario data can override it, per §6's explicit "capture
-      duration is configurable game-rule/scenario data."  Neutral factory
-      acquisition (`_specs/functional-spec.md` §9) is instantaneous for the
-      first qualifying robot and does not consume this field at all.
+      duration is configurable game-rule/scenario data."  Neutral structures
+      take the full duration too, counting down like an enemy-owned one
+      (`_specs/deviations-from-original.md`, "Neutral structures take the
+      full capture time").
     - ``cannon_range_cells``: the maximum firing range of a cannon-equipped
       robot, in grid cells.
       Spectrum code value: 10 cells (`_specs/open-questions.md` §8:

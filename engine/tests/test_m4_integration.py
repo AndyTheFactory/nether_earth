@@ -1,8 +1,8 @@
 """Milestone 4 integration scenario (issue #58, M4.8).
 
 This is the final M4 ("Robots, Construction & Economy") integration gate
-described in `_specs/milestones/04-robots-construction-economy.md` under
-"Milestone integration scenario" and issue #58's acceptance criteria. It
+described in `docs/mechanics/construction.md` and issue #58's acceptance
+criteria. It
 composes the already-merged M4 primitives -- ``robot_build.py`` (#52),
 ``robot_stack.py`` (#53), ``construction_economy.py`` (#34),
 ``resource_pool.py``/``resource_production.py`` (#54), ``construction_session.py``

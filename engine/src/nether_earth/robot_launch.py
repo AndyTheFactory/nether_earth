@@ -2,8 +2,7 @@
 
 Per `_specs/functional-spec.md` §11 ("Construction cannot launch when:
 player already has 24 robots; war-base exit is blocked; build is invalid;
-resources are insufficient.") and `_specs/milestones/
-04-robots-construction-economy.md`, this module takes a player's active
+resources are insufficient.") and `docs/mechanics/construction.md`, this module takes a player's active
 :class:`~nether_earth.construction_session.ConstructionSession`,
 validates it against the 24-robot cap (`rules.py`'s
 ``max_robots_per_player``) and the canonical war-base ``EXIT``

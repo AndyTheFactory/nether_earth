@@ -130,9 +130,7 @@ def _package_relative_default_replay_dir() -> Path:
     """Return ``<repo>/replays`` anchored to this module's own file location, not the process CWD.
 
     ``replays/`` is the repo's own locked top-level directory for this
-    purpose (see `_specs/milestones/00-repository-agentic-foundation.md`'s
-    repository-skeleton workstream, and `replays/.gitkeep`, which already
-    exists at the repo root).
+    purpose (see `replays/.gitkeep`, which already exists at the repo root).
 
     Deliberately *not* CWD-relative: this
     repo's own ``README.md`` documents launching the backend for local dev

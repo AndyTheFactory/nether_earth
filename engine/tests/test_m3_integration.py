@@ -1,8 +1,8 @@
 """Milestone 3 integration scenario (issue #43, M3.7).
 
 This is the final M3 ("Commander Movement, Collision & Docking") integration
-gate described in `_specs/milestones/03-commander-movement-docking.md` under
-"Milestone integration scenario" and issue #43's acceptance criteria. It
+gate described in `docs/mechanics/commander.md` and issue #43's acceptance
+criteria. It
 composes the already-merged M3 primitives -- ``commander.py`` (#37),
 ``commander_movement.py`` (#38), ``collision.py`` (#39), ``docking.py``
 (#40), ``heli_pad.py`` (#41), and ``engine.py``'s ``step`` wiring (#42) --

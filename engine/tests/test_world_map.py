@@ -1,8 +1,8 @@
 """Tests for the M2 versioned world-map loader and its constituent modules.
 
 Spec references: `_specs/technical-spec.md` §§7-8, 10;
-`_specs/functional-spec.md` §§7, 9; `_specs/milestones/02-map-world-model.md`;
-`_specs/open-questions.md` §15 (resolved compositional structure model).
+`_specs/functional-spec.md` §§7, 9; `docs/mechanics/world-and-map.md`;
+`_specs/resolved-questions.md` (compositional structure model).
 """
 
 from pathlib import Path

@@ -10,8 +10,7 @@ control), commander untargetability, structural immunity of factories/war
 bases to normal weapons, nuclear detonation (blast-shape boundary, deterministic
 carrier -> robots -> structures ordering, structure cleanup), and nuclear
 destruction of a player's last war base triggering same-step victory --
-per `_specs/milestones/06-combat-damage-victory.md`'s own "Milestone
-integration scenario" requirement.
+per the integration-scenario requirement in `docs/mechanics/combat.md`.
 
 Everything here runs through the real ``engine.new_game``/``engine.step``
 pipeline (via ``replay.run_fixture`` and a local recording variant of the

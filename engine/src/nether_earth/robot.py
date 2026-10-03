@@ -1,7 +1,7 @@
 """Authoritative robot entity type.
 
 :class:`Robot` is the concrete, ``GameState``-attached robot entity
-(`_specs/milestones/04-robots-construction-economy.md`). It defines the
+(`docs/mechanics/construction.md`). It defines the
 entity's shape only; the rules that change each field live in their own
 modules.
 
@@ -112,7 +112,7 @@ state, and keeping it here means ``state.robots``' single canonical
 ordering already orders combat evaluation too, with no second parallel
 ``GameState`` collection to keep in sync. Nuclear fire never touches this
 field -- the nuke has no channel to occupy, since a robot can only ever
-fire it once (`_specs/milestones/06-combat-damage-victory.md`).
+fire it once (`docs/mechanics/combat.md`).
 `combat.py` sets it when a normal projectile is created and clears it back
 to ``None`` when that projectile terminates.
 """
@@ -142,22 +142,18 @@ __all__ = [
 class RobotFacing(str, Enum):
     """The cardinal direction a robot's body faces (owner request, 2026-09-23).
 
-    Presentation state, deliberately not a gameplay input. The Spectrum
-    keeps a one-hot ``ROBOT_STRUCT_DIRECTION`` per robot and
+    The Spectrum keeps a one-hot ``ROBOT_STRUCT_DIRECTION`` per robot and
     ``Lcefd_draw_robot_piece_to_buffer`` indexes
     ``Ld6c8_piece_direction_graphic_indices`` at ``4 * piece + direction``
     to pick that piece's sprite, so a facing is exactly what the frontend
     needs to draw the other three sprites the disassembly already encodes
-    (`_specs/open-questions.md`, "Known gap, not resolved here: robot
-    facing" -- which asked for an owner decision before extending the
-    protocol, now given).
+    (`_specs/resolved-questions.md`).
 
-    Facing does **not** feed any rule. The one place the original uses it
-    for gameplay -- the autonomous fire-decision scan, which reaches 10
-    cells in the facing direction instead of 8 -- is still an open research
-    item (`_specs/open-questions.md` §8, "Still open"), so wiring facing
-    into combat here would be inventing an unresolved rule. The engine
-    carries facing, serializes it, and nothing reads it back.
+    Facing feeds the rules: a robot turns 90 degrees at a time
+    (``RobotTurnTransition``), orders request rotations before steps, and
+    autonomous and direct fire leave along the facing, so a shot hits only
+    what its path meets (`docs/mechanics/movement.md`,
+    `docs/mechanics/orders-and-capture.md`, `docs/mechanics/combat.md`).
 
     Axis conventions match the rest of the engine and the Spectrum's own
     step directions (``Lb4d5``: "down" is ``inc b``, i.e. ``y + 1``):

@@ -35,8 +35,7 @@ This is the "why" layer above `navigation.py`'s "which way" and
    bear, and how far away the target is.
 
 This module stops there: no firing, no projectile, no damage, no nuclear
-detonation (`_specs/milestones/05-orders-navigation-capture.md`, "Out of
-scope"). `autonomous_combat.py` consumes :class:`EngagementIntent` and owns
+detonation (see `docs/mechanics/orders-and-capture.md`). `autonomous_combat.py` consumes :class:`EngagementIntent` and owns
 every one of those. That is also why :class:`EngagementIntent` carries
 ``distance_cells`` rather than a boolean "in range": range eligibility is
 re-validated by the combat layer, not decided here. ``weapons`` is likewise
@@ -66,11 +65,12 @@ Two pieces of order state *are* retained on the order itself:
   Recomputing it from the robot's current position every tick would make
   the robot advance forever.
 - :attr:`SearchCapture.structure_id`: the Spectrum's
-  ``ROBOT_STRUCT_ORDERS_ARGUMENT``. It is kept while its live ownership
-  still matches the order and re-selected otherwise, and it is what makes
-  capture targets exclusive between same-owner robots with the same order
-  (``Lb36c``). It is re-validated every evaluation, so it can never
-  outlive the ownership that made it a target.
+  ``ROBOT_STRUCT_ORDERS_ARGUMENT``. The target is re-selected on every
+  evaluation (the nearest matching structure not claimed by another
+  same-owner robot with the same order, ``Lb36c``), except that a robot
+  standing on its stored target's capture cell keeps it. It is
+  re-validated every evaluation, so it can never outlive the ownership
+  that made it a target.
 
 One piece of navigation state is retained on the robot rather than the
 order: an electronics hunter's cached route
@@ -331,12 +331,14 @@ class SearchCapture:
     The order never completes (Spectrum ``Lb289``: the order byte is never
     rewritten for a player robot). ``structure_id`` is the Spectrum's
     ``ROBOT_STRUCT_ORDERS_ARGUMENT``: the structure the robot last selected,
-    ``None`` until the first evaluation selects one. Each evaluation keeps
-    it while its live ownership still matches ``target``; otherwise it
-    selects the nearest matching structure no other same-owner robot with
-    the same order already holds (``Lb36c``). When nothing matches, the
-    stored id is left as it was (the Spectrum does not clear the argument)
-    and the robot idles with the defensive intent until something matches.
+    ``None`` until the first evaluation selects one. Each evaluation
+    re-selects the nearest matching structure no other same-owner robot with
+    the same order already holds (``Lb36c``), except that a robot standing
+    on its stored target's capture cell keeps that target. When nothing
+    matches, the stored id is left as it was (the Spectrum does not clear
+    the argument); the robot keeps walking to it while it is still a valid
+    target and otherwise idles with the defensive intent until something
+    matches.
 
     `capture.py` owns capture progress, duration, interruption, and
     ownership transfer, and triggers purely on a qualifying robot's
@@ -573,7 +575,7 @@ class EngagementIntent:
     """One robot's deterministic intent to engage one hostile entity.
 
     The stable engagement-intent contract combat-capable orders expose
-    (`_specs/milestones/05-orders-navigation-capture.md`).
+    (`docs/mechanics/orders-and-capture.md`).
     It is a *statement*, not an action: producing one fires nothing, spends
     nothing, and mutates nothing.
 

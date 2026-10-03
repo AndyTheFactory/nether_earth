@@ -36,7 +36,7 @@ explicit parameter rather than tracking it itself, because *remembering*
 that value across a sequence of selections is the session buffer's
 responsibility.
 
-Resource-pool type (`_specs/milestones/04-robots-construction-economy.md`):
+Resource-pool type (`docs/mechanics/economy.md`):
 :class:`ResourcePool` is a minimal, immutable value type (one ``general``
 int plus one int per :class:`~nether_earth.structures.FactoryType`
 category). The authoritative ``GameState``-attached per-player pool

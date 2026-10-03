@@ -75,7 +75,7 @@ The robot fixture
 -----------------
 :class:`RobotFixture` is a minimal (id, owner, x, y, height, altitude)
 projection of "a robot's top surface for collision purposes" (see
-`_specs/milestones/03-commander-movement-docking.md`), scoped to collision
+`docs/mechanics/commander.md`), scoped to collision
 math only. It is deliberately *not* placed in a shared module: the real
 robot model should not import or extend this type.
 

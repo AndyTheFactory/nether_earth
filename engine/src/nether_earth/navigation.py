@@ -23,7 +23,7 @@ around an obstacle that sits across its approach axis, even when a trivially
 short detour exists. That is the locked gameplay difference electronics buys
 a player; it is not a deficiency to be repaired, and it must not be replaced
 with generic optimal pathfinding "for simplicity"
-(`_specs/milestones/05-orders-navigation-capture.md`). Exact historical quirks of the
+(`docs/mechanics/navigation.md`). Exact historical quirks of the
 original algorithm remain open
 research detail -- the *qualitative* behavior locked above is what this
 module implements, behind an interface that lets a future refinement swap
@@ -88,10 +88,10 @@ store back, so this module still holds no state of its own.
 
 Determinism
 ------------
-No randomness is drawn here. `_specs/milestones/05-orders-navigation-capture.md`
-permits "seeded RNG or stable ordering"; navigation uses stable ordering
-throughout, which is strictly stronger (it needs no RNG stream, so it cannot
-perturb `reservations.py`'s contention stream). Concretely: candidate
+The only randomness is the perpendicular order of a robot without
+electronics, drawn from a stream keyed by match seed, tick window and robot id
+(`docs/mechanics/navigation.md`); navigation draws nothing from
+`reservations.py`'s contention stream. Everything else uses stable ordering. Concretely: candidate
 neighbours are always visited in the fixed canonical
 :data:`CARDINAL_DIRECTIONS` order; the route planner breaks equal-cost ties
 by insertion order in that canonical order; and no outcome depends on dict

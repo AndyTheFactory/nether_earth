@@ -7,8 +7,8 @@ owned by ``p2``) each with a 2×2 ``HELI_PAD`` interaction point (CR002.4,
 ``(4, 1)`` (cells x 4..5, y 0..1) and ``warbase-p2-helipad`` anchored at
 ``(4, 3)`` (cells x 4..5, y 2..3), each over a 3-high war-base component
 (the fixture's "roof"). A commander lands when its 2×2 body lies exactly
-over the pad, i.e. its anchor is the pad's anchor. See `_specs/milestones/03-commander-movement-docking.md`
-("War-base heli-pad interaction") for the acceptance criteria this file
+over the pad, i.e. its anchor is the pad's anchor. See `docs/mechanics/commander.md`
+for the acceptance criteria this file
 covers: friendly, enemy, neutral, misaligned (wrong X/Y), insufficient
 contact (wrong altitude), and docked-mode cases.
 """

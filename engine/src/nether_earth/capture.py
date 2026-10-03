@@ -1,8 +1,7 @@
 """Factory and war-base capture subsystem.
 
-Per `_specs/milestones/05-orders-navigation-capture.md` and
-`_specs/open-questions.md` §§6-7
-(RESOLVED), this module implements:
+Per `docs/mechanics/orders-and-capture.md` and
+`_specs/resolved-questions.md`, this module implements:
 
 - **capture of every capturable structure**: continuous qualifying
   occupation of the structure's canonical capture interaction location for

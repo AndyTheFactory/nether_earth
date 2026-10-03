@@ -241,7 +241,8 @@ Findings NE-01…NE-15 above; there are no Critical/High items.
 | Trim `/api/ready` public output; unify join error codes | NE-11 | Small | Low | done (PR #307) for `/ready` counts; join-code unification: open question |
 | Replace `assert` in `ws.py` | NE-12 | Small | Low | done (PR #307) |
 | Unbound-socket handshake timeout | NE-13 | Small | Low | done (PR #307) |
-| Split `ws.py` into per-message handlers; prune history-narrating comments | NE-14, NE-15 | Medium | Medium (large diff; rely on existing WS tests) | separate plan |
+| Split `ws.py` into per-message handlers | NE-14 | Medium | Medium (large diff; rely on existing WS tests) | done (PR #326) |
+| Prune history-narrating comments | NE-15 | Medium | Low | done (PR #325) |
 | Restrict `--forwarded-allow-ips` | §8 | Small | Low | done (PR #307) |
 
 ## Appendix A — Systemic patterns

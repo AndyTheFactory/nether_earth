@@ -1,6 +1,6 @@
 // World→screen 2.5D projection (M8.2, CR002.7). Defined once; every layer uses it.
 //
-// Spectrum orientation (_specs/milestones/cr002/main-screen.png): the ground
+// Spectrum orientation (docs/reference-screens/cr002/main-screen.png): the ground
 // grid is a top-down square grid rotated so the map's long +x axis runs from
 // lower-left to upper-right (2 px right per 1 px up) and +y runs steeply
 // down-right (1 px right per 2 px down); height lifts straight up. The viewer

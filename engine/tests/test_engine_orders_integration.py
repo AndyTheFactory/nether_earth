@@ -435,7 +435,7 @@ def _with_electronics(robot: Robot) -> Robot:
 def test_search_destroy_robot_hunter_closes_damages_and_destroys_its_target(
     electronics: bool, enemy_x: int
 ) -> None:
-    """CR003.4 regression (`_specs/milestones/cr003-playtest-fixes.md`, evidence 6).
+    """CR003.4 regression (`_specs/resolved-questions.md`).
 
     An electronic hunter used to plan to the target's own (occupied) anchor,
     get ``UNREACHABLE`` and drop to Stop & Defend on the first tick.

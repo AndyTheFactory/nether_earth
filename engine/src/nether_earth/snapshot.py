@@ -1,7 +1,7 @@
 """Canonical, JSON-compatible serialization of :class:`~nether_earth.state.GameState`.
 
 This module implements the "Snapshot" half of the "Snapshot and replay
-fixtures" workstream (`_specs/milestones/01-deterministic-engine-foundation.md`).
+fixtures" workstream (`docs/mechanics/timing-and-determinism.md`).
 It gives regression tests and backend/frontend fixture tooling a stable,
 plain-data view of engine state, independent of the ``GameState``
 dataclass's Python representation.
