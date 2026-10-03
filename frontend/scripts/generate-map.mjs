@@ -4,7 +4,7 @@
 // `nether_earth.map.load_map` remains the only authority on map semantics.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import yaml from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 
 const MAP_IDS = ['zx-spectrum-original'];
 const srcDir = resolve(process.cwd(), '../data/maps');
@@ -12,7 +12,7 @@ const outDir = resolve(process.cwd(), 'src/generated/maps');
 await mkdir(outDir, { recursive: true });
 
 for (const id of MAP_IDS) {
-  const raw = yaml.load(await readFile(resolve(srcDir, `${id}.yaml`), 'utf8'));
+  const raw = loadYaml(await readFile(resolve(srcDir, `${id}.yaml`), 'utf8'));
   if (raw.id !== id) throw new Error(`${id}.yaml declares id ${raw.id}`);
   const out = {
     id: raw.id,
