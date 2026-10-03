@@ -381,8 +381,9 @@ def step(
     Step 2b: any robot move transition started through the shared movement
     executor (`movement.py`) and due to complete by ``tick`` is resolved via
     :func:`~nether_earth.movement.advance_all_robot_transitions`, in
-    ``state.robots``' canonical order. Starting robot moves is done by the
-    direct-control and autonomous-order commands, which route through
+    ``state.robots``' canonical order. Robot moves are started by
+    direct-control commands and by standing-order evaluation, both of which
+    route through
     :func:`~nether_earth.movement.apply_robot_move` -- this step is only
     the completion half, so a started move always resolves on the tick its
     centrally configured duration elapses.

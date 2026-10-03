@@ -338,10 +338,12 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     (the one-shot-per-game-cycle fire rule), ``exit_steps_remaining`` (a
     launch walk-out), ``turning`` (a robot mid-turn neither moves nor fires)
     and ``facing`` (presentation-only, picks one of the four per-piece
-    Spectrum sprites; see :class:`~nether_earth.robot.RobotFacing`).
+    Spectrum sprites; see :class:`~nether_earth.robot.RobotFacing`; without
+    it a restored robot would face south again).
 
     ``hunt_route`` is appended last and **only when the robot holds one**
-    (absent means ``None``). See :func:`_robot_hunt_route_snapshot` for its
+    (absent means ``None``), so snapshots without a hunter stay
+    byte-identical (no ``hunt_route`` key). See :func:`_robot_hunt_route_snapshot` for its
     compact form.
     """
     snapshot: dict[str, Any] = {

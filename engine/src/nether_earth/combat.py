@@ -7,9 +7,11 @@ in-flight projectile's authoritative state, and :class:`FireRejectionReason`
 enumerates the stable rejection codes for an invalid fire attempt.
 
 Construction-time validation enforces basic invariants (dx/dy direction,
-projectile altitude and lifetime bounds); gameplay legality (weapon fitted,
-channel availability, range checks) lives in :func:`validate_fire`, the
-single authoritative fire-validation point.
+projectile altitude and lifetime bounds); gameplay legality (ownership,
+weapon fitted, channel availability) lives in :func:`validate_fire`, the
+single authoritative fire-validation point. Range bounds projectile travel
+(:func:`apply_fire`/:func:`advance_projectiles`) and autonomous engagement
+(``autonomous_combat._weapon_eligible``).
 
 All combat rules (weapon ranges, damage multipliers, projectile altitude)
 live in the centralized :class:`~nether_earth.rules.EngineRules` and are
