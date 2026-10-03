@@ -12,7 +12,7 @@ from nether_earth.combat import (
     ground_height_at,
 )
 from nether_earth.commander import Commander, CommanderMode
-from nether_earth.destruction import RobotDestroyedEvent, destroy_robot
+from nether_earth.destruction import RobotDestroyedEvent, destroy_robot, remove_robot
 from nether_earth.docking import CommanderUndockedEvent
 from nether_earth.events import EventSequencer
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
@@ -214,10 +214,12 @@ def test_apply_damage_exact_threshold_destroys_robot() -> None:
         state, world, robot.entity_id, ModuleIdentity.PHASER, DEFAULT_RULES, tick=4
     )
 
-    assert new_state.robot_for(robot.entity_id) is None
+    # Destroyed: it stays, at strength 0, blinking for four cycles.
+    dying = new_state.robot_for(robot.entity_id)
+    assert dying is not None
+    assert dying.strength == 0
+    assert dying.destroyed_cycles_remaining == DEFAULT_RULES.robot_destroyed_blink_cycles == 4
     assert any(isinstance(e, RobotDestroyedEvent) for e in events)
-    # No lingering strength=0 robot anywhere.
-    assert all(r.entity_id != robot.entity_id for r in new_state.robots)
 
 
 def test_apply_damage_overkill_destroys_robot_cleanly() -> None:
@@ -229,7 +231,8 @@ def test_apply_damage_overkill_destroys_robot_cleanly() -> None:
         state, world, robot.entity_id, ModuleIdentity.PHASER, DEFAULT_RULES, tick=4
     )
 
-    assert new_state.robot_for(robot.entity_id) is None
+    dying = new_state.robot_for(robot.entity_id)
+    assert dying is not None and dying.destroyed and dying.strength == 0
     assert any(isinstance(e, RobotDestroyedEvent) for e in events)
 
 
@@ -263,7 +266,22 @@ def test_apply_damage_uses_sequencer() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_destroy_robot_removes_robot_and_frees_occupancy() -> None:
+def test_destroy_robot_marks_the_robot_blinking_and_keeps_it_on_the_map() -> None:
+    robot = _robot(x=5, y=5)
+    state = _state((robot,))
+    world = _world()
+
+    new_state, events = destroy_robot(state, robot.entity_id, tick=10)
+
+    dying = new_state.robot_for(robot.entity_id)
+    assert dying is not None
+    assert dying.destroyed and dying.present
+    assert folded_robot_occupancy(world, new_state).is_occupied(5, 5)
+    assert [type(e) for e in events] == [RobotDestroyedEvent]
+    assert events[0].tick == 10
+
+
+def test_remove_robot_removes_robot_and_frees_occupancy() -> None:
     robot = _robot(x=5, y=5)
     state = _state((robot,))
     world = _world()
@@ -271,7 +289,7 @@ def test_destroy_robot_removes_robot_and_frees_occupancy() -> None:
     occupancy_before = folded_robot_occupancy(world, state)
     assert occupancy_before.is_occupied(5, 5)
 
-    new_state, events = destroy_robot(state, robot.entity_id, tick=10)
+    new_state, events = remove_robot(state, robot.entity_id, tick=10)
 
     assert new_state.robot_for(robot.entity_id) is None
     occupancy_after = folded_robot_occupancy(world, new_state)
@@ -285,7 +303,7 @@ def test_destroy_robot_removes_robot_and_frees_occupancy() -> None:
     assert events[0].tick == 10
 
 
-def test_destroy_robot_removes_capture_progress_naming_it() -> None:
+def test_remove_robot_removes_capture_progress_naming_it() -> None:
     from nether_earth.capture import CaptureProgress
 
     robot = _robot(entity_id="robot-capturer")
@@ -311,7 +329,7 @@ def test_destroy_robot_removes_capture_progress_naming_it() -> None:
         capture_progress=[progress, other_progress],
     )
 
-    new_state, _events = destroy_robot(state, robot.entity_id, tick=10)
+    new_state, _events = remove_robot(state, robot.entity_id, tick=10)
 
     assert new_state.capture_progress_for(EntityId("factory-1")) is None
     remaining = new_state.capture_progress_for(EntityId("factory-2"))
@@ -319,7 +337,9 @@ def test_destroy_robot_removes_capture_progress_naming_it() -> None:
     assert remaining.robot_id == other_robot.entity_id
 
 
-def test_destroy_robot_relocates_docked_commander_to_free() -> None:
+def test_destroy_robot_keeps_the_docked_commander_until_removal() -> None:
+    # `Lace2` drops the player out of the robot's menu only once the slot
+    # is empty (`(ix + 1) == 0`), i.e. at removal, not at the hit.
     robot = _robot(entity_id="robot-1", x=3, y=4, height=15)
     commander = Commander(
         player_id=PLAYER_ONE,
@@ -332,6 +352,24 @@ def test_destroy_robot_relocates_docked_commander_to_free() -> None:
     state = _state((robot,), (commander,))
 
     new_state, events = destroy_robot(state, robot.entity_id, tick=7)
+
+    assert new_state.commander_for(PLAYER_ONE) == commander
+    assert not any(isinstance(e, CommanderUndockedEvent) for e in events)
+
+
+def test_remove_robot_relocates_docked_commander_to_free() -> None:
+    robot = _robot(entity_id="robot-1", x=3, y=4, height=15)
+    commander = Commander(
+        player_id=PLAYER_ONE,
+        mode=CommanderMode.DOCKED,
+        x=3,
+        y=4,
+        altitude=15,
+        docked_robot_id=robot.entity_id,
+    )
+    state = _state((robot,), (commander,))
+
+    new_state, events = remove_robot(state, robot.entity_id, tick=7)
 
     updated_commander = new_state.commander_for(PLAYER_ONE)
     assert updated_commander is not None

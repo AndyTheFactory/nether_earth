@@ -44,6 +44,7 @@ from nether_earth.combat import (
 )
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.commander_movement import CommanderMoveCommand
+from nether_earth.destruction import advance_destroyed_robots
 from nether_earth.docking import CommanderDockedEvent, CommanderUndockedEvent
 from nether_earth.engine import step
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId, PlayerId
@@ -301,6 +302,10 @@ def test_commander_is_ejected_at_the_raised_top_when_its_robot_is_destroyed(
     state = _state(_docked(robot, top), robot)
 
     state, events = apply_damage(state, world, ROBOT_ID, ModuleIdentity.CANNON, DEFAULT_RULES, 5)
+    # Still docked while it blinks; ejected when it is removed (tick 24).
+    assert state.commanders[0].mode is CommanderMode.DOCKED
+    for tick in (8, 12, 16, 20, 24):
+        state, events = advance_destroyed_robots(state, world, tick)
 
     assert state.robots == ()
     commander = state.commanders[0]

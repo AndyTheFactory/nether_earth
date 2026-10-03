@@ -352,7 +352,9 @@ def folded_robot_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
 
     Robots are folded in canonical ``state.robots`` order (sorted by
     ``entity_id.value``), so the fold never depends on incidental
-    ordering. Each robot occupies its whole 2×2 body. A robot with
+    ordering. Each robot occupies its whole 2×2 body; a destroyed robot
+    only on the cycles its blink shows it (:attr:`~nether_earth.robot.Robot.present`,
+    the Spectrum's map bit 6 that ``Lb5cd`` tests). A robot with
     a move in progress occupies its *authoritative* (origin) body only; its
     destination is claimed through the reservation contract, not through
     this grid.
@@ -363,7 +365,8 @@ def folded_robot_occupancy(world: WorldMap, state: GameState) -> OccupancyGrid:
         return cached[2]
     grid = static_occupancy(world)
     for robot in state.robots:
-        grid = grid.with_added(robot.entity_id, unit_footprint(robot.x, robot.y))
+        if robot.present:
+            grid = grid.with_added(robot.entity_id, unit_footprint(robot.x, robot.y))
     if len(_FOLDED_OCCUPANCY_MEMO) >= _FOLDED_OCCUPANCY_MEMO_MAX:
         _FOLDED_OCCUPANCY_MEMO.clear()
     _FOLDED_OCCUPANCY_MEMO[key] = (world, state, grid)
@@ -454,6 +457,7 @@ class MovementRejectionReason(str, Enum):
     """
 
     NO_SUCH_ROBOT = "no_such_robot"
+    ROBOT_DESTROYED = "robot_destroyed"
     MOVE_IN_PROGRESS = "move_in_progress"
     TURN_IN_PROGRESS = "turn_in_progress"
     OUT_OF_BOUNDS = "out_of_bounds"
@@ -651,7 +655,9 @@ def validate_robot_move(
     :class:`RobotMoveResult`, never mutating anything. Checks run in this
     fixed order, so the same illegal move always reports the same reason:
 
-    1. the robot exists in ``state`` (:attr:`~MovementRejectionReason.NO_SUCH_ROBOT`);
+    1. the robot exists in ``state`` (:attr:`~MovementRejectionReason.NO_SUCH_ROBOT`)
+       and is not destroyed and blinking (:attr:`~MovementRejectionReason.ROBOT_DESTROYED`:
+       `Lb0fa` never reaches the robot update, not even under direct control);
     2. it has no move already in flight -- one move at a time, a second
        request is rejected rather than queued or overriding the in-flight
        destination, matching `commander_movement.py`
@@ -679,6 +685,8 @@ def validate_robot_move(
     robot = state.robot_for(request.entity_id)
     if robot is None:
         return RobotMoveResult.reject(request, MovementRejectionReason.NO_SUCH_ROBOT)
+    if robot.destroyed:
+        return RobotMoveResult.reject(request, MovementRejectionReason.ROBOT_DESTROYED)
     if robot.movement is not None:
         return RobotMoveResult.reject(request, MovementRejectionReason.MOVE_IN_PROGRESS)
     # A robot mid-turn is busy exactly like one mid-move (owner decision,

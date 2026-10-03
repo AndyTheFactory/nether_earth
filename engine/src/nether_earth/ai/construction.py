@@ -273,10 +273,12 @@ def threatened_war_bases(
     """Return ``player``'s war bases with an enemy robot within :func:`threat_radius_cells`.
 
     Distance is Chebyshev, from the robot's anchor cell to the nearest cell of
-    the war base. Map order.
+    the war base. Map order. A destroyed robot still blinking is no threat.
     """
     radius = threat_radius_cells(rules)
-    enemies = [robot for robot in state.robots if robot.owner != player]
+    enemies = [
+        robot for robot in state.robots if robot.owner != player and not robot.destroyed
+    ]
     threatened: list[EntityId] = []
     for base in world.war_bases:
         if base.owner != player:

@@ -187,7 +187,10 @@ def _target_still_valid(
     repeated.
     """
     if intent.target_kind is EngagementTargetKind.ROBOT:
-        return state.robot_for(intent.target_id) is not None
+        # A blinking robot is never shot at (`Lb68e_object_found`), though a
+        # Search & Destroy hunt may still be heading for it (`Lb41d`).
+        target = state.robot_for(intent.target_id)
+        return target is not None and not target.destroyed
 
     live_world = effective_world(world, state)
     structures = (

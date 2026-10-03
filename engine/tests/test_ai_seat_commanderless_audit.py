@@ -11,7 +11,7 @@ exercised there: ``orders.py`` (``_under_direct_control``/``evaluate_
 orders``), ``autonomous_combat.py`` (``gate_order_requests``/``settle_walk_
 outs``), ``movement.py`` (``commander_blocks_robot_cell``), ``collision.py``
 (``_other_commanders``/``commander_horizontal_move_allowed``), and
-``destruction.py`` (``destroy_robot``'s docked-commander cleanup loop).
+``destruction.py`` (``remove_robot``'s docked-commander cleanup loop).
 
 Every one of these already iterates the ``state.commanders`` *tuple*
 directly rather than indexing by seat, so an AI seat's absent commander is
@@ -34,7 +34,7 @@ from pathlib import Path
 from nether_earth import engine
 from nether_earth.autonomous_combat import gate_order_requests, settle_walk_outs
 from nether_earth.collision import _other_commanders, commander_horizontal_move_allowed
-from nether_earth.destruction import destroy_robot
+from nether_earth.destruction import remove_robot
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId
 from nether_earth.map import WorldMap, load_world_map
 from nether_earth.map_overlay import apply_overlay, default_pvp_overlay
@@ -170,7 +170,7 @@ def test_collision_other_commanders_and_horizontal_move_tolerate_a_missing_oppon
     assert allowed is True
 
 
-def test_destruction_destroy_robot_tolerates_a_commanderless_owner() -> None:
+def test_destruction_remove_robot_tolerates_a_commanderless_owner() -> None:
     """``destruction.py:231``'s docked-commander cleanup loop over
     ``state.commanders`` must not assume the destroyed robot's own owner has
     a commander to potentially free."""
@@ -179,7 +179,7 @@ def test_destruction_destroy_robot_tolerates_a_commanderless_owner() -> None:
     robot = _ai_robot("robot-ai-4", 30, 10)
     state = state.with_robots((*state.robots, robot))
 
-    new_state, events = destroy_robot(state, robot.entity_id, state.tick, world=world)
+    new_state, events = remove_robot(state, robot.entity_id, state.tick, world=world)
 
     assert new_state.robot_for(robot.entity_id) is None
     assert new_state.commander_for(PLAYER_TWO) is None

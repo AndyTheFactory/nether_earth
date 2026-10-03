@@ -465,3 +465,20 @@ def test_a_session_at_a_captured_war_base_is_cancelled_cleanly(world: WorldMap) 
     assert after.robots_for(PLAYER_TWO) == ()
     assert after.resource_pools == state.resource_pools
     assert not any(isinstance(e, (ConstructionEnteredEvent, RobotLaunchedEvent)) for e in events)
+
+
+def test_a_blinking_enemy_robot_is_no_threat(world: WorldMap) -> None:
+    # A destroyed robot still blinking can neither move nor fire.
+    state = _vs_ai(world)
+    ex, ey = _exit_cell(world, state, AI_BASE)
+    dying = _robot("robot-p1-1", ex - 10, ey).with_strength(0).with_destroyed_cycles_remaining(4)
+    assert threatened_war_bases(state.with_robots((dying,)), world, PLAYER_TWO, DEFAULT_RULES) == ()
+
+
+def test_a_blinking_robot_still_counts_toward_the_robot_cap(world: WorldMap) -> None:
+    # `Lbb40_count_robots` counts the slot until `Lb116` frees it.
+    state = _vs_ai(world)
+    army = _army(world, DEFAULT_RULES.max_robots_per_player)
+    army = (army[0].with_strength(0).with_destroyed_cycles_remaining(4), *army[1:])
+    commands, _memory = _plan(_with_pool(state.with_robots(army), 999, chassis=99), world)
+    assert not any(isinstance(c, LaunchRobotCommand) for c in commands)

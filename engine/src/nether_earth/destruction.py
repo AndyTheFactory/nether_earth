@@ -2,11 +2,14 @@
 
 Why a dedicated module
 -----------------------
-Destroying a robot is not just "remove it from ``state.robots``" -- it also
-has to leave no stale reference anywhere else in ``GameState``: an
-in-progress capture attempt naming the robot, and a commander currently
-``DOCKED`` to it, both need explicit, correct cleanup in the same
-authoritative step. The destruction service (`docs/mechanics/combat.md`) is meant to be the
+A robot killed in combat first blinks for
+``rules.robot_destroyed_blink_cycles`` game cycles (:func:`destroy_robot`,
+:func:`advance_destroyed_robots`; `docs/mechanics/combat.md` "Destroyed
+robots"), then is removed. Removing a robot is not just "remove it from
+``state.robots``" -- it also has to leave no stale reference anywhere else
+in ``GameState``: an in-progress capture attempt naming the robot, and a
+commander currently ``DOCKED`` to it, both need explicit, correct cleanup
+in the same authoritative step (:func:`remove_robot`). The destruction service (`docs/mechanics/combat.md`) is meant to be the
 *one* place this cleanup logic lives, because it must be reachable identically from more
 than one caller: `combat.py`'s per-hit :func:`~nether_earth.combat.apply_damage`
 and the nuclear-detonation area-destruction effect
@@ -26,7 +29,7 @@ What this module deliberately does NOT do
   `reservations.py`'s :func:`~nether_earth.reservations.reservations_from_state`
   derives the reservation table the same way) rather than separately
   stored collections -- see `movement.py`'s own docstrings for why. Simply
-  removing the robot from ``state.robots`` (step 4 below) is therefore
+  removing the robot from ``state.robots`` (:func:`remove_robot`) is therefore
   already sufficient cleanup for both; a second explicit
   occupancy/reservation-clearing call here would be redundant.
 - It does not remove the destroyed robot's in-flight
@@ -118,21 +121,27 @@ _S = TypeVar("_S", WarBase, Factory, Blocker)
 __all__ = [
     "RobotDestroyedEvent",
     "StructureDestroyedEvent",
+    "advance_destroyed_robots",
     "destroy_robot",
     "destroy_structure",
     "effective_world",
     "evaluate_victory_after_nuclear_detonation",
     "execute_nuclear_detonation",
+    "is_blink_update_tick",
+    "remove_robot",
     "scenery_world",
 ]
 
 
 @dataclass(frozen=True, slots=True)
 class RobotDestroyedEvent(Event):
-    """A robot was removed from play (destroyed).
+    """A robot was destroyed.
 
-    Mirrors :class:`~nether_earth.capture.StructureCapturedEvent`'s "this
-    entity's fate changed" shape: the entity's identity, owner, and last
+    Emitted once, when the robot dies: at the killing hit (it then blinks
+    and is removed later, :func:`destroy_robot`) or when a nuclear blast
+    removes a live robot outright (:func:`remove_robot`). Mirrors
+    :class:`~nether_earth.capture.StructureCapturedEvent`'s "this entity's
+    fate changed" shape: the entity's identity, owner, and last
     authoritative position are carried directly on the event so consumers
     (replay, rendering) never need a separate state read to know where the
     destruction happened.
@@ -151,14 +160,60 @@ def destroy_robot(
     tick: int,
     rules: EngineRules = DEFAULT_RULES,
     sequencer: EventSequencer | None = None,
+) -> tuple[GameState, tuple[Event, ...]]:
+    """Destroy ``entity_id`` in combat: it starts blinking, and is removed later.
+
+    `Lb7d7_robot_destroyed` sets the robot's strength to -4 rather than
+    removing it (owner decision 2026-10-03, `docs/mechanics/combat.md`
+    "Destroyed robots"). Here its ``strength`` becomes 0 (what the HUD
+    shows, `La81d`) and ``destroyed_cycles_remaining`` becomes
+    ``rules.robot_destroyed_blink_cycles``; :func:`advance_destroyed_robots`
+    counts it down and removes the robot. A move or turn already in progress
+    runs on; :attr:`~nether_earth.robot.Robot.destroyed` keeps the robot
+    from starting anything new. A docked commander stays docked until the
+    removal. Emits one :class:`RobotDestroyedEvent`.
+
+    Returns ``(state, ())`` -- the same object -- when ``entity_id`` names
+    no robot or one already destroyed, so a second hit is a no-op.
+    """
+    robot = state.robot_for(entity_id)
+    if robot is None or robot.destroyed:
+        return state, ()
+    dying = robot.with_strength(0).with_destroyed_cycles_remaining(
+        rules.robot_destroyed_blink_cycles
+    )
+    new_state = state.with_robots(
+        tuple(dying if other.entity_id == entity_id else other for other in state.robots)
+    )
+    event = RobotDestroyedEvent(
+        sequence=sequencer.next_sequence() if sequencer is not None else 0,
+        entity_id=entity_id,
+        owner=robot.owner,
+        x=robot.x,
+        y=robot.y,
+        tick=tick,
+    )
+    return new_state, (event,)
+
+
+def remove_robot(
+    state: GameState,
+    entity_id: EntityId,
+    tick: int,
+    rules: EngineRules = DEFAULT_RULES,
+    sequencer: EventSequencer | None = None,
     *,
     world: WorldMap | None = None,
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Remove ``entity_id`` from play, with full associated-state cleanup.
 
+    The end of a blink (:func:`advance_destroyed_robots`, `Lb116`) and a
+    nuclear blast (`Lba44`, which clears the robot's slot directly) both
+    end here.
+
     Returns ``(state, ())`` -- the caller's own ``state`` object, unchanged,
-    with no events -- when ``entity_id`` no longer names a live robot in
-    ``state.robots``: already destroyed, or never existed. This is the
+    with no events -- when ``entity_id`` no longer names a robot in
+    ``state.robots``: already removed, or never existed. This is the
     idempotency guard: calling this function twice in a row on the same id
     returns the exact same ``state`` object (by identity, not merely by
     equality) the second time, mirroring
@@ -169,56 +224,29 @@ def destroy_robot(
 
     1. **Capture progress cleanup**: any :class:`~nether_earth.capture.CaptureProgress`
        entry naming this robot (``progress.robot_id == entity_id``) is
-       dropped -- a simple filter, not a call into `capture.py` itself,
-       since this is a plain tuple-membership removal with no accrual
-       logic of its own to reuse.
+       dropped.
     2. **Docked-commander safety**: if a commander is currently ``DOCKED``
-       to this robot (``commander.docked_robot_id == entity_id``), it is
-       forced back to ``FREE`` at the robot's own last known position/
-       height -- explicitly, via :meth:`~nether_earth.commander.Commander.with_docking`
-       then :meth:`~nether_earth.commander.Commander.with_position`/
-       :meth:`~nether_earth.commander.Commander.with_altitude`, rather than
-       relying on `docking.py`'s :func:`~nether_earth.docking.follow_docked_robot`
-       having already run this tick -- that ordering is not guaranteed from
-       this function's own perspective, so setting position/altitude here
-       explicitly keeps this function self-contained and correct regardless
-       of call order. This reuses `docking.py`'s existing
-       :class:`~nether_earth.docking.CommanderUndockedEvent` shape (rather
-       than inventing a near-duplicate event type) -- ``from_altitude`` is
-       the commander's altitude immediately before this forced transition,
-       ``to_altitude`` is the robot's last physical top surface, which the
-       commander was resting on: :func:`~nether_earth.collision.robot_top`
-       in ``world`` (terrain altitude plus stack height), or
-       ``robot.height`` when no ``world`` is given (the world-less unit-test
-       path, where robots stand at altitude 0). The commander itself
-       is never damaged or destroyed -- only relocated to a safe ``FREE``
-       state.
-    3. **Robot removal**: the robot is dropped from ``state.robots``. Per
-       the module docstring, this alone is sufficient occupancy/reservation
-       cleanup (both are derived projections over ``state.robots``, not
-       separately stored) and the robot's in-flight projectile (if any) is
+       to this robot, it is forced back to ``FREE`` at the robot's own last
+       known position, resting on its last top: :func:`~nether_earth.collision.robot_top`
+       in ``world`` (terrain altitude plus stack height), or ``robot.height``
+       when no ``world`` is given (the world-less unit-test path, where
+       robots stand at altitude 0). Position and altitude are set here
+       explicitly rather than relying on `docking.py`'s
+       :func:`~nether_earth.docking.follow_docked_robot` having already run
+       this tick. Emits `docking.py`'s
+       :class:`~nether_earth.docking.CommanderUndockedEvent`. The Spectrum
+       drops the player out of the robot's menu here, when the slot empties
+       (`Lace2`, `La812_exit_robot`). The commander is never harmed.
+    3. **Robot removal**: the robot is dropped from ``state.robots``.
+       Occupancy and reservations are derived from ``state.robots``, so
+       they vanish with it; the robot's in-flight projectile (if any) is
        deliberately left untouched (see the module docstring).
-    4. **Event emission**: a :class:`RobotDestroyedEvent` is always emitted
-       on this (non-no-op) path. When a docked-commander relocation also
-       occurred, its :class:`~nether_earth.docking.CommanderUndockedEvent`
-       is emitted first, then :class:`RobotDestroyedEvent` -- the commander
-       safety consequence is presented as happening in response to the
-       destruction it precedes in the returned tuple, matching this
-       module's "the robot's fate is the event this function exists to
-       report" framing, while still surfacing the relocation as its own
-       first-class event rather than folding it into ``RobotDestroyedEvent``'s
-       own fields.
-
-    All state changes (capture-progress filter, commander update if any,
-    robot removal) are applied in the fewest possible ``GameState``
-    transitions.
+    4. **Event emission**: a :class:`RobotDestroyedEvent`, after the
+       undock event, unless the robot was already destroyed -- a blinking
+       robot reported its destruction when it was hit.
 
     ``rules`` is accepted (and currently unused) for signature symmetry
-    with `combat.py`'s :func:`~nether_earth.combat.apply_damage` (its own
-    caller) and to keep this function's shape stable for a rules-driven
-    destruction refinement (e.g. `_specs/resolved-questions.md` "Damage, accuracy, and electronics effects"'s
-    documented "blink" grace-period mechanic -- destruction here is
-    immediate, not staged).
+    with :func:`destroy_robot`.
     """
     robot = state.robot_for(entity_id)
     if robot is None:
@@ -263,18 +291,77 @@ def destroy_robot(
         .with_robots(remaining_robots)
     )
 
-    events.append(
-        RobotDestroyedEvent(
-            sequence=resolved_sequencer.next_sequence(),
-            entity_id=entity_id,
-            owner=robot.owner,
-            x=robot.x,
-            y=robot.y,
-            tick=tick,
+    if not robot.destroyed:
+        events.append(
+            RobotDestroyedEvent(
+                sequence=resolved_sequencer.next_sequence(),
+                entity_id=entity_id,
+                owner=robot.owner,
+                x=robot.x,
+                y=robot.y,
+                tick=tick,
+            )
         )
-    )
 
     return new_state, tuple(events)
+
+
+def is_blink_update_tick(tick: int, rules: EngineRules = DEFAULT_RULES) -> bool:
+    """Whether ``tick`` starts a game cycle, when blinking robots update.
+
+    Positive multiples of ``rules.robot_fire_cycle_ticks`` -- the same
+    cadence-tick convention as projectile advances (tick 0 never qualifies).
+    """
+    return tick > 0 and tick % rules.robot_fire_cycle_ticks == 0
+
+
+def advance_destroyed_robots(
+    state: GameState,
+    world: WorldMap | None,
+    tick: int,
+    rules: EngineRules = DEFAULT_RULES,
+    sequencer: EventSequencer | None = None,
+) -> tuple[GameState, tuple[Event, ...]]:
+    """Run one game cycle of every blinking robot (`Lb0fa_robot_update`).
+
+    Only on :func:`is_blink_update_tick` ticks, at the start of the step:
+    the Spectrum updates robots before bullets in each cycle. In id order,
+    a destroyed robot with cycles left loses one -- which toggles
+    :attr:`~nether_earth.robot.Robot.present` -- and one with none left is
+    removed (`Lb116_robot_destroyed`): if its 2×2 is plain, empty ground in
+    the physical world it leaves rough debris (:func:`robot_debris_anchor`),
+    then :func:`remove_robot`. With ``world`` ``None`` no debris is placed.
+    Returns ``state`` itself when nothing changed.
+    """
+    if not is_blink_update_tick(tick, rules) or not any(
+        robot.destroyed for robot in state.robots
+    ):
+        return state, ()
+
+    resolved_sequencer = sequencer if sequencer is not None else EventSequencer()
+    events: list[Event] = []
+    for robot in state.robots:
+        remaining = robot.destroyed_cycles_remaining
+        if remaining is None:
+            continue
+        if remaining > 0:
+            counted = robot.with_destroyed_cycles_remaining(remaining - 1)
+            state = state.with_robots(
+                tuple(counted if r.entity_id == robot.entity_id else r for r in state.robots)
+            )
+            continue
+        # The world it stood in: debris is decided against it, and a docked
+        # commander is set down on the robot's top in it.
+        physical_world = scenery_world(world, state) if world is not None else None
+        if physical_world is not None:
+            debris = robot_debris_anchor(physical_world, robot)
+            if debris is not None:
+                state = state.with_robot_debris((*state.robot_debris, debris))
+        state, removal_events = remove_robot(
+            state, robot.entity_id, tick, rules, resolved_sequencer, world=physical_world
+        )
+        events.extend(removal_events)
+    return state, tuple(events)
 
 
 # --------------------------------------------------------------------------
@@ -490,7 +577,7 @@ def _apply_debris(world: WorldMap, state: GameState) -> WorldMap:
 
 
 def robot_debris_anchor(world: WorldMap, robot: Robot) -> tuple[int, int] | None:
-    """Return where ``robot``, just killed in combat, leaves debris, or ``None``.
+    """Return where ``robot``, removed after its blink, leaves debris, or ``None``.
 
     `Lb116_robot_destroyed` adds a random type 6/7 piece over the robot's
     2×2 only when all four map cells are empty (element type 0): plain
@@ -654,23 +741,30 @@ def execute_nuclear_detonation(
 
     Returns ``(state, ())`` -- the caller's own ``state`` object, unchanged,
     with no events -- when ``carrier_id`` no longer names a live robot in
-    ``state.robots`` (defensive, mirroring :func:`destroy_robot`).
+    ``state.robots`` (defensive, mirroring :func:`remove_robot`).
 
     Blast shapes follow the Spectrum code (`_specs/resolved-questions.md` "Nuclear blast shape"),
     all measured from the carrier's position BEFORE any destruction:
 
     - **Robots:** every other robot, of either side, inside the trimmed
       window (:func:`_in_robot_window`), in canonical ``entity_id`` order.
+      `Lba33` tests the map mark, so a blinking robot goes only on a cycle
+      it is shown (:attr:`~nether_earth.robot.Robot.present`); one hidden
+      this cycle survives the blast and finishes its blink.
     - **Buildings:** at most one -- the first war base, else factory, in
       range of the effective world (:func:`_first_building_in_blast`), so
       already-destroyed structures are skipped.
-    - **Carrier:** always destroyed.
+    - **Carrier:** always removed, even while blinking (a docked player
+      can still fire from a blinking robot, `Lac99`).
     - **Scenery:** every ``destructible`` blocker anchored in the same window
       becomes rough debris (``state.scenery_debris``; `Lba44_robots_handled`).
       Fences are not destructible.
 
+    Robots are removed at once with :func:`remove_robot` -- no blink and no
+    debris (`Lba44` clears the slot itself, skipping `Lb116`).
+
     Destruction order: carrier, then robots, then the building. ``state`` is
-    threaded through each :func:`destroy_robot`/:func:`destroy_structure`
+    threaded through each :func:`remove_robot`/:func:`destroy_structure`
     call, all sharing ONE resolved ``EventSequencer`` so event ``sequence``
     numbers preserve that order.
     """
@@ -684,7 +778,9 @@ def execute_nuclear_detonation(
         (
             robot
             for robot in state.robots
-            if robot.entity_id != carrier_id and _in_robot_window(carrier, robot, rules)
+            if robot.entity_id != carrier_id
+            and robot.present
+            and _in_robot_window(carrier, robot, rules)
         ),
         key=lambda robot: robot.entity_id.value,
     )
@@ -694,13 +790,13 @@ def execute_nuclear_detonation(
 
     events: list[Event] = []
 
-    current_state, carrier_events = destroy_robot(
+    current_state, carrier_events = remove_robot(
         state, carrier_id, tick, rules, resolved_sequencer, world=live_world
     )
     events.extend(carrier_events)
 
     for robot in doomed_robots:
-        current_state, robot_events = destroy_robot(
+        current_state, robot_events = remove_robot(
             current_state, robot.entity_id, tick, rules, resolved_sequencer, world=live_world
         )
         events.extend(robot_events)

@@ -713,3 +713,19 @@ def test_an_approach_is_issued_once_per_assignment() -> None:
     )
     assert issued == {}
     assert memory.orders.defences == (assignment,)
+
+
+def test_a_blinking_robot_gets_no_order() -> None:
+    # A destroyed robot still blinking never acts again (`Lb0fa`), so the
+    # planner neither orders it nor treats it as a threat.
+    world = _world(
+        _war_base("wb-ai", 390, AI),
+        _war_base("wb-neutral", 100, None),
+        _factory("f-chassis", 150, FactoryType.CHASSIS),
+        width=800,
+    )
+    live, _ = _plan(_state(_robot("r1", 160)), world)
+    assert "r1" in live
+    dying = _robot("r1", 160).with_strength(0).with_destroyed_cycles_remaining(4)
+    issued, _ = _plan(_state(dying), world)
+    assert issued == {}

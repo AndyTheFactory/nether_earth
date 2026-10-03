@@ -89,16 +89,17 @@ no scale mismatch between this constant and the locked
 ``(60 - (robot_height + ground_height)) / 4`` damage formula's own ``60``
 constant, so ``100`` is directly portable with no conversion). Damage
 application (`combat.py`'s :func:`~nether_earth.combat.apply_damage`)
-subtracts from this field; a robot whose strength would reach zero or below
-is instead removed from ``state.robots`` entirely (`destruction.py`) rather
-than lingering at a non-positive ``strength`` -- this codebase deliberately
-does **not** add a ``Robot.destroyed`` flag, following the same "absence
-from the collection is the terminal state" convention already used for
-``capture_progress``/``construction_sessions`` (see `state.py`), so no other
-subsystem ever needs an ``if not robot.destroyed`` guard. Because a
-non-positive ``strength`` is therefore only ever a same-step, pre-removal
-intermediate value (never observed by any other reader), ``__post_init__``
-does not enforce ``strength > 0``.
+subtracts from this field. A hit that would take it to zero or below
+destroys the robot (`destruction.py`): its strength becomes 0 and
+``destroyed_cycles_remaining`` starts counting the Spectrum's blink down
+(owner decision 2026-10-03, `docs/mechanics/combat.md` "Destroyed robots").
+The robot stays in ``state.robots`` until the count runs out.
+
+Blink state: ``destroyed_cycles_remaining`` is ``None`` for a live robot.
+For a destroyed one it is the Spectrum's negated strength (``Lb7d7`` writes
+-4; ``Lb0fa`` adds one per game cycle and removes the robot on the cycle it
+finds 0). :attr:`Robot.present` -- whether its map mark is set this cycle --
+is its parity: even shown, odd hidden.
 
 Combat channel state: the
 ``Robot.active_projectile_id`` field is the authoritative per-robot gate
@@ -119,7 +120,7 @@ to ``None`` when that projectile terminates.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -459,8 +460,13 @@ class Robot:
     #: See :class:`RobotHuntRoute`. Cleared whenever the
     #: order changes (:meth:`with_order`) and when a commander docks.
     hunt_route: RobotHuntRoute | None = None
+    #: Blink cycles left before a destroyed robot is removed, or ``None``
+    #: while it is alive. See the module docstring, "Blink state".
+    destroyed_cycles_remaining: int | None = None
 
     def __post_init__(self) -> None:
+        if self.destroyed_cycles_remaining is not None and self.destroyed_cycles_remaining < 0:
+            raise ValueError("destroyed_cycles_remaining must be non-negative")
         if self.height <= 0:
             raise ValueError("height must be a positive integer")
         if self.exit_steps_remaining < 0:
@@ -506,6 +512,7 @@ class Robot:
             facing=self.facing,
             turning=turning,
             hunt_route=self.hunt_route,
+            destroyed_cycles_remaining=self.destroyed_cycles_remaining,
         )
 
     def with_facing(self, facing: RobotFacing) -> Robot:
@@ -532,6 +539,7 @@ class Robot:
             facing=facing,
             turning=None,
             hunt_route=self.hunt_route,
+            destroyed_cycles_remaining=self.destroyed_cycles_remaining,
         )
 
     def with_movement(self, movement: RobotMoveTransition | None) -> Robot:
@@ -565,6 +573,7 @@ class Robot:
             facing=self.facing,
             turning=self.turning,
             hunt_route=self.hunt_route,
+            destroyed_cycles_remaining=self.destroyed_cycles_remaining,
         )
 
     def with_position(self, x: int, y: int) -> Robot:
@@ -597,6 +606,7 @@ class Robot:
             facing=self.facing,
             turning=self.turning,
             hunt_route=self.hunt_route,
+            destroyed_cycles_remaining=self.destroyed_cycles_remaining,
         )
 
     def with_order(self, order: Order | None) -> Robot:
@@ -628,6 +638,7 @@ class Robot:
             facing=self.facing,
             turning=self.turning,
             hunt_route=None,
+            destroyed_cycles_remaining=self.destroyed_cycles_remaining,
         )
 
     def with_hunt_route(self, hunt_route: RobotHuntRoute | None) -> Robot:
@@ -649,6 +660,7 @@ class Robot:
             facing=self.facing,
             turning=self.turning,
             hunt_route=hunt_route,
+            destroyed_cycles_remaining=self.destroyed_cycles_remaining,
         )
 
     def with_active_projectile(self, active_projectile_id: EntityId | None) -> Robot:
@@ -676,6 +688,7 @@ class Robot:
             facing=self.facing,
             turning=self.turning,
             hunt_route=self.hunt_route,
+            destroyed_cycles_remaining=self.destroyed_cycles_remaining,
         )
 
     def with_strength(self, strength: int) -> Robot:
@@ -709,4 +722,26 @@ class Robot:
             facing=self.facing,
             turning=self.turning,
             hunt_route=self.hunt_route,
+            destroyed_cycles_remaining=self.destroyed_cycles_remaining,
         )
+
+    @property
+    def destroyed(self) -> bool:
+        """Whether this robot has been destroyed and is blinking out."""
+        return self.destroyed_cycles_remaining is not None
+
+    @property
+    def present(self) -> bool:
+        """Whether this robot is on the map this cycle (the Spectrum's map bit 6).
+
+        Always for a live robot. A destroyed robot is present on the cycles
+        its blink shows it -- an even count left (`Lb0fa_robot_update`:
+        ``and 1`` of the strength before the increment selects
+        ``res 6``/``set 6``). Bodies, bullets, the commander, capture, the
+        nuclear window and drawing all see only present robots.
+        """
+        return self.destroyed_cycles_remaining is None or self.destroyed_cycles_remaining % 2 == 0
+
+    def with_destroyed_cycles_remaining(self, cycles: int | None) -> Robot:
+        """Return a copy with ``destroyed_cycles_remaining`` replaced; see :meth:`with_strength`."""
+        return replace(self, destroyed_cycles_remaining=cycles)

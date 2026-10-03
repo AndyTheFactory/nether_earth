@@ -127,7 +127,7 @@ __all__ = [
 #: makes older replays non-reproducible. ``rules_content_hash`` catches
 #: ``EngineRules`` value changes on its own; logic changes are caught only by
 #: this bump.
-RULES_VERSION = "cr005"
+RULES_VERSION = "blink"
 
 
 #: How many grid cells one in-game *mile* spans.
@@ -437,8 +437,17 @@ class EngineRules:
     #: ticks = 1 s = 5 game cycles, a controller's choice the owner may
     #: retune (`_specs/resolved-questions.md` "Dumb vs electronic navigation").
     robot_hunt_replan_ticks: int = 20
+    #: Owner decision 2026-10-03 (`docs/mechanics/combat.md` "Destroyed
+    #: robots"): a destroyed robot blinks for this many game cycles before it
+    #: is removed. `Lb7d7_robot_destroyed` writes strength -4 and
+    #: `Lb0fa_robot_update` counts it up once per cycle, removing the robot
+    #: on the cycle after. Cycles are ``robot_fire_cycle_ticks`` long and
+    #: aligned to positive multiples of it.
+    robot_destroyed_blink_cycles: int = 4
 
     def __post_init__(self) -> None:
+        if self.robot_destroyed_blink_cycles < 0:
+            raise ValueError("robot_destroyed_blink_cycles must be non-negative")
         if self.ai_decision_interval_ticks <= 0:
             raise ValueError("ai_decision_interval_ticks must be a positive integer")
         if self.robot_hunt_replan_ticks <= 0:
