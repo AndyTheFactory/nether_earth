@@ -2,7 +2,8 @@
 # Production backend image. Build context: repository root.
 #   docker build -f backend/Dockerfile -t nether-earth-backend:<version> .
 
-FROM python:3.12-slim-bookworm AS build
+# Digest-pinned (NE-09); Dependabot (docker ecosystem) proposes updates.
+FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 AS build
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
 WORKDIR /src
 COPY backend/requirements.lock backend/requirements.lock
@@ -16,7 +17,8 @@ COPY backend/app backend/app
 RUN /opt/venv/bin/pip install --no-deps --require-virtualenv ./engine ./backend \
  && /opt/venv/bin/pip check
 
-FROM python:3.12-slim-bookworm AS runtime
+# Digest-pinned (NE-09); Dependabot (docker ecosystem) proposes updates.
+FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 AS runtime
 # Which commit this image was built from, logged at startup so a running
 # container can be identified without guessing from image timestamps.
 ARG GIT_COMMIT=unknown

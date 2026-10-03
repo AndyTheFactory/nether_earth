@@ -44,7 +44,7 @@ images:
 	docker build -f frontend/Dockerfile --build-arg GIT_COMMIT=$(NETHER_EARTH_COMMIT) -t nether-earth-frontend:$(VERSION) .
 
 lock:
-	docker run --rm -v "$(CURDIR)":/src:ro python:3.12-slim-bookworm sh -c '\
+	docker run --rm -v "$(CURDIR)":/src:ro python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 sh -c '\
 	  cp -r /src/engine /src/backend /tmp/ && \
 	  pip install -q --root-user-action=ignore --disable-pip-version-check /tmp/engine /tmp/backend && \
 	  pip freeze --exclude nether-earth-engine --exclude nether-earth-backend' > backend/requirements.lock.new
