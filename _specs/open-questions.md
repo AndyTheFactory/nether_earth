@@ -1154,6 +1154,10 @@ an assumption.
 
 Invisible/format characters are rejected since 2026-10 (backend `_validate_nickname`). Still undecided: whether a guest may use the exact nickname of the player already in the lobby (allows lobby-UI impersonation; no gameplay effect). Options: reject with `invalid_nickname`; accept and disambiguate in the UI by seat (`p1`/`p2`). Owner decision needed before either is implemented.
 
+## Replay artifact retention — OPEN (security review 2026-09-30, NE-03)
+
+The backend can delete finished/interrupted replays older than `NETHER_EARTH_REPLAY_RETENTION_DAYS`; the knob defaults to unset (keep forever). Undecided: whether production should prune by default and after how many days. Operational, not gameplay; owner decision.
+
 ## Resolution process
 
 Use this fidelity order:

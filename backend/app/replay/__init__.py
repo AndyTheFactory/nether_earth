@@ -11,6 +11,7 @@ atomicity/no-secrets guarantees, and ``verify.py``'s for the
 replay-verification contract.
 """
 
+from app.replay.retention import mark_interrupted, prune_replays
 from app.replay.verify import (
     ReplayRulesMismatchError,
     ReplayVerificationResult,
@@ -25,6 +26,7 @@ from app.replay.writer import (
     make_replay_lifecycle_notifier,
     make_replay_tick_recorder,
     match_dir,
+    write_meta_atomic,
 )
 
 __all__ = [
@@ -37,6 +39,9 @@ __all__ = [
     "load_meta",
     "make_replay_lifecycle_notifier",
     "make_replay_tick_recorder",
+    "mark_interrupted",
     "match_dir",
+    "prune_replays",
     "verify_replay",
+    "write_meta_atomic",
 ]

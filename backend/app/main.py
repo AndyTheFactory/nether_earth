@@ -47,7 +47,13 @@ from app.match.world import load_standard_world
 from app.protocol import serialize_server_message
 from app.protocol.common import PROTOCOL_VERSION, ErrorInfo
 from app.protocol.server_messages import ServerError
-from app.replay import ReplayWriter, make_replay_lifecycle_notifier, make_replay_tick_recorder
+from app.replay import (
+    ReplayWriter,
+    make_replay_lifecycle_notifier,
+    make_replay_tick_recorder,
+    mark_interrupted,
+    prune_replays,
+)
 from app.transport import ConnectionRegistry, create_websocket_router
 from app.transport.disconnects import make_disconnect_notifier
 from app.transport.snapshots import make_tick_broadcaster
@@ -77,6 +83,9 @@ def _release_commit() -> str:
 
 #: How often expired matches are looked for (M10.6).
 SWEEP_INTERVAL_S = 15.0
+
+#: How often artifacts past NETHER_EARTH_REPLAY_RETENTION_DAYS are deleted.
+REPLAY_PRUNE_INTERVAL_S = 3600.0
 
 
 def _replay_dir_status(base_dir: Path) -> str:
@@ -192,6 +201,14 @@ def create_app(
             except Exception:
                 logger.exception("match sweep failed", extra={"event": "match_sweep_failed"})
 
+    async def prune_replays_forever(max_age_s: float) -> None:
+        while True:
+            try:
+                await asyncio.to_thread(prune_replays, replay_writer.base_dir, max_age_s=max_age_s)
+            except Exception:
+                logger.exception("replay prune failed", extra={"event": "replay_prune_failed"})
+            await asyncio.sleep(REPLAY_PRUNE_INTERVAL_S)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         nonlocal shutting_down
@@ -205,11 +222,20 @@ def create_app(
                 "replay_dir": str(replay_writer.base_dir),
                 "public_base_url": settings.public_base_url,
                 "max_matches": settings.max_matches,
+                "replay_retention_days": settings.replay_retention_days,
             },
         )
+        await asyncio.to_thread(mark_interrupted, replay_writer.base_dir)
+        pruner: asyncio.Task[None] | None = None
+        if settings.replay_retention_days is not None:
+            pruner = asyncio.create_task(
+                prune_replays_forever(settings.replay_retention_days * 86_400.0)
+            )
         sweeper = asyncio.create_task(sweep_forever())
         yield
         sweeper.cancel()
+        if pruner is not None:
+            pruner.cancel()
         await asyncio.to_thread(replay_writer.close)
         shutting_down = True
         logger.info(

@@ -104,6 +104,7 @@ __all__ = [
     "make_replay_lifecycle_notifier",
     "make_replay_tick_recorder",
     "match_dir",
+    "write_meta_atomic",
 ]
 
 #: Bumped whenever the on-disk artifact *shape* changes incompatibly.
@@ -186,6 +187,14 @@ def match_dir(base_dir: Path, match_id: str) -> Path:
     if not _MATCH_ID_RE.fullmatch(match_id):
         raise ValueError(f"refusing unsafe replay match id {match_id!r}")
     return base_dir / match_id
+
+
+def write_meta_atomic(directory: Path, meta: dict[str, Any]) -> None:
+    """Write ``meta`` as ``meta.json`` in ``directory`` via temp file + ``os.replace``."""
+    directory.mkdir(parents=True, exist_ok=True)
+    tmp_path = directory / f"{_META_FILENAME}.tmp"
+    tmp_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    os.replace(tmp_path, directory / _META_FILENAME)  # atomic rename on every target filesystem.
 
 
 def _epoch_ms() -> int:
@@ -559,12 +568,7 @@ class ReplayWriter:
     # -- internal helpers -------------------------------------------------------
 
     def _write_meta_atomic(self, match_id: str, meta: dict[str, Any]) -> None:
-        directory = match_dir(self._base_dir, match_id)
-        directory.mkdir(parents=True, exist_ok=True)
-        final_path = directory / _META_FILENAME
-        tmp_path = directory / f"{_META_FILENAME}.tmp"
-        tmp_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        os.replace(tmp_path, final_path)  # atomic rename on every target filesystem.
+        write_meta_atomic(match_dir(self._base_dir, match_id), meta)
 
     def _read_meta(self, match_id: str) -> dict[str, Any] | None:
         path = match_dir(self._base_dir, match_id) / _META_FILENAME
