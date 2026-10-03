@@ -682,6 +682,12 @@ def _generate_session_token() -> str:
 #: a nickname in other players' UIs and in replay artifacts.
 _BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
 
+#: Codepoints that render blank although their category counts as visible
+#: (Hangul fillers and halfwidth filler are ``Lo``, the braille blank is
+#: ``So``, the combining grapheme joiner is ``Mn``): rejected like invisible
+#: format characters so one nickname cannot impersonate another.
+_BLANK_LOOKALIKES = frozenset("\u115f\u1160\u3164\uffa0\u2800\u034f")
+
 #: Unicode general categories rejected outright: controls, surrogates,
 #: private use, unassigned, and ``Cf`` format characters (zero-width space,
 #: word joiner, BOM, ...) which render as nothing and let one nickname
@@ -719,11 +725,11 @@ def _validate_nickname(nickname: str) -> str:
 
     # Check for rejected categories and bidirectional controls
     for i, (cat, ch) in enumerate(zip(categories, nickname)):
-        if ch in _BIDI_CONTROLS:
+        if ch in _BIDI_CONTROLS or ch in _BLANK_LOOKALIKES:
             raise InvalidNicknameError("nickname must not contain control or invisible characters")
         if cat in _REJECTED_CATEGORIES:
             # ZWJ (U+200D, category Cf) is allowed only in emoji sequences
-            if ch == "‍" and _zwj_joins_emoji(nickname, i):
+            if ch == "\u200d" and _zwj_joins_emoji(nickname, i):
                 continue
             raise InvalidNicknameError("nickname must not contain control or invisible characters")
 

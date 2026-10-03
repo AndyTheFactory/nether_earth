@@ -168,7 +168,7 @@ def test_unbound_socket_is_closed_at_the_deadline(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """NE-13: an accepted socket that never creates/joins/reconnects is dropped."""
-    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.3)
     with client.websocket_connect("/ws") as ws:
         assert _error(ws)["error"]["code"] == "bind_timeout"
         with pytest.raises(WebSocketDisconnect) as exc_info:
@@ -180,14 +180,14 @@ def test_invalid_frames_do_not_extend_the_bind_deadline(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Review Focus 1: the deadline is absolute, not reset per received frame."""
-    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.6)
     with client.websocket_connect("/ws") as ws:
-        time.sleep(0.12)
+        time.sleep(0.4)
         ws.send_text("not json")
         assert _error(ws)["error"]["code"] == "invalid_message"
         started = time.monotonic()
         assert _error(ws)["error"]["code"] == "bind_timeout"
-        assert time.monotonic() - started < 0.15  # ~0.08 s left, not a fresh 0.2 s
+        assert time.monotonic() - started < 0.45  # ~0.2 s left, not a fresh 0.6 s
         with pytest.raises(WebSocketDisconnect):
             ws.receive_json()
 
@@ -195,9 +195,9 @@ def test_invalid_frames_do_not_extend_the_bind_deadline(
 def test_bound_socket_is_not_subject_to_the_bind_deadline(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(ws_module, "UNBOUND_SOCKET_TIMEOUT_S", 0.3)
     with client.websocket_connect("/ws", headers={"origin": _ORIGIN}) as ws:
         assert _create(ws)["type"] == "created"
-        time.sleep(0.15)
+        time.sleep(0.4)
         ws.send_text("not json")
         assert _error(ws)["error"]["code"] == "invalid_message"  # still open and serving

@@ -3,8 +3,8 @@
 Both functions do blocking filesystem work and are meant to be called off
 the event loop (``asyncio.to_thread``). Neither touches a live match's
 artifact: ``mark_interrupted`` runs only at startup, when no match can be
-live, and ``prune_replays`` never deletes a ``status: "in_progress"``
-artifact.
+live, and ``prune_replays`` deletes only ``finished``/``interrupted``
+artifacts.
 """
 
 from __future__ import annotations
@@ -21,6 +21,10 @@ from app.replay.writer import write_meta_atomic
 logger = logging.getLogger(__name__)
 
 _META_FILENAME = "meta.json"
+
+#: Only artifacts the writer has closed are deletable; ``in_progress``, a
+#: missing status, or anything unrecognised is kept.
+_PRUNABLE_STATUSES = frozenset({"finished", "interrupted"})
 
 
 def _read_meta(directory: Path) -> dict[str, Any] | None:
@@ -82,14 +86,14 @@ def prune_replays(base_dir: Path, *, max_age_s: float, now: float | None = None)
     """Delete artifact directories finished/interrupted more than ``max_age_s`` ago.
 
     Age is ``meta.json``'s mtime, which the writer rewrites at finish, so
-    it measures time since the match ended. ``in_progress`` artifacts are
-    never deleted. Returns the ids removed.
+    it measures time since the match ended. Only ``finished``/``interrupted``
+    artifacts are deleted; ``in_progress`` or unknown statuses never are. Returns the ids removed.
     """
     current = time.time() if now is None else now
     removed: list[str] = []
     for directory in _artifact_dirs(base_dir):
         meta = _read_meta(directory)
-        if meta is None or meta.get("status") == "in_progress":
+        if meta is None or meta.get("status") not in _PRUNABLE_STATUSES:
             continue
         try:
             age = current - (directory / _META_FILENAME).stat().st_mtime

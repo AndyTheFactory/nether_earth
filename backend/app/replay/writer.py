@@ -442,26 +442,16 @@ class ReplayWriter:
         """Create ``match``'s artifact directory and write its ``in_progress`` header.
 
         Called exactly once per match by ``MatchManager._start_match_locked``,
-        before the runtime starts, so this never clobbers a live stream.
+        before the runtime starts, so this never clobbers a live stream. The
+        header is built on the caller's thread (as in ``finish_match``), so
+        the write job never reads the live ``Match``.
         """
-
-        def job() -> None:
-            self._start_match(match, scenario, map_data)
-            logger.info(
-                "replay artifact started",
-                extra={"event": "replay_started", "match_id": match.match_id},
-            )
-
-        self._run(match.match_id, "start", job)
-
-    def _start_match(self, match: Match, scenario: Scenario, map_data: BootstrapMap) -> None:
-        directory = match_dir(self._base_dir, match.match_id)
-        directory.mkdir(parents=True, exist_ok=True)
+        match_id = match.match_id
         meta: dict[str, Any] = {
             "schema_version": ARTIFACT_SCHEMA_VERSION,
             "rules_version": RULES_VERSION,
             "rules_hash": rules_content_hash(),
-            "match_id": match.match_id,
+            "match_id": match_id,
             "scenario_id": scenario.id,
             "map_id": scenario.map_id,
             "map_version": scenario.map_version,
@@ -477,7 +467,20 @@ class ReplayWriter:
             "result": None,
             "final_snapshot": None,
         }
-        self._write_meta_atomic(match.match_id, meta)
+
+        def job() -> None:
+            self._start_match(match_id, meta)
+            logger.info(
+                "replay artifact started",
+                extra={"event": "replay_started", "match_id": match_id},
+            )
+
+        self._run(match_id, "start", job)
+
+    def _start_match(self, match_id: str, meta: dict[str, Any]) -> None:
+        directory = match_dir(self._base_dir, match_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        self._write_meta_atomic(match_id, meta)
         # Truncating (rather than appending) is only safe because
         # `start_match` runs exactly once per match -- see this method's
         # own docstring. A second call for the same match_id would silently

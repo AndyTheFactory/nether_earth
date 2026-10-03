@@ -75,3 +75,20 @@ def test_retention_setting_is_optional() -> None:
     assert load_settings({"NETHER_EARTH_REPLAY_RETENTION_DAYS": "30"}).replay_retention_days == 30
     with pytest.raises(ConfigError, match="NETHER_EARTH_REPLAY_RETENTION_DAYS"):
         load_settings({"NETHER_EARTH_REPLAY_RETENTION_DAYS": "-1"})
+
+
+def test_prune_keeps_artifacts_without_a_known_terminal_status(tmp_path: Path) -> None:
+    """Only ``finished``/``interrupted`` artifacts are deletable; anything else is kept."""
+    no_status = tmp_path / "no-status"
+    no_status.mkdir()
+    meta = no_status / "meta.json"
+    meta.write_text(json.dumps({"match_id": "no-status"}), encoding="utf-8")
+    stamp = time.time() - 100
+    os.utime(meta, (stamp, stamp))
+    _artifact(tmp_path, "weird", "weird", age_s=100)
+    assert prune_replays(tmp_path, max_age_s=50) == []
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["no-status", "weird"]
+
+
+def test_empty_retention_days_means_keep_forever() -> None:
+    assert load_settings({"NETHER_EARTH_REPLAY_RETENTION_DAYS": ""}).replay_retention_days is None

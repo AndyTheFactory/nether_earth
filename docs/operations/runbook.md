@@ -122,8 +122,8 @@ configure Nginx `real_ip` so per-IP rate limits see client addresses.
 | Restart gateway only | `dc restart gateway` | Drops sockets; clients reconnect within the 60 s grace, matches continue. |
 | Reload Nginx config | `docker exec nether-earth-gateway-1 nginx -s reload` | No interruption. |
 
-Live matches cannot be migrated. Before a planned backend restart/update, check
-`curl -s localhost/api/ready` → `"matches": 0`, or accept ending the running matches.
+Live matches cannot be migrated. Before a planned backend restart/update, run the
+*backend counts* command (§6) → `"matches": 0`, or accept ending the running matches.
 
 ## 6. Health and verification
 
@@ -132,9 +132,18 @@ Live matches cannot be migrated. Before a planned backend restart/update, check
 | Containers | `dc ps` | three services `(healthy)` |
 | Gateway liveness | `curl -s http://localhost/healthz` | `ok` |
 | Backend liveness | `curl -s http://localhost/api/health` | `{"status":"ok"}` |
-| Backend readiness | `curl -s http://localhost/api/ready` | `"status":"ready"`, counts of matches/runtimes/connections |
+| Backend readiness | `curl -s http://localhost/api/ready` | `"status":"ready"` and `"checks"` (no counts in production) |
+| Backend counts | see below | `"matches"`, `"runtimes"`, `"connections"` |
 | Frontend | open the public URL | lobby renders; create a match; a second browser joins with the code |
 | Full smoke (non-destructive, separate project/port) | `deploy/smoke.sh` | ends with `SMOKE OK` |
+
+**Backend counts.** In production `/api/ready` hides the live-match counts from public
+(gateway) traffic; the backend reports them only to a loopback client, so read them from
+inside the container:
+
+```bash
+dc exec backend python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/ready').read().decode())"
+```
 
 With the TLS override, use `https://<host>/...` (plain HTTP redirects everything except `/healthz`).
 
@@ -186,7 +195,8 @@ shows the last probe outputs.
 
 ```bash
 cd /opt/nether-earth
-curl -s localhost/api/ready                    # note "matches"; live matches will end
+curl -s localhost/api/ready                    # status/checks
+dc exec backend python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/ready').read().decode())"  # backend counts: note "matches"; live matches will end
 grep NETHER_EARTH_VERSION deploy/.env          # this is the rollback target, write it down
 git fetch --tags && git checkout v1.0.1
 sed -i 's/^NETHER_EARTH_VERSION=.*/NETHER_EARTH_VERSION=1.0.1/' deploy/.env
@@ -229,10 +239,10 @@ Replay files need no migration; each `meta.json` records its `schema_version`/`r
 | Lobby shows "connection: closed" immediately | browser devtools → `/ws` status | **403**: `NETHER_EARTH_PUBLIC_BASE_URL` origin does not match the URL in the address bar (scheme/host/port). **429**: per-IP limit (many tabs/players behind one NAT or reconnect loop). **502/504**: backend down (`dc ps`, `dc logs backend`) |
 | Frontend shows a blank page, console mentions `unsafe-eval` | browser console | a custom build dropped the `pixi.js/unsafe-eval` import in `frontend/src/main.ts`; the gateway CSP forbids eval |
 | Players disconnected every ~2 min | gateway logs, proxies in front | an extra proxy with a short idle timeout; Nginx here allows 120 s idle and uvicorn pings every 20 s |
-| `server_busy` on create | `/api/ready` matches | capacity reached; raise `NETHER_EARTH_MAX_MATCHES` only if CPU allows (performance report) |
+| `server_busy` on create | backend counts (§6) `"matches"` | capacity reached; raise `NETHER_EARTH_MAX_MATCHES` only if CPU allows (performance report) |
 | Stutter / `tick_overrun` warnings | `docker stats nether-earth-backend-1` | CPU saturated: fewer concurrent matches or a faster CPU |
 | No new replays | `/api/ready` checks, `replay_write_failed` logs | permissions or full disk; matches keep running without replays |
-| Backend restarts | `docker inspect -f '{{.RestartCount}} {{.State.OOMKilled}}' nether-earth-backend-1` | OOM → raise `NETHER_EARTH_BACKEND_MEM_LIMIT`, check leak signs in `/api/ready` counts |
+| Backend restarts | `docker inspect -f '{{.RestartCount}} {{.State.OOMKilled}}' nether-earth-backend-1` | OOM → raise `NETHER_EARTH_BACKEND_MEM_LIMIT`, check leak signs in the backend counts (§6) |
 
 - **`server_busy` for everyone:** capacity is `NETHER_EARTH_MAX_MATCHES` across every state. One IP
   can hold at most 32 sockets (gateway `limit_conn`) and therefore at most 32 lobbies, plus whatever

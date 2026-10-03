@@ -27,7 +27,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from nether_earth.events import Event
 from nether_earth.map import WorldMap
 from nether_earth.state import GameState
@@ -343,23 +343,26 @@ def create_app(
         return {"status": "ok"}
 
     @fastapi_app.get("/ready", tags=["operations"])
-    async def ready(response: Response) -> dict[str, object]:
+    async def ready(request: Request, response: Response) -> dict[str, object]:
         """Readiness: can this process accept and persist new matches right now?
 
         503 while shutting down or when the replay directory is not writable.
-        Operational counts are included only outside production (NE-11): the
-        route is public through the gateway and the figures reveal load.
-        ``async`` for the same reason as ``health``.
+        Operational counts are included outside production, and in production
+        only to a loopback client (an operator inside the container): the
+        route is public through the gateway, whose traffic arrives from the
+        gateway container's address, and the figures reveal load (NE-11).
+        ``async`` for the same reason as ``health``; the blocking replay-dir
+        probe runs in a worker thread so it never stalls the loop.
         """
-        checks = {
-            "replay_dir": _replay_dir_status(replay_writer.base_dir),
-            "accepting": "no" if shutting_down else "ok",
-        }
+        checks: dict[str, str] = {}
+        checks["replay_dir"] = await asyncio.to_thread(_replay_dir_status, replay_writer.base_dir)
+        checks["accepting"] = "no" if shutting_down else "ok"
         is_ready = all(value == "ok" for value in checks.values())
         if not is_ready:
             response.status_code = 503
         body: dict[str, object] = {"status": "ready" if is_ready else "not_ready", "checks": checks}
-        if not settings.production:
+        loopback = request.client is not None and request.client.host in ("127.0.0.1", "::1")
+        if not settings.production or loopback:
             body["matches"] = len(match_manager)
             body["runtimes"] = len(runtime_registry)
             body["connections"] = connection_registry.connection_count()
