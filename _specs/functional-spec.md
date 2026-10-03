@@ -95,7 +95,7 @@ Victory is evaluated after any authoritative event that changes war-base ownersh
 
 1. Player creates match and chooses nickname.
 2. Server creates in-memory match and returns join code/link.
-3. Second player joins.
+3. Second player joins. A joining guest may not use the creator's nickname (case-insensitive, NFKC-normalised); the join is rejected with `invalid_nickname` and the guest can retry with another name.
 4. Both become ready.
 5. Server initializes map, scenario, resources, commanders, factories, and game clock.
 6. Players capture structures, produce/spend resources, build robots, issue orders, dock, direct-control, and fight.

@@ -106,6 +106,11 @@ class JoinMatchResult:
     player_id: PlayerId
 
 
+def _nickname_key(nickname: str) -> str:
+    """Comparison key: NFKC-normalised and case-folded."""
+    return unicodedata.normalize("NFKC", nickname).casefold()
+
+
 class MatchManager:
     """Owns every in-memory ``Match``, keyed by match id, join code, and session token.
 
@@ -314,7 +319,8 @@ class MatchManager:
 
         Raises ``MatchNotFoundError`` for an unknown code and ``MatchFullError``
         if the match already has two players (v1 caps every match at exactly
-        two guest slots).
+        two guest slots). Raises ``InvalidNicknameError`` for a blank/invisible
+        nickname or one equal to the creator's.
         """
         nickname = _validate_nickname(nickname)
         with self._lock:
@@ -324,6 +330,9 @@ class MatchManager:
             match = self._matches[match_id]
             if match.is_full:
                 raise MatchFullError(f"match {match_id!r} already has two players")
+            joining = _nickname_key(nickname)
+            if any(_nickname_key(slot.nickname) == joining for slot in match.players.values()):
+                raise InvalidNicknameError("nickname is already used by the other player")
 
             session_token = _generate_session_token()
             match.players[PLAYER_TWO] = PlayerSlot(
