@@ -396,6 +396,16 @@ class RobotHuntRouteSnapshot(_SnapshotSubModel):
     steps: Annotated[str, Field(pattern=r"^[EWSN]*$")] | None
 
 
+class RobotBlinkSnapshot(_SnapshotSubModel):
+    """Mirrors a robot snapshot's optional `"blink"`: a destroyed robot's
+    remaining blink cycles and whether it is shown this cycle (owner decision
+    2026-10-03, `docs/mechanics/combat.md` "Destroyed robots").
+    """
+
+    cycles_remaining: int = Field(ge=0)
+    visible: bool
+
+
 class RobotSnapshot(_SnapshotSubModel):
     entity_id: EntityId
     owner: PlayerId
@@ -413,13 +423,16 @@ class RobotSnapshot(_SnapshotSubModel):
     facing: RobotFacingWire
     turning: dict[str, Any] | None
     hunt_route: RobotHuntRouteSnapshot | None = None
+    blink: RobotBlinkSnapshot | None = None
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: Any) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
+        # Elided like `to_snapshot`'s own robot entry.
         if self.hunt_route is None:
-            # Elided like `to_snapshot`'s own robot entry.
             data.pop("hunt_route", None)
+        if self.blink is None:
+            data.pop("blink", None)
         return data
 
 

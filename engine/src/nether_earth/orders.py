@@ -1101,8 +1101,14 @@ def _evaluate_hunt(
 
 
 def _defensive_intent(robot: Robot, state: GameState) -> EngagementIntent | None:
-    """Return ``robot``'s Stop & Defend intent against the nearest hostile robot."""
-    hostile = [other for other in state.robots if other.owner != robot.owner]
+    """Return ``robot``'s Stop & Defend intent against the nearest hostile robot.
+
+    A destroyed robot still blinking is no target: the Spectrum's weapon
+    scan skips it (`Lb68e_object_found`: ``dec b`` / ``jp m``).
+    """
+    hostile = [
+        other for other in state.robots if other.owner != robot.owner and not other.destroyed
+    ]
     if not hostile:
         return None
     chosen = min(
@@ -1410,8 +1416,9 @@ def evaluate_orders(
     already keeps sorted by ``entity_id.value``, so the returned tuple's
     order -- and therefore the caller's event emission order and the order
     requests enter the move batch in -- is canonical without a re-sort.
-    Robots with no order, and robots a commander is currently docked to, are
-    skipped entirely (see :func:`_under_direct_control`).
+    Robots with no order, destroyed robots still blinking (`Lb0fa` skips
+    `Lb154_robot_ai_update` for them), and robots a commander is currently
+    docked to, are skipped entirely (see :func:`_under_direct_control`).
 
     Every evaluation reads the same entry ``state``: this is a pure
     read-only pass whose results the caller applies afterwards. The one
@@ -1425,7 +1432,7 @@ def evaluate_orders(
     evaluations: list[OrderEvaluation] = []
     evaluated_orders: dict[EntityId, Order] = {}
     for robot in state.robots:
-        if robot.order is None or _under_direct_control(robot, state):
+        if robot.order is None or robot.destroyed or _under_direct_control(robot, state):
             continue
         claimed = (
             claimed_structures(robot, robot.order, state, evaluated_orders)

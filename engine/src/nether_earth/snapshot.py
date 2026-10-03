@@ -345,6 +345,13 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     (absent means ``None``), so snapshots without a hunter stay
     byte-identical (no ``hunt_route`` key). See :func:`_robot_hunt_route_snapshot` for its
     compact form.
+
+    ``blink`` is appended after it, **only for a destroyed robot still
+    blinking** (owner decision 2026-10-03): ``{"cycles_remaining", "visible"}``
+    -- the count :func:`~nether_earth.destruction.advance_destroyed_robots`
+    runs down, and whether the robot is shown this cycle
+    (:attr:`~nether_earth.robot.Robot.present`), so the client draws the
+    blink without deriving it.
     """
     snapshot: dict[str, Any] = {
         "entity_id": robot.entity_id.to_json(),
@@ -369,6 +376,11 @@ def _robot_snapshot(robot: Robot) -> dict[str, Any]:
     }
     if robot.hunt_route is not None:
         snapshot["hunt_route"] = _robot_hunt_route_snapshot(robot.hunt_route)
+    if robot.destroyed_cycles_remaining is not None:
+        snapshot["blink"] = {
+            "cycles_remaining": robot.destroyed_cycles_remaining,
+            "visible": robot.present,
+        }
     return snapshot
 
 

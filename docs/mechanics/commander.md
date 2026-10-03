@@ -57,7 +57,7 @@ Ranges are half-open, so resting exactly on a surface is not a collision. The de
 2. **Step 5** — `attempt_auto_dock` (via `auto_dock_with_event`): a free commander with no lift running docks onto the first robot fixture at its exact anchor whose `top == altitude`, if that robot is friendly. An enemy robot there is a surface only. Docking clears the robot's cached hunt route and ends a launch walk-out ([construction.md](construction.md)).
 3. **Step 6** — `follow_docked_robot` moves a docked commander to its robot's anchor and top every tick.
 
-While docked, `orders.evaluate_orders` skips the robot, so its standing order is suspended; `DirectRobotMoveCommand` drives it ([movement.md](movement.md)). If the robot is destroyed, `destruction.destroy_robot` frees the commander at the robot's anchor and last top.
+While docked, `orders.evaluate_orders` skips the robot, so its standing order is suspended; `DirectRobotMoveCommand` drives it ([movement.md](movement.md)). If the robot is destroyed, the commander stays docked while it blinks; when it is removed, `destruction.remove_robot` frees the commander at the robot's anchor and last top ([combat.md](combat.md#destroyed-robots-destructiondestroy_robot-destructionadvance_destroyed_robots)).
 
 ### Construction exit lift
 

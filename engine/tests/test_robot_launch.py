@@ -19,7 +19,7 @@ import pytest
 from nether_earth.commander import Commander, CommanderMode
 from nether_earth.construction_economy import ResourcePool
 from nether_earth.construction_session import BuildInProgress, ConstructionSession
-from nether_earth.destruction import destroy_robot
+from nether_earth.destruction import remove_robot
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.interactions import InteractionKind, InteractionPoint
 from nether_earth.map import WorldMap
@@ -240,11 +240,11 @@ def test_launch_never_reuses_a_robot_id_after_a_robot_dies() -> None:
         issued.append(robot_id)
     assert issued == [EntityId(f"robot-p1-{n}") for n in (1, 2, 3)]
 
-    state, _ = destroy_robot(state, EntityId("robot-p1-2"), tick=0)
+    state, _ = remove_robot(state, EntityId("robot-p1-2"), tick=0)
     state, robot_id = _launch_and_walk_away(state, world, 11)
     issued.append(robot_id)
 
-    state, _ = destroy_robot(state, robot_id, tick=0)  # the newest robot dies too
+    state, _ = remove_robot(state, robot_id, tick=0)  # the newest robot dies too
     state, robot_id = _launch_and_walk_away(state, world, 17)
     issued.append(robot_id)
 

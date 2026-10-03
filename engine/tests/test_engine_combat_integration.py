@@ -309,6 +309,13 @@ def test_a_lethal_hit_destroys_the_target_robot_through_engine_step() -> None:
     assert len(destroyed) == 1
     assert destroyed[0].entity_id == target.entity_id  # type: ignore[attr-defined]
     assert _of(events, RobotDamagedEvent) == []
+    # It blinks for four game cycles (ticks 4, 8, 12, 16) and goes on tick 20.
+    dying = state.robot_for(target.entity_id)
+    assert dying is not None and dying.destroyed
+    while state.tick < 19:
+        state, _ = step(state, [], world=world)
+    assert state.robot_for(target.entity_id) is not None
+    state, _ = step(state, [], world=world)
     assert state.robot_for(target.entity_id) is None
     assert len(state.robots) == 1
 

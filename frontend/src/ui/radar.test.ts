@@ -138,3 +138,16 @@ test('CR004.6: an AI seat with no commander renders no mark for it, and the map 
   assert.doesNotThrow(() => radarBitmap(map, aiSeat, 0, 'p1', true));
   assert.doesNotThrow(() => radarMarks(map, aiSeat, 0, 'p1', true));
 });
+
+test('a blinking robot keeps a steady radar mark until it is removed (Ld632, Lb116)', () => {
+  // The radar is built from the robot slots, not the map mark the blink
+  // toggles, so only the removal clears the mark.
+  const snap = snapshotOf('robots-orders');
+  const empty = { ...snap, robots: [], commanders: [] };
+  const r = { ...snap.robots[0], x: 40, y: 8 };
+  const live = radarBitmap(map, { ...empty, robots: [r] }, 0, null, true);
+  for (const visible of [true, false]) {
+    const dying = { ...r, strength: 0, blink: { cycles_remaining: visible ? 2 : 1, visible } };
+    assert.deepEqual(radarBitmap(map, { ...empty, robots: [dying] }, 0, null, true), live);
+  }
+});

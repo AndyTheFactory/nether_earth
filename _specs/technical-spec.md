@@ -149,7 +149,7 @@ The mile is a unit definition, not a tunable: `rules.CELLS_PER_MILE = 2`, conver
 
 Not every gameplay value should be an environment variable. Gameplay configuration is versioned game data. Environment configuration is deployment-only (§24).
 
-Rules identity: `rules.RULES_VERSION` (currently `"cr005"`) names the rule set, and `rules.rules_content_hash()` is the SHA-256 of the canonical JSON of the `EngineRules` values. Both are recorded in every replay. Replay verification rejects an artifact whose version or hash differs from the running engine's (`ReplayRulesMismatchError`) before it replays anything. The hash catches value changes by itself; a change to rule logic or rule-bearing map data must bump `RULES_VERSION`.
+Rules identity: `rules.RULES_VERSION` (currently `"blink"`) names the rule set, and `rules.rules_content_hash()` is the SHA-256 of the canonical JSON of the `EngineRules` values. Both are recorded in every replay. Replay verification rejects an artifact whose version or hash differs from the running engine's (`ReplayRulesMismatchError`) before it replays anything. The hash catches value changes by itself; a change to rule logic or rule-bearing map data must bump `RULES_VERSION`.
 
 ## 6. Scenario and victory model
 
@@ -585,7 +585,7 @@ missile = 3
 phaser = 4
 ```
 
-`ground_height` is `collision.unit_surface_height` under the target's body. Strength starts at 100; `combat.apply_damage` subtracts the damage and destroys the robot (`destruction.destroy_robot`) at ≤ 0, after recording combat debris when its four cells are plain ground. Destruction drops the robot's capture progress, frees a commander docked on it and removes it; its in-flight projectile keeps flying.
+`ground_height` is `collision.unit_surface_height` under the target's body. Strength starts at 100; `combat.apply_damage` subtracts the damage and destroys the robot (`destruction.destroy_robot`) at ≤ 0. The robot is set to strength 0 with `destroyed_cycles_remaining = rules.robot_destroyed_blink_cycles` (4). `destruction.advance_destroyed_robots` counts this down on each game-cycle tick, first in `engine.step`. When the count is already 0 it removes the robot: first it records combat debris if the robot's four cells are plain ground, then `destruction.remove_robot` drops the robot's capture progress, frees a commander docked on it and removes it. A blinking robot is on the map (`Robot.present`) only while its count is even. It never acts by itself and is never fired at ([combat.md](../docs/mechanics/combat.md#destroyed-robots-destructiondestroy_robot-destructionadvance_destroyed_robots)). Its in-flight projectile keeps flying.
 
 Do not duplicate combat math outside the engine. Remaining combat-fidelity research is tracked in [open-questions.md](open-questions.md).
 

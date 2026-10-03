@@ -452,7 +452,8 @@ def test_search_destroy_robot_hunter_closes_damages_and_destroys_its_target(
     for tick in range(600):
         state, events = step(state, (), world)
         target = state.robot_for(enemy.entity_id)
-        if target is None:
+        assert target is not None  # a killed robot blinks before it is removed
+        if target.destroyed:
             destroyed_at = tick
             assert _of(events, RobotDestroyedEvent)
             break

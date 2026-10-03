@@ -375,9 +375,12 @@ def _qualifying_robot(
     owned structure only admits an *enemy* robot). See the module docstring
     for the deterministic smallest-``entity_id`` tie-break when more than
     one qualifying robot occupies a multi-cell footprint in the same tick.
+    A blinking robot counts only on the cycles its mark is shown.
     """
     candidates = [
-        robot for robot in robots if (robot.x, robot.y) in footprint and robot.owner != current_owner
+        robot
+        for robot in robots
+        if robot.present and (robot.x, robot.y) in footprint and robot.owner != current_owner
     ]
     if not candidates:
         return None

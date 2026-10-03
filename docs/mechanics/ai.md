@@ -36,6 +36,8 @@ In a solo match the second seat is played by a deterministic planner inside the 
 
 ### Robot orders (`ai.robot_orders.plan`)
 
+Destroyed robots that are still blinking ([combat.md](combat.md#destroyed-robots-destructiondestroy_robot-destructionadvance_destroyed_robots)) are left out on both sides: they are never ordered and never count as threats. They do still count toward the robot cap in construction, and `threatened_war_bases` ignores them too.
+
 One pass, in priority order; each robot is committed at most once:
 
 1. **Defence.** For each enemy robot, its distance to the nearest owned capture cell (war bases first) is recorded as a sighting. It is a threat when that distance is ≤ `THREAT_RADIUS_CELLS` and it is closing (nearer than last decision, newly seen, or within `HOLD_RADIUS_CELLS`). Standing assignments are kept while the intruder lives and stays within the threat radius. Each new threat gets one defender (`ai.robot_orders._pick_defender`): own armed robots within `RECALL_RADIUS_CELLS` that are not mid-capture, preferring one the engine would already chase the intruder with, then a non-losing `ai.robot_orders.matchup`, then distance, then id; a losing robot is sent only to save a war base. The defender gets Search & Destroy (robots) when the engine would chase the intruder, else an `Advance`/`Retreat` toward the site's column (issued once per assignment).
@@ -88,6 +90,9 @@ All AI entries in [deviations-from-original.md](../../_specs/deviations-from-ori
 - `engine/tests/test_ai_construction.py::test_choose_design_picks_the_best_affordable_robot`
 - `engine/tests/test_ai_construction.py::test_choose_design_keeps_the_defence_reserve`
 - `engine/tests/test_ai_construction.py::test_a_threat_releases_the_reserve_and_the_floor`
+- `engine/tests/test_ai_construction.py::test_a_blinking_enemy_robot_is_no_threat`
+- `engine/tests/test_ai_construction.py::test_a_blinking_robot_still_counts_toward_the_robot_cap`
+- `engine/tests/test_ai_robot_orders.py::test_a_blinking_robot_gets_no_order`
 - `engine/tests/test_ai_construction.py::test_planner_skips_a_war_base_whose_exit_is_blocked`
 - `engine/tests/test_ai_construction.py::test_ai_builds_and_launches_a_legal_robot_within_one_decision`
 - `engine/tests/test_ai_construction.py::test_a_human_seat_cannot_use_the_commanderless_entry`

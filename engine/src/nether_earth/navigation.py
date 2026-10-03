@@ -295,6 +295,7 @@ def _traversal_view(state: GameState, world: WorldMap) -> _TraversalView:
     body_cells = [
         (robot.entity_id, cell)
         for robot in state.robots
+        if robot.present
         for cell in unit_footprint_cells(robot.x, robot.y)
     ]
     body_cells.extend((holder, cell) for cell, holder in reservations.holders.items())

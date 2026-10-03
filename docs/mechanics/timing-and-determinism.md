@@ -71,7 +71,7 @@ Engine side, `replay.ReplayFixture` holds a map, scenario, seed, initial command
 | `ai_decision_interval_ticks` | 4 | `rules.py` |
 | `dumb_wander_commit_ticks` | 16 | `rules.py` |
 
-`RULES_VERSION` (`"cr005"`) and `rules_content_hash` (SHA-256 of the canonical JSON of every `EngineRules` field) identify the rule set in every replay.
+`RULES_VERSION` (`"blink"`) and `rules_content_hash` (SHA-256 of the canonical JSON of every `EngineRules` field) identify the rule set in every replay.
 
 ## Determinism notes
 

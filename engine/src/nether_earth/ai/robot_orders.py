@@ -703,8 +703,11 @@ def plan(
     """
     del random
     player = memory.player_id
-    own = tuple(robot for robot in state.robots if robot.owner == player)
-    enemies = tuple(robot for robot in state.robots if robot.owner != player)
+    # A destroyed robot still blinking neither takes orders nor threatens
+    # anything; it only waits to be removed (`docs/mechanics/combat.md`).
+    live = tuple(robot for robot in state.robots if not robot.destroyed)
+    own = tuple(robot for robot in live if robot.owner == player)
+    enemies = tuple(robot for robot in live if robot.owner != player)
     sites = _owned_sites(state, world, player)
     scratch = _Plan(desired={}, committed=set())
 

@@ -23,7 +23,12 @@ import pytest
 
 from nether_earth.capture import CapturableStructureKind
 from nether_earth.combat import apply_damage
-from nether_earth.destruction import destroy_structure, execute_nuclear_detonation, scenery_world
+from nether_earth.destruction import (
+    advance_destroyed_robots,
+    destroy_structure,
+    execute_nuclear_detonation,
+    scenery_world,
+)
 from nether_earth.ids import PLAYER_ONE, PLAYER_TWO, EntityId
 from nether_earth.map import WorldMap, load_world_map
 from nether_earth.robot import Robot
@@ -62,10 +67,17 @@ def _state(*robots: Robot) -> GameState:
 
 
 def _kill(world: WorldMap, state: GameState) -> GameState:
+    """Kill the robot on tick 1 and run its blink to the removal on tick 20."""
+    debris_before = state.robot_debris
     state, _ = apply_damage(
         state, scenery_world(world, state), EntityId("robot-p1-1"), ModuleIdentity.CANNON,
         DEFAULT_RULES, tick=1,
     )
+    # `Lb116` places the debris at the removal, not at the hit.
+    assert state.robot_debris == debris_before
+    for tick in (4, 8, 12, 16, 20):
+        assert state.robot_for(EntityId("robot-p1-1")) is not None
+        state, _ = advance_destroyed_robots(state, world, tick)
     assert state.robot_for(EntityId("robot-p1-1")) is None
     return state
 

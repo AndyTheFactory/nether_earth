@@ -8,7 +8,7 @@ import { CO_LOCATED_TIE_BIAS, TILE_H, TILE_W, bandCovers, depthKey, playViewCent
 import { displayTick, interpolateAltitude, interpolateGrid, interpolateProjectile, isGridTransition, isVerticalTransition } from './interpolation.ts';
 import { drawPrism, drawDiamond } from './prism.ts';
 import { FLAG_POLE_COLUMN, FLAG_SPRITES, ownershipFlags, type FlagOwner } from './flags.ts';
-import { drawRobotStack, drawCommander, robotGround, unitCentre, unitFootprintCells, type ModuleId } from './robot.ts';
+import { drawRobotStack, drawCommander, robotDeaths, robotDrawn, robotGround, unitCentre, unitFootprintCells, type ModuleId } from './robot.ts';
 import { goneSet, SurfaceMap } from './surface.ts';
 import { colorFor, ownerColor, PALETTE, sceneryManifest, shade, structureManifest, terrainElementAsset, terrainManifest, type SemanticAsset } from './assets.ts';
 import { SCENERY_SPRITES } from './scenery-sprites.ts';
@@ -504,6 +504,9 @@ export class WorldRenderer {
       // Robots stand on the terrain under them (CR002.25, `Lcee8`).
       const ground = robotGround(this.surface, r.x, r.y, mv, tick, destroyed);
       robotPos.set(r.entity_id, { x: p.x, y: p.y, top: ground + r.height });
+      // A destroyed robot blinks out on alternate cycles; a commander docked
+      // on it still rides its (undrawn) top.
+      if (!robotDrawn(r)) continue;
       // Sliced one cell at a time (CR002.3/4), like structures and scenery,
       // so a 2×2 body that partly overlaps another one occludes correctly
       // cell-by-cell instead of by a single whole-body anchor key (#242).
@@ -652,11 +655,9 @@ export class WorldRenderer {
     for (const p of prev.projectiles) {
       if (!snap.projectiles.some((q) => q.id === p.id)) this.fx.push({ ...unitCentre(p.x + p.dx, p.y + p.dy), z: p.z + this.surface.liftUnit(p.x + p.dx, p.y + p.dy, goneSet(prev)), kind: 'hit', startMs: nowMs, durationMs: 250 });
     }
-    for (const r of prev.robots) {
-      if (!snap.robots.some((q) => q.entity_id === r.entity_id)) {
-        const ground = robotGround(this.surface, r.x, r.y, null, 0, goneSet(prev));
-        this.fx.push({ ...unitCentre(r.x, r.y), z: ground + r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
-      }
+    for (const r of robotDeaths(prev.robots, snap.robots)) {
+      const ground = robotGround(this.surface, r.x, r.y, null, 0, goneSet(prev));
+      this.fx.push({ ...unitCentre(r.x, r.y), z: ground + r.height / 2, kind: 'explosion', startMs: nowMs, durationMs: 600 });
     }
     for (const id of snap.structure_destruction) {
       if (!prev.structure_destruction.includes(id)) {

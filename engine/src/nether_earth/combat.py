@@ -145,7 +145,7 @@ from typing import TYPE_CHECKING
 
 from nether_earth.collision import robot_top, unit_surface_height
 from nether_earth.commands import Command
-from nether_earth.destruction import destroy_robot, robot_debris_anchor
+from nether_earth.destruction import destroy_robot
 from nether_earth.events import Event, EventSequencer
 from nether_earth.ids import EntityId, PlayerId
 from nether_earth.occupancy import unit_footprints_overlap
@@ -349,9 +349,10 @@ def validate_fire(request: FireRequest, state: GameState) -> FireResult:
 
     1. the source robot exists in ``state``
        (:attr:`~FireRejectionReason.NO_SUCH_ROBOT` -- this also covers a
-       destroyed robot, since a destroyed robot is represented by absence
-       from ``state.robots`` rather than a flag, so there is no separate
-       "robot destroyed" check here);
+       removed robot). A destroyed robot still blinking is accepted: the
+       Spectrum's combat-mode fire (`Lac99`, `Lacb3_regular_weapon_fire`)
+       never checks strength, so the player docked on it can still shoot;
+       it never fires on its own, as its orders are no longer evaluated;
     2. the requesting player controls the robot
        (:attr:`~FireRejectionReason.NOT_CONTROLLED_BY_PLAYER`);
     3. the requested weapon is fitted to the robot's build
@@ -713,7 +714,9 @@ def _robot_hit_at(
     a short robot on a mountain is hit, the same robot on flat ground is flown
     over; see the module docstring's "Height-collision semantics" section), and it is not
     the projectile's own firer (defensive: a landing position never
-    overlaps the firer's body). Candidates are taken in the Spectrum's scan
+    overlaps the firer's body). A blinking robot is a candidate only on the
+    cycles it is shown (:attr:`~nether_earth.robot.Robot.present`; the
+    Spectrum's scan reads map bit 6). Candidates are taken in the Spectrum's scan
     order -- anchor row, then anchor column -- so the result is
     deterministic; two robots never share an anchor. Returns ``None`` if no
     robot qualifies.
@@ -724,6 +727,7 @@ def _robot_hit_at(
             for robot in state.robots
             if unit_footprints_overlap(robot.x, robot.y, x, y)
             and robot.entity_id != source_robot_id
+            and robot.present
             and robot_top(world, robot) >= rules.normal_projectile_altitude
         ),
         key=lambda robot: (robot.y, robot.x),
@@ -1064,7 +1068,8 @@ def apply_damage(
     """Apply one weapon hit to ``target_robot_id``: damage, or destruction.
 
     Returns ``(state, ())`` unchanged -- no event -- if ``target_robot_id``
-    no longer names a live robot in ``state.robots``. This guards against a
+    no longer names a robot in ``state.robots``, or names one already
+    destroyed and blinking (it absorbs the bullet unharmed, `Lb7a7`). This guards against a
     projectile identifying a hit on a robot that something else already
     destroyed earlier in the same tick (single-threaded tick processing
     should normally prevent this, but the guard costs nothing and mirrors
@@ -1076,12 +1081,10 @@ def apply_damage(
     ``calculate_weapon_damage(weapon, robot.height, ground_height, rules)``,
     then ``new_strength = robot.strength - damage``.
 
-    - ``new_strength <= 0``: destruction supersedes a strength update --
-      this function does *not* also write the (never-observed,
-      non-positive) intermediate strength value first. It calls and
-      returns `destruction.py`'s :func:`~nether_earth.destruction.destroy_robot`
-      directly, so destruction's own event(s) (and any docked-commander
-      safety relocation) are exactly what this call returns.
+    - ``new_strength <= 0``: it calls and returns `destruction.py`'s
+      :func:`~nether_earth.destruction.destroy_robot` directly, which sets
+      strength 0, starts the blink and emits
+      :class:`~nether_earth.destruction.RobotDestroyedEvent`.
     - Otherwise: the robot's ``strength`` is updated via
       :meth:`~nether_earth.robot.Robot.with_strength`, replaced in
       ``state.robots``, and a single :class:`RobotDamagedEvent` is emitted.
@@ -1092,7 +1095,9 @@ def apply_damage(
     shape is deliberate from the start rather than retrofitted later.
     """
     robot = state.robot_for(target_robot_id)
-    if robot is None:
+    if robot is None or robot.destroyed:
+        # A blinking robot stops the bullet but takes no damage
+        # (`Lb7a7`: ``dec a`` / ``jp m, Lb7de_collision_handled``).
         return state, ()
 
     ground_height = ground_height_at(world, robot.x, robot.y)
@@ -1100,11 +1105,8 @@ def apply_damage(
     new_strength = robot.strength - damage
 
     if new_strength <= 0:
-        # A robot killed in combat leaves debris on plain ground (`Lb116`).
-        debris = robot_debris_anchor(world, robot)
-        if debris is not None:
-            state = state.with_robot_debris((*state.robot_debris, debris))
-        return destroy_robot(state, target_robot_id, tick, rules, sequencer, world=world)
+        # It blinks, then is removed (and may leave debris, `Lb116`).
+        return destroy_robot(state, target_robot_id, tick, rules, sequencer)
 
     updated_robot = robot.with_strength(new_strength)
     new_state = state.with_robots(

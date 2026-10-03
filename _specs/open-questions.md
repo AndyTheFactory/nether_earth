@@ -46,12 +46,6 @@ Places where the specification and the implementation disagree, or where an oper
 - **Code:** nuclear counts as capable against robots, but autonomous fire never uses it there, so a nuclear-only robot hunts forever without firing.
 - **Needed:** decide whether such a robot should fall back to Stop & Defend.
 
-### 3.6 Destroyed robots are removed immediately
-
-- **Spec:** silent; the Spectrum blinks a destroyed robot for 4 cycles before removing it (`Lb7d7_robot_destroyed`).
-- **Code:** `destruction.destroy_robot` removes it at once.
-- **Needed:** accept as a deviation, or model the blink.
-
 ### 3.7 Nuclear building scan order
 
 - **Spec:** war bases, then factories, "each in canonical order".

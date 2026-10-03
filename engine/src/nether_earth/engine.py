@@ -90,6 +90,12 @@ from nether_earth.construction_session import (
     exit_construction,
     select_module,
 )
+from nether_earth.destruction import (
+    advance_destroyed_robots,
+    evaluate_victory_after_nuclear_detonation,
+    execute_nuclear_detonation,
+    scenery_world,
+)
 
 # Aliased deliberately: `capture.py` also exports a function called
 # ``effective_world`` (ownership overrides only). This module must read
@@ -100,11 +106,6 @@ from nether_earth.construction_session import (
 # every one of this module's own call sites now resolves through the
 # composed function below, so there is nothing left to shadow.
 from nether_earth.destruction import effective_world as destruction_effective_world
-from nether_earth.destruction import (
-    evaluate_victory_after_nuclear_detonation,
-    execute_nuclear_detonation,
-    scenery_world,
-)
 from nether_earth.direct_control import DirectRobotMoveCommand, direct_robot_move_request
 from nether_earth.docking import (
     apply_undock,
@@ -238,7 +239,9 @@ def _robot_fixtures(
     -- `movement.py`); the Spectrum's ``Lb495`` likewise updates the
     altitude together with the robot's cell. When ``world`` is ``None``,
     every robot stands at altitude 0. Caller-supplied fixtures come first so
-    their explicit surfaces keep precedence.
+    their explicit surfaces keep precedence. A blinking robot is a fixture
+    only on the cycles it is shown (`Lb099` and the landing check read map
+    bit 6).
     """
     physical_world = scenery_world(world, state) if world is not None else None
     return fixtures + tuple(
@@ -255,6 +258,7 @@ def _robot_fixtures(
             ),
         )
         for robot in state.robots
+        if robot.present
     )
 
 
@@ -595,6 +599,15 @@ def step(
         issued in one batch apply in that order within the tick. Needs a real
         ``world``; a gameplay no-op otherwise, like ``LaunchRobotCommand``.
 
+    Step 0b, destroyed robots:
+
+    19. Right after validation, on game-cycle ticks (positive multiples of
+        ``rules.robot_fire_cycle_ticks``),
+        :func:`~nether_earth.destruction.advance_destroyed_robots` counts
+        every blinking robot down one cycle and removes the ones whose
+        count had run out (debris, docked-commander release). Every later
+        phase therefore sees this cycle's blink.
+
     Never reads wall-clock time. Same ``(state, commands, world, robots)``
     always produces an identical ``(new_state, events)`` pair.
     """
@@ -643,6 +656,12 @@ def step(
     # still safely be CALLED once this flag is set; only the append is
     # suppressed, which keeps each site's own local reasoning unchanged.
     victory_emitted = False
+
+    # --- Step 0b: destroyed robots blink, then are removed -----------------
+    # First, so every later phase sees this cycle's blink: the Spectrum
+    # updates robots (`Lb0fa`) before bullets in each cycle.
+    state, blink_events = advance_destroyed_robots(state, world, tick, rules, sequencer)
+    events.extend(blink_events)
 
     # When world is None, fall back to commander_movement.py's own
     # permissive ("always allow") defaults by simply not supplying a check
