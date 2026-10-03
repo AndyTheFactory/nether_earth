@@ -103,7 +103,7 @@ def test_pause_freezes_in_flight_robot_move_and_resync_converges(tmp_path: Path)
                 session_a = {"matchId": match_id, "playerId": "p1", "sessionToken": created["sessionToken"]}
                 session_b = {"matchId": match_id, "playerId": "p2", "sessionToken": joined["sessionToken"]}
 
-                # -- 1. Player 1: fly onto the roof-top pad (open-questions §18),
+                # -- 1. Player 1: fly onto the roof-top pad (resolved-questions.md "War-base heli-pad location and landing height"),
                 #       build, launch, order an advance.
                 sequence = 0
                 _command(ws_a, session_a, sequence, {"kind": "commander_set_vertical_intent", "rising": True})

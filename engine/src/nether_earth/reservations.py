@@ -1,6 +1,6 @@
 """Deterministic destination reservations and contention resolution.
 
-`_specs/open-questions.md` §11 (RESOLVED) locks the rules this module owns:
+`_specs/resolved-questions.md` "Simultaneous destination-cell claims" locks the rules this module owns:
 
 - a destination cell is reserved when a robot move is accepted/started;
 - a reserved destination is unavailable to other robots until the move
@@ -17,7 +17,7 @@ reproducible for an identical seed + state + command stream.
 
 2×2 destinations
 ----------------
-A robot is a 2×2 body (`occupancy.py`, `_specs/open-questions.md` §21), so
+A robot is a 2×2 body (`occupancy.py`, `_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"), so
 the "destination" a move reserves is the whole destination body: all four of
 its cells. Two same-tick claims contend when their destination bodies
 overlap, not only when they name the same anchor. Contention is resolved
@@ -302,8 +302,7 @@ class RobotMoveBatchResult:
 def _canonical_requests(requests: Iterable[RobotMoveRequest]) -> tuple[RobotMoveRequest, ...]:
     """Return ``requests`` in canonical ``entity_id.value`` order.
 
-    Submission order must never influence an outcome (`_specs/open-questions.md`
-    §11), so the batch is evaluated in a canonical order instead. Ties
+    Submission order must never influence an outcome (`_specs/resolved-questions.md` "Simultaneous destination-cell claims"), so the batch is evaluated in a canonical order instead. Ties
     within one entity (the same robot claiming twice in one tick) keep their
     relative input order, which is harmless: the second claim is rejected as
     :attr:`~nether_earth.movement.MovementRejectionReason.MOVE_IN_PROGRESS`

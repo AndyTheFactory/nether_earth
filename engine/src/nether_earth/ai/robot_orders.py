@@ -343,7 +343,7 @@ def _has_normal_weapon(robot: Robot) -> bool:
 def _mid_capture(robot: Robot, state: GameState, world: WorldMap) -> bool:
     """Whether ``robot`` stands on its Search & Capture target's capture cell.
 
-    Moving it off would reset the capture (`open-questions.md` §7).
+    Moving it off would reset the capture (`_specs/resolved-questions.md` "Capture interruption semantics").
     """
     order = robot.order
     if not isinstance(order, SearchCapture) or order.structure_id is None:

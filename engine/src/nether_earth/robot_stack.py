@@ -1,7 +1,6 @@
 """Canonical robot component stack and height derivation.
 
-`_specs/technical-spec.md` §12.1 and `_specs/milestones/04-robots-construction-
-economy.md` require "one engine function [that] derives physical/
+`_specs/technical-spec.md` §12.1 and `docs/mechanics/construction.md` require "one engine function [that] derives physical/
 render order and total height" from a valid robot build, with rendering,
 collision, docking, construction preview, and projectile interaction all
 consuming the *same* stack metadata rather than each re-deriving it. This

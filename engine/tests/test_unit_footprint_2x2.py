@@ -1,7 +1,7 @@
 """2×2 robot and commander bodies (CR002.3 #170, CR002.4 #171).
 
 A unit's ``(x, y)`` is the anchor of a 2×2 body covering ``x..x+1`` and
-``y-1..y`` (`_specs/open-questions.md` §21; ``Lb5d6_map_altitude_2x2``,
+``y-1..y`` (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"; ``Lb5d6_map_altitude_2x2``,
 ``Lb513_get_robot_movement_possibilities``, ``Lb052_check_player_collision``
 in `santiontanon/netherearth-disassembly`). These tests pin the convention
 at every rule that reads it; projectile hits and the heli-pad have their

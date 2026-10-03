@@ -256,7 +256,7 @@ export class WorldRenderer {
       const color = colorFor(debris ? 'terrain.rough' : 'structure.blocker');
       for (const c of b.components) blocks.push({ c, color, debris });
     }
-    // Heli-pads sit on the war-base roof (open-questions §18). The pad is one
+    // Heli-pads sit on the war-base roof (resolved-questions.md "War-base heli-pad location and landing height"). The pad is one
     // 2×2 sprite (the Spectrum's "H" decoration, Lce38_draw_decoration), but
     // it is drawn a cell at a time like the walls under it so a nearer block
     // still occludes it: each cell maps to the pad anchor it belongs to.

@@ -1,10 +1,10 @@
 """M9.2 -- canonical v1 PvP scenario dataset: drift guard (issue #114).
 
-The M9 acceptance path (`_specs/milestones/09-pvp-vertical-slice.md`) uses one
+The M9 acceptance path (`_specs/functional-spec.md` §4) uses one
 locked scenario: ``scenario.default_pvp_scenario()`` (id ``pvp-v1``) on map
 ``zx-spectrum-original`` v1 with ``map_overlay.default_pvp_overlay`` applied.
 Every value below is fixed by `_specs/functional-spec.md` §4/§10.1,
-`_specs/technical-spec.md` §6 and `_specs/open-questions.md` §2/§17; this
+`_specs/technical-spec.md` §6 and `_specs/resolved-questions.md` "PvP treatment of the remaining war bases"/§17; this
 test fails on accidental drift of any acceptance-critical value.
 """
 
@@ -86,7 +86,7 @@ def test_fresh_game_from_canonical_scenario_always_starts_with_the_locked_state(
         assert commander.mode is CommanderMode.FREE
         assert commander.altitude == DEFAULT_RULES.commander_min_altitude
         assert (commander.x, commander.y) == world.spawn_positions[commander_spawn_key(player)]
-    # Evidence-backed Player 1 start (open-questions §17); mirrored Player 2.
+    # Evidence-backed Player 1 start (resolved-questions.md "Commander starting positions"); mirrored Player 2.
     assert (commanders[PLAYER_ONE].x, commanders[PLAYER_ONE].y) == (17, 10)
     assert (commanders[PLAYER_TWO].x, commanders[PLAYER_TWO].y) == (499, 9)
 

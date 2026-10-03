@@ -35,7 +35,7 @@ A projectile is a thin traveling point at a single fixed altitude
 (``rules.normal_projectile_altitude``), not a solid body resting on
 anything -- unlike a commander or a robot, it never needs a "touching is not
 blocking" allowance (there is nothing for it to come to rest on top of).
-Per `_specs/open-questions.md` §8's disassembly evidence
+Per `_specs/resolved-questions.md` "Exact projectile mechanics"'s disassembly evidence
 (``Lb5d6_map_altitude_2x2``'s ``cp (iy+BULLET_STRUCT_ALTITUDE)`` / ``jp nc``,
 "jump if no-carry", i.e. jump when ``ground_altitude >= bullet_altitude``),
 an obstacle or robot blocks a projectile whenever its height is
@@ -55,7 +55,7 @@ Collision footprint -- the Spectrum's 2×2 bullet
 ------------------------------------------------
 Owner decision (2026-09-21): projectiles follow the original's 2×2 map-area
 checks. A projectile's ``x``/``y`` is the anchor of a 2×2 body, like a
-robot's (`occupancy.py`, `_specs/open-questions.md` §21). Each advance moves
+robot's (`occupancy.py`, `_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"). Each advance moves
 it ``projectile_cells_per_advance`` (2) cells and then tests only the landing
 position, as ``Lb724_bullet_update_internal`` does:
 
@@ -76,7 +76,7 @@ positions, so no intermediate position is tested (the Spectrum tests none).
 
 Grid symmetry -- why X and Y advance uniformly (§8's Y-axis-doubling question)
 -------------------------------------------------------------------------------
-`_specs/open-questions.md` §8 recommended a documented
+`_specs/resolved-questions.md` "Exact projectile mechanics" recommended a documented
 ``projectile_y_axis_doubled``-style policy decision for whether this
 engine's Y axis should use the same step-size convention as X for
 projectile movement, since the original disassembly's raw-pixel coordinate
@@ -108,7 +108,7 @@ Damage, strength, and destruction
 ---------------------------------
 :func:`calculate_base_damage`/:func:`calculate_weapon_damage`
 implement the locked, evidence-backed formula
-(`_specs/open-questions.md` §9), and :func:`apply_damage` is the single
+(`_specs/resolved-questions.md` "Damage, accuracy, and electronics effects"), and :func:`apply_damage` is the single
 point that reads a hit robot's current strength, applies computed damage,
 and either updates it in place or routes to `destruction.py`'s
 :func:`~nether_earth.destruction.destroy_robot` -- mirroring this module's
@@ -117,7 +117,7 @@ own "validate/compute, then execute" shape one level further.
 ``ground_height_at`` -- what "ground height" means in THIS engine
 -----------------------------------------------------------------------
 The locked formula is ``base_damage = (60 - (robot_height + ground_height))
-/ 4``. `_specs/open-questions.md` §9's disassembly research traced the
+/ 4``. `_specs/resolved-questions.md` "Damage, accuracy, and electronics effects"'s disassembly research traced the
 original's ``ROBOT_STRUCT_ALTITUDE`` operand (read into this formula as
 "ground_height") and found it is a **misleading name**: it is not a
 robot-owned altitude/elevation field at all, but the terrain elevation
@@ -861,7 +861,7 @@ def _advance_one(
        :func:`_projectile_terminal_reason`'s docstring for why.
     2. Otherwise, it moves along its firing axis by
        ``rules.projectile_cells_per_advance`` cells (default 2,
-       `_specs/open-questions.md` §8), capped so ``travelled_cells`` never
+       `_specs/resolved-questions.md` "Exact projectile mechanics"), capped so ``travelled_cells`` never
        exceeds ``max_range_cells``, and its 2×2 body is checked at the
        landing position only via :func:`_projectile_terminal_reason`
        (bounds, static collision, robot collision, in that fixed order), as
@@ -981,7 +981,7 @@ def ground_height_at(world: WorldMap, x: int, y: int) -> int:
 def calculate_base_damage(robot_height: int, ground_height: int) -> int:
     """Return the locked base-damage value for a hit at this height/ground pair.
 
-    Implements `_specs/open-questions.md` §9's confirmed formula exactly:
+    Implements `_specs/resolved-questions.md` "Damage, accuracy, and electronics effects"'s confirmed formula exactly:
     ``(60 - (robot_height + ground_height)) // 4``. Python's ``//`` is
     floor division, matching the disassembly's confirmed two-``srl``
     (shift-right-logical) unsigned bit-level divide-by-4 on a non-negative
@@ -1010,7 +1010,7 @@ def calculate_weapon_damage(
     "one dict, one place" convention: :data:`_WEAPON_DAMAGE_MULTIPLIER_FIELDS`
     names, per normal weapon, which ``EngineRules`` attribute holds its
     multiplier (default 2/3/4 for cannon/missile/phaser respectively,
-    confirmed by `_specs/open-questions.md` §9's disassembly trace of
+    confirmed by `_specs/resolved-questions.md` "Damage, accuracy, and electronics effects"'s disassembly trace of
     ``Lb7c8_damage_calculation_loop``'s repeated-addition accumulation,
     arithmetically identical to ``base * multiplier``).
 

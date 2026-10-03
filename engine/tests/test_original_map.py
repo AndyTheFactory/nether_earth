@@ -1,10 +1,8 @@
 """Tests for the evidence-backed original-map ingestion (issue #25, M2.7).
 
-Spec references: `_specs/milestones/02-map-world-model.md` ("Original map
-ingestion" workstream, "Milestone integration scenario" — "load the current
-original-map YAML and prove it validates and initializes reproducibly");
-`_specs/open-questions.md` §2 (RESOLVED — v1 PvP overlay needs exactly four
-war bases: two extreme, two neutral interior).
+Spec references: `docs/mechanics/world-and-map.md` (load the current
+original-map YAML and prove it validates and initializes reproducibly);
+`_specs/resolved-questions.md` "PvP treatment of the remaining war bases".
 
 See `data/maps/zx-spectrum-original.md` for the full evidence/provenance
 record backing every value in `data/maps/zx-spectrum-original.yaml`,
@@ -50,7 +48,7 @@ def test_original_map_identity_matches_default_scenario() -> None:
 
 
 def test_original_map_has_exactly_four_war_bases() -> None:
-    # `_specs/open-questions.md` §2 (RESOLVED): the v1 PvP overlay needs
+    # `_specs/resolved-questions.md` "PvP treatment of the remaining war bases": the v1 PvP overlay needs
     # exactly four war bases (extreme-left/right for the two players, two
     # neutral interior). This is also disassembly-verified: `N_WARBASES: equ
     # 4` in `netherearth-annotated.asm` — see the evidence doc.

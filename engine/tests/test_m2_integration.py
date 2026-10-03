@@ -1,8 +1,8 @@
 """Milestone 2 integration scenario (issue #26).
 
 This module is the final M2 ("Map & World Model") integration gate
-described in `_specs/milestones/02-map-world-model.md` under "Milestone
-integration scenario" and issue #26's acceptance criteria. It composes the
+described in `docs/mechanics/world-and-map.md` and issue #26's
+acceptance criteria. It composes the
 already-merged M2 primitives -- ``terrain``, ``structures``,
 ``interactions``, ``occupancy``, ``map`` (``WorldMap``/``load_world_map``),
 and ``map_overlay`` -- end to end, proving the whole milestone works
@@ -50,8 +50,8 @@ def _write_yaml(tmp_path: Path, name: str, content: str) -> Path:
 def test_fixture_covers_all_terrain_types_a_blocker_a_factory_and_two_war_bases() -> None:
     """Sanity-check the shared fixture actually has the shape this scenario needs.
 
-    `_specs/milestones/02-map-world-model.md`'s "Milestone integration
-    scenario" calls for "a compact deterministic fixture map containing all
+    `docs/mechanics/world-and-map.md`'s
+    integration scenario calls for "a compact deterministic fixture map containing all
     terrain types, generic blockers, a composed factory, and two composed
     war bases" -- ``world_map_basic.yaml`` already provides exactly this, so
     it is reused rather than adding a second near-duplicate fixture.

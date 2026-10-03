@@ -1,5 +1,5 @@
 // Full-screen ROBOT CONSTRUCTION screen (CR002.9), laid out after the
-// original's screen (_specs/milestones/cr002/construction-screen.png) and its
+// original's screen (docs/reference-screens/cr002/construction-screen.png) and its
 // code (netherearth-disassembly Lc85d/Lca0f/Lcb00/Lcb52/Lcb8e/Lcc1f).
 //
 // Everything shown comes from the authoritative snapshot (the session build

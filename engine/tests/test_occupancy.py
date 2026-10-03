@@ -2,7 +2,7 @@
 
 Spec references: `_specs/technical-spec.md` §8 ("World state and occupancy");
 `_specs/functional-spec.md` §7.3 ("Solid occupancy");
-`_specs/milestones/02-map-world-model.md` ("Occupancy service" workstream).
+`docs/mechanics/world-and-map.md`.
 
 These tests exercise `occupancy.py` directly against hand-built
 `Component`/`WarBase`/`Factory`/`Blocker`/`Footprint` values rather than via

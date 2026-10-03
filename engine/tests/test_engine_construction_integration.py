@@ -48,7 +48,7 @@ WAR_BASE_ONE = EntityId("warbase-p1")
 WAR_BASE_TWO = EntityId("warbase-p2")
 FACTORY_ONE = EntityId("factory-p1")
 
-# 2×2 bodies (CR002.3/CR002.4, open-questions.md §21): the pad is the 2×2
+# 2×2 bodies (CR002.3/CR002.4, resolved-questions.md "2×2 robots, commander, projectiles and heli-pad"): the pad is the 2×2
 # area anchored at HELI_PAD_CELL (over warbase-p1's roof at (4, 0)), and the
 # robot exits with its body anchored four rows below it, as on the Spectrum.
 HELI_PAD_CELL = (4, 1)
@@ -121,7 +121,7 @@ def _grounded_commander_on_heli_pad(player_id: PlayerId = PLAYER_ONE) -> Command
         x=x,
         y=y,
         # The pad cell is warbase-p1's 3-high component: the commander lands
-        # on that roof (open-questions.md §18).
+        # on that roof (resolved-questions.md "War-base heli-pad location and landing height").
         altitude=3,
     )
 

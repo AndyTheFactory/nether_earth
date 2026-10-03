@@ -33,7 +33,7 @@ class TerrainType(Enum):
     """The terrain classes required by `_specs/functional-spec.md` §7.2.
 
     They correspond to the Spectrum map element types
-    (`_specs/open-questions.md` §4): normal = types 0-1, rough = 2-7,
+    (`_specs/resolved-questions.md` "Exact movement speeds and terrain penalties"): normal = types 0-1, rough = 2-7,
     mountain = 8-11, ditch = 12-14.
 
     Values are lowercase strings so the enum round-trips directly against the

@@ -1,8 +1,7 @@
 """Standalone tests for `nether_earth.map_overlay`.
 
-Spec references: `_specs/milestones/02-map-world-model.md` ("Scenario
-overlay" workstream, "Locked v1 PvP scenario overlay"); `_specs/open-
-questions.md` §2 (PvP treatment of the remaining war bases — RESOLVED:
+Spec references: `docs/mechanics/world-and-map.md` (scenario
+overlay); `_specs/resolved-questions.md` (PvP treatment of the remaining war bases — RESOLVED:
 Player 1 owns the extreme-left war base, Player 2 owns the extreme-right
 war base, the two war bases between them start neutral).
 
@@ -375,7 +374,7 @@ def test_apply_overlay_is_deterministic_across_independent_equal_loads() -> None
 
 # --- default_pvp_overlay: locked v1 standard PvP scenario -----------------------
 #
-# `_specs/open-questions.md` §2 is RESOLVED: Player 1 owns the extreme-left
+# `_specs/resolved-questions.md` "PvP treatment of the remaining war bases" is RESOLVED: Player 1 owns the extreme-left
 # war base, Player 2 owns the extreme-right war base, the two war bases
 # between them start neutral. These tests assert exactly that, applied
 # through the overlay mechanism (not baked into map geometry).

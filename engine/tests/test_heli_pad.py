@@ -3,12 +3,12 @@
 Uses the shared M2 fixture map (`fixtures/world_map_basic.yaml`), which
 declares two war bases (``warbase-p1`` owned by ``p1``, ``warbase-p2``
 owned by ``p2``) each with a 2×2 ``HELI_PAD`` interaction point (CR002.4,
-`_specs/open-questions.md` §21): ``warbase-p1-helipad`` anchored at
+`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"): ``warbase-p1-helipad`` anchored at
 ``(4, 1)`` (cells x 4..5, y 0..1) and ``warbase-p2-helipad`` anchored at
 ``(4, 3)`` (cells x 4..5, y 2..3), each over a 3-high war-base component
 (the fixture's "roof"). A commander lands when its 2×2 body lies exactly
-over the pad, i.e. its anchor is the pad's anchor. See `_specs/milestones/03-commander-movement-docking.md`
-("War-base heli-pad interaction") for the acceptance criteria this file
+over the pad, i.e. its anchor is the pad's anchor. See `docs/mechanics/commander.md`
+for the acceptance criteria this file
 covers: friendly, enemy, neutral, misaligned (wrong X/Y), insufficient
 contact (wrong altitude), and docked-mode cases.
 """
@@ -44,7 +44,7 @@ PLAYER_NEUTRAL_OBSERVER = PlayerId("p3")
 P1_HELI_PAD_CELL = (4, 1)
 P2_HELI_PAD_CELL = (4, 3)
 # Both fixture pad cells sit on 3-high components: landing is at that height
-# (open-questions.md §18: land at the pad cell's component height).
+# (resolved-questions.md "War-base heli-pad location and landing height": land at the pad cell's component height).
 PAD_ROOF_ALTITUDE = 3
 
 
@@ -250,7 +250,7 @@ def test_pad_cell_without_a_component_lands_at_custom_min_altitude() -> None:
 
 
 def test_original_map_roof_pad_lands_at_15_not_at_the_anchor_on_the_ground() -> None:
-    # open-questions.md §18 / Spectrum `cp 15`: the pad is at (anchor.x,
+    # resolved-questions.md "War-base heli-pad location and landing height" / Spectrum `cp 15`: the pad is at (anchor.x,
     # anchor.y - 4) on the 15-high roof; the anchor is ground level.
     raw = yaml.safe_load(ORIGINAL_MAP_PATH.read_text(encoding="utf-8"))
     raw["war_bases"][0]["owner"] = "p1"

@@ -5,7 +5,7 @@ Evidence (`santiontanon/netherearth-disassembly`, `netherearth-annotated.asm`):
 reaches 0; a firing update sets the desired direction to 0 (no move), and
 `Lb20d_move_robot` -> `Lb5f3_determine_speed_based_on_terrain` reloads the
 counter from `Lb61d_robot_movement_speed_table` for the cell the robot is on.
-See `_specs/open-questions.md` §8.
+See `_specs/resolved-questions.md` "Exact projectile mechanics".
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ from nether_earth.rules import DEFAULT_RULES
 from nether_earth.state import GameState, create_game_state
 from nether_earth.terrain import TerrainGrid, TerrainType
 
-#: 1 game cycle = 4 ticks (`_specs/open-questions.md` §4).
+#: 1 game cycle = 4 ticks (`_specs/resolved-questions.md` "Exact movement speeds and terrain penalties").
 CYCLE = 4
 
 #: `Lb61d_robot_movement_speed_table` in cycles, per (chassis, terrain) class

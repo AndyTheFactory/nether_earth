@@ -1,17 +1,16 @@
 """Canonical structure interaction metadata: heli-pads, exits, capture points.
 
-Per `_specs/milestones/02-map-world-model.md`, the map/world contract must
+Per `docs/mechanics/world-and-map.md`, the map/world contract must
 expose canonical structure interaction metadata — war-base heli-pad, war-base
 exit, factory capture location, and (if the resolved game rules require one)
 war-base capture location — so other systems (commander docking,
 construction, capture, frontend) consume one shared representation instead of
 inventing layer-specific coordinates.
 
-`_specs/open-questions.md` §6 ("war-base capture mechanics") is open: it is
-unresolved whether war bases can be captured at all, and if so how. This
-module therefore treats ``WARBASE_CAPTURE`` interaction points as optional —
-a map may declare zero, one, or more of them per war base — rather than
-requiring one, so it does not silently answer that question.
+War bases are capturable (`_specs/resolved-questions.md`), by the same
+continuous-occupation rule as factories. This module nevertheless treats
+``WARBASE_CAPTURE`` interaction points as optional — a map may declare zero,
+one, or more of them per war base — and leaves the rule to `capture.py`.
 """
 
 from dataclasses import dataclass
@@ -58,9 +57,9 @@ def _interaction_kind_from_raw(value: Any, *, context: str) -> InteractionKind:
 
 
 # Which structure kind each interaction kind is semantically allowed to
-# attach to, per `_specs/functional-spec.md` §8.6/§9.3/§9.4: heli-pads and
+# attach to, per `_specs/functional-spec.md` §§7-9: heli-pads and
 # exits are war-base concepts, factory capture applies to factories, and
-# war-base capture (optional, `_specs/open-questions.md` §6) applies only to
+# war-base capture (optional, `_specs/resolved-questions.md`) applies only to
 # war bases.
 _WAR_BASE_ONLY_KINDS = frozenset(
     {InteractionKind.HELI_PAD, InteractionKind.EXIT, InteractionKind.WARBASE_CAPTURE}
@@ -87,7 +86,7 @@ def parse_interaction_points(
     ``kind`` attaches only to the structure kind it is semantically valid
     for: ``HELI_PAD``/``EXIT``/``WARBASE_CAPTURE`` require a war base id,
     ``FACTORY_CAPTURE`` requires a factory id (`_specs/functional-spec.md`
-    §8.6/§9.3/§9.4). ``width``/``height`` bound-check every footprint cell
+    §§7-9). ``width``/``height`` bound-check every footprint cell
     against the map dimensions, mirroring ``terrain.parse_terrain_grid``.
 
     Validates duplicate ids, unknown kind strings, dangling ``structure_id``

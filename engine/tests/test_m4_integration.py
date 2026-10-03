@@ -1,8 +1,8 @@
 """Milestone 4 integration scenario (issue #58, M4.8).
 
 This is the final M4 ("Robots, Construction & Economy") integration gate
-described in `_specs/milestones/04-robots-construction-economy.md` under
-"Milestone integration scenario" and issue #58's acceptance criteria. It
+described in `docs/mechanics/construction.md` and issue #58's acceptance
+criteria. It
 composes the already-merged M4 primitives -- ``robot_build.py`` (#52),
 ``robot_stack.py`` (#53), ``construction_economy.py`` (#34),
 ``resource_pool.py``/``resource_production.py`` (#54), ``construction_session.py``
@@ -118,7 +118,7 @@ RULES = DEFAULT_RULES
 WAR_BASE_ONE = EntityId("warbase-p1")
 P1_HELI_PAD_CELL = (4, 1)  # 2×2 pad anchor (CR002.4)
 # The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
-# commander lands at that component height (open-questions.md §18).
+# commander lands at that component height (resolved-questions.md "War-base heli-pad location and landing height").
 PAD_ROOF_ALTITUDE = 3
 P1_EXIT_CELL = (7, 1)  # 2×2 robot body anchor (CR002.3)
 TICKS_PER_DAY = 2880

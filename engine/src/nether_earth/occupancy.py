@@ -26,7 +26,7 @@ one-solid-per-cell invariant deterministically:
 2×2 unit bodies
 ---------------
 Robots, the commander and projectiles are 2×2 bodies, as in the Spectrum
-(`_specs/open-questions.md` §21). A unit's ``(x, y)`` is its **anchor**: the
+(`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"). A unit's ``(x, y)`` is its **anchor**: the
 body covers ``(x, y)``, ``(x + 1, y)``, ``(x, y - 1)`` and ``(x + 1, y - 1)``
 (``Lb5d6_map_altitude_2x2``, ``Lb052_check_player_collision``). The Spectrum
 marks each unit only at its anchor cell and tests a 3×3 window of anchors,
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 
 #: Offsets of a unit's 2×2 body from its anchor, anchor first (see the
-#: module docstring and `_specs/open-questions.md` §21).
+#: module docstring and `_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad").
 UNIT_FOOTPRINT_OFFSETS: tuple[tuple[int, int], ...] = ((0, 0), (1, 0), (0, -1), (1, -1))
 
 

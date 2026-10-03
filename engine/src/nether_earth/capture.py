@@ -1,14 +1,13 @@
 """Factory and war-base capture subsystem.
 
-Per `_specs/milestones/05-orders-navigation-capture.md` and
-`_specs/open-questions.md` §§6-7
-(RESOLVED), this module implements:
+Per `docs/mechanics/orders-and-capture.md` and
+`_specs/resolved-questions.md`, this module implements:
 
 - **capture of every capturable structure**: continuous qualifying
   occupation of the structure's canonical capture interaction location for
   ``rules.capture_duration_ticks`` (default ``1440``) authoritative ticks;
   any interruption resets progress to zero immediately, with no
-  partial-credit resume (`_specs/open-questions.md` §7). One rule covers
+  partial-credit resume (`_specs/resolved-questions.md` "Capture interruption semantics"). One rule covers
   all four cases -- enemy factory, enemy war base, neutral factory and
   neutral war base -- per `_specs/functional-spec.md` §9 ("Factory and
   war-base capture use continuous occupation, whether the structure is

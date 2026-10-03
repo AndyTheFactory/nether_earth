@@ -1,6 +1,6 @@
 """Authoritative per-player resource pool type.
 
-`_specs/open-questions.md` §10 "Resource spending rules -- RESOLVED" locks
+`_specs/resolved-questions.md` "Resource spending rules" locks
 the original Spectrum construction economy: every player has one *general*
 resource pool plus one pool per resource category (the same six
 :class:`~nether_earth.structures.FactoryType` categories a factory produces
@@ -174,7 +174,7 @@ def starting_player_resource_pool(
     General resources are seeded from ``rules.starting_general_resources``
     (locked Spectrum default ``20``). Every type-specific category starts
     at ``0``: neither `_specs/functional-spec.md` nor
-    `_specs/technical-spec.md` nor `_specs/open-questions.md` describe any
+    `_specs/technical-spec.md` describes any
     starting type-specific resource grant, and
     ``construction_economy.starting_resource_pool`` establishes the same
     "type-specific categories start at zero, general is the only seeded

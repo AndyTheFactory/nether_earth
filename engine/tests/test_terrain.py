@@ -2,8 +2,7 @@
 
 Spec references: `_specs/technical-spec.md` §7.3 ("Terrain movement");
 `_specs/functional-spec.md` §7.2 ("Terrain");
-`_specs/milestones/02-map-world-model.md` (Terrain model workstream / acceptance
-criteria).
+`docs/mechanics/world-and-map.md`.
 
 This module intentionally does not exercise `map.py`/YAML-file loading (that
 is covered by `test_world_map.py`); it drives `terrain.py`'s public surface

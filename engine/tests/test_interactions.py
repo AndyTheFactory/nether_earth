@@ -1,9 +1,8 @@
 """Standalone unit tests for `nether_earth.interactions`, independent of `map.py`.
 
-Spec references: `_specs/milestones/02-map-world-model.md`
-("Structure interaction metadata"); `_specs/functional-spec.md` §8.6/§9.3/§9.4
+Spec references: `docs/mechanics/world-and-map.md`; `_specs/functional-spec.md` §7 (World model), §8 (Commander) and §9 (Ownership and capture)
 (heli-pads/exits belong to war bases, capture applies to factories and
-optionally war bases); `_specs/open-questions.md` §6 (war-base capture is not
+optionally war bases); `_specs/resolved-questions.md` "War-base capture mechanics" (war-base capture is not
 required to be declared, so this module must not force one).
 """
 
@@ -73,7 +72,7 @@ def test_warbase_capture_representable() -> None:
 
 
 def test_warbase_capture_absence_is_valid() -> None:
-    # `_specs/open-questions.md` §6 must not be silently answered: a war base
+    # `_specs/resolved-questions.md` "War-base capture mechanics" must not be silently answered: a war base
     # with no declared WARBASE_CAPTURE point is a valid document.
     points = _parse(
         [{"id": "p1", "kind": "heli_pad", "structure_id": "warbase-1", "footprint": {"x": 1, "y": 1}}]

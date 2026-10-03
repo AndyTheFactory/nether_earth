@@ -35,8 +35,7 @@ This is the "why" layer above `navigation.py`'s "which way" and
    bear, and how far away the target is.
 
 This module stops there: no firing, no projectile, no damage, no nuclear
-detonation (`_specs/milestones/05-orders-navigation-capture.md`, "Out of
-scope"). `autonomous_combat.py` consumes :class:`EngagementIntent` and owns
+detonation (see `docs/mechanics/orders-and-capture.md`). `autonomous_combat.py` consumes :class:`EngagementIntent` and owns
 every one of those. That is also why :class:`EngagementIntent` carries
 ``distance_cells`` rather than a boolean "in range": range eligibility is
 re-validated by the combat layer, not decided here. ``weapons`` is likewise
@@ -66,11 +65,12 @@ Two pieces of order state *are* retained on the order itself:
   Recomputing it from the robot's current position every tick would make
   the robot advance forever.
 - :attr:`SearchCapture.structure_id`: the Spectrum's
-  ``ROBOT_STRUCT_ORDERS_ARGUMENT``. It is kept while its live ownership
-  still matches the order and re-selected otherwise, and it is what makes
-  capture targets exclusive between same-owner robots with the same order
-  (``Lb36c``). It is re-validated every evaluation, so it can never
-  outlive the ownership that made it a target.
+  ``ROBOT_STRUCT_ORDERS_ARGUMENT``. The target is re-selected on every
+  evaluation (the nearest matching structure not claimed by another
+  same-owner robot with the same order, ``Lb36c``), except that a robot
+  standing on its stored target's capture cell keeps it. It is
+  re-validated every evaluation, so it can never outlive the ownership
+  that made it a target.
 
 One piece of navigation state is retained on the robot rather than the
 order: an electronics hunter's cached route
@@ -93,7 +93,7 @@ Every order has the same explicit three-phase lifecycle, reported by
   factory/war base completes the same way on its target cell, and that
   completion evaluation carries the only structure engagement intent --
   the nuclear detonation `autonomous_combat.py` executes
-  (`_specs/open-questions.md` §19).
+  (`_specs/resolved-questions.md` "Autonomous use of the nuclear weapon").
 - **FALLBACK** -- the order was invalid or became impossible and was
   replaced by :class:`StopAndDefend`.
 
@@ -114,7 +114,7 @@ What counts as "impossible"
 ----------------------------
 Only conditions that can never resolve on their own, because the locked
 non-electronic navigation behavior is that a robot *may legitimately be
-stuck* (`_specs/open-questions.md` §5) and a stuck robot must keep trying
+stuck* (`_specs/resolved-questions.md` "Dumb vs electronic navigation") and a stuck robot must keep trying
 rather than silently abandoning its order:
 
 - a structurally invalid order (a distance outside 0-50 miles, a
@@ -331,12 +331,14 @@ class SearchCapture:
     The order never completes (Spectrum ``Lb289``: the order byte is never
     rewritten for a player robot). ``structure_id`` is the Spectrum's
     ``ROBOT_STRUCT_ORDERS_ARGUMENT``: the structure the robot last selected,
-    ``None`` until the first evaluation selects one. Each evaluation keeps
-    it while its live ownership still matches ``target``; otherwise it
-    selects the nearest matching structure no other same-owner robot with
-    the same order already holds (``Lb36c``). When nothing matches, the
-    stored id is left as it was (the Spectrum does not clear the argument)
-    and the robot idles with the defensive intent until something matches.
+    ``None`` until the first evaluation selects one. Each evaluation
+    re-selects the nearest matching structure no other same-owner robot with
+    the same order already holds (``Lb36c``), except that a robot standing
+    on its stored target's capture cell keeps that target. When nothing
+    matches, the stored id is left as it was (the Spectrum does not clear
+    the argument); the robot keeps walking to it while it is still a valid
+    target and otherwise idles with the defensive intent until something
+    matches.
 
     `capture.py` owns capture progress, duration, interruption, and
     ownership transfer, and triggers purely on a qualifying robot's
@@ -372,7 +374,7 @@ class SearchDestroy:
     to the structure's target cell -- the cell :func:`select_capture_target`
     would choose -- and produces no intent until it stands there. On that
     tick the order completes with a structure intent whose only effect is
-    the nuclear detonation (`_specs/open-questions.md` §19).
+    the nuclear detonation (`_specs/resolved-questions.md` "Autonomous use of the nuclear weapon").
     """
 
     target: SearchDestroyTarget
@@ -573,7 +575,7 @@ class EngagementIntent:
     """One robot's deterministic intent to engage one hostile entity.
 
     The stable engagement-intent contract combat-capable orders expose
-    (`_specs/milestones/05-orders-navigation-capture.md`).
+    (`docs/mechanics/orders-and-capture.md`).
     It is a *statement*, not an action: producing one fires nothing, spends
     nothing, and mutates nothing.
 
@@ -699,7 +701,7 @@ class _StructureCandidate:
 
     structure_id: EntityId
     #: Where the robot must get to: the structure's capture footprint, for
-    #: both capture and structure destroy (`_specs/open-questions.md` §19).
+    #: both capture and structure destroy (`_specs/resolved-questions.md` "Autonomous use of the nuclear weapon").
     goal_cells: frozenset[tuple[int, int]]
 
 
@@ -866,7 +868,7 @@ def select_destroy_target(
     something up requires it to belong to an enemy first), and the goal cell
     is the nearest cell of the structure's capture footprint -- the same
     target cell a Search & Capture navigates to, where the Spectrum code
-    detonates (`_specs/open-questions.md` §19). A structure with no declared
+    detonates (`_specs/resolved-questions.md` "Autonomous use of the nuclear weapon"). A structure with no declared
     capture point on this map has no target cell and is not a candidate.
 
     Selection is by ``(distance, id)`` exactly as in
@@ -973,7 +975,7 @@ class OrderEvaluation:
     :func:`~nether_earth.reservations.apply_robot_move_batch` together with
     every other request of the tick, never applied directly -- applying them
     one at a time would let submission order decide contention, which
-    `_specs/open-questions.md` §11 forbids.
+    `_specs/resolved-questions.md` "Simultaneous destination-cell claims" forbids.
 
     ``intent`` is this tick's engagement intent, if any. It is deliberately
     independent of ``request``: a robot may close on a target and intend to
@@ -1220,7 +1222,7 @@ def _evaluate_capture(
     The one case that keeps the stored target regardless is a capture
     already under way: a robot standing on its target's capture footprint
     holds it, because `capture.py` resets an interrupted capture to zero
-    (`_specs/open-questions.md` §7) and a robot that re-aimed mid-capture
+    (`_specs/resolved-questions.md` "Capture interruption semantics") and a robot that re-aimed mid-capture
     would abandon 72 seconds of progress and could be pulled off every
     target in turn without ever finishing one.
 
@@ -1360,7 +1362,7 @@ def evaluate_order(
     if (robot.x, robot.y) == goal:
         # Arrived on the structure's target cell: the order completes, and its
         # completion effect is the nuclear detonation `autonomous_combat.py`
-        # executes from this intent (`_specs/open-questions.md` §19). No
+        # executes from this intent (`_specs/resolved-questions.md` "Autonomous use of the nuclear weapon"). No
         # structure intent exists on any earlier tick.
         return replace(
             _completed(robot),

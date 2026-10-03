@@ -1,8 +1,7 @@
 """Replay fixture format and deterministic replay-running test helper.
 
 This module implements the "replay fixtures" half of the "Snapshot and
-replay fixtures" workstream (`_specs/milestones/01-deterministic-engine-
-foundation.md`). It records everything needed to reproduce a run
+replay fixtures" workstream (`docs/mechanics/timing-and-determinism.md`). It records everything needed to reproduce a run
 of the engine end to end -- map, scenario, seed, and a per-tick command
 stream -- and provides a helper that replays that recording through the
 canonical ``engine.new_game``/``engine.step`` contract.

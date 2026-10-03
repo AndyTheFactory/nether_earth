@@ -1,6 +1,6 @@
 """Non-electronic and electronic robot navigation policies.
 
-`_specs/open-questions.md` §5 (RESOLVED) locks the rules this module owns:
+`_specs/resolved-questions.md` "Dumb vs electronic navigation" locks the rules this module owns:
 
 - non-electronic robots use deliberately limited/original-style *local*
   routing and may become blocked even when a longer valid route exists;
@@ -23,7 +23,7 @@ around an obstacle that sits across its approach axis, even when a trivially
 short detour exists. That is the locked gameplay difference electronics buys
 a player; it is not a deficiency to be repaired, and it must not be replaced
 with generic optimal pathfinding "for simplicity"
-(`_specs/milestones/05-orders-navigation-capture.md`). Exact historical quirks of the
+(`docs/mechanics/navigation.md`). Exact historical quirks of the
 original algorithm remain open
 research detail -- the *qualitative* behavior locked above is what this
 module implements, behind an interface that lets a future refinement swap
@@ -88,10 +88,10 @@ store back, so this module still holds no state of its own.
 
 Determinism
 ------------
-No randomness is drawn here. `_specs/milestones/05-orders-navigation-capture.md`
-permits "seeded RNG or stable ordering"; navigation uses stable ordering
-throughout, which is strictly stronger (it needs no RNG stream, so it cannot
-perturb `reservations.py`'s contention stream). Concretely: candidate
+The only randomness is the perpendicular order of a robot without
+electronics, drawn from a stream keyed by match seed, tick window and robot id
+(`docs/mechanics/navigation.md`); navigation draws nothing from
+`reservations.py`'s contention stream. Everything else uses stable ordering. Concretely: candidate
 neighbours are always visited in the fixed canonical
 :data:`CARDINAL_DIRECTIONS` order; the route planner breaks equal-cost ties
 by insertion order in that canonical order; and no outcome depends on dict
@@ -424,7 +424,7 @@ def _enterable(
 ) -> bool:
     """Return whether ``robot``'s 2×2 body could stand anchored at ``(x, y)`` given ``view``.
 
-    Whole-body checks (`_specs/open-questions.md` §21): the body is
+    Whole-body checks (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"): the body is
     on the map, its four cells are terrain the chassis may enter, and no
     structure, other robot, commander, or other robot's reserved destination
     body overlaps it. The robot itself never blocks its own next body.
@@ -726,7 +726,7 @@ def body_alignment_anchors(target_x: int, target_y: int) -> tuple[tuple[int, int
 
 
 class NavigationPolicy(Protocol):
-    """The one engine navigation interface, per `_specs/open-questions.md` §5.
+    """The one engine navigation interface, per `_specs/resolved-questions.md` "Dumb vs electronic navigation".
 
     A policy is a pure decision function: given a robot and a target cell it
     returns a :class:`NavigationDecision`, never touching
@@ -816,7 +816,7 @@ class NonElectronicNavigation:
     :attr:`NavigationStatus.BLOCKED`.
 
     Steps 2 and 3 are the Spectrum's own behavior, not an improvement on it
-    (`_specs/open-questions.md` §5/§22.6). ``Lb222_choose_direction_to_move``
+    (`_specs/resolved-questions.md` "Dumb vs electronic navigation"). ``Lb222_choose_direction_to_move``
     intersects the directions that point at the target with the directions
     the robot may actually move in (``Lb513_get_robot_movement_possibilities``)
     and picks one at random; when that intersection is empty it falls through

@@ -1,7 +1,6 @@
 """CR003.1 (#216): commander gravity is -2 per vertical update.
 
-Owner decision 2026-09-22 (`_specs/milestones/cr003-playtest-fixes.md`,
-`_specs/open-questions.md` §13): ``commander_descent_step`` goes from the
+Owner decision 2026-09-22 (`_specs/resolved-questions.md`): ``commander_descent_step`` goes from the
 Spectrum's 1 to 2, cadence unchanged (4 ticks). Gravity must still stop on
 the surface under the ship when that surface is at an odd altitude, and
 docking on an odd-height friendly robot top must still trigger.

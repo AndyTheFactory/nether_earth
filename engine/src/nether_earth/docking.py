@@ -2,7 +2,7 @@
 
 Implements the physical commander/robot interaction described by
 `_specs/functional-spec.md` §8.4 and the resolved decision in
-`_specs/open-questions.md` §14:
+`_specs/resolved-questions.md` "Landing on an enemy robot":
 
 - descending onto the top of a **friendly** robot automatically docks the
   commander (``FREE`` -> ``DOCKED(robot_id)``);
@@ -30,12 +30,12 @@ hand-off. Keeping it separate means ``collision.py`` never needs to know
 about ownership-conditional docking, and ``commander_movement.py`` never
 needs to know about robots at all. This module is the composition point
 that answers "is this specific top-surface contact a dock, or merely a
-landing?" per `_specs/open-questions.md` §14.
+landing?" per `_specs/resolved-questions.md` "Landing on an enemy robot".
 
 This module, like ``collision.py``, uses
 :class:`~nether_earth.collision.RobotFixture` as its view of "a robot's
 position/height/owner" (see
-`_specs/milestones/03-commander-movement-docking.md`); it does not need a
+`docs/mechanics/commander.md`); it does not need a
 richer robot model.
 
 Purity/determinism
@@ -141,7 +141,7 @@ def attempt_auto_dock(
     altitude under its body (:attr:`RobotFixture.top`), so a
     robot on rough or a mountain is docked 2, 3 or 6 higher.
 
-    2×2 bodies (`_specs/open-questions.md` §21): ``(x, y)`` is the
+    2×2 bodies (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"): ``(x, y)`` is the
     anchor of both bodies, and docking needs the *same* anchor -- the bodies
     coincide exactly. The Spectrum's game loop docks only when the robot's
     map mark is on the ship's own anchor cell and ``altitude == robot
@@ -168,7 +168,7 @@ def attempt_auto_dock(
       ``top == commander.altitude``;
     - the matching fixture at that position is **enemy**-owned
       (``robot.owner != commander.player_id``) -- per
-      `_specs/open-questions.md` §14, enemy robots are collision surfaces
+      `_specs/resolved-questions.md` "Landing on an enemy robot", enemy robots are collision surfaces
       only; the commander may be resting there (that resting/stopping
       geometry is `collision.py`'s job, already exercised before this
       function is ever called), but no docking occurs. This is this
@@ -319,7 +319,7 @@ def apply_undock(
        undocks and no new input vocabulary is needed.
     2. Transition: ``mode`` flips ``DOCKED`` -> ``FREE`` and
        ``docked_robot_id`` is cleared in the same authoritative step.
-    3. Lift (`_specs/open-questions.md` §13): the commander gets
+    3. Lift (`_specs/resolved-questions.md` "Commander vertical limits and speed"): the commander gets
        ``rules.commander_exit_elevate_updates`` automatic-ascent updates,
        exactly like leaving the construction screen. Spectrum evidence: the
        robot HUD's EXIT option (``#a7fd``--``#a80f``, falling through to

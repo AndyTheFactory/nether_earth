@@ -2,8 +2,7 @@
 
 Per `_specs/functional-spec.md` §11 ("Construction cannot launch when:
 player already has 24 robots; war-base exit is blocked; build is invalid;
-resources are insufficient.") and `_specs/milestones/
-04-robots-construction-economy.md`, this module takes a player's active
+resources are insufficient.") and `docs/mechanics/construction.md`, this module takes a player's active
 :class:`~nether_earth.construction_session.ConstructionSession`,
 validates it against the 24-robot cap (`rules.py`'s
 ``max_robots_per_player``) and the canonical war-base ``EXIT``
@@ -55,7 +54,7 @@ Exit-cell resolution (deterministic, single cell)
 --------------------------------------------------
 
 The resolved exit cell is the new robot's **anchor**: the robot is a 2×2
-body (`_specs/open-questions.md` §21) covering the anchor, the
+body (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad") covering the anchor, the
 cell to its right and the two cells above them. The launch is refused as
 :data:`LaunchRejectionReason.EXIT_BLOCKED` when that body would leave the
 map, or when any of its cells is occupied or reserved. On the Spectrum the

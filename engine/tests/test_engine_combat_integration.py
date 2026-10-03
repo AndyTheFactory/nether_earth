@@ -63,8 +63,7 @@ QUIET_X, QUIET_Y = 30, 30
 #: The factory is deliberately off the ``y == QUIET_Y`` firing row: standing
 #: on a structure raises the damage formula's ``ground_height`` term, which
 #: would silently change every expected damage number in this module. Its
-#: capture cell is also its nuclear-blast anchor (`_specs/open-questions.md`
-#: §20).
+#: capture cell is also its nuclear-blast anchor (`_specs/resolved-questions.md` "Nuclear blast shape").
 FACTORY_CELL = (25, 25)
 FACTORY_CAPTURE_CELL = (26, 25)
 
@@ -121,7 +120,7 @@ def _world(
         interaction_points=(
             # Each home war base's capture point sits on its own (occupied)
             # component cell: unreachable for capture, but it gives the base
-            # its nuclear-blast anchor (`_specs/open-questions.md` §20).
+            # its nuclear-blast anchor (`_specs/resolved-questions.md` "Nuclear blast shape").
             _war_base_anchor(WAR_BASE_ONE, (0, 0)),
             _war_base_anchor(WAR_BASE_TWO, (SIZE - 1, SIZE - 1)),
             InteractionPoint(

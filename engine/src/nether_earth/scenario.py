@@ -143,8 +143,8 @@ def initial_ai_memories(
 def commander_spawn_key(player_id: PlayerId) -> str:
     """Return the ``WorldMap.spawn_positions`` key naming ``player_id``'s commander start cell.
 
-    Spawn cells are scenario-overlay data (`_specs/milestones/02-map-world-model.md`
-    "scenario spawn/reference positions"; `map_overlay.ScenarioOverlay`), keyed
+    Spawn cells are scenario-overlay data (`docs/mechanics/world-and-map.md`;
+    `map_overlay.ScenarioOverlay`), keyed
     ``"<player id>_commander"`` (e.g. ``"p1_commander"``), the convention
     ``map_overlay.default_pvp_overlay`` declares.
     """

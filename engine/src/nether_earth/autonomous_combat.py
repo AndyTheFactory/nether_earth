@@ -54,7 +54,7 @@ the first weapon that is still eligible under this tick's re-validation,
 so the outcome never depends on iteration order and is always the same for
 the same inputs.
 
-Nuclear is never part of that walk (`_specs/open-questions.md` §19):
+Nuclear is never part of that walk (`_specs/resolved-questions.md` "Autonomous use of the nuclear weapon"):
 against a robot target only cannon/missile/phaser are considered,
 so Stop & Defend and Search & Destroy (robots) never detonate. The only
 autonomous detonation is a structure intent (factory/war base), which
@@ -106,7 +106,7 @@ This module adds the fire half without a new timer:
   update does not move).
 
 Stationary robots that have not fired have no tracked phase and are
-treated as due every tick (documented in `_specs/open-questions.md` §8).
+treated as due every tick (documented in `_specs/resolved-questions.md` "Exact projectile mechanics").
 Direct (combat-mode) fire is not an order and is not gated here; it keeps
 `combat.py`'s once-per-cycle rule.
 """
@@ -338,7 +338,7 @@ def autonomous_update_period_ticks(
     (``Lb5d6_map_altitude_2x2``; see
     :func:`~nether_earth.movement.unit_move_terrain`). The value is the same
     per-(chassis, terrain) table the move duration uses
-    (`_specs/open-questions.md` §4).
+    (`_specs/resolved-questions.md` "Exact movement speeds and terrain penalties").
     """
     return robot_move_duration_ticks(robot, unit_move_terrain(world, robot.x, robot.y), rules)
 

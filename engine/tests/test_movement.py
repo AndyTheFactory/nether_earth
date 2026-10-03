@@ -183,7 +183,7 @@ def test_ordinary_terrain_speed_order_is_bipod_slower_than_tracks_than_anti_grav
     assert bipod > tracks > anti_grav
 
 
-#: `_specs/open-questions.md` §4 / `_specs/technical-spec.md` §13 locked
+#: `_specs/resolved-questions.md` "Exact movement speeds and terrain penalties" / `_specs/technical-spec.md` §13 locked
 #: ticks per cell for every enterable (chassis, terrain) pair.
 LOCKED_MOVE_TICKS = (
     (ModuleIdentity.BIPOD, TerrainType.NORMAL, 24),

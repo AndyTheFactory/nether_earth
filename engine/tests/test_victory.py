@@ -131,7 +131,7 @@ def test_sequencer_is_used_when_supplied() -> None:
 
 
 #: Every `_war_base` sits at y=0, so a carrier at y=0 measures war-base
-#: dy = |0 + 1 + 4 - 0| = 5 (`_specs/open-questions.md` §20); dx = 4 keeps
+#: dy = |0 + 1 + 4 - 0| = 5 (`_specs/resolved-questions.md` "Nuclear blast shape"); dx = 4 keeps
 #: dx + dy = 9 < 10, the farthest in-range x offset on this row.
 IN_RANGE_DX = 4
 
@@ -229,7 +229,7 @@ def test_single_war_base_destruction_not_completing_the_condition_returns_none()
 
 def test_one_detonation_destroys_at_most_one_of_two_war_bases_in_range() -> None:
     # Both loser bases are in range, but a nuclear bomb destroys at most one
-    # building (`_specs/open-questions.md` §20): the first in map order goes,
+    # building (`_specs/resolved-questions.md` "Nuclear blast shape"): the first in map order goes,
     # the other survives, so the loser still owns a war base -- no victory.
     carrier = _nuclear_robot(entity_id="carrier", x=100, y=0)
     war_base_a = _war_base("wb-loser-a", 100 + IN_RANGE_DX, PLAYER_TWO)

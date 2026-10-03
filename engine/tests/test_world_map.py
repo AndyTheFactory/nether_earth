@@ -1,8 +1,8 @@
 """Tests for the M2 versioned world-map loader and its constituent modules.
 
 Spec references: `_specs/technical-spec.md` §§7-8, 10;
-`_specs/functional-spec.md` §§7, 9; `_specs/milestones/02-map-world-model.md`;
-`_specs/open-questions.md` §15 (resolved compositional structure model).
+`_specs/functional-spec.md` §§7, 9; `docs/mechanics/world-and-map.md`;
+`_specs/resolved-questions.md` (compositional structure model).
 """
 
 from pathlib import Path
@@ -129,8 +129,8 @@ def test_fixture_interaction_points_query() -> None:
     # A 2×2 pad (CR002.4): the four cells a landed commander's body covers.
     assert heli_pads[0].footprint.cells == frozenset({(4, 1), (5, 1), (4, 0), (5, 0)})
 
-    # warbase-p2 declares no warbase_capture point: open-questions.md §6 is
-    # unresolved, so the schema must not require one.
+    # warbase-p2 declares no warbase_capture point: the schema does not require one
+    # (`_specs/resolved-questions.md`, War-base capture mechanics).
     warbase_p2_captures = world_map.interaction_points_for(
         EntityId("warbase-p2"), kind=InteractionKind.WARBASE_CAPTURE
     )

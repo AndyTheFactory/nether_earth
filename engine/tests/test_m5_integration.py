@@ -418,7 +418,7 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert bipod_moves[1].to_x == 2 and bipod_moves[1].to_y == 1  # body over ROUGH
     # The bipod cannot enter a body over the ditch at x=4, so it walks along
     # the ditch until it finds the gap and completes its Advance from there
-    # (`_specs/open-questions.md` §5/§22.6, ``Lb33e`` plus the momentum rule).
+    # (`_specs/resolved-questions.md` "Dumb vs electronic navigation", ``Lb33e`` plus the momentum rule).
     assert len(bipod_moves) > miles_to_cells(3)  # longer than the straight line
     bipod_robot = final.robot_for(ROBOT_BIPOD)
     assert bipod_robot is not None
@@ -464,7 +464,7 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert still_blocked is not None
     # Never advanced past the commander. It no longer stands perfectly still
     # while blocked -- the dumb policy sidesteps along the obstacle
-    # (`_specs/open-questions.md` §5/§22.6) -- but the commander's cell is
+    # (`_specs/resolved-questions.md` "Dumb vs electronic navigation") -- but the commander's cell is
     # impassable, so its x never moves on.
     assert still_blocked.x == 5
     # Checked when the Advance completes: with the Spectrum piece heights
@@ -491,7 +491,7 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert set(contention.contenders) == {ROBOT_CONTEND_WEST, ROBOT_CONTEND_EAST}
     # Only the seeded winner started a move on the contested tick. The loser
     # is no longer frozen for the rest of the run: it detours and moves again
-    # later (`_specs/open-questions.md` §5/§22.6), so this counts that tick.
+    # later (`_specs/resolved-questions.md` "Dumb vs electronic navigation"), so this counts that tick.
     contend_started = [
         e
         for e in move_started_events
@@ -626,7 +626,7 @@ def test_full_milestone_scenario_composes_all_m5_rules() -> None:
     assert dumb_final is not None and smart_final is not None
     # Both get past the wall and complete their Advance: the dumb robot
     # sidesteps along the wall until the rows 12-13 gap lets it through
-    # (`_specs/open-questions.md` §5/§22.6), the electronic one plans the
+    # (`_specs/resolved-questions.md` "Dumb vs electronic navigation"), the electronic one plans the
     # detour up front.
     assert dumb_final.x == 10 + miles_to_cells(8)
     assert dumb_final.order == StopAndDefend()

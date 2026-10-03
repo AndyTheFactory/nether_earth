@@ -394,7 +394,7 @@ def step(
     :func:`~nether_earth.reservations.apply_robot_move_batch`, never one at
     a time, so that same-tick claims on one destination cell are collected
     before a winner is drawn from the match-local seeded RNG
-    (`_specs/open-questions.md` §11; resolving them as they arrived would
+    (`_specs/resolved-questions.md` "Simultaneous destination-cell claims"; resolving them as they arrived would
     make submission order decide, which §11 forbids). The batch emits a
     :class:`~nether_earth.reservations.DestinationContentionResolvedEvent`
     per contested cell plus the winners'
@@ -491,7 +491,7 @@ def step(
     12. Step 2b2 sits deliberately **before** Step 2c, not after Step 2d:
         the movement requests orders produce are appended to Step 2c's
         single ``apply_robot_move_batch`` call rather than executed in a
-        second batch of their own. `_specs/open-questions.md` §11 requires
+        second batch of their own. `_specs/resolved-questions.md` "Simultaneous destination-cell claims" requires
         same-tick claims on one cell to be collected before a seeded winner
         is drawn; evaluating orders in a separate later batch would instead
         let direct-control moves win every contested cell purely because
@@ -671,7 +671,7 @@ def step(
         vertical_check = _always_allow_vertical
 
     # --- Step 2: resolve horizontal transitions due to complete ------------
-    # Runs *before* Step 1 (open-questions §23) so a
+    # Runs *before* Step 1 (resolved-questions.md "Idle tick between commander cells") so a
     # commander move completing on this tick is cleared before this tick's
     # commander_move is applied; a held key then starts the next cell on the
     # completion tick (4 ticks per cell, no idle tick). Robots already
@@ -716,7 +716,7 @@ def step(
     # Runs *before* Step 2c so every autonomous move request joins the exact
     # same deconflicted batch as this tick's direct-control requests -- see
     # the docstring's Step 2b2 notes for why a second batch would break
-    # `_specs/open-questions.md` §11.
+    # `_specs/resolved-questions.md` "Simultaneous destination-cell claims".
     order_requests: list[RobotMoveRequest] = []
     order_lifecycle_events: tuple[Event, ...] = ()
     # Bound before the guard so Step 2c2 (which consumes this tick's

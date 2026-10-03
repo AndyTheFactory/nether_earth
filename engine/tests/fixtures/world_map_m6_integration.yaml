@@ -16,7 +16,7 @@
 # unique ``y`` value. Two lanes can therefore never share a cell regardless
 # of the ``x`` range each one uses, and the nuclear lanes (I, J) are spaced
 # 40 rows apart -- far beyond the nuclear blast shapes' reach (a 9x9 robot
-# window, building dy < 7; `_specs/open-questions.md` §20) -- so a
+# window, building dy < 7; `_specs/resolved-questions.md` "Nuclear blast shape") -- so a
 # detonation centred on one lane's row can never reach a neighboring lane's
 # entities.
 #
@@ -71,7 +71,7 @@
 #          because no normal-weapon code path ever calls
 #          `destruction.destroy_structure`.
 # - y=360: Lane I -- nuclear blast-shape boundary inclusion/exclusion
-#          (`_specs/open-questions.md` §20). All eligible/ineligible robots
+#          (`_specs/resolved-questions.md` "Nuclear blast shape"). All eligible/ineligible robots
 #          and structures for this lane's detonation are placed on the
 #          carrier's own row: robots 4 (window edge, included) and 5
 #          (excluded) cells east; factory anchors 4 (included) and 5
@@ -138,7 +138,7 @@ blockers:
 
 # Nuclear-lane capture points: a structure's capture cell is its Spectrum
 # building anchor, which the nuclear blast measures from
-# (`_specs/open-questions.md` §20). Only the nuclear lanes declare them.
+# (`_specs/resolved-questions.md` "Nuclear blast shape"). Only the nuclear lanes declare them.
 interaction_points:
   - id: factory-i-in-capture
     kind: factory_capture

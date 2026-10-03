@@ -7,7 +7,7 @@ provides the mechanism for layering scenario-time ownership and named
 spawn/reference positions over a base :class:`map.WorldMap` without mutating
 the source map definition.
 
-`_specs/open-questions.md` §2 (PvP treatment of the remaining war bases) is
+`_specs/resolved-questions.md` "PvP treatment of the remaining war bases" (PvP treatment of the remaining war bases) is
 now RESOLVED: Player 1 starts owning the extreme-left war base, Player 2
 starts owning the extreme-right war base, and the two war bases between
 them start neutral. :func:`default_pvp_overlay` encodes exactly that locked
@@ -122,9 +122,9 @@ STANDARD_PVP_OVERLAY_ID = "standard-pvp"
 def default_pvp_overlay(world_map: "WorldMap") -> ScenarioOverlay:
     """Return the locked v1 standard-PvP :class:`ScenarioOverlay` for ``world_map``.
 
-    Encodes `_specs/open-questions.md` §2 (RESOLVED) /
-    `_specs/milestones/02-map-world-model.md`'s "Locked v1 PvP scenario
-    overlay": Player 1 (``ids.PLAYER_ONE``) owns the extreme-left war base,
+    Encodes `_specs/resolved-questions.md` "PvP treatment of the remaining war bases" /
+    `docs/mechanics/world-and-map.md`
+    (scenario overlay): Player 1 (``ids.PLAYER_ONE``) owns the extreme-left war base,
     Player 2 (``ids.PLAYER_TWO``) owns the extreme-right war base, and every
     other war base is left out of ``ownership`` entirely — since a war
     base's ``owner`` already defaults to ``None`` (neutral), simply not
@@ -194,7 +194,7 @@ def default_pvp_overlay(world_map: "WorldMap") -> ScenarioOverlay:
 
 
 #: Player 1's commander start relative to its war base's capture anchor cell.
-#: Evidence (`_specs/open-questions.md` §17): the ZX Spectrum start routine
+#: Evidence (`_specs/resolved-questions.md` "Commander starting positions"): the ZX Spectrum start routine
 #: (`La600_start`) sets the ship to x=17, y=10, altitude 0 while war base 0's
 #: anchor is (22, 9) -- an offset of (-5, +1), i.e. just outside the base on
 #: the side facing away from the map interior. Player 2 uses the x-mirror of
@@ -212,7 +212,7 @@ def _commander_spawn_cell(
     Player 2 starts outside its extreme-right base just as Player 1 starts
     outside its extreme-left one. The original game is single-player, so
     Player 2's mirrored start is a locked PvP adaptation confirmed by the
-    owner (`_specs/open-questions.md` §17), not Spectrum evidence; it
+    owner (`_specs/resolved-questions.md` "Commander starting positions"), not Spectrum evidence; it
     stays overlay data kept in one place here. The result is clamped into the map so an odd map cannot
     yield an out-of-bounds spawn (``apply_overlay`` would reject it).
     """

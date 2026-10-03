@@ -1,8 +1,8 @@
 """Milestone 1 integration scenario (issue #9).
 
 This module is the final M1 ("Deterministic Engine Foundation") integration
-gate described in `_specs/milestones/01-deterministic-engine-foundation.md`
-under "Milestone integration scenario" and exercised through issue #9's
+gate described in `docs/mechanics/timing-and-determinism.md`
+and exercised through issue #9's
 acceptance criteria. It composes the already-merged M1 primitives
 (``ids``, ``state``, ``clock``, ``commands``, ``events``, ``scenario``,
 ``map``, ``engine``, ``rng``, ``snapshot``, ``replay``) end to end and proves

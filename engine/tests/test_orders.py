@@ -784,7 +784,7 @@ def test_a_robot_already_facing_out_of_the_capture_cell_just_holds() -> None:
 def test_search_capture_does_not_abandon_a_capture_already_under_way() -> None:
     """A robot standing on its target's capture cell keeps it, nearer target or not.
 
-    `capture.py` resets an interrupted capture to zero (open-questions §7),
+    `capture.py` resets an interrupted capture to zero (resolved-questions.md "Capture interruption semantics"),
     so re-aiming mid-capture would throw away the elapsed occupation and
     could pull a robot off every target in turn without finishing one.
     """

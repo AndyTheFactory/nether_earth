@@ -56,7 +56,7 @@ from nether_earth.state import GameState
 
 SCRIPT_SEED = 20260920
 #: Flight altitude that clears the 15-high war-base roof the heli-pad sits on
-#: (open-questions §18); the script only uses it to route, never to decide landing.
+#: (resolved-questions.md "War-base heli-pad location and landing height"); the script only uses it to route, never to decide landing.
 ROOF_CLEARANCE = 16
 #: Hard stop so a regression that stalls the script fails instead of hanging.
 MAX_TICKS = 40_000
@@ -135,7 +135,7 @@ class Api:
     def land_on_heli_pad(self, player: PlayerId, structure_id: str) -> Iterator[Predicate]:
         """Fly above the roof-top heli-pad, release rise, and let gravity settle the commander on it.
 
-        The pad is on the war-base roof (open-questions §18); the engine
+        The pad is on the war-base roof (resolved-questions.md "War-base heli-pad location and landing height"); the engine
         enters construction once the commander rests at the roof height.
         """
         pad = self.heli_pad(structure_id)
@@ -305,7 +305,7 @@ class Api:
         return min(points[0].footprint.cells)
 
     def heli_pad(self, structure_id: str) -> tuple[int, int]:
-        """The anchor of the 2×2 pad: its min-x/max-y cell (open-questions §18, CR002.4)."""
+        """The anchor of the 2×2 pad: its min-x/max-y cell (resolved-questions.md "War-base heli-pad location and landing height", CR002.4)."""
         points = self.world.interaction_points_for(EntityId(structure_id), kind=InteractionKind.HELI_PAD)
         return min(points[0].footprint.cells, key=lambda cell: (cell[0], -cell[1]))
 
@@ -418,7 +418,7 @@ def player_one(api: Api) -> Actor:
     enemy = api.war_base("warbase-4")
     yield from api.advance_to_column(PLAYER_ONE, P1_STRIKER, enemy[0] - STRIKER_STAGING_OFFSET)
     # The blast reaches a war base only from near its anchor (dy measured from
-    # carrier.y + 5 must stay < 7; open-questions §20), so direct-drive the
+    # carrier.y + 5 must stay < 7; resolved-questions.md "Nuclear blast shape"), so direct-drive the
     # striker up to the row just below the anchor, level with the guard.
     # The scenery walls west of warbase-4 (CR002.1 blockers) leave one open
     # gap on the row above the anchor, so drive through it and come down

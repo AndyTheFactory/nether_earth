@@ -1,6 +1,6 @@
 """Construction-session lifecycle and reversible build editing.
 
-`_specs/milestones/04-robots-construction-economy.md` and
+`docs/mechanics/construction.md` and
 `_specs/functional-spec.md` §10.3/§11 describe the player-facing construction
 flow: a commander lands on its own war base's heli-pad (the
 ``heli_pad.CommanderConstructionEntryEligible`` event, see ``heli_pad.py``),

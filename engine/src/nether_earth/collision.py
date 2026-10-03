@@ -3,7 +3,7 @@
 Implements the authoritative collision rules the commander is subject to
 against static world geometry, robots, and the opposing commander, per
 `_specs/functional-spec.md` §8.3-8.5, `_specs/technical-spec.md` §9.1-9.2,
-and the resolved decisions in `_specs/open-questions.md` §12 (commander-vs-
+and the resolved decisions in `_specs/resolved-questions.md` "Commander-versus-commander collision" (commander-vs-
 commander collision) and §14 (landing on an enemy robot).
 
 Why a dedicated module
@@ -33,14 +33,14 @@ decision (the specs describe the blocking behavior but not the exact
 interval algebra); it is applied uniformly everywhere in this module so
 "touching is allowed, overlapping is blocked" is consistent for static
 components, robots, and commander-vs-commander alike, per
-`_specs/open-questions.md` §12 ("share X/Y only when vertical ranges do not
+`_specs/resolved-questions.md` "Commander-versus-commander collision" ("share X/Y only when vertical ranges do not
 overlap") and §14 ("stops at the top of the ... stack").
 
 Ground-rooted geometry
 -----------------------
 2×2 bodies: a commander's and a robot's
 ``(x, y)`` is the anchor of a 2×2 body (`occupancy.py`,
-`_specs/open-questions.md` §21). Every query below tests whole bodies:
+`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"). Every query below tests whole bodies:
 static components under any of the four cells, and robots/commanders whose
 bodies overlap.
 
@@ -75,7 +75,7 @@ The robot fixture
 -----------------
 :class:`RobotFixture` is a minimal (id, owner, x, y, height, altitude)
 projection of "a robot's top surface for collision purposes" (see
-`_specs/milestones/03-commander-movement-docking.md`), scoped to collision
+`docs/mechanics/commander.md`), scoped to collision
 math only. It is deliberately *not* placed in a shared module: the real
 robot model should not import or extend this type.
 
@@ -184,7 +184,7 @@ class RobotFixture:
     This is **not** the real robot model. It carries exactly what collision
     math needs: a position, an
     owner (so future callers can distinguish friendly/enemy if they choose
-    to, though `_specs/open-questions.md` §14 treats both as physical
+    to, though `_specs/resolved-questions.md` "Landing on an enemy robot" treats both as physical
     surfaces identically for commander collision), and a ground-rooted
     physical ``height``. See the module docstring for why this placeholder
     lives here rather than in a shared location.
@@ -372,7 +372,7 @@ def commander_blocks_cell(
     This is the stable commander-blocking query robot movement calls per
     commander it needs to check, without duplicating overlap math -- see
     the module docstring. ``(x, y)`` is the anchor of the other unit's 2×2
-    body (`_specs/open-questions.md` §21): ``commander``
+    body (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"): ``commander``
     blocks it iff the commander's own 2×2 body overlaps that body and its
     vertical range (from ``rules``, default
     :data:`~nether_earth.rules.DEFAULT_RULES`) overlaps ``vertical_range``.
@@ -396,8 +396,7 @@ def _blocking_ranges_at(
 ) -> tuple[VerticalRange, ...]:
     """Return every static-geometry/robot vertical range under the 2×2 body at ``(x, y)``.
 
-    ``(x, y)`` is a commander anchor (`_specs/open-questions.md`
-    §21). Static geometry -- components and terrain pieces -- is one
+    ``(x, y)`` is a commander anchor (`_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"). Static geometry -- components and terrain pieces -- is one
     ground-rooted range up to :func:`unit_surface_height`, as the Spectrum's
     ``Lb052_check_player_collision`` takes the highest map piece of its 2×2
     area; robots count when their own 2×2 body overlaps (``Lb052``'s 3×3
@@ -447,10 +446,10 @@ def commander_horizontal_move_allowed(
       queried per-component so a tall component blocks a low commander
       while a sufficiently high commander clears it);
     - ``robots`` (friendly and enemy alike -- both are physical top
-      surfaces per `_specs/open-questions.md` §14; this function does not
+      surfaces per `_specs/resolved-questions.md` "Landing on an enemy robot"; this function does not
       distinguish ownership because the collision rule does not);
     - every *other* commander in ``state.commanders`` at the destination
-      cell, per `_specs/open-questions.md` §12 (opposing commanders block
+      cell, per `_specs/resolved-questions.md` "Commander-versus-commander collision" (opposing commanders block
       horizontal movement only when vertical ranges overlap; same-owner
       commanders cannot coexist in ``state.commanders`` since a player has
       at most one commander, so this is effectively "the opposing

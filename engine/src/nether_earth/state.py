@@ -450,7 +450,7 @@ def _canonical_capture_progress(
     Shared by :func:`create_game_state` and
     :meth:`GameState.with_capture_progress`. A
     structure has at most one active capture attempt in progress at a time
-    -- per `_specs/open-questions.md` §7, any interruption resets progress
+    -- per `_specs/resolved-questions.md` "Capture interruption semantics", any interruption resets progress
     to zero immediately rather than retaining a second, stale attempt --
     so uniqueness is enforced on ``structure_id``, mirroring
     :func:`_canonical_structure_ownership`.

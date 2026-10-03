@@ -1,8 +1,8 @@
 """Milestone 3 integration scenario (issue #43, M3.7).
 
 This is the final M3 ("Commander Movement, Collision & Docking") integration
-gate described in `_specs/milestones/03-commander-movement-docking.md` under
-"Milestone integration scenario" and issue #43's acceptance criteria. It
+gate described in `docs/mechanics/commander.md` and issue #43's acceptance
+criteria. It
 composes the already-merged M3 primitives -- ``commander.py`` (#37),
 ``commander_movement.py`` (#38), ``collision.py`` (#39), ``docking.py``
 (#40), ``heli_pad.py`` (#41), and ``engine.py``'s ``step`` wiring (#42) --
@@ -29,7 +29,7 @@ parallel map. Its relevant geometry:
 - the map is 12x8, leaving free ground east of the structures.
 
 Commanders (and robot fixtures) are 2×2 bodies anchored at their ``(x, y)``
-(CR002.3/CR002.4, `_specs/open-questions.md` §21): the body covers x..x+1,
+(CR002.3/CR002.4, `_specs/resolved-questions.md` "2×2 robots, commander, projectiles and heli-pad"): the body covers x..x+1,
 y-1..y, so two commanders one cell apart overlap.
 - terrain variety (rough at ``(1, 1)``, ditch at ``(3, 3)``) -- terrain does
   not affect commander flight collision (only structure/robot/commander
@@ -97,7 +97,7 @@ ASCENT = RULES.commander_ascent_step  # 2
 DESCENT = RULES.commander_descent_step  # 2
 HEIGHT = RULES.commander_height  # 4
 # The fixture's p1 heli-pad cell sits on warbase-p1's 3-high component: the
-# commander lands at that component height (open-questions.md §18).
+# commander lands at that component height (resolved-questions.md "War-base heli-pad location and landing height").
 PAD_ROOF_ALTITUDE = 3
 
 
@@ -485,7 +485,7 @@ def test_enemy_robot_contact_stops_descent_without_docking_or_control_transfer()
 
 def test_landing_on_own_heli_pad_emits_construction_entry_eligible() -> None:
     # p1's own 2×2 heli-pad, resting on warbase-p1's 3-high roof component
-    # (open-questions.md §18: land at the pad's component height).
+    # (resolved-questions.md "War-base heli-pad location and landing height": land at the pad's component height).
     p1 = _free(PLAYER_ONE, x=4, y=1, altitude=PAD_ROOF_ALTITUDE)
     state = _new_game((p1,))
     world = _world()
@@ -568,7 +568,7 @@ def _drive_full_scenario(world: WorldMap) -> tuple[GameState, tuple[object, ...]
     exercised by ``test_landing_on_own_heli_pad_emits_construction_entry_eligible``
     and ``test_descending_onto_own_roof_heli_pad_settles_and_enters_through_step``
     above (the pad is on ``warbase-p1``'s 3-high roof component, where
-    height-aware collision lets the commander settle; open-questions.md §18).
+    height-aware collision lets the commander settle; resolved-questions.md "War-base heli-pad location and landing height").
 
     Returns the final state and the full ordered event stream, so callers
     can replay this twice and diff the results for determinism.
