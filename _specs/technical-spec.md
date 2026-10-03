@@ -73,11 +73,12 @@ The engine owns all gameplay rules. It must not depend on FastAPI, WebSockets, b
 API:
 
 ```python
-state = engine.new_game(map_data, scenario, players, seed, commanders)
+world = map_overlay.apply_overlay(map.load_world_map(path), map_overlay.default_pvp_overlay(...))
+state = scenario.create_initial_state(scenario, world, seed=seed)   # commanders, pools, ownership
 state, events = engine.step(state, commands, world=world)
 ```
 
-`world` is the scenario-overlaid `WorldMap`; `engine.step` derives every per-tick world view (ownership overrides, destruction, debris) from it and the state.
+`engine.new_game(map_data, scenario, players, seed, commanders)` builds a bare tick-0 state for tests and fixtures. `world` is the scenario-overlaid `WorldMap`; `engine.step` derives every per-tick world view (ownership overrides, destruction, debris) from it and the state.
 
 The match layer owns orchestration only:
 
