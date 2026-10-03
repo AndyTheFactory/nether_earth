@@ -18,7 +18,7 @@
     "pixi.js": "8.21.0"
   },
   "devDependencies": {
-    "@types/node": "22.20.4",
+    "@types/node": "26.6.3",
     "ajv": "8.20.0",
     "happy-dom": "20.14.5",
     "js-yaml": "5.4.2",
