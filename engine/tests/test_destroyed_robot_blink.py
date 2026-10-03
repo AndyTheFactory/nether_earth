@@ -210,6 +210,58 @@ def test_a_blinking_robot_blocks_other_robots_only_while_shown() -> None:
     assert free.accepted
 
 
+def test_a_robot_that_moved_onto_a_hidden_blinker_overlaps_it_when_it_reappears() -> None:
+    # Regression: a move validated while the blinker is hidden ends inside
+    # its 2x2; when the blinker is shown again the occupancy fold must not
+    # raise. The Spectrum lets the two map marks overlap.
+    world = _world()
+    build = RobotBuild(chassis=ModuleIdentity.ANTI_GRAV, weapons=(ModuleIdentity.CANNON,))
+    stack, height = derive_stack_and_height(build, DEFAULT_RULES)
+    mover = Robot(
+        entity_id=EntityId("robot-a"),
+        owner=PLAYER_ONE,
+        x=X - 2,
+        y=Y,
+        build=build,
+        stack=stack,
+        height=height,
+        facing=RobotFacing.EAST,
+    )
+    blinker = _dying(_robot("robot-z", PLAYER_TWO, X, Y), cycles=3)  # hidden
+    commander = Commander(
+        player_id=PLAYER_ONE,
+        mode=CommanderMode.DOCKED,
+        x=mover.x,
+        y=mover.y,
+        altitude=height,
+        docked_robot_id=mover.entity_id,
+    )
+    state = _state(mover, blinker).with_commanders((commander,)).with_tick(4)
+
+    started: list[int] = []
+    while state.tick < 28:
+        move = DirectRobotMoveCommand(player=PLAYER_ONE, sequence=0, dx=1, dy=0)
+        state, _events = step(state, [move], world=world)
+        robot = state.robot_for(mover.entity_id)
+        assert robot is not None
+        if robot.movement is not None and robot.movement.started_tick == state.tick:
+            started.append(state.tick)
+        dying = state.robot_for(blinker.entity_id)
+        assert (dying is None) == (state.tick >= 20)
+        if state.tick in (17, 18, 19):
+            # Shown again, overlapping the mover's new body.
+            assert dying is not None and dying.present and robot.x == X - 1
+            assert folded_robot_occupancy(world, state).is_occupied(X + 1, Y)
+
+    # Tick 5: accepted while hidden (12 ticks, done on 17). Ticks 17-19: the
+    # next step east is refused while the blinker is shown. Tick 20: it is
+    # gone, and the step starts.
+    assert started == [5, 20]
+    robot = state.robot_for(mover.entity_id)
+    assert robot is not None and robot.x == X - 1
+    assert robot.movement is not None and robot.movement.to_x == X
+
+
 def test_a_blinking_robot_cannot_move_even_under_direct_control() -> None:
     world = _world()
     dying = _dying(_robot("robot-a", PLAYER_ONE, X, Y))
@@ -284,8 +336,12 @@ def test_a_blinking_robot_never_fires_on_its_own() -> None:
 
 
 def test_a_blinking_robot_is_not_shot_at_but_a_live_enemy_behind_it_is() -> None:
-    # `Lb68e_object_found`: a robot with strength <= 0 is not an enemy to
-    # fire at.
+    # A blinking robot is never a fire target. The third case (a live enemy
+    # straight behind a shown blinker is fired at) departs from the
+    # original, whose raycast `Lb67e` stops at the first bit-6 object; it
+    # holds only because the engine does not adopt the original's fire scan
+    # (it fires at its intent's target and the bullet then meets the
+    # blinker).
     world = _world()
     defender = _robot("robot-a", PLAYER_ONE, X, Y, order=StopAndDefend())
     enemy = _robot("robot-y", PLAYER_TWO, X + 4, Y)
