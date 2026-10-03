@@ -50,6 +50,8 @@ sudo install -d -o 10001 -g 10001 -m 750 /srv/nether-earth/replays
 | `NETHER_EARTH_MAX_MATCHES` | no (200) | Matches held in memory at once; beyond this, `create` gets `server_busy`. |
 | `NETHER_EARTH_FINISHED_MATCH_RETENTION_SECONDS` | no (300) | How long a finished match stays resolvable for late reconnects. |
 | `NETHER_EARTH_WAITING_MATCH_TIMEOUT_SECONDS` | no (900) | How long a lobby waits for its second player. |
+| `NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS` | no (30) | How long a lobby with no connected player keeps its capacity (covers a page refresh). |
+| `NETHER_EARTH_REPLAY_RETENTION_DAYS` | no (unset = keep forever) | Finished/interrupted replay artifacts older than this are deleted hourly by the backend. |
 | `NETHER_EARTH_BACKEND_MEM_LIMIT` / `_CPUS` | no (1g / 1.0) | Backend container limits. |
 
 A missing required variable stops `docker compose config`/`up` with
@@ -120,8 +122,8 @@ configure Nginx `real_ip` so per-IP rate limits see client addresses.
 | Restart gateway only | `dc restart gateway` | Drops sockets; clients reconnect within the 60 s grace, matches continue. |
 | Reload Nginx config | `docker exec nether-earth-gateway-1 nginx -s reload` | No interruption. |
 
-Live matches cannot be migrated. Before a planned backend restart/update, check
-`curl -s localhost/api/ready` → `"matches": 0`, or accept ending the running matches.
+Live matches cannot be migrated. Before a planned backend restart/update, run the
+*backend counts* command (§6) → `"matches": 0`, or accept ending the running matches.
 
 ## 6. Health and verification
 
@@ -130,9 +132,18 @@ Live matches cannot be migrated. Before a planned backend restart/update, check
 | Containers | `dc ps` | three services `(healthy)` |
 | Gateway liveness | `curl -s http://localhost/healthz` | `ok` |
 | Backend liveness | `curl -s http://localhost/api/health` | `{"status":"ok"}` |
-| Backend readiness | `curl -s http://localhost/api/ready` | `"status":"ready"`, counts of matches/runtimes/connections |
+| Backend readiness | `curl -s http://localhost/api/ready` | `"status":"ready"` and `"checks"` (no counts in production) |
+| Backend counts | see below | `"matches"`, `"runtimes"`, `"connections"` |
 | Frontend | open the public URL | lobby renders; create a match; a second browser joins with the code |
 | Full smoke (non-destructive, separate project/port) | `deploy/smoke.sh` | ends with `SMOKE OK` |
+
+**Backend counts.** In production `/api/ready` hides the live-match counts from public
+(gateway) traffic; the backend reports them only to a loopback client, so read them from
+inside the container:
+
+```bash
+dc exec backend python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/ready').read().decode())"
+```
 
 With the TLS override, use `https://<host>/...` (plain HTTP redirects everything except `/healthz`).
 
@@ -166,12 +177,14 @@ shows the last probe outputs.
   versions, seed, players' nicknames, status, result, final snapshot), `commands.jsonl`
   (accepted commands per tick + event summary) and `lifecycle.jsonl` (disconnect/pause/
   resume/forfeit/no-contest). Created when a match starts; finalized when it ends.
-- `status: "in_progress"` on a match that is not running means it was interrupted by a
-  backend stop/crash; the file is still a valid prefix of the command stream.
+- `status` is `"in_progress"` while the match runs, `"finished"` when it ended normally, and
+  `"interrupted"` if the backend stopped or crashed while it ran (set automatically at the next
+  startup; the file is still a valid prefix of the command stream). `commands.jsonl` has no
+  `fsync`; a host crash can lose its last lines.
 - Size: every tick is recorded; measured ~1.5 MB per match for ~4 minutes of heavy command traffic (see the performance report).
-- Retention: nothing is deleted automatically. Example — keep 30 days:
-  `find /srv/nether-earth/replays -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +`
-  (daily cron on the host).
+- Retention: unset `NETHER_EARTH_REPLAY_RETENTION_DAYS` keeps everything (the disk fills over time
+  and `/ready` turns 503 when it is full). Set it to delete finished/interrupted artifacts older
+  than N days, checked hourly. A host cron is no longer required but still works.
 - Backup: replays are the only persistent data. They are optional debugging/audit material;
   back them up with any file-level tool if you want to keep them, e.g.
   `tar -C /srv/nether-earth -czf replays-$(date +%F).tgz replays` or `rsync -a` to another host.
@@ -182,7 +195,8 @@ shows the last probe outputs.
 
 ```bash
 cd /opt/nether-earth
-curl -s localhost/api/ready                    # note "matches"; live matches will end
+curl -s localhost/api/ready                    # status/checks
+dc exec backend python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/ready').read().decode())"  # backend counts: note "matches"; live matches will end
 grep NETHER_EARTH_VERSION deploy/.env          # this is the rollback target, write it down
 git fetch --tags && git checkout v1.0.1
 sed -i 's/^NETHER_EARTH_VERSION=.*/NETHER_EARTH_VERSION=1.0.1/' deploy/.env
@@ -225,7 +239,17 @@ Replay files need no migration; each `meta.json` records its `schema_version`/`r
 | Lobby shows "connection: closed" immediately | browser devtools → `/ws` status | **403**: `NETHER_EARTH_PUBLIC_BASE_URL` origin does not match the URL in the address bar (scheme/host/port). **429**: per-IP limit (many tabs/players behind one NAT or reconnect loop). **502/504**: backend down (`dc ps`, `dc logs backend`) |
 | Frontend shows a blank page, console mentions `unsafe-eval` | browser console | a custom build dropped the `pixi.js/unsafe-eval` import in `frontend/src/main.ts`; the gateway CSP forbids eval |
 | Players disconnected every ~2 min | gateway logs, proxies in front | an extra proxy with a short idle timeout; Nginx here allows 120 s idle and uvicorn pings every 20 s |
-| `server_busy` on create | `/api/ready` matches | capacity reached; raise `NETHER_EARTH_MAX_MATCHES` only if CPU allows (performance report) |
+| `server_busy` on create | backend counts (§6) `"matches"` | capacity reached; raise `NETHER_EARTH_MAX_MATCHES` only if CPU allows (performance report) |
 | Stutter / `tick_overrun` warnings | `docker stats nether-earth-backend-1` | CPU saturated: fewer concurrent matches or a faster CPU |
 | No new replays | `/api/ready` checks, `replay_write_failed` logs | permissions or full disk; matches keep running without replays |
-| Backend restarts | `docker inspect -f '{{.RestartCount}} {{.State.OOMKilled}}' nether-earth-backend-1` | OOM → raise `NETHER_EARTH_BACKEND_MEM_LIMIT`, check leak signs in `/api/ready` counts |
+| Backend restarts | `docker inspect -f '{{.RestartCount}} {{.State.OOMKilled}}' nether-earth-backend-1` | OOM → raise `NETHER_EARTH_BACKEND_MEM_LIMIT`, check leak signs in the backend counts (§6) |
+
+- **`server_busy` for everyone:** capacity is `NETHER_EARTH_MAX_MATCHES` across every state. One IP
+  can hold at most 32 sockets (gateway `limit_conn`) and therefore at most 32 lobbies, plus whatever
+  it created inside the abandonment grace (30 handshakes/min × 30 s ≈ 15). Filling 200 needs several
+  addresses. Lower `NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS` or the gateway `limit_conn` if abused.
+- **`bind_timeout` errors in a client:** a socket must send `create`/`join`/`reconnect` within 30 s
+  of connecting; the backend closes it otherwise (code 1008).
+- **Backend behind a second proxy that needs client IPs:** the backend ignores `X-Forwarded-*`
+  (it never uses client addresses). Rate limits key on the gateway's `$binary_remote_addr`; put
+  `real_ip` handling in the gateway, not the backend.

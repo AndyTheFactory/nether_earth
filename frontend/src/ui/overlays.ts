@@ -10,7 +10,7 @@ export function renderOverlay(panel: Panel, s: AppState, nowEpochMs: number): vo
     return;
   }
   if (s.connection.status === 'reconnecting' || s.connection.status === 'disconnected') {
-    panel.set(`<div class="box"><h2>${s.connection.status === 'reconnecting' ? 'RECONNECTING…' : 'DISCONNECTED'}</h2><p>Gameplay is paused until the server confirms resume.</p>${btn('reconnect', 'Reconnect now')}</div>`);
+    panel.set(`<div class="box"><h2>${s.connection.status === 'reconnecting' ? 'RECONNECTING…' : 'DISCONNECTED'}</h2><p>Gameplay is paused until the server confirms resume.</p>${s.connection.lastError ? `<p class="err">${esc(s.connection.lastError.message)}</p>` : ''}${btn('reconnect', 'Reconnect now')}</div>`);
     return;
   }
   switch (lc.phase) {

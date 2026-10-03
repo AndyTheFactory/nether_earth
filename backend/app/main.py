@@ -21,12 +21,13 @@ import os
 import tempfile
 import time
 from collections.abc import AsyncIterator, Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from nether_earth.events import Event
 from nether_earth.map import WorldMap
 from nether_earth.state import GameState
@@ -46,7 +47,13 @@ from app.match.world import load_standard_world
 from app.protocol import serialize_server_message
 from app.protocol.common import PROTOCOL_VERSION, ErrorInfo
 from app.protocol.server_messages import ServerError
-from app.replay import ReplayWriter, make_replay_lifecycle_notifier, make_replay_tick_recorder
+from app.replay import (
+    ReplayWriter,
+    make_replay_lifecycle_notifier,
+    make_replay_tick_recorder,
+    mark_interrupted,
+    prune_replays,
+)
 from app.transport import ConnectionRegistry, create_websocket_router
 from app.transport.disconnects import make_disconnect_notifier
 from app.transport.snapshots import make_tick_broadcaster
@@ -76,6 +83,9 @@ def _release_commit() -> str:
 
 #: How often expired matches are looked for (M10.6).
 SWEEP_INTERVAL_S = 15.0
+
+#: How often artifacts past NETHER_EARTH_REPLAY_RETENTION_DAYS are deleted.
+REPLAY_PRUNE_INTERVAL_S = 3600.0
 
 
 def _replay_dir_status(base_dir: Path) -> str:
@@ -191,6 +201,14 @@ def create_app(
             except Exception:
                 logger.exception("match sweep failed", extra={"event": "match_sweep_failed"})
 
+    async def prune_replays_forever(max_age_s: float) -> None:
+        while True:
+            try:
+                await asyncio.to_thread(prune_replays, replay_writer.base_dir, max_age_s=max_age_s)
+            except Exception:
+                logger.exception("replay prune failed", extra={"event": "replay_prune_failed"})
+            await asyncio.sleep(REPLAY_PRUNE_INTERVAL_S)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         nonlocal shutting_down
@@ -204,11 +222,21 @@ def create_app(
                 "replay_dir": str(replay_writer.base_dir),
                 "public_base_url": settings.public_base_url,
                 "max_matches": settings.max_matches,
+                "replay_retention_days": settings.replay_retention_days,
             },
         )
+        await asyncio.to_thread(mark_interrupted, replay_writer.base_dir)
+        pruner: asyncio.Task[None] | None = None
+        if settings.replay_retention_days is not None:
+            pruner = asyncio.create_task(
+                prune_replays_forever(settings.replay_retention_days * 86_400.0)
+            )
         sweeper = asyncio.create_task(sweep_forever())
         yield
         sweeper.cancel()
+        if pruner is not None:
+            pruner.cancel()
+        await asyncio.to_thread(replay_writer.close)
         shutting_down = True
         logger.info(
             "backend stopping; in-memory matches end with the process",
@@ -231,7 +259,12 @@ def create_app(
 
     connection_registry = ConnectionRegistry()
     runtime_registry = MatchRuntimeRegistry(tick_rate_hz=tick_rate_hz)
-    replay_writer = ReplayWriter(base_dir=replay_dir)
+    # One worker thread (NE-02): replay I/O never runs on the event loop,
+    # and a single worker keeps every match's lines in submission order.
+    replay_writer = ReplayWriter(
+        base_dir=replay_dir,
+        executor=ThreadPoolExecutor(max_workers=1, thread_name_prefix="replay-writer"),
+    )
 
     def _on_tick_factory(match: Match) -> TickObserver:
         # Bound per match at start time (see `MatchManager.on_tick_factory`'s
@@ -272,6 +305,7 @@ def create_app(
         max_matches=settings.max_matches,
         finished_retention_s=settings.finished_retention_s,
         waiting_timeout_s=settings.waiting_timeout_s,
+        abandoned_lobby_grace_s=settings.abandoned_lobby_grace_s,
     )
     # Breaks the construction-order cycle (this coordinator must exist
     # before `MatchManager` can be constructed with it, but the natural
@@ -288,6 +322,7 @@ def create_app(
     fastapi_app.state.sweep_expired_matches = sweep_expired_matches
     fastapi_app.state.runtime_registry = runtime_registry
     fastapi_app.state.connection_registry = connection_registry
+    fastapi_app.state.replay_writer = replay_writer
 
     fastapi_app.include_router(
         create_websocket_router(
@@ -299,32 +334,39 @@ def create_app(
     )
 
     @fastapi_app.get("/health", tags=["operations"])
-    def health() -> dict[str, str]:
-        """Liveness: the process is up and serving HTTP. No gameplay logic."""
+    async def health() -> dict[str, str]:
+        """Liveness: the process is up and serving HTTP. No gameplay logic.
+
+        ``async`` so it runs on the event loop, never in Starlette's threadpool:
+        every registry here is mutated on the loop and is not thread-safe.
+        """
         return {"status": "ok"}
 
     @fastapi_app.get("/ready", tags=["operations"])
-    def ready(response: Response) -> dict[str, object]:
+    async def ready(request: Request, response: Response) -> dict[str, object]:
         """Readiness: can this process accept and persist new matches right now?
 
-        503 while shutting down or when the replay directory is not writable
-        (matches would run but their replay artifacts would be lost). The
-        counts are operational totals only, no match or player data.
+        503 while shutting down or when the replay directory is not writable.
+        Operational counts are included outside production, and in production
+        only to a loopback client (an operator inside the container): the
+        route is public through the gateway, whose traffic arrives from the
+        gateway container's address, and the figures reveal load (NE-11).
+        ``async`` for the same reason as ``health``; the blocking replay-dir
+        probe runs in a worker thread so it never stalls the loop.
         """
-        checks = {
-            "replay_dir": _replay_dir_status(replay_writer.base_dir),
-            "accepting": "no" if shutting_down else "ok",
-        }
+        checks: dict[str, str] = {}
+        checks["replay_dir"] = await asyncio.to_thread(_replay_dir_status, replay_writer.base_dir)
+        checks["accepting"] = "no" if shutting_down else "ok"
         is_ready = all(value == "ok" for value in checks.values())
         if not is_ready:
             response.status_code = 503
-        return {
-            "status": "ready" if is_ready else "not_ready",
-            "checks": checks,
-            "matches": len(match_manager),
-            "runtimes": len(runtime_registry),
-            "connections": connection_registry.connection_count(),
-        }
+        body: dict[str, object] = {"status": "ready" if is_ready else "not_ready", "checks": checks}
+        loopback = request.client is not None and request.client.host in ("127.0.0.1", "::1")
+        if not settings.production or loopback:
+            body["matches"] = len(match_manager)
+            body["runtimes"] = len(runtime_registry)
+            body["connections"] = connection_registry.connection_count()
+        return body
 
     return fastapi_app
 

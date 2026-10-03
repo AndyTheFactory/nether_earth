@@ -43,10 +43,18 @@ images:
 	docker build -f backend/Dockerfile --build-arg GIT_COMMIT=$(NETHER_EARTH_COMMIT) -t nether-earth-backend:$(VERSION) .
 	docker build -f frontend/Dockerfile --build-arg GIT_COMMIT=$(NETHER_EARTH_COMMIT) -t nether-earth-frontend:$(VERSION) .
 
+# Re-resolves against the current pins (hash lines stripped: constraints
+# files take no --hash) so `make lock` only re-hashes. To upgrade a pin,
+# edit its version in backend/requirements.lock first, then run make lock.
 lock:
-	docker run --rm -v "$(CURDIR)":/src:ro python:3.12-slim-bookworm sh -c '\
+	docker run --rm -v "$(CURDIR)":/src:ro python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 sh -c '\
+	  pip install -q --root-user-action=ignore --disable-pip-version-check pip-tools && \
 	  cp -r /src/engine /src/backend /tmp/ && \
-	  pip install -q --root-user-action=ignore --disable-pip-version-check /tmp/engine /tmp/backend && \
-	  pip freeze --exclude nether-earth-engine --exclude nether-earth-backend' > backend/requirements.lock.new
+	  printf "/tmp/engine\\n/tmp/backend\\n" > /tmp/in.txt && \
+	  sed -e "s/ \\\\$$//" -e "/^    --hash/d" /src/backend/requirements.lock > /tmp/constraints.txt && \
+	  pip-compile -q --generate-hashes --strip-extras --no-header --no-annotate \
+	    -c /tmp/constraints.txt \
+	    --output-file /tmp/lock.txt /tmp/in.txt && \
+	  grep -v -E "^(nether-earth-engine|nether-earth-backend)( |==)|^# (WARNING|Consider)" /tmp/lock.txt' > backend/requirements.lock.new
 	{ head -3 backend/requirements.lock; cat backend/requirements.lock.new; } > backend/requirements.lock.tmp
 	mv backend/requirements.lock.tmp backend/requirements.lock && rm backend/requirements.lock.new

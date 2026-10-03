@@ -78,6 +78,7 @@ from app.protocol.common import CommandPayload
 from app.replay.verify import load_commands_by_tick, verify_replay
 from tests.transport._helpers import (
     _create,
+    _drain_replays,
     _join,
     _match_manager,
     _next_non_snapshot,
@@ -321,6 +322,7 @@ def _wait_for_snapshot_tick_beyond(
 def _wait_for_persisted_batch(
     ws: WebSocketTestSession,
     *,
+    client: TestClient,
     own_match_id: str,
     replay_dir: Path,
     match_id: str,
@@ -346,6 +348,7 @@ def _wait_for_persisted_batch(
         current_tick = _wait_for_snapshot_tick_beyond(
             ws, own_match_id=own_match_id, min_tick=current_tick
         )
+        _drain_replays(client)
         commands_by_tick = load_commands_by_tick(replay_dir, match_id)
         candidates = [
             tick
@@ -499,6 +502,7 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
                     # `commands.jsonl`.
                     representative_tick, commands_by_tick = _wait_for_persisted_batch(
                         a_persistent,
+                        client=client,
                         own_match_id=match_a_id,
                         replay_dir=replay_dir,
                         match_id=match_a_id,
@@ -521,6 +525,7 @@ def test_full_scenario_two_players_commands_disconnect_reconnect_forfeit_replay(
                     # docstring), so this independently confirms all 9 really
                     # reached the engine's per-command validation, not just
                     # that 9 opaque records exist on disk.
+                    _drain_replays(client)
                     raw_lines = (
                         (replay_dir / match_a_id / "commands.jsonl").read_text(encoding="utf-8").splitlines()
                     )

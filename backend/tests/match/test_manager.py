@@ -284,3 +284,31 @@ def test_explicit_seed_is_recorded_on_started_game_state(manager: MatchManager) 
     assert match.seed == 12345
     assert match.game_state is not None
     assert match.game_state.seed == 12345
+
+
+@pytest.mark.parametrize(
+    "nickname",
+    [
+        "\u200b\u200b",  # zero-width spaces only
+        "ali\u200bce",  # zero-width space inside
+        "bob\u2060",  # word joiner
+        "\ufeffcarol",  # BOM
+        "\u3000\u3000",  # ideographic spaces only (stripped to empty)
+        "\u0301\u0301",  # combining marks only, nothing visible
+        "al\u200dice",  # ZWJ between letters (not allowed)
+        "\u200d\U0001f600",  # ZWJ before emoji (not allowed, nothing before ZWJ)
+        "\u3164",  # Hangul filler: a "letter" that renders blank
+        "\u2800\u2800",  # braille blank pattern
+        "al\u034fice",  # combining grapheme joiner
+    ],
+)
+def test_nickname_invisible_or_format_characters_rejected(manager: MatchManager, nickname: str) -> None:
+    with pytest.raises(InvalidNicknameError):
+        manager.create_match(nickname)
+
+
+@pytest.mark.parametrize("nickname", ["alice", "Zoë", "山田", "player-1", "😀", "\U0001f469\u200d\U0001f680 pilot"])
+def test_nickname_visible_unicode_accepted(manager: MatchManager, nickname: str) -> None:
+    result = manager.create_match(nickname)
+    assert manager.get_match(result.match_id).players[PLAYER_ONE].nickname == nickname
+

@@ -36,6 +36,7 @@ from app.match.world import load_standard_world
 from app.transport import ConnectionRegistry, create_websocket_router
 from tests.transport._helpers import (
     _create,
+    _drain_replays,
     _join,
     _match_manager,
     _next_non_snapshot,
@@ -319,6 +320,7 @@ def test_match_start_lands_a_replay_artifact_on_disk(
         assert ws_a.receive_json()["type"] == "started"
         assert ws_b.receive_json()["type"] == "started"
 
+    _drain_replays(client)
     meta_path = tmp_path / "replays" / created["matchId"] / "meta.json"
     assert meta_path.exists(), (
         f"expected a replay artifact at {meta_path} after the match started -- "
@@ -778,6 +780,37 @@ def test_reconnect_returns_resync_snapshot_and_rebinds_connection(client: TestCl
     assert resync["matchId"] == created["matchId"]
     assert resync["playerId"] == "p1"
     assert resync["snapshot"]["type"] == "snapshot"
+
+
+def test_second_socket_with_same_session_closes_the_first(client: TestClient) -> None:
+    """NE-06: a token holder gets exactly one live socket; the superseded one is closed 4000."""
+    with client.websocket_connect("/ws") as first_ws:
+        created = _create(first_ws)
+        with client.websocket_connect("/ws") as second_ws:
+            second_ws.send_text(
+                json.dumps(
+                    {
+                        "protocolVersion": 1,
+                        "type": "reconnect",
+                        "matchId": created["matchId"],
+                        "playerId": "p1",
+                        "sessionToken": created["sessionToken"],
+                    }
+                )
+            )
+            assert second_ws.receive_json()["type"] == "resync"
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                first_ws.receive_json()
+            assert exc_info.value.code == 4000
+            # The newer socket is still the live one: a ready toggle on it is served.
+            _ready(
+                second_ws,
+                match_id=created["matchId"],
+                player_id="p1",
+                session_token=created["sessionToken"],
+                ready=False,
+            )
+            assert second_ws.receive_json()["type"] == "ready_state"
 
 
 def test_reconnect_to_a_still_waiting_match_returns_a_valid_empty_snapshot_not_a_crash(
@@ -1280,3 +1313,31 @@ def test_resync_is_sent_before_any_resumed_broadcast_it_triggers(
             # is itself a fresh disconnect that would re-pause the match.
             match = manager.get_match(created["matchId"])
             assert match.state is MatchRuntimeState.ACTIVE
+
+
+def test_opponents_token_cannot_issue_commands_from_another_players_socket(
+    client: TestClient,
+) -> None:
+    """§9.8: a socket bound as P2 presenting P1's valid token is a session mismatch, not P1."""
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        created, _joined, _snapshot = _start_active_match_keeping_sockets_open(ws_a, ws_b)
+        ws_b.send_text(
+            json.dumps(
+                {
+                    "protocolVersion": 1,
+                    "type": "command",
+                    "matchId": created["matchId"],
+                    "playerId": "p1",
+                    "sessionToken": created["sessionToken"],
+                    "clientSequence": 0,
+                    "payload": {"kind": "commander_move", "dx": 1, "dy": 0},
+                }
+            )
+        )
+        message = _next_non_snapshot(ws_b, own_match_id=created["matchId"])
+        assert message["type"] == "error"
+        assert message["error"]["code"] == "session_mismatch"
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            for _ in range(1000):
+                ws_b.receive_json()
+        assert exc_info.value.code == 1008

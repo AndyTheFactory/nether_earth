@@ -219,30 +219,30 @@ Existing coverage is strong for: origin refusal, oversized frames, message flood
 Findings NE-01…NE-15 above; there are no Critical/High items.
 
 ### Immediate
-| Item | Findings | Effort | Change risk |
-|---|---|---|---|
-| Release lobby capacity when the creator disconnects; add per-IP concurrent-match cap | NE-01 | Medium | Low–Medium (gameplay unaffected; touches lifecycle) |
-| Make `/health` and `/ready` `async` (or snapshot dicts) | NE-05 | Small | Low |
-| Document/enforce TLS overlay for production | NE-07 | Small | Low |
+| Item | Findings | Effort | Change risk | Status |
+|---|---|---|---|---|
+| Release lobby capacity when the creator disconnects; add per-IP concurrent-match cap | NE-01 | Medium | Low–Medium (gameplay unaffected; touches lifecycle) | done (PR #307) |
+| Make `/health` and `/ready` `async` (or snapshot dicts) | NE-05 | Small | Low | done (PR #307) |
+| Document/enforce TLS overlay for production | NE-07 | Small | Low | skipped (owner) |
 
 ### Near term
-| Item | Findings | Effort | Change risk |
-|---|---|---|---|
-| Move replay writes off the tick path (persistent fd / writer thread) | NE-02 | Medium | Medium (must keep replay verification byte-identical) |
-| Replay retention/prune + mark orphaned `in_progress` on startup | NE-03 | Medium | Low |
-| Add Dependabot + audit/CodeQL workflow | NE-08 | Small | Low |
-| Close superseded socket on session takeover | NE-06 | Small | Low |
-| Nickname policy for format characters/duplicates (needs owner confirmation) | NE-04 | Small | Low |
+| Item | Findings | Effort | Change risk | Status |
+|---|---|---|---|---|
+| Move replay writes off the tick path (persistent fd / writer thread) | NE-02 | Medium | Medium (must keep replay verification byte-identical) | done (PR #307) |
+| Replay retention/prune + mark orphaned `in_progress` on startup | NE-03 | Medium | Low | done (PR #307) |
+| Add Dependabot + audit/CodeQL workflow | NE-08 | Small | Low | done (PR #307) |
+| Close superseded socket on session takeover | NE-06 | Small | Low | done (PR #307) |
+| Nickname policy for format characters/duplicates (needs owner confirmation) | NE-04 | Small | Low | done (PR #307) for format characters; duplicates: open question |
 
 ### Later
-| Item | Findings | Effort | Change risk |
-|---|---|---|---|
-| Pin actions by SHA and images by digest; lock hashes | NE-09, NE-10 | Small–Medium | Low |
-| Trim `/api/ready` public output; unify join error codes | NE-11 | Small | Low |
-| Replace `assert` in `ws.py` | NE-12 | Small | Low |
-| Unbound-socket handshake timeout | NE-13 | Small | Low |
-| Split `ws.py` into per-message handlers; prune history-narrating comments | NE-14, NE-15 | Medium | Medium (large diff; rely on existing WS tests) |
-| Restrict `--forwarded-allow-ips` | §8 | Small | Low |
+| Item | Findings | Effort | Change risk | Status |
+|---|---|---|---|---|
+| Pin actions by SHA and images by digest; lock hashes | NE-09, NE-10 | Small–Medium | Low | done (PR #307) |
+| Trim `/api/ready` public output; unify join error codes | NE-11 | Small | Low | done (PR #307) for `/ready` counts; join-code unification: open question |
+| Replace `assert` in `ws.py` | NE-12 | Small | Low | done (PR #307) |
+| Unbound-socket handshake timeout | NE-13 | Small | Low | done (PR #307) |
+| Split `ws.py` into per-message handlers; prune history-narrating comments | NE-14, NE-15 | Medium | Medium (large diff; rely on existing WS tests) | separate plan |
+| Restrict `--forwarded-allow-ips` | §8 | Small | Low | done (PR #307) |
 
 ## Appendix A — Systemic patterns
 

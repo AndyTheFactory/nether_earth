@@ -260,7 +260,7 @@ def verify_replay(
     if tick_count is None:
         raise ValueError(
             f"match {match_id!r}'s artifact has no final_tick recorded "
-            "(status is still 'in_progress' -- verify only a finished artifact)"
+            "(status is not 'finished' -- verify only a finished artifact)"
         )
 
     if world is not None:

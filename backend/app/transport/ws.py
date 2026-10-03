@@ -72,6 +72,7 @@ once both players are connected again, resume the match.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -131,6 +132,17 @@ _NORMAL_CLOSE_CODE = 1000
 #: RFC 6455 "Message Too Big" / "Internal Error" close codes.
 _TOO_BIG_CLOSE_CODE = 1009
 _INTERNAL_ERROR_CLOSE_CODE = 1011
+#: Close code sent to a socket superseded by a newer connection for the same
+#: session (RFC 6455 reserves 4000-4999 for applications). The holder of a
+#: token gets exactly one live socket, so a leaked token cannot be used in
+#: parallel with its owner unnoticed.
+_REPLACED_CLOSE_CODE = 4000
+
+#: Seconds an accepted socket may stay without a bound session (no
+#: successful create/join/ready/leave/command/reconnect) before it is
+#: closed. Bounds idle unauthenticated sockets independently of the
+#: gateway's proxy_read_timeout (security review NE-13).
+UNBOUND_SOCKET_TIMEOUT_S = 30.0
 
 
 @dataclass(slots=True)
@@ -176,6 +188,7 @@ def create_websocket_router(
             await websocket.close(code=_POLICY_VIOLATION_CLOSE_CODE)
             return
         await websocket.accept()
+        bind_deadline = asyncio.get_running_loop().time() + UNBOUND_SOCKET_TIMEOUT_S
         bound: _BoundSession | None = None
         bucket = TokenBucket()
         failed_joins = 0
@@ -207,6 +220,11 @@ def create_websocket_router(
             removed = connection_registry.unregister(bound.match_id, bound.player_id, websocket)
             if removed:
                 await notify_disconnect_once()
+                if not connection_registry.connections_for(bound.match_id):
+                    # Nobody is attached any more. A no-op unless the match
+                    # is still WAITING (NE-01: abandoned lobbies must not
+                    # hold capacity for the whole waiting timeout).
+                    match_manager.mark_lobby_abandoned(bound.match_id)
 
         async def _reject_and_close(
             ws: WebSocket,
@@ -218,11 +236,31 @@ def create_websocket_router(
             await _send_error(ws, match_id, code, detail)
             await _close(ws, close_code)
 
+        async def attach(match_id: str, player_id: str) -> None:
+            """Make this socket the live one for ``(match_id, player_id)``; close any predecessor."""
+            replaced = connection_registry.register(match_id, player_id, websocket)
+            match_manager.mark_lobby_occupied(match_id)
+            if replaced is not None:
+                await _close(replaced, _REPLACED_CLOSE_CODE)
+
         try:
             while True:
                 try:
-                    raw = await websocket.receive_text()
+                    if bound is None:
+                        remaining = bind_deadline - asyncio.get_running_loop().time()
+                        raw = await asyncio.wait_for(websocket.receive_text(), max(remaining, 0.0))
+                    else:
+                        raw = await websocket.receive_text()
                 except WebSocketDisconnect:
+                    return
+                except TimeoutError:
+                    logger.info(
+                        "closing websocket: no session bound before the deadline",
+                        extra={"event": "ws_bind_timeout"},
+                    )
+                    await _reject_and_close(
+                        websocket, None, "bind_timeout", "no session bound in time; closing"
+                    )
                     return
 
                 current_match_id = bound.match_id if bound else None
@@ -285,7 +323,7 @@ def create_websocket_router(
                         player_id=create_player_id.value,
                         session_token=create_session_token,
                     )
-                    connection_registry.register(bound.match_id, bound.player_id, websocket)
+                    await attach(bound.match_id, bound.player_id)
                     await websocket.send_text(
                         serialize_server_message(
                             ServerCreated(
@@ -334,7 +372,7 @@ def create_websocket_router(
                         player_id=join_result.player_id.value,
                         session_token=join_result.session_token,
                     )
-                    connection_registry.register(bound.match_id, bound.player_id, websocket)
+                    await attach(bound.match_id, bound.player_id)
                     await websocket.send_text(
                         serialize_server_message(
                             ServerJoined(
@@ -373,7 +411,7 @@ def create_websocket_router(
                         player_id=engine_player_id.value,
                         session_token=message.session_token,
                     )
-                    connection_registry.register(bound.match_id, bound.player_id, websocket)
+                    await attach(bound.match_id, bound.player_id)
                 elif (
                     bound.session_token != message.session_token
                     or bound.match_id != match.match_id
@@ -464,7 +502,7 @@ def create_websocket_router(
                     continue
 
                 if isinstance(message, ClientReconnect):
-                    connection_registry.register(match.match_id, engine_player_id.value, websocket)
+                    await attach(match.match_id, engine_player_id.value)
                     # Idempotent: if the readying handler was cancelled before
                     # its own `announce_started` could fire, a reconnect must
                     # not leave the runtime's start gate closed forever. A
@@ -521,16 +559,24 @@ def create_websocket_router(
                         await websocket.send_text(serialize_server_message(finished))
                     elif match_result is not None:
                         if match_result.outcome is MatchOutcome.FORFEIT:
-                            assert match_result.forfeiting_player_id is not None
-                            assert match_result.winner_player_id is not None
+                            forfeiting = match_result.forfeiting_player_id
+                            winner = match_result.winner_player_id
+                            if forfeiting is None or winner is None:
+                                # Invariant, not client input: a FORFEIT result
+                                # always names both seats. A real exception
+                                # (not `assert`, which `python -O` strips).
+                                raise RuntimeError(
+                                    f"match {match.match_id!r} has a FORFEIT result "
+                                    "without both player ids"
+                                )
                             await websocket.send_text(
                                 serialize_server_message(
                                     ServerForfeit(
                                         protocol_version=PROTOCOL_VERSION,
                                         type="forfeit",
                                         match_id=match.match_id,
-                                        forfeiting_player_id=match_result.forfeiting_player_id.value,
-                                        winner_player_id=match_result.winner_player_id.value,
+                                        forfeiting_player_id=forfeiting.value,
+                                        winner_player_id=winner.value,
                                         reason="disconnect_timeout",
                                     )
                                 )

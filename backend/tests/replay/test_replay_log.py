@@ -22,8 +22,14 @@ sleeps, so this stays fast and fully deterministic.
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
+import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pytest
 from nether_earth import engine as engine_module
@@ -47,6 +53,7 @@ from app.replay import (
     match_dir,
     verify_replay,
 )
+from app.replay import writer as writer_module
 
 _ALICE_TOKEN = "alice-super-secret-session-token"
 _BOB_TOKEN = "bob-super-secret-session-token"
@@ -442,3 +449,125 @@ def test_backend_does_not_define_its_own_rules_version() -> None:
                 continue
             names = {t.id for t in targets if isinstance(t, ast.Name)}
             assert "RULES_VERSION" not in names, path
+
+
+def _async_writer(tmp_path: Path) -> ReplayWriter:
+    return ReplayWriter(
+        base_dir=tmp_path, executor=ThreadPoolExecutor(max_workers=1, thread_name_prefix="replay-test")
+    )
+
+
+async def test_slow_disk_does_not_delay_ticks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """NE-02: the tick path never waits for the filesystem."""
+    original = ReplayWriter._append_jsonl
+
+    def slow_append(self: ReplayWriter, match_id: str, filename: str, line: dict[str, Any]) -> None:
+        time.sleep(0.05)
+        original(self, match_id, filename, line)
+
+    monkeypatch.setattr(ReplayWriter, "_append_jsonl", slow_append)
+    match, scenario, map_data = _build_match("match-slow-disk")
+    writer = _async_writer(tmp_path)
+    writer.start_match(match, scenario, map_data)
+    runtime = MatchRuntime(match, on_tick_commands=make_replay_tick_recorder(writer, match.match_id))
+
+    started = time.monotonic()
+    for _ in range(20):
+        await runtime._advance_one_tick()
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.5, f"20 ticks took {elapsed:.2f}s: writes are blocking the loop"
+
+    await asyncio.to_thread(writer.drain)
+    lines = (match_dir(tmp_path, match.match_id) / "commands.jsonl").read_text().splitlines()
+    assert [json.loads(line)["tick"] for line in lines] == list(range(1, 21))
+    writer.close()
+
+
+async def test_queued_writes_land_in_order_and_finalize(tmp_path: Path) -> None:
+    match, scenario, map_data = _build_match("match-queued")
+    writer = _async_writer(tmp_path)
+    writer.start_match(match, scenario, map_data)
+    await _play_three_ticks(match, writer)
+    writer.finish_match(match)
+    await asyncio.to_thread(writer.drain)
+
+    meta = load_meta(tmp_path, match.match_id)
+    assert meta["status"] == "finished"
+    assert meta["final_tick"] == 3
+    assert [t for t in load_commands_by_tick(tmp_path, match.match_id)] == [1, 2, 3]
+    writer.close()
+
+
+async def test_backlog_beyond_bound_is_dropped_and_reported_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review Focus 3: a stalled disk must not grow memory without bound or stop the match."""
+    monkeypatch.setattr(writer_module, "MAX_PENDING_WRITES", 3)
+    gate = threading.Event()
+    original = ReplayWriter._append_jsonl
+
+    def blocked_append(self: ReplayWriter, match_id: str, filename: str, line: dict[str, Any]) -> None:
+        gate.wait(timeout=5)
+        original(self, match_id, filename, line)
+
+    monkeypatch.setattr(ReplayWriter, "_append_jsonl", blocked_append)
+    match, scenario, map_data = _build_match("match-backlog")
+    writer = _async_writer(tmp_path)
+    writer.start_match(match, scenario, map_data)
+    await asyncio.to_thread(writer.drain)  # header written before the gate matters
+
+    with caplog.at_level(logging.DEBUG, logger="app.replay.writer"):
+        for tick in range(1, 11):
+            writer.record_tick(match.match_id, tick, (), ())
+    errors = [r for r in caplog.records if r.getMessage().startswith("replay artifact write failed")]
+    # The worker holds tick 1 behind the gate, ticks 2-3 fill the bound, 4-10 overflow.
+    assert len(errors) == 7
+    assert sum(1 for r in errors if r.levelno == logging.ERROR) == 1  # first failure is ERROR, repeats DEBUG
+
+    gate.set()
+    await asyncio.to_thread(writer.drain)
+    lines = (match_dir(tmp_path, match.match_id) / "commands.jsonl").read_text().splitlines()
+    assert [json.loads(line)["tick"] for line in lines] == [1, 2, 3]  # the overflow was dropped
+    writer.close()
+
+
+def test_inline_writer_without_executor_is_synchronous(tmp_path: Path) -> None:
+    match, scenario, map_data = _build_match("match-inline")
+    writer = ReplayWriter(base_dir=tmp_path)
+    writer.start_match(match, scenario, map_data)
+    writer.record_tick(match.match_id, 1, (), ())
+    assert (match_dir(tmp_path, match.match_id) / "commands.jsonl").read_text().count("\n") == 1
+    writer.drain()  # no-op without an executor
+    writer.close()
+
+
+async def test_unexpected_worker_exception_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-I/O error on the worker must be logged, not lost in an unread future."""
+    original = ReplayWriter._append_jsonl
+    calls = 0
+
+    def crash_once(self: ReplayWriter, match_id: str, filename: str, line: dict[str, Any]) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TypeError("boom")
+        original(self, match_id, filename, line)
+
+    monkeypatch.setattr(ReplayWriter, "_append_jsonl", crash_once)
+    match, scenario, map_data = _build_match("match-crash")
+    writer = _async_writer(tmp_path)
+    writer.start_match(match, scenario, map_data)
+    with caplog.at_level(logging.ERROR, logger="app.replay.writer"):
+        writer.record_tick(match.match_id, 1, (), ())
+        await asyncio.to_thread(writer.drain)
+    crashed = [r for r in caplog.records if getattr(r, "event", None) == "replay_write_crashed"]
+    assert len(crashed) == 1
+    assert crashed[0].levelno == logging.ERROR
+
+    writer.record_tick(match.match_id, 2, (), ())
+    await asyncio.to_thread(writer.drain)
+    lines = (match_dir(tmp_path, match.match_id) / "commands.jsonl").read_text().splitlines()
+    assert [json.loads(line)["tick"] for line in lines] == [2]
+    writer.close()

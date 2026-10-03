@@ -130,6 +130,10 @@ class Match:
     #: transition; drive disposal of abandoned and finished matches (M10.6).
     created_at: float = 0.0
     finished_at: float | None = None
+    #: ``MatchManager``'s clock when the last socket left a WAITING lobby;
+    #: ``None`` while someone is attached. Sweep disposes a lobby abandoned
+    #: for longer than the configured grace (security review NE-01).
+    abandoned_at: float | None = None
     #: The engine-driven seat of a solo match; ``None`` for PvP.
     ai_player_id: PlayerId | None = None
 

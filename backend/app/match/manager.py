@@ -109,11 +109,7 @@ class JoinMatchResult:
 class MatchManager:
     """Owns every in-memory ``Match``, keyed by match id, join code, and session token.
 
-    Not async-aware and not thread-hostile-safe beyond a single coarse lock
-    guarding its own bookkeeping dictionaries -- callers issuing concurrent
-    create/join/ready calls across *different* matches do not block each
-    other's gameplay (there is none here yet), only the bookkeeping mutation
-    itself is serialized. This is a plain, synchronous, deterministic
+    Loop-thread only: every caller runs on the asyncio event loop; the lock only serializes the bookkeeping mutation itself and is not a thread-safety guarantee for readers. This is a plain, synchronous, deterministic
     lifecycle layer; nothing here awaits or does network I/O.
 
     ``runtime``, if supplied, is an optional hook (M7 Task 4, issue #93) into
@@ -189,6 +185,7 @@ class MatchManager:
         max_matches: int | None = None,
         finished_retention_s: float | None = None,
         waiting_timeout_s: float | None = None,
+        abandoned_lobby_grace_s: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._scenario = scenario if scenario is not None else default_pvp_scenario()
@@ -219,6 +216,7 @@ class MatchManager:
         # Disposal policy for `sweep` (M10.6); ``None`` = keep forever.
         self._finished_retention_s = finished_retention_s
         self._waiting_timeout_s = waiting_timeout_s
+        self._abandoned_lobby_grace_s = abandoned_lobby_grace_s
         self._clock = clock
         self._lock = threading.Lock()
         self._matches: dict[str, Match] = {}
@@ -487,7 +485,7 @@ class MatchManager:
         )
 
     def sweep(self) -> list[Match]:
-        """Dispose finished matches past retention and lobbies past the waiting timeout.
+        """Dispose finished matches past retention, lobbies past the waiting timeout, and lobbies abandoned past the grace.
 
         Returns the disposed matches (their final state intact) so the caller
         can tell any still-connected sockets. ``ACTIVE``/``PAUSED`` matches
@@ -510,6 +508,12 @@ class MatchManager:
                     match.state is MatchRuntimeState.WAITING
                     and self._waiting_timeout_s is not None
                     and now - match.created_at >= self._waiting_timeout_s
+                )
+                or (
+                    match.state is MatchRuntimeState.WAITING
+                    and self._abandoned_lobby_grace_s is not None
+                    and match.abandoned_at is not None
+                    and now - match.abandoned_at >= self._abandoned_lobby_grace_s
                 )
             ]
             disposed = [self._matches[match_id] for match_id in expired]
@@ -591,6 +595,30 @@ class MatchManager:
             if self._reconnect is not None:
                 self._reconnect.mark_reconnected(match, player_id)
 
+    def mark_lobby_abandoned(self, match_id: str) -> None:
+        """Record that no socket is attached to ``match_id`` while it is still WAITING.
+
+        The transport calls this when the last registered socket for the
+        match goes away. Only a WAITING lobby is affected: an ACTIVE/PAUSED
+        match is governed by the reconnect-grace policy instead. Unknown ids
+        are ignored (the match may already be disposed).
+        """
+        with self._lock:
+            match = self._matches.get(match_id)
+            if (
+                match is not None
+                and match.state is MatchRuntimeState.WAITING
+                and match.abandoned_at is None
+            ):
+                match.abandoned_at = self._clock()
+
+    def mark_lobby_occupied(self, match_id: str) -> None:
+        """Clear the abandonment mark: a socket attached to ``match_id`` again."""
+        with self._lock:
+            match = self._matches.get(match_id)
+            if match is not None:
+                match.abandoned_at = None
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._matches)
@@ -654,14 +682,57 @@ def _generate_session_token() -> str:
 #: a nickname in other players' UIs and in replay artifacts.
 _BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
 
+#: Codepoints that render blank although their category counts as visible
+#: (Hangul fillers and halfwidth filler are ``Lo``, the braille blank is
+#: ``So``, the combining grapheme joiner is ``Mn``): rejected like invisible
+#: format characters so one nickname cannot impersonate another.
+_BLANK_LOOKALIKES = frozenset("\u115f\u1160\u3164\uffa0\u2800\u034f")
+
+#: Unicode general categories rejected outright: controls, surrogates,
+#: private use, unassigned, and ``Cf`` format characters (zero-width space,
+#: word joiner, BOM, ...) which render as nothing and let one nickname
+#: impersonate another. ``Cf`` includes U+200D ZWJ, which is allowed inside
+#: emoji sequences (when preceded and followed by emoji/modifier characters).
+_REJECTED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
+
+#: At least one character from these major classes must be present so a
+#: nickname is never visually empty: Letter, Number, Punctuation, Symbol.
+_VISIBLE_MAJOR_CLASSES = frozenset("LNPS")
+
+#: Unicode categories for emoji and emoji-related characters.
+_EMOJI_CATEGORIES = frozenset({"So", "Sk", "Mn"})  # Symbol (other), Symbol (modifier), Mark (nonspacing)
+
+
+def _zwj_joins_emoji(nickname: str, index: int) -> bool:
+    """Check if a ZWJ at the given index joins emoji characters.
+
+    ZWJ (U+200D) is allowed only when the character immediately before it
+    AND immediately after it both have Unicode category in {So, Sk, Mn}
+    (emoji, skin-tone modifiers, variation selectors).
+    """
+    if index == 0 or index == len(nickname) - 1:
+        return False
+    before_cat = unicodedata.category(nickname[index - 1])
+    after_cat = unicodedata.category(nickname[index + 1])
+    return before_cat in _EMOJI_CATEGORIES and after_cat in _EMOJI_CATEGORIES
+
 
 def _validate_nickname(nickname: str) -> str:
     nickname = nickname.strip()
     if not nickname:
         raise InvalidNicknameError("nickname must be a non-empty string")
-    if any(
-        unicodedata.category(ch) in ("Cc", "Cs", "Co", "Cn") or ch in _BIDI_CONTROLS
-        for ch in nickname
-    ):
-        raise InvalidNicknameError("nickname must not contain control characters")
+    categories = [unicodedata.category(ch) for ch in nickname]
+
+    # Check for rejected categories and bidirectional controls
+    for i, (cat, ch) in enumerate(zip(categories, nickname)):
+        if ch in _BIDI_CONTROLS or ch in _BLANK_LOOKALIKES:
+            raise InvalidNicknameError("nickname must not contain control or invisible characters")
+        if cat in _REJECTED_CATEGORIES:
+            # ZWJ (U+200D, category Cf) is allowed only in emoji sequences
+            if ch == "\u200d" and _zwj_joins_emoji(nickname, i):
+                continue
+            raise InvalidNicknameError("nickname must not contain control or invisible characters")
+
+    if not any(cat[0] in _VISIBLE_MAJOR_CLASSES for cat in categories):
+        raise InvalidNicknameError("nickname must contain at least one visible character")
     return nickname

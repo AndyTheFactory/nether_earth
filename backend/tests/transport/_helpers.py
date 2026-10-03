@@ -16,12 +16,24 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
 from app.match.manager import MatchManager
+from app.replay import ReplayWriter
 
 
 def _match_manager(client: TestClient) -> MatchManager:
     manager = client.app.state.match_manager
     assert isinstance(manager, MatchManager)
     return manager
+
+
+def _replay_writer(client: TestClient) -> ReplayWriter:
+    writer = client.app.state.replay_writer
+    assert isinstance(writer, ReplayWriter)
+    return writer
+
+
+def _drain_replays(client: TestClient) -> None:
+    """Wait for the app's queued replay writes (NE-02) before reading artifact files."""
+    _replay_writer(client).drain()
 
 
 def _create(
