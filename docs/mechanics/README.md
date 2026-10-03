@@ -52,7 +52,7 @@ Every page has the same sections, in this order:
 
 ## Rule constants
 
-All in `engine/src/nether_earth/rules.py`, class `EngineRules`, instance `DEFAULT_RULES`. `RULES_VERSION` is `"cr005"`; `rules_content_hash` hashes every field below.
+All in `engine/src/nether_earth/rules.py`, class `EngineRules`, instance `DEFAULT_RULES`. `RULES_VERSION` is `"blink"`; `rules_content_hash` hashes every field below.
 
 | Field | Default | Used by |
 |---|---:|---|
@@ -93,5 +93,6 @@ All in `engine/src/nether_earth/rules.py`, class `EngineRules`, instance `DEFAUL
 | `dumb_wander_commit_ticks` | 16 | navigation |
 | `ai_decision_interval_ticks` | 4 | AI |
 | `robot_hunt_replan_ticks` | 20 | navigation |
+| `robot_destroyed_blink_cycles` | 4 | combat |
 
 Unit definition (not a field): `CELLS_PER_MILE = 2`, through `miles_to_cells`.

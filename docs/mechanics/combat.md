@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Robots fire cannon, missile and phaser projectiles that fly along their facing, hit the first tall-enough robot in their path and deal height-dependent damage. A nuclear weapon destroys a shaped area at once, including at most one building. A player whose last war base is captured or destroyed loses.
+Robots fire cannon, missile and phaser projectiles that fly along their facing, hit the first tall-enough robot in their path and deal height-dependent damage. A robot reduced to 0 strength blinks for four game cycles, then is removed. A nuclear weapon destroys a shaped area at once, including at most one building. A player whose last war base is captured or destroyed loses.
 
 ## State involved
 
 - `GameState.projectiles`: `combat.Projectile(id, owner, source_robot_id, weapon, x, y, z, dx, dy, travelled_cells, max_range_cells, created_tick, first_advance_tick)` — a 2×2 body anchored at `(x, y)`, flying at `z`.
-- `robot.Robot`: `active_projectile_id` (the one normal channel), `last_fire_tick`, `turning`, `facing`, `strength` (starts at 100), `height`.
+- `robot.Robot`: `active_projectile_id` (the one normal channel), `last_fire_tick`, `turning`, `facing`, `strength` (starts at 100), `height`, `destroyed_cycles_remaining` (`None` while alive; the blink count once destroyed) and the derived `destroyed` and `present`.
 - `GameState.structure_destruction` (destroyed building ids), `scenery_debris` (destroyed box ids), `robot_debris` (anchors of combat kills that left debris).
 
 ## Algorithm
@@ -46,13 +46,38 @@ With the defaults a cannon shot fired by an autonomous robot on tick 5 is at +2 
 1. `ground_height = unit_surface_height` under the target's body (`ground_height_at`);
 2. `damage = calculate_base_damage(height, ground) × multiplier`, with `calculate_base_damage = (60 − (height + ground)) // 4` and the weapon's `*_damage_multiplier`;
 3. `strength − damage > 0` → store it, emit `RobotDamagedEvent`;
-4. otherwise record combat debris when `destruction.robot_debris_anchor` finds four plain `NORMAL` cells with no component, then `destruction.destroy_robot`.
+4. otherwise `destruction.destroy_robot` (the robot starts blinking, below).
+
+A hit on a robot that is already destroyed does nothing: the bullet stops, the robot is not damaged again.
 
 There is no hit roll, no component damage and no defensive modifier. Example: a phaser hit on a tracks + cannon robot (height 13) on flat ground deals `(60 − 13) // 4 × 4 = 44`.
 
-### Robot destruction (`destruction.destroy_robot`)
+### Destroyed robots (`destruction.destroy_robot`, `destruction.advance_destroyed_robots`)
 
-Drops capture progress the robot was earning; frees a commander docked on it (placed at the robot's anchor and last top, `CommanderUndockedEvent`); removes the robot (occupancy and reservations are derived, so they vanish with it); emits `RobotDestroyedEvent`. Destruction is immediate. Calling it twice is a no-op.
+Owner decision 2026-10-03 (open question §3.6, [resolved-questions.md](../../_specs/resolved-questions.md#destroyed-robot-blink)): a destroyed robot behaves as on the ZX Spectrum. It blinks for 4 game cycles, then it is removed.
+
+**Spectrum evidence.**
+
+- *How long.* `Lb7d7_robot_destroyed` stores strength −4 (`ld a, -4`) instead of removing the robot. `Lb0ca_update_robots_bullets_and_ai` runs once per game cycle: once per `La69a_game_loop` pass, and once per pass of the menu loops (`Lad1a`, `La94c`, `Laa70`), each of which also advances time. It calls `Lb0fa_robot_update` for every occupied slot. For a negative strength, `Lb0fa` does `inc (iy + ROBOT_STRUCT_STRENGTH)` and returns, so the count goes −4 → −3 → −2 → −1 → 0 over the next four cycles. The fifth cycle reads 0 and jumps to `Lb116_robot_destroyed`. The counter therefore runs on game cycles, not interrupts. The hit happens in the bullet pass of `Lb0ca`, after that cycle's robot pass.
+- *Blink.* `Lb0fa` tests `and 1` on the value before the increment. Even values run `res 6, (hl)` (hide), odd values run `set 6, (hl)` (show). The robot's map mark (bit 6) is therefore set for the rest of the hit cycle, cleared on cycle 1, set on cycle 2, cleared on cycle 3, set on cycle 4, and gone on cycle 5.
+- *What reads the mark.* Robot movement collision (`Lb557`–`Lb5b1`, mask `e = #40`), the ship's altitude (`Lb099_get_robot_or_decoration_altitude`), landing on a robot (`La69a`), bullets (`Lb724` scans the 3×3 neighbourhood for bit 6), the weapon raycast (`Lb67e`), the nuclear window (`Lba33`), the capture timer (`Ladb7_building_loop`) and drawing (`Lcd18_draw_map_cell`). All of them see a blinking robot only on its shown cycles.
+- *What it can still do.* While strength is negative, `Lb0fa` never reaches `Lb154_robot_ai_update`, so the robot does not move, fire on its own or follow orders. Direct-control movement (`Lb450`) is reached only from `Lb154`, so it does not move under direct control either. The docked player stays docked: `Lace2` leaves the robot's menu only when the slot is empty (`(ix + 1) == 0`), which happens at removal. Combat-mode fire (`Lac99`, `Lacb3_regular_weapon_fire`) and the nuclear option (`Lb99f`) do not check strength, so the docked player can still fire from a blinking robot. Orders can still be given; they are stored but never run.
+- *Who targets it.* A bullet whose scan finds a blinking robot ends without damage (`Lb7a7`: `dec a` / `jp m, Lb7de_collision_handled`). The weapon raycast ignores it as a target (`Lb68e_object_found`: `dec b` / `jp m`), but on its shown cycles it still ends the ray in that direction. `Lb41d_find_nearest_opponent_robot` checks only `(iy + 1)`, so a Search & Destroy (robots) hunt can still head for a blinking robot. `Lba33` removes it in a nuclear blast only on a shown cycle, and then with no debris and no blink (`ld (iy + ROBOT_STRUCT_MAP_PTR + 1), 0`).
+- *Counts.* `Lbb40_count_robots` counts occupied slots and is called from `Lb116`. A blinking robot therefore still counts toward its owner's robots, and toward the robot cap, until removal. The HUD shows its strength as 0% (`La81d` clamps negative values). Victory (`Lae6b_game_over_check`) looks only at war bases.
+- *When things happen.* At the hit: strength −4 and the destruction sound (`ld c, 200`). At removal (`Lb116`): the map mark is cleared; debris is added when the 2×2 is empty (`Lbd91_add_element_to_map`); the radar mark is removed (`Ld65a_flip_2x2_radar_area`); the slot is freed (`(iy + 1) = 0`); counts and HUD are updated (`Lbb40_count_robots`, `Ld293`); the docked player is put out (`La812_exit_robot`).
+- *Radar.* The radar is built from the robot slots (`Ld632` in `Ld5f8_update_radar_buffers`), and the mark is flipped by `Ld65a`. Neither reads bit 6, so the radar mark stays steady through the blink and disappears at removal.
+
+**Engine.**
+
+1. `apply_damage` → `destroy_robot` at the killing hit. Strength becomes 0, `destroyed_cycles_remaining = robot_destroyed_blink_cycles` (4), and one `RobotDestroyedEvent` is emitted. A second kill of a blinking robot is a no-op. A move or turn already in progress runs on; nothing new starts.
+2. `engine.step` Step 0b, first in the tick on game-cycle ticks (positive multiples of `robot_fire_cycle_ticks`): `advance_destroyed_robots` handles each destroyed robot in id order. A robot with cycles left loses one. A robot at 0 is removed: it leaves debris when `robot_debris_anchor` finds four plain `NORMAL` cells with no component in the physical world at that moment, then `remove_robot` runs.
+3. `Robot.present` (count even) is the map mark. Robot occupancy (`folded_robot_occupancy`, navigation's blockers), commander collision, landing and the ride (`engine._robot_fixtures`), bullet hits (`combat`), capture (`capture._qualifying_robot`) and the nuclear window use only present robots.
+4. `Robot.destroyed` stops everything the robot would do itself: `evaluate_orders` skips it, and `validate_robot_move` rejects `ROBOT_DESTROYED`. It is not a fire target: `_defensive_intent` skips it, and `autonomous_combat._target_still_valid` rejects it. Hunts may still choose it (`select_destroy_target`). The AI planner neither orders a blinking robot nor counts it as a threat. A `FireCommand` from the docked player is still accepted. `state.robots_for` still includes it, so it counts toward the robot cap.
+5. `remove_robot` drops the robot's capture progress and releases a commander docked on it at the robot's anchor and top (`CommanderUndockedEvent`), then removes the robot. It emits `RobotDestroyedEvent` only for a robot that was not already blinking (a nuclear victim).
+
+A robot killed on tick 1 is shown on ticks 1–3, hidden on 4–7, shown on 8–11, hidden on 12–15, shown on 16–19, and removed on tick 20. A robot killed on a cycle tick `4n` is removed on `4n + 20`.
+
+The snapshot carries `blink: {cycles_remaining, visible}` for a blinking robot. The frontend draws the robot only when `visible` is true (`render/robot.ts` `robotDrawn`), and plays the explosion once, when the blink starts (`robotDeaths`). The radar mark stays steady.
 
 ### Nuclear detonation (`destruction.execute_nuclear_detonation`)
 
@@ -61,7 +86,7 @@ Triggered by a nuclear `FireCommand` (Step 2c2 b) or by a Search & Destroy struc
 1. **robots** — every other robot whose anchor lies in the window: row `r = y − carrier.y + 4` in `0..8`, and `|x − carrier.x| ≤ nuclear_robot_window_row_widths[r] // 2`; both sides; canonical id order;
 2. **building** — `_first_building_in_blast` over the effective world's war bases then factories, in map order: the anchor is the smallest capture cell; `dx = |carrier.x − ax|`, `dy = |carrier.y + nuclear_building_dy_offset (+ nuclear_war_base_extra_dy_offset for war bases) − ay|`; in range when `dx < axis`, `dy < axis`, `dx + dy < sum`. The first match only; ownership is ignored;
 3. **scenery** — every `destructible` blocker whose anchor (lowest x, highest y) lies in the robot window (`_blockers_in_blast`);
-4. destroy the carrier, then the robots, then the building (`destroy_structure`: drop its capture progress and ownership override, add it to `structure_destruction`, emit `StructureDestroyedEvent`); append the blockers to `scenery_debris`.
+4. remove the carrier, then the robots (`remove_robot`; a blinking robot is in the window only on a shown cycle), then the building (`destroy_structure`: drop its capture progress and ownership override, add it to `structure_destruction`, emit `StructureDestroyedEvent`); append the blockers to `scenery_debris`.
 
 Robots killed by the blast leave no debris. The derived worlds turn the destroyed building's cells and the destroyed boxes into rough terrain at `terrain.debris_height` ([world-and-map.md](world-and-map.md#derived-worlds-capturepy-destructionpy)). A commander is never harmed.
 
@@ -90,6 +115,7 @@ Counts war bases per player in the effective world (destroyed ones are absent). 
 | `nuclear_war_base_axis_limit` / `nuclear_war_base_sum_limit` | 7 / 10 |
 | `nuclear_factory_axis_limit` / `nuclear_factory_sum_limit` | 5 / 7 |
 | `robot_turn_ticks` | 4 |
+| `robot_destroyed_blink_cycles` | 4 |
 | starting strength | 100 (`Robot.strength` default) |
 
 ## Determinism notes
@@ -101,7 +127,8 @@ Projectiles advance in id order and their hits are damaged in event order; hit c
 - `Lb6d6_weapon_fire` — range counter 5 (cannon/phaser) or 7 (missiles), +1 with electronics (`bit 7, (ix + ROBOT_STRUCT_PIECES)`), direction copied from `ROBOT_STRUCT_DIRECTION`, first move before returning.
 - `Lb70d_bullet_update` / `Lb724_bullet_update_internal` — 2 cells per update, y-bounds test, `Lb5d6_map_altitude_2x2 ≥ BULLET_STRUCT_ALTITUDE` stops it, then the 3×3 robot-anchor scan.
 - `Lb0ca_update_robots_bullets_and_ai` — robot loop then bullet loop each cycle (an AI shot moves twice in its cycle); `Lacb3_regular_weapon_fire` — combat-mode shot outside that loop.
-- `Lb7a7_potentially_hit_a_robot` (`ld a, 60` / `sub` / `srl a` / `srl a`), `Lb7c8_damage_calculation_loop`; strength 100 at spawn; `Lb7d7_robot_destroyed`, `Lb116_robot_destroyed`.
+- `Lb7a7_potentially_hit_a_robot` (`ld a, 60` / `sub` / `srl a` / `srl a`), `Lb7c8_damage_calculation_loop`; strength 100 at spawn.
+- Destroyed robots: `Lb7d7_robot_destroyed`, `Lb0fa_robot_update`, `Lb116_robot_destroyed`; see [Destroyed robots](#destroyed-robots-destructiondestroy_robot-destructionadvance_destroyed_robots).
 - `Lb99f_fire_nuclear_bomb` (`ld de, #070a`, `ld de, #0507`, `ld bc, #0909`), `Lba02_look_for_robots_in_range_of_nuclear_bomb`, `Lba44_robots_handled`, `Lbc27_replace_building_by_debris`.
 
 ## Deviations
@@ -109,7 +136,6 @@ Projectiles advance in id order and their hits are damaged in event order; hit c
 - [Bullet scan: only robots, and only robots tall enough](../../_specs/deviations-from-original.md#bullet-scan-only-robots-and-only-robots-tall-enough).
 - [One bullet channel per robot](../../_specs/deviations-from-original.md#one-bullet-channel-per-robot).
 - [Debris variant](../../_specs/deviations-from-original.md#debris-variant).
-- Not a recorded deviation: the Spectrum keeps a destroyed robot blinking for 4 cycles before removal (`Lb7d7_robot_destroyed` writes −4); the engine removes it at once. Listed for the owner in [resolved-questions.md](../../_specs/resolved-questions.md#damage-accuracy-and-electronics-effects).
 
 ## Tests that pin it
 
@@ -129,7 +155,12 @@ Projectiles advance in id order and their hits are damaged in event order; hit c
 - `engine/tests/test_robot_terrain_height.py::test_bullet_hits_the_shortest_spectrum_robot_even_on_flat_ground`
 - `engine/tests/test_combat_damage.py::test_spectrum_worked_example_phaser_on_derived_tracks_cannon_robot_deals_44`
 - `engine/tests/test_combat_damage.py::test_apply_damage_exact_threshold_destroys_robot`
-- `engine/tests/test_combat_damage.py::test_destroy_robot_relocates_docked_commander_to_free`
+- `engine/tests/test_combat_damage.py::test_remove_robot_relocates_docked_commander_to_free`
+- `engine/tests/test_destroyed_robot_blink.py` (timeline, collision, bullets, movement, fire, docking, capture, nuclear window, snapshot, replay)
+- `engine/tests/test_ai_robot_orders.py::test_a_blinking_robot_gets_no_order`
+- `engine/tests/test_ai_construction.py::test_a_blinking_enemy_robot_is_no_threat`
+- `engine/tests/test_ai_construction.py::test_a_blinking_robot_still_counts_toward_the_robot_cap`
+- `frontend/src/render/robot.test.ts` (blink drawing, death effect), `frontend/src/ui/radar.test.ts` (steady radar mark)
 - `engine/tests/test_terrain_heights.py::test_robots_on_high_ground_take_less_damage`
 - `engine/tests/test_combat_nuclear.py::test_war_base_blast_range_boundaries`
 - `engine/tests/test_combat_nuclear.py::test_factory_blast_range_boundaries`
