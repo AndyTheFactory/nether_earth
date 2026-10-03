@@ -55,3 +55,23 @@ class TokenBucket:
             return False
         self._tokens -= 1.0
         return True
+
+
+#: Close code sent for every authentication/session-identity violation
+#: (missing, invalid, or wrong-match/wrong-player session token, or a second
+#: create/join attempt on an already-bound connection). 1008 = "Policy
+#: Violation" per RFC 6455 -- the closest standard code for "you are not who
+#: you claimed to be for this connection".
+POLICY_VIOLATION_CLOSE_CODE = 1008
+
+#: Close code sent after a client-initiated, well-formed `leave` message.
+NORMAL_CLOSE_CODE = 1000
+
+#: RFC 6455 "Message Too Big" / "Internal Error" close codes.
+TOO_BIG_CLOSE_CODE = 1009
+INTERNAL_ERROR_CLOSE_CODE = 1011
+#: Close code sent to a socket superseded by a newer connection for the same
+#: session (RFC 6455 reserves 4000-4999 for applications). The holder of a
+#: token gets exactly one live socket, so a leaked token cannot be used in
+#: parallel with its owner unnoticed.
+REPLACED_CLOSE_CODE = 4000

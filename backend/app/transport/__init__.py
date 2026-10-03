@@ -4,11 +4,11 @@ Public surface: :func:`~app.transport.ws.create_websocket_router` (the
 ``/ws`` endpoint factory) and :class:`~app.transport.connections.ConnectionRegistry`
 plus its :func:`~app.transport.connections.broadcast` /
 :func:`~app.transport.connections.send_to_player` primitives. See
-``ws.py``'s module docstring for the endpoint design, session-binding rules,
-and gameplay-command-conversion scope decisions. ``app.transport.snapshots``
-(the ``to_snapshot``-to-wire mapping and per-tick broadcast hook) is imported
-directly from its own submodule by callers (``ws.py``, ``app.main``) rather
-than re-exported here.
+``ws.py`` for the endpoint design and receive loop, ``handlers.py`` for the
+session-binding and per-message dispatch rules, and ``connection.py`` for
+per-socket state. ``app.transport.snapshots`` is imported directly from its
+own submodule by callers (``handlers.py``, ``app.main``) rather than
+re-exported here.
 """
 
 from app.transport.connections import ConnectionRegistry, broadcast, send_to_player
