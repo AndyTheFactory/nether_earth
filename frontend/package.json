@@ -15,7 +15,7 @@
     "live:check": "node scripts/live-two-client.mjs"
   },
   "dependencies": {
-    "pixi.js": "8.8.1"
+    "pixi.js": "8.21.0"
   },
   "devDependencies": {
     "@types/node": "22.20.4",
