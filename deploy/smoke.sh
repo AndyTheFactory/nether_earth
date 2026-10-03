@@ -10,7 +10,7 @@
 #   deploy/smoke.sh                       # build + test images tagged "smoke"
 #   NETHER_EARTH_VERSION=1.0.0 SMOKE_NO_BUILD=1 deploy/smoke.sh   # test existing images
 #
-# Needs: docker compose v2, curl, node >= 22 (frontend/scripts/live-two-client.mjs).
+# Needs: docker compose v2, curl, node >= 24 (frontend/scripts/live-two-client.mjs).
 set -euo pipefail
 
 cd "$(dirname "$0")"

@@ -28,7 +28,7 @@ Health check: `http://localhost:8000/health`.
 
 ### Frontend
 
-Requires Node.js 22+.
+Requires Node.js 24+.
 
 ```bash
 cd frontend
@@ -59,7 +59,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 make python-check
 make frontend-check
 make compose-check   # compose config (incl. TLS override) + nginx -t
-deploy/smoke.sh      # production images + gateway smoke (Docker, Node 22)
+deploy/smoke.sh      # production images + gateway smoke (Docker, Node 24)
 scripts/check-version.sh
 ```
 
