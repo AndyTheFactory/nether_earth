@@ -4,17 +4,6 @@ A connection has no bound session until its first successful
 ``create``/``join``/``ready``/``leave``/``command``/``reconnect`` message
 authenticates one; from then on it is pinned to that
 ``(match_id, player_id, session_token)`` triple for its lifetime.
-
-Disconnect notification: ``MatchManager.mark_disconnected`` is called only
-through :meth:`Connection.teardown`, which the endpoint runs from exactly one
-``finally`` block and the ``leave`` handler runs again (safely: the second
-call is a no-op). ``teardown`` first unregisters this socket from
-``ConnectionRegistry`` and notifies only if that unregister reports this
-socket was still the one registered for its ``(match_id, player_id)`` slot.
-A stale connection's delayed teardown (e.g. slow TCP close) therefore never
-reports a spurious disconnect for a player who has since reconnected on a
-newer socket -- which matters because ``mark_disconnected`` drives the
-pause/grace-timer policy.
 """
 
 from __future__ import annotations
@@ -118,7 +107,9 @@ class Connection:
 
     async def attach(self) -> None:
         """Make this socket the live one for the bound session; close any predecessor."""
-        bound = self._require_bound()
+        bound = self.bound
+        if bound is None:
+            raise RuntimeError("connection has no bound session")
         replaced = self.connection_registry.register(
             bound.match_id, bound.player_id, self.websocket
         )
@@ -129,13 +120,14 @@ class Connection:
     async def teardown(self) -> None:
         """Unregister this socket and notify disconnect iff it was still current.
 
+        The endpoint runs this from one ``finally``; ``leave`` runs it first.
         ``ConnectionRegistry.unregister`` returns ``True`` only if this socket
-        was in fact the one registered for the bound ``(match_id,
-        player_id)`` slot. If a newer connection already took that slot (a
-        delayed teardown racing a ``reconnect`` that rebound the player
-        elsewhere), this is a silent no-op: the newer connection is still
-        live and must not have a spurious disconnect reported for it.
-        Idempotent -- a second call finds nothing left to unregister.
+        was still the one registered for the bound ``(match_id, player_id)``
+        slot. If a newer connection took that slot (a delayed teardown, e.g.
+        slow TCP close, racing a ``reconnect`` that rebound the player), this
+        is a no-op: ``mark_disconnected`` drives the pause/grace policy and
+        must not fire for a player who is still connected. Idempotent -- a
+        second call finds nothing left to unregister.
         """
         bound = self.bound
         if bound is None:
@@ -156,11 +148,6 @@ class Connection:
             return
         self._disconnect_notified = True
         self.match_manager.mark_disconnected(self.bound.session_token)
-
-    def _require_bound(self) -> BoundSession:
-        if self.bound is None:
-            raise RuntimeError("connection has no bound session")
-        return self.bound
 
 
 async def _close(websocket: WebSocket, code: int) -> None:
