@@ -4,7 +4,7 @@
 #   docker build -f frontend/Dockerfile -t nether-earth-frontend:<version> .
 
 # Digest-pinned (NE-09); Dependabot (docker ecosystem) proposes updates.
-FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS build
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
