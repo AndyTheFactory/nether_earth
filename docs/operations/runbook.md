@@ -51,7 +51,7 @@ sudo install -d -o 10001 -g 10001 -m 750 /srv/nether-earth/replays
 | `NETHER_EARTH_FINISHED_MATCH_RETENTION_SECONDS` | no (300) | How long a finished match stays resolvable for late reconnects. |
 | `NETHER_EARTH_WAITING_MATCH_TIMEOUT_SECONDS` | no (900) | How long a lobby waits for its second player. |
 | `NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS` | no (30) | How long a lobby with no connected player keeps its capacity (covers a page refresh). |
-| `NETHER_EARTH_REPLAY_RETENTION_DAYS` | no (unset = keep forever) | Finished/interrupted replay artifacts older than this are deleted hourly by the backend. |
+| `NETHER_EARTH_REPLAY_RETENTION_DAYS` | no (5) | Finished/interrupted replay artifacts older than this many days are deleted hourly by the backend. `0` or `forever` keeps everything. |
 | `NETHER_EARTH_BACKEND_MEM_LIMIT` / `_CPUS` | no (1g / 1.0) | Backend container limits. |
 
 A missing required variable stops `docker compose config`/`up` with
@@ -182,9 +182,9 @@ shows the last probe outputs.
   startup; the file is still a valid prefix of the command stream). `commands.jsonl` has no
   `fsync`; a host crash can lose its last lines.
 - Size: every tick is recorded; measured ~1.5 MB per match for ~4 minutes of heavy command traffic (see the performance report).
-- Retention: unset `NETHER_EARTH_REPLAY_RETENTION_DAYS` keeps everything (the disk fills over time
-  and `/ready` turns 503 when it is full). Set it to delete finished/interrupted artifacts older
-  than N days, checked hourly. A host cron is no longer required but still works.
+- Retention: production keeps finished/interrupted artifacts 5 days by default
+  (`NETHER_EARTH_REPLAY_RETENTION_DAYS`), checked hourly. Set `0` or `forever` to keep everything
+  (the disk then fills over time and `/ready` turns 503 when it is full), or another N to change the window. A host cron is no longer required but still works.
 - Backup: replays are the only persistent data. They are optional debugging/audit material;
   back them up with any file-level tool if you want to keep them, e.g.
   `tar -C /srv/nether-earth -czf replays-$(date +%F).tgz replays` or `rsync -a` to another host.

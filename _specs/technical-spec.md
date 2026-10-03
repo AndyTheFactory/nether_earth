@@ -731,7 +731,7 @@ Only human-submitted commands are persisted; AI commands are re-derived by stepp
 
 Writes run on a single worker thread so they never block the event loop and each match's lines stay in order. At most `MAX_PENDING_WRITES` (10,000) writes may be queued; beyond that a write is dropped and reported (`replay_write_failed`, action `backlog`), which `verify_replay` would then detect as a mismatch.
 
-Artifact status: `in_progress` at start, `finished` at the end. At startup every artifact still `in_progress` is marked `interrupted` (its process died). When `NETHER_EARTH_REPLAY_RETENTION_DAYS` is set, `finished`/`interrupted` artifacts older than that (by `meta.json` modification time) are deleted hourly; unset, nothing is deleted. Whether production should prune by default is not yet decided (owner decision pending, see [open-questions.md](open-questions.md#3-owner-decisions-pending)).
+Artifact status: `in_progress` at start, `finished` at the end. At startup every artifact still `in_progress` is marked `interrupted` (its process died). `finished`/`interrupted` artifacts older than `NETHER_EARTH_REPLAY_RETENTION_DAYS` (by `meta.json` modification time) are deleted hourly. Default: 5 days in production, nothing deleted in development; `0` or `forever` disables pruning (owner decision 2026-10-03, see [resolved-questions.md](resolved-questions.md#replay-retention-default)).
 
 Replay contract (`backend/app/replay/verify.py`):
 
@@ -782,7 +782,7 @@ NETHER_EARTH_MAX_MATCHES                       default 200
 NETHER_EARTH_FINISHED_MATCH_RETENTION_SECONDS  default 300
 NETHER_EARTH_WAITING_MATCH_TIMEOUT_SECONDS     default 900
 NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS     default 30
-NETHER_EARTH_REPLAY_RETENTION_DAYS             default unset (keep all)
+NETHER_EARTH_REPLAY_RETENTION_DAYS             default 5 in production, keep all in development; 0/forever = keep all
 NETHER_EARTH_LOG_LEVEL                         default INFO
 NETHER_EARTH_LOG_FORMAT                        json (production) | text
 NETHER_EARTH_COMMIT                            baked into the image, logged at startup
