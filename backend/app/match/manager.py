@@ -319,7 +319,8 @@ class MatchManager:
 
         Raises ``MatchNotFoundError`` for an unknown code and ``MatchFullError``
         if the match already has two players (v1 caps every match at exactly
-        two guest slots).
+        two guest slots). Raises ``InvalidNicknameError`` for a blank/invisible
+        nickname or one equal to the creator's.
         """
         nickname = _validate_nickname(nickname)
         with self._lock:
