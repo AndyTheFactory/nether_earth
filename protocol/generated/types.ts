@@ -380,6 +380,10 @@ export interface SnapshotState {
    * via the `definition` "tick".
    */
   tick: number;
+  /**
+   * Items: This interface was referenced by `ProtocolCommon`'s JSON-Schema
+   * via the `definition` "playerId".
+   */
   players: string[];
   seed: number;
   commanders: {
@@ -454,6 +458,12 @@ export interface SnapshotState {
     build: {
       [k: string]: unknown;
     };
+    /**
+     * Items: Mirrors nether_earth.robot_build.ModuleIdentity's eight canonical values.
+     *
+     * This interface was referenced by `ProtocolCommon`'s JSON-Schema
+     * via the `definition` "moduleIdentity".
+     */
     stack: ("bipod" | "tracks" | "anti_grav" | "cannon" | "missile" | "phaser" | "nuclear" | "electronics")[];
     height: number;
     movement: {
@@ -567,9 +577,16 @@ export interface SnapshotState {
     created_tick: number;
     first_advance_tick: number;
   }[];
+  /**
+   * Items: This interface was referenced by `ProtocolCommon`'s JSON-Schema
+   * via the `definition` "entityId".
+   */
   structure_destruction: string[];
   /**
    * Ids of map blockers a nuclear blast turned into rough debris (CR002.18), canonical order. Their cells are rough terrain and no longer block.
+   *
+   * Items: This interface was referenced by `ProtocolCommon`'s JSON-Schema
+   * via the `definition` "entityId".
    */
   scenery_debris: string[];
   /**
