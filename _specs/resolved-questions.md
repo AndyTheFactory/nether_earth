@@ -332,6 +332,11 @@ Abbreviations: FS = [functional-spec.md](functional-spec.md), TS = [technical-sp
 - **Evidence:** `docs/release/`.
 - **Rule:** operational; [TS §24](technical-spec.md#24-deployment-and-supply-chain).
 
+### Replay retention default
+
+- **Decision:** RESOLVED (owner decision 2026-10-03): production keeps finished/interrupted replays 5 days (`NETHER_EARTH_REPLAY_RETENTION_DAYS`, `0`/`forever` disables), development keeps everything.
+- **Rule:** [TS §22](technical-spec.md), [match-runtime](../docs/mechanics/match-runtime.md#replay-writer-and-retention).
+
 ## AI opponent
 
 ### AI opponent scope

@@ -25,6 +25,7 @@ DEFAULT_MAX_MATCHES = 200
 DEFAULT_FINISHED_RETENTION_S = 300
 DEFAULT_WAITING_TIMEOUT_S = 900
 DEFAULT_ABANDONED_LOBBY_GRACE_S = 30
+DEFAULT_REPLAY_RETENTION_DAYS = 5
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 _LOG_FORMATS = ("json", "text")
 
@@ -47,8 +48,9 @@ class Settings:
     #: before its capacity is released.
     abandoned_lobby_grace_s: int = DEFAULT_ABANDONED_LOBBY_GRACE_S
     #: Days a finished/interrupted replay artifact is kept before the
-    #: backend deletes it; ``None`` keeps everything (owner decision pending,
-    #: see `_specs/open-questions.md`, Replay retention default).
+    #: backend deletes it; ``None`` keeps everything. Unset env: 5 days in
+    #: production, ``None`` in development; ``0``/``forever`` forces ``None``
+    #: (see `_specs/resolved-questions.md`, Replay retention default).
     replay_retention_days: int | None = None
     log_level: str = "INFO"
     #: ``json`` (one object per line; production default) or ``text``.
@@ -81,8 +83,20 @@ def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
     return value
 
 
-def _optional_positive_int(env: Mapping[str, str], name: str) -> int | None:
-    return None if (env.get(name) or None) is None else _positive_int(env, name, 0)
+def _retention_days(env: Mapping[str, str], name: str, default: int | None) -> int | None:
+    """Positive int -> days; ``0``/``forever`` -> ``None`` (keep all); unset -> ``default``."""
+    raw = env.get(name) or None
+    if raw is None:
+        return default
+    if raw.strip().lower() in ("0", "forever"):
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be a positive integer, 0 or 'forever', got {raw!r}") from None
+    if value < 0:
+        raise ConfigError(f"{name} must be a positive integer, 0 or 'forever', got {raw!r}")
+    return value
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -125,7 +139,11 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         abandoned_lobby_grace_s=_positive_int(
             env, "NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS", DEFAULT_ABANDONED_LOBBY_GRACE_S
         ),
-        replay_retention_days=_optional_positive_int(env, "NETHER_EARTH_REPLAY_RETENTION_DAYS"),
+        replay_retention_days=_retention_days(
+            env,
+            "NETHER_EARTH_REPLAY_RETENTION_DAYS",
+            DEFAULT_REPLAY_RETENTION_DAYS if production else None,
+        ),
         log_level=log_level,
         log_format=log_format,
     )

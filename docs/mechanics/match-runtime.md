@@ -72,7 +72,7 @@ Per WebSocket:
 
 At most `MAX_PENDING_WRITES` jobs may be queued; beyond that a write is dropped and logged (`replay_write_failed`, action `backlog`). Session tokens are never written; match ids are checked against a safe pattern before use as a directory name.
 
-At startup `replay.retention.mark_interrupted` flips every `in_progress` artifact to `interrupted`. When `replay_retention_days` is set, `prune_replays` runs every `REPLAY_PRUNE_INTERVAL_S` and deletes `finished`/`interrupted` artifacts whose `meta.json` is older than the limit; `in_progress` and unknown statuses are never deleted.
+At startup `replay.retention.mark_interrupted` flips every `in_progress` artifact to `interrupted`. When `replay_retention_days` is not `None` (default 5 in production, `None` in development; `0`/`forever` gives `None`), `prune_replays` runs every `REPLAY_PRUNE_INTERVAL_S` and deletes `finished`/`interrupted` artifacts whose `meta.json` is older than the limit; `in_progress` and unknown statuses are never deleted.
 
 `replay.verify.verify_replay` checks the rules identity first (`ReplayRulesMismatchError`), rebuilds the initial state from the scenario, map, seed and `seat_controllers`, replays the human commands per tick through the engine, and compares the final snapshot with the stored one.
 
@@ -90,7 +90,7 @@ Deployment settings (`config.Settings`; environment variables in [technical-spec
 | `finished_retention_s` | 300 |
 | `waiting_timeout_s` | 900 |
 | `abandoned_lobby_grace_s` | 30 |
-| `replay_retention_days` | unset (keep all) |
+| `replay_retention_days` | 5 in production, `None` (keep all) in development |
 | reconnect grace (`DEFAULT_GRACE_SECONDS`) | 60 s |
 | `TICK_RATE_HZ` | 20 |
 | `SWEEP_INTERVAL_S` | 15 s |

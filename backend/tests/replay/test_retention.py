@@ -70,8 +70,33 @@ def test_startup_marks_orphans_interrupted(tmp_path: Path) -> None:
     assert json.loads((tmp_path / "orphan" / "meta.json").read_text())["status"] == "interrupted"
 
 
-def test_retention_setting_is_optional() -> None:
+_PROD = {
+    "NETHER_EARTH_ENV": "production",
+    "NETHER_EARTH_PUBLIC_BASE_URL": "https://play.example.com",
+    "NETHER_EARTH_REPLAY_DIR": "/var/lib/nether-earth/replays",
+}
+_VAR = "NETHER_EARTH_REPLAY_RETENTION_DAYS"
+
+
+def test_retention_default_is_five_days_in_production_and_off_in_development() -> None:
+    assert load_settings(_PROD).replay_retention_days == 5
     assert load_settings({}).replay_retention_days is None
+    assert load_settings({**_PROD, _VAR: ""}).replay_retention_days == 5
+
+
+@pytest.mark.parametrize("value", ["0", "forever", "FOREVER", "Forever"])
+def test_retention_zero_or_forever_disables_pruning(value: str) -> None:
+    assert load_settings({**_PROD, _VAR: value}).replay_retention_days is None
+    assert load_settings({_VAR: value}).replay_retention_days is None
+
+
+@pytest.mark.parametrize("value", ["abc", "1.5", "5d"])
+def test_retention_invalid_value_is_rejected(value: str) -> None:
+    with pytest.raises(ConfigError, match=_VAR):
+        load_settings({**_PROD, _VAR: value})
+
+
+def test_retention_setting_is_optional() -> None:
     assert load_settings({"NETHER_EARTH_REPLAY_RETENTION_DAYS": "30"}).replay_retention_days == 30
     with pytest.raises(ConfigError, match="NETHER_EARTH_REPLAY_RETENTION_DAYS"):
         load_settings({"NETHER_EARTH_REPLAY_RETENTION_DAYS": "-1"})

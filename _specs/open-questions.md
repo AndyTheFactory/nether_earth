@@ -64,11 +64,6 @@ Places where the specification and the implementation disagree, or where an oper
 - **Code:** the schema message names and the `NETHER_EARTH_*` settings; the technical spec now lists those.
 - **Needed:** confirm the implemented names as the contract.
 
-### 3.9 Replay retention default in production
-
-- **Spec/code:** `NETHER_EARTH_REPLAY_RETENTION_DAYS` unset keeps every finished/interrupted replay forever.
-- **Needed:** whether production should prune by default, and after how many days (operational, not gameplay).
-
 ## Resolution process
 
 Use this fidelity order:
