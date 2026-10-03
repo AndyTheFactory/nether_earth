@@ -240,3 +240,6 @@ Replay files need no migration; each `meta.json` records its `schema_version`/`r
   addresses. Lower `NETHER_EARTH_ABANDONED_LOBBY_GRACE_SECONDS` or the gateway `limit_conn` if abused.
 - **`bind_timeout` errors in a client:** a socket must send `create`/`join`/`reconnect` within 30 s
   of connecting; the backend closes it otherwise (code 1008).
+- **Backend behind a second proxy that needs client IPs:** the backend ignores `X-Forwarded-*`
+  (it never uses client addresses). Rate limits key on the gateway's `$binary_remote_addr`; put
+  `real_ip` handling in the gateway, not the backend.

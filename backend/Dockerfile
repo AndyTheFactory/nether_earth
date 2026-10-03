@@ -37,8 +37,11 @@ WORKDIR /var/lib/nether-earth
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
   CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status == 200 else 1)"]
-# --ws-max-size bounds inbound WebSocket frames at the server. Access logs
-# come from the Nginx gateway instead.
+# --ws-max-size bounds inbound WebSocket frames at the server. Forwarded
+# headers are trusted only from 127.0.0.1 (uvicorn's default): the app never
+# uses the client address, and trusting any peer would become a spoofing
+# vector if the backend port were ever published. Access logs come from the
+# Nginx gateway instead.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--proxy-headers", "--forwarded-allow-ips", "*", "--no-server-header", \
+     "--proxy-headers", "--no-server-header", \
      "--no-access-log", "--ws-max-size", "16384", "--timeout-graceful-shutdown", "10"]
