@@ -1341,3 +1341,15 @@ def test_opponents_token_cannot_issue_commands_from_another_players_socket(
             for _ in range(1000):
                 ws_b.receive_json()
         assert exc_info.value.code == 1008
+
+
+def test_join_with_creator_nickname_returns_invalid_nickname_and_keeps_socket_open(
+    client: TestClient,
+) -> None:
+    with client.websocket_connect("/ws") as host, client.websocket_connect("/ws") as guest:
+        created = _create(host, "alice")
+        rejected = _join(guest, created["joinCode"], "Alice")
+        assert rejected["type"] == "error"
+        assert rejected["error"]["code"] == "invalid_nickname"
+        joined = _join(guest, created["joinCode"], "bob")
+        assert joined["type"] == "joined"

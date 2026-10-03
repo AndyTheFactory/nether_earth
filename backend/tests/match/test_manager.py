@@ -97,6 +97,17 @@ def test_join_rejects_blank_nickname(manager: MatchManager) -> None:
         manager.join_match(created.join_code, "")
 
 
+def test_join_rejects_nickname_equal_to_creator(manager: MatchManager) -> None:
+    created = manager.create_match("alice")
+    for clash in ("alice", "Alice", "ａｌｉｃｅ"):
+        with pytest.raises(InvalidNicknameError):
+            manager.join_match(created.join_code, clash)
+    assert not manager.get_match(created.match_id).is_full
+
+    joined = manager.join_match(created.join_code, "alice2")
+    assert joined.player_id == PLAYER_TWO
+
+
 # -- readiness / start -----------------------------------------------------------
 
 
