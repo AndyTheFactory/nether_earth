@@ -1,6 +1,11 @@
 # Nether Earth
 
-Browser-based multiplayer clone of the ZX Spectrum version of **Nether Earth**.
+Original ZX Spectrum Screenshot:
+![Nether Earth ZX Spectrum](docs/assets/nether_original.png)
+
+Browser-based multiplayer clone of the ZX Spectrum version of **Nether Earth**:
+
+![Screenshot from the Remake](docs/assets/nether_remake.png)
 
 The repository is specification-driven. Read `AGENTS.md` and `_specs/` before implementation work.
 
