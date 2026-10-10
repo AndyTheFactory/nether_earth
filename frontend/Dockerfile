@@ -18,7 +18,7 @@ ENV VITE_GIT_COMMIT=$GIT_COMMIT
 RUN npm run build
 
 # Digest-pinned (NE-09); Dependabot (docker ecosystem) proposes updates.
-FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:26b0bf6fbf07297983cb341998d79c831508787de26627dd2a112321b9c3a4af AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b9241c6e7b8e9a862f129d8d4199ab64b10390949a78bdd5603379b32c844083 AS runtime
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /src/frontend/dist /usr/share/nginx/html
 EXPOSE 8080
